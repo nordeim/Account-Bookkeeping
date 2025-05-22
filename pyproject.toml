@@ -1,0 +1,7 @@
+# File: pyproject.toml
+# (Only the [tool.poetry.scripts] section shown for brevity, rest is same as previous)
+# ... (other parts of pyproject.toml) ...
+[tool.poetry.scripts]
+sg_bookkeeper = "app.main:main"
+sg_bookkeeper_db_init = "scripts.db_init:main" # Corrected path
+# ... (other parts of pyproject.toml) ...

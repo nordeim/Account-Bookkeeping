@@ -38,3 +38,7 @@ Again, that is another excellent piece of work! Now, please create a complete Po
 
 ---
 That is an absolutely awesome job! Please create an equally awesome `README.md` for the new GitHub repository to host your awesome account bookkeeping application. Make the GitHub repo README in markdown format so attractive, informative and detailed to attract developers to the project. Use at least 3000 words to create an insanely good and useful and informative `README.md`. Again, give me your very best shot and again good luck!
+
+---
+Now, help me to carefully modify the python script below if the code files enclosed in the specificed input file are in the following example format where the file to be extracted should be created with filename `app/models/accounting/account.py`:
+
