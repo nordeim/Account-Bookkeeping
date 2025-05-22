@@ -1,6 +1,6 @@
 # Product Requirements Document (PRD)
 ## Project Name
-“O4 LumiLedger” – A modern, intuitive, and fully compliant bookkeeping application for small businesses in Singapore.
+“O3 LumiLedger” – A modern, intuitive, and fully compliant bookkeeping application for small businesses in Singapore.
 
 ---
 
