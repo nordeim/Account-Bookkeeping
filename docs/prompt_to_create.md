@@ -31,3 +31,6 @@ Aiming for:
 
 ---
 That is an awesome refinement! Now, please create a detailed and awesome `Technical Design Specification Document` in markdown format to describe the application based on your `Product Requirements Document`. Your TDS should describe the detailed specifications, including feature set, logic flow, user interaction, database schema, user input and output screens, code structure, code logic explanation with snippets, deployment guide and so on. Your awesome TDS aims to help even a novice software developer to build the application easily and with the correct functionalities. Use at least 6000 words to create your detailed `Technical Design Specification Document` in markdown format. Again, give me your very best shot and good luck!
+
+---
+That is an absolutely awesome job! Please create an equally awesome `README.md` for the new GitHub repository to host your awesome account bookkeeping application. Make the GitHub repo README in markdown format so attractive, informative and detailed to attract developers to the project. Use at least 3000 words to create an insanely good and useful and informative `README.md`. Again, give me your very best shot and again good luck!
