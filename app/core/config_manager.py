@@ -1,13 +1,13 @@
 # File: app/core/config_manager.py
-# (Content as previously updated, using platform-specific config dirs)
+# (Content as previously generated and verified)
 import os
-import sys # For sys.platform
+import sys 
 import configparser
 from types import SimpleNamespace
 from pathlib import Path
 
 class ConfigManager:
-    def __init__(self, config_file_name: str = "config.ini", app_name: str = "SGBookkeeper"): # Added app_name
+    def __init__(self, config_file_name: str = "config.ini", app_name: str = "SGBookkeeper"):
         if os.name == 'nt': 
             self.config_dir = Path(os.getenv('APPDATA', Path.home() / 'AppData' / 'Roaming')) / app_name
         elif sys.platform == 'darwin': 
@@ -45,7 +45,6 @@ class ConfigManager:
         }
         with open(self.config_file_path, 'w') as f:
             self.parser.write(f)
-        print(f"Default configuration created at {self.config_file_path}")
 
     def get_database_config(self):
         db_config = self.parser['Database']
@@ -70,7 +69,11 @@ class ConfigManager:
         )
 
     def get_setting(self, section: str, key: str, fallback=None):
-        return self.parser.get(section, key, fallback=fallback)
+        try:
+            return self.parser.get(section, key)
+        except (configparser.NoSectionError, configparser.NoOptionError):
+            return fallback
+
 
     def set_setting(self, section: str, key: str, value: str):
         if not self.parser.has_section(section):

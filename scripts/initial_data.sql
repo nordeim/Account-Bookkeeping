@@ -1,6 +1,5 @@
 # File: scripts/initial_data.sql
-# This file's content is IDENTICAL to the "-- INITIAL DATA --" section of "create_database_schema (reference).md"
-# (Content is too long to repeat here, but assume it's a direct copy from my previous response where it was fully listed)
+# (Content as provided in the previous response, taken from the reference schema's initial data section)
 """
 -- ============================================================================
 -- INITIAL DATA (from reference schema)
@@ -143,11 +142,10 @@ ON CONFLICT (name) DO NOTHING;
 
 -- ----------------------------------------------------------------------------
 -- Insert default tax codes
--- Ensure user ID 1 exists and accounts for affects_account_id are present.
 -- ----------------------------------------------------------------------------
 
 INSERT INTO core.users (id, username, password_hash, email, full_name, is_active)
-VALUES (1, 'system_init_user', '!', 'system_init@sgbookkeeper.com', 'System Initializer', FALSE) -- Placeholder, not for login
+VALUES (1, 'system_init_user', '!', 'system_init@sgbookkeeper.com', 'System Initializer', FALSE) 
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO accounting.accounts (code, name, account_type, created_by, updated_by, is_active) VALUES

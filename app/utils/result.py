@@ -1,5 +1,5 @@
 # File: app/utils/result.py
-# (Content previously generated, no changes needed)
+# (Content as previously generated, verified)
 from typing import TypeVar, Generic, List, Any, Optional
 
 T = TypeVar('T')

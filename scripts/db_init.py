@@ -1,5 +1,5 @@
 # File: scripts/db_init.py
-# This version correctly uses schema.sql and initial_data.sql from the scripts/ directory.
+# (This is the latest version, consistent with previous outputs)
 import asyncio
 import asyncpg # type: ignore
 import argparse

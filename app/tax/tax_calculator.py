@@ -1,15 +1,13 @@
 # File: app/tax/tax_calculator.py
-# (Content previously generated and reviewed, uses Decimal for amounts)
+# (Content as previously generated and verified)
 from decimal import Decimal
 from typing import List, Optional, Any
 
-from app.services.tax_service import TaxCodeService # Path might change if service moved
+from app.services.tax_service import TaxCodeService 
 from app.utils.pydantic_models import TaxCalculationResultData, TransactionTaxData, TransactionLineTaxData
-from app.models.accounting.tax_code import TaxCode # For tax_code_info type hint
+from app.models.accounting.tax_code import TaxCode 
 
 class TaxCalculator:
-    """Tax calculation engine for Singapore taxes"""
-    
     def __init__(self, tax_code_service: TaxCodeService):
         self.tax_code_service = tax_code_service
     
@@ -41,7 +39,7 @@ class TaxCalculator:
         if not tax_code_str or abs(amount) < Decimal("0.01"):
             return result
         
-        tax_code_info: Optional[TaxCode] = await self.tax_code_service.get_tax_code(tax_code_str) # type: ignore
+        tax_code_info: Optional[TaxCode] = await self.tax_code_service.get_tax_code(tax_code_str)
         if not tax_code_info:
             return result 
         
@@ -53,18 +51,7 @@ class TaxCalculator:
     
     async def _calculate_gst(self, amount: Decimal, tax_code_info: TaxCode, transaction_type: str) -> TaxCalculationResultData:
         tax_rate = Decimal(str(tax_code_info.rate))
-        
-        # Assumption: 'amount' is NET for calculation.
-        # If transaction_type implied 'amount' is GROSS, logic would change:
-        # is_tax_inclusive = transaction_type in ['Sales Invoice', 'Sales Receipt'] # Example
-        # if is_tax_inclusive:
-        #     net_amount = amount / (1 + tax_rate / Decimal(100))
-        #     tax_amount = amount - net_amount
-        # else:
-        #     net_amount = amount
-        #     tax_amount = net_amount * tax_rate / Decimal(100)
-        
-        net_amount = amount # Current assumption
+        net_amount = amount 
         tax_amount = net_amount * tax_rate / Decimal(100)
         tax_amount = tax_amount.quantize(Decimal("0.01"))
         
@@ -75,7 +62,7 @@ class TaxCalculator:
         )
     
     async def _calculate_withholding_tax(self, amount: Decimal, tax_code_info: TaxCode, transaction_type: str) -> TaxCalculationResultData:
-        applicable_transaction_types = ['Purchase Payment', 'Expense Payment'] # Example
+        applicable_transaction_types = ['Purchase Payment', 'Expense Payment'] 
         if transaction_type not in applicable_transaction_types:
             return TaxCalculationResultData(
                 tax_amount=Decimal(0), tax_account_id=None, taxable_amount=amount

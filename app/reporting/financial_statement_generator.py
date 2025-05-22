@@ -1,5 +1,5 @@
 # File: app/reporting/financial_statement_generator.py
-# (Updated based on previous refactoring for new models, ensure ApplicationCore type hint)
+# (Content as previously generated and verified)
 from typing import List, Dict, Any, Optional
 from datetime import date
 from decimal import Decimal
@@ -8,32 +8,50 @@ from app.services.account_service import AccountService
 from app.services.journal_service import JournalService
 from app.services.fiscal_period_service import FiscalPeriodService
 from app.services.tax_service import TaxCodeService
-from app.services.core_services import CompanySettingsService
+from app.services.core_services import CompanySettingsService 
+from app.services.accounting_services import AccountTypeService
 from app.models.accounting.account import Account 
-from app.models.accounting.fiscal_year import FiscalYear # Import for type hint
+from app.models.accounting.fiscal_year import FiscalYear
+from app.models.accounting.account_type import AccountType 
+
 
 class FinancialStatementGenerator:
     def __init__(self, 
                  account_service: AccountService, 
                  journal_service: JournalService, 
                  fiscal_period_service: FiscalPeriodService,
-                 tax_code_service: Optional[TaxCodeService] = None, # Made optional for non-GST reports
-                 company_settings_service: Optional[CompanySettingsService] = None # Made optional
+                 account_type_service: AccountTypeService, 
+                 tax_code_service: Optional[TaxCodeService] = None, 
+                 company_settings_service: Optional[CompanySettingsService] = None
                  ):
         self.account_service = account_service
         self.journal_service = journal_service
         self.fiscal_period_service = fiscal_period_service
+        self.account_type_service = account_type_service
         self.tax_code_service = tax_code_service
         self.company_settings_service = company_settings_service
+        self._account_type_map_cache: Optional[Dict[str, AccountType]] = None
+
+
+    async def _get_account_type_map(self) -> Dict[str, AccountType]:
+        if self._account_type_map_cache is None:
+             ats = await self.account_type_service.get_all()
+             # Assuming AccountType.category is the primary key like 'Asset', 'Liability'
+             # And Account.account_type stores this category string.
+             self._account_type_map_cache = {at.category: at for at in ats} 
+        return self._account_type_map_cache
 
     async def _calculate_account_balances_for_report(self, accounts: List[Account], as_of_date: date) -> List[Dict[str, Any]]:
         result_list = []
+        acc_type_map = await self._get_account_type_map()
         for account in accounts:
             balance_value = await self.journal_service.get_account_balance(account.id, as_of_date)
-            display_balance = balance_value # Raw mathematical balance (Debit positive)
+            display_balance = balance_value 
             
-            # Sign convention for display (Assets/Expenses positive if debit, L/E/R positive if credit)
-            if account.account_type in ['Liability', 'Equity', 'Revenue']:
+            acc_detail = acc_type_map.get(account.account_type)
+            is_debit_nature = acc_detail.is_debit_balance if acc_detail else (account.account_type in ['Asset', 'Expense'])
+
+            if not is_debit_nature: 
                 display_balance = -balance_value 
 
             result_list.append({
@@ -47,10 +65,8 @@ class FinancialStatementGenerator:
         for account in accounts:
             activity_value = await self.journal_service.get_account_balance_for_period(account.id, start_date, end_date)
             display_activity = activity_value
-            if account.account_type in ['Revenue']: # For P&L, Revenue (credit activity) shown positive
+            if account.account_type in ['Revenue']: 
                 display_activity = -activity_value
-            # Expenses (debit activity) already positive
-
             result_list.append({
                 'id': account.id, 'code': account.code, 'name': account.name,
                 'balance': display_activity 
@@ -106,7 +122,7 @@ class FinancialStatementGenerator:
         accounts = await self.account_service.get_all_active()
         
         revenues_orm = [a for a in accounts if a.account_type == 'Revenue']
-        expenses_orm = [a for a in accounts if a.account_type == 'Expense'] # Includes COGS if COGS is type 'Expense'
+        expenses_orm = [a for a in accounts if a.account_type == 'Expense'] 
         
         revenue_accounts = await self._calculate_account_period_activity_for_report(revenues_orm, start_date, end_date)
         expense_accounts = await self._calculate_account_period_activity_for_report(expenses_orm, start_date, end_date)
@@ -135,40 +151,35 @@ class FinancialStatementGenerator:
         }
 
     async def generate_trial_balance(self, as_of_date: date) -> Dict[str, Any]:
-        # Using the accounting.trial_balance view from reference schema is ideal for performance.
-        # If implementing in Python:
         accounts = await self.account_service.get_all_active()
-        debit_accounts_list, credit_accounts_list = [], [] # Renamed to avoid conflict
-        total_debits_val, total_credits_val = Decimal(0), Decimal(0) # Renamed
+        debit_accounts_list, credit_accounts_list = [], [] 
+        total_debits_val, total_credits_val = Decimal(0), Decimal(0) 
 
-        account_types_map = {at.category: at for at in await self.app_core.account_type_service.get_all()} # type: ignore # Assuming AccountTypeService
+        acc_type_map = await self._get_account_type_map()
 
         for account in accounts:
-            # get_account_balance returns mathematical balance (Debit-Credit+OB)
             raw_balance = await self.journal_service.get_account_balance(account.id, as_of_date)
             if abs(raw_balance) < Decimal("0.01"): continue
 
             account_data = {'id': account.id, 'code': account.code, 'name': account.name, 'balance': abs(raw_balance)}
             
-            # Determine if account is naturally debit or credit balance
-            # Using account_type (which should map to AccountType.category)
-            acc_type_details = account_types_map.get(account.account_type)
-            is_debit_nature = acc_type_details.is_debit_balance if acc_type_details else (account.account_type in ['Asset', 'Expense'])
+            acc_detail = acc_type_map.get(account.account_type)
+            is_debit_nature = acc_detail.is_debit_balance if acc_detail else (account.account_type in ['Asset', 'Expense'])
 
-            if is_debit_nature: # Asset, Expense
-                if raw_balance >= Decimal(0): # Normal debit balance
+            if is_debit_nature: 
+                if raw_balance >= Decimal(0): 
                     debit_accounts_list.append(account_data)
                     total_debits_val += raw_balance
-                else: # Abnormal credit balance for a debit-nature account
-                    account_data['balance'] = abs(raw_balance) # Show positive on credit side
+                else: 
+                    account_data['balance'] = abs(raw_balance) 
                     credit_accounts_list.append(account_data)
                     total_credits_val += abs(raw_balance)
-            else: # Liability, Equity, Revenue
-                if raw_balance <= Decimal(0): # Normal credit balance (mathematically negative or zero)
+            else: 
+                if raw_balance <= Decimal(0): 
                     credit_accounts_list.append(account_data)
                     total_credits_val += abs(raw_balance)
-                else: # Abnormal debit balance for a credit-nature account
-                    account_data['balance'] = raw_balance # Show positive on debit side
+                else: 
+                    account_data['balance'] = raw_balance 
                     debit_accounts_list.append(account_data)
                     total_debits_val += raw_balance
         
@@ -183,7 +194,7 @@ class FinancialStatementGenerator:
             'is_balanced': abs(total_debits_val - total_credits_val) < Decimal("0.01")
         }
 
-    async def generate_income_tax_computation(self, year_int_value: int) -> Dict[str, Any]: # Renamed year to avoid conflict
+    async def generate_income_tax_computation(self, year_int_value: int) -> Dict[str, Any]: 
         fiscal_year_obj: Optional[FiscalYear] = await self.fiscal_period_service.get_fiscal_year(year_int_value)
         if not fiscal_year_obj:
             raise ValueError(f"Fiscal year definition for {year_int_value} not found.")
@@ -195,33 +206,24 @@ class FinancialStatementGenerator:
         adjustments = []
         tax_effect = Decimal(0)
         
-        # tax_adj_accounts = await self.account_service.get_accounts_by_tax_treatment('Tax Adjustment')
-        # Assuming 'Tax Adjustment' is a specific value in Account.tax_treatment
-        # or a specific account sub_type.
-        # Using a placeholder for now.
-        all_accounts = await self.account_service.get_all_active()
-        tax_adj_accounts = [acc for acc in all_accounts if acc.tax_treatment == 'Tax Adjustment']
-
+        tax_adj_accounts = await self.account_service.get_accounts_by_tax_treatment('Tax Adjustment')
 
         for account in tax_adj_accounts:
-            # This is period activity for adjustment accounts
             activity = await self.journal_service.get_account_balance_for_period(account.id, start_date, end_date)
             if abs(activity) < Decimal("0.01"): continue
             
+            adj_is_addition = activity > Decimal(0) if account.account_type == 'Expense' else activity < Decimal(0)
+            
             adjustments.append({
                 'id': account.id, 'code': account.code, 'name': account.name, 
-                'amount': activity, 
-                # is_addition depends on if it increases or decreases profit for tax
-                # Expense accounts (debit nature): positive activity adds back to profit.
-                # Revenue accounts (credit nature): negative activity (credit) that's non-taxable subtracts from profit.
-                'is_addition': activity > Decimal(0) if account.account_type == 'Expense' else activity < Decimal(0) # Simplified logic
+                'amount': activity, 'is_addition': adj_is_addition
             })
-            tax_effect += activity # This assumes positive effect increases taxable income
+            tax_effect += activity 
             
         taxable_income = net_profit + tax_effect
         
         return {
-            'title': f'Income Tax Computation for Year of Assessment {year_int_value + 1}', # YA is usually year after income year
+            'title': f'Income Tax Computation for Year of Assessment {year_int_value + 1}', 
             'report_date_description': f"For Financial Year Ended {fiscal_year_obj.end_date.strftime('%d %b %Y')}",
             'year': year_int_value, 'fiscal_year_start': start_date, 'fiscal_year_end': end_date,
             'net_profit': net_profit, 'adjustments': adjustments, 
@@ -250,15 +252,13 @@ class FinancialStatementGenerator:
         entries = await self.journal_service.get_posted_entries_by_date_range(start_date, end_date)
         
         for entry in entries:
-            for line in entry.lines:
-                if not line.tax_code or not line.account: continue # line.account should be loaded
+            for line in entry.lines: 
+                if not line.tax_code or not line.account: continue
                 
                 tax_code_info = await self.tax_code_service.get_tax_code(line.tax_code)
                 if not tax_code_info or tax_code_info.tax_type != 'GST': continue
                 
-                # Amount is net amount for supplies/purchases.
-                # Tax amount is directly from JE line.
-                line_net_amount = (line.debit_amount or line.credit_amount) # Should be one or other
+                line_net_amount = (line.debit_amount or line.credit_amount) 
                 tax_on_line = line.tax_amount
 
                 if line.account.account_type == 'Revenue':
@@ -270,32 +270,15 @@ class FinancialStatementGenerator:
                     elif tax_code_info.code == 'ES':
                         report_data['exempt_supplies'] += line_net_amount
                 elif line.account.account_type in ['Expense', 'Asset']:
-                    # Box 5 includes GST-exclusive value of standard-rated purchases + import value + MES purchases.
-                    # Assuming 'TX' covers standard-rated local purchases.
                     if tax_code_info.code == 'TX': 
                         report_data['taxable_purchases'] += line_net_amount
                         report_data['input_tax'] += tax_on_line
-                    # Add logic for other input tax types (e.g., 'IM' for imports, 'ME' for MES if separate codes)
-                
-                # Box 8: Adjustments (e.g. Bad Debt Relief, input tax on MES goods removed)
-                # This would typically come from specific JE lines coded to GST adjustment accounts or specific tax codes.
-                # For now, assuming gst_return model's tax_adjustments field would be populated from such JEs.
-                # The query here doesn't explicitly identify these adjustment lines.
-                # A more robust way is needed, e.g. special tax codes for adjustments.
-
+        
         report_data['total_supplies'] = (
             report_data['standard_rated_supplies'] + 
             report_data['zero_rated_supplies'] + 
             report_data['exempt_supplies']
         )
-        
-        # Fetch pre-saved GST return if it exists, to get tax_adjustments (Box 8)
-        # This method is for generating data for a report, not submitting a return.
-        # If there's a saved GSTReturn for this period, its tax_adjustments can be used.
-        # This part is a bit circular if this method is used *to prepare* the GSTReturn.
-        # For now, let's assume tax_adjustments is 0 unless specific logic added.
-        # report_data['tax_adjustments'] = ... 
-
         report_data['tax_payable'] = report_data['output_tax'] - report_data['input_tax'] + report_data['tax_adjustments']
         
         return report_data

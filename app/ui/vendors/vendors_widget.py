@@ -8,5 +8,5 @@ class VendorsWidget(QWidget):
         super().__init__(parent)
         self.app_core = app_core
         self.layout = QVBoxLayout(self)
-        self.label = QLabel("Vendors Management Widget (To be implemented)")
+        self.label = QLabel("Vendors Management Widget (List, Add, Edit Vendors - To be implemented)")
         self.setLayout(self.layout)

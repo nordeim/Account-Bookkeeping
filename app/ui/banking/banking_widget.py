@@ -8,6 +8,5 @@ class BankingWidget(QWidget):
         super().__init__(parent)
         self.app_core = app_core
         self.layout = QVBoxLayout(self)
-        self.label = QLabel("Banking Operations Widget (To be implemented)")
-        # Example: List bank accounts, bank reconciliation features
+        self.label = QLabel("Banking Operations Widget (Bank Accounts, Reconciliation - To be implemented)")
         self.setLayout(self.layout)

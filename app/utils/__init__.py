@@ -1,5 +1,5 @@
 # File: app/utils/__init__.py
-# Stub __init__.py for the utils package
+# (Content as previously generated, verified)
 from .converters import to_decimal
 from .formatting import format_currency, format_date, format_datetime
 from .pydantic_models import (

@@ -1,7 +1,63 @@
 # File: pyproject.toml
-# (Only the [tool.poetry.scripts] section shown for brevity, rest is same as previous)
-# ... (other parts of pyproject.toml) ...
+[tool.poetry]
+name = "sg-bookkeeper"
+version = "1.0.0"
+description = "Singapore small business bookkeeping application"
+authors = ["Your Name <your.email@example.com>"]
+license = "MIT"
+readme = "README.md"
+homepage = "https://github.com/yourusername/sg_bookkeeper"
+repository = "https://github.com/yourusername/sg_bookkeeper"
+keywords = ["accounting", "bookkeeping", "singapore", "gst", "tax"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Office/Business :: Financial :: Accounting",
+]
+packages = [{include = "app", from = "."}]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+PySide6 = ">=6.2.3"
+SQLAlchemy = {extras = ["asyncio"], version = ">=2.0.0"} # Updated to 2.0 for Mapped ORM
+asyncpg = ">=0.25.0"
+alembic = ">=1.7.5"
+pydantic = "^1.10.0" # Pydantic v1, as v2 has breaking changes if not careful with from_attributes
+reportlab = ">=3.6.6"
+openpyxl = ">=3.0.9"
+python-dateutil = ">=2.8.2"
+bcrypt = ">=3.2.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.0"
+pytest-cov = "^4.0"
+flake8 = "^6.0"
+black = "^23.0" # Matched to typical Black versions
+mypy = "^1.0"
+pre-commit = "^3.0"
+pytest-qt = "^4.0"
+pytest-asyncio = "^0.21.0"
+
 [tool.poetry.scripts]
 sg_bookkeeper = "app.main:main"
-sg_bookkeeper_db_init = "scripts.db_init:main" # Corrected path
-# ... (other parts of pyproject.toml) ...
+sg_bookkeeper_db_init = "scripts.db_init:main"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 88
+target-version = ['py39', 'py310', 'py311'] # Specify all supported Python versions
+
+[tool.pytest.ini_options]
+python_files = "test_*.py tests.py" # Added tests.py as per pytest default
+python_classes = "Test*"
+python_functions = "test_*"
+asyncio_mode = "auto"

@@ -1,15 +1,15 @@
 # File: app/common/enums.py
-# (Content previously generated, verified to be up-to-date with reference schema CHECK constraints)
+# (Content as previously generated and verified)
 from enum import Enum
 
-class AccountCategory(Enum): # Matches accounting.account_types.category
+class AccountCategory(Enum): 
     ASSET = "Asset"
     LIABILITY = "Liability"
     EQUITY = "Equity"
     REVENUE = "Revenue"
     EXPENSE = "Expense"
 
-class AccountTypeEnum(Enum): # Matches accounting.accounts.account_type (which is a category)
+class AccountTypeEnum(Enum): 
     ASSET = "Asset"
     LIABILITY = "Liability"
     EQUITY = "Equity"
@@ -17,42 +17,42 @@ class AccountTypeEnum(Enum): # Matches accounting.accounts.account_type (which i
     EXPENSE = "Expense"
 
 
-class JournalTypeEnum(Enum): # Matches accounting.journal_entries.journal_type (examples)
-    GENERAL = "General" # Simpler values than "General Journal"
+class JournalTypeEnum(Enum): 
+    GENERAL = "General" 
     SALES = "Sales"
     PURCHASE = "Purchase"
-    CASH_RECEIPT = "Cash Receipt" # Renamed for consistency
-    CASH_DISBURSEMENT = "Cash Disbursement" # Renamed
+    CASH_RECEIPT = "Cash Receipt" 
+    CASH_DISBURSEMENT = "Cash Disbursement" 
     PAYROLL = "Payroll"
     OPENING_BALANCE = "Opening Balance"
     ADJUSTMENT = "Adjustment"
 
-class FiscalPeriodTypeEnum(Enum): # Matches accounting.fiscal_periods.period_type
+class FiscalPeriodTypeEnum(Enum): 
     MONTH = "Month"
     QUARTER = "Quarter"
-    YEAR = "Year" # This period_type for FiscalPeriod usually represents the whole FY
+    YEAR = "Year" 
 
-class FiscalPeriodStatusEnum(Enum): # Matches accounting.fiscal_periods.status
+class FiscalPeriodStatusEnum(Enum): 
     OPEN = "Open"
     CLOSED = "Closed"
     ARCHIVED = "Archived"
 
-class TaxTypeEnum(Enum): # Matches accounting.tax_codes.tax_type
+class TaxTypeEnum(Enum): 
     GST = "GST"
     INCOME_TAX = "Income Tax"
     WITHHOLDING_TAX = "Withholding Tax"
 
-class ProductTypeEnum(Enum): # Matches business.products.product_type
+class ProductTypeEnum(Enum): 
     INVENTORY = "Inventory"
     SERVICE = "Service"
     NON_INVENTORY = "Non-Inventory"
 
-class GSTReturnStatusEnum(Enum): # Matches accounting.gst_returns.status
+class GSTReturnStatusEnum(Enum): 
     DRAFT = "Draft"
     SUBMITTED = "Submitted"
     AMENDED = "Amended"
 
-class InventoryMovementTypeEnum(Enum): # Matches business.inventory_movements.movement_type
+class InventoryMovementTypeEnum(Enum): 
     PURCHASE = "Purchase"
     SALE = "Sale"
     ADJUSTMENT = "Adjustment"
@@ -60,17 +60,17 @@ class InventoryMovementTypeEnum(Enum): # Matches business.inventory_movements.mo
     RETURN = "Return"
     OPENING = "Opening"
 
-class InvoiceStatusEnum(Enum): # For Sales and Purchase Invoices
+class InvoiceStatusEnum(Enum): 
     DRAFT = "Draft"
     APPROVED = "Approved"
-    SENT = "Sent" # Sales specific
+    SENT = "Sent" 
     PARTIALLY_PAID = "Partially Paid"
     PAID = "Paid"
     OVERDUE = "Overdue"
     VOIDED = "Voided"
-    DISPUTED = "Disputed" # Purchase specific in ref schema
+    DISPUTED = "Disputed" 
 
-class BankTransactionTypeEnum(Enum): # Matches business.bank_transactions.transaction_type
+class BankTransactionTypeEnum(Enum): 
     DEPOSIT = "Deposit"
     WITHDRAWAL = "Withdrawal"
     TRANSFER = "Transfer"
@@ -78,14 +78,14 @@ class BankTransactionTypeEnum(Enum): # Matches business.bank_transactions.transa
     FEE = "Fee"
     ADJUSTMENT = "Adjustment"
 
-class PaymentTypeEnum(Enum): # Matches business.payments.payment_type
+class PaymentTypeEnum(Enum): 
     CUSTOMER_PAYMENT = "Customer Payment"
     VENDOR_PAYMENT = "Vendor Payment"
     REFUND = "Refund"
-    CREDIT_NOTE_APPLICATION = "Credit Note" # Clarified
+    CREDIT_NOTE_APPLICATION = "Credit Note" 
     OTHER = "Other"
 
-class PaymentMethodEnum(Enum): # Matches business.payments.payment_method
+class PaymentMethodEnum(Enum): 
     CASH = "Cash"
     CHECK = "Check"
     BANK_TRANSFER = "Bank Transfer"
@@ -94,36 +94,36 @@ class PaymentMethodEnum(Enum): # Matches business.payments.payment_method
     PAYNOW = "PayNow"
     OTHER = "Other"
 
-class PaymentEntityTypeEnum(Enum): # Matches business.payments.entity_type
+class PaymentEntityTypeEnum(Enum): 
     CUSTOMER = "Customer"
     VENDOR = "Vendor"
     OTHER = "Other"
 
-class PaymentStatusEnum(Enum): # Matches business.payments.status
+class PaymentStatusEnum(Enum): 
     DRAFT = "Draft"
     APPROVED = "Approved"
-    COMPLETED = "Completed" # Applied / Cleared
+    COMPLETED = "Completed" 
     VOIDED = "Voided"
-    RETURNED = "Returned" # E.g. bounced cheque
+    RETURNED = "Returned" 
 
-class PaymentAllocationDocTypeEnum(Enum): # Matches business.payment_allocations.document_type
+class PaymentAllocationDocTypeEnum(Enum): 
     SALES_INVOICE = "Sales Invoice"
     PURCHASE_INVOICE = "Purchase Invoice"
     CREDIT_NOTE = "Credit Note"
     DEBIT_NOTE = "Debit Note"
     OTHER = "Other"
 
-class WHCertificateStatusEnum(Enum): # Matches accounting.withholding_tax_certificates.status
+class WHCertificateStatusEnum(Enum): 
     DRAFT = "Draft"
     ISSUED = "Issued"
     VOIDED = "Voided"
 
-class DataChangeTypeEnum(Enum): # Matches audit.data_change_history.change_type
+class DataChangeTypeEnum(Enum): 
     INSERT = "Insert"
     UPDATE = "Update"
     DELETE = "Delete"
 
-class RecurringFrequencyEnum(Enum): # Matches accounting.recurring_patterns.frequency
+class RecurringFrequencyEnum(Enum): 
     DAILY = "Daily"
     WEEKLY = "Weekly"
     MONTHLY = "Monthly"

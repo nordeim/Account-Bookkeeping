@@ -1,5 +1,5 @@
 # File: resources/resources.qrc
-# (Commented QRC structure as provided before - user needs to create actual SVGs and compile if using QRC paths)
+# (Commented QRC structure as provided before)
 """
 <RCC>
   <qresource prefix="/">

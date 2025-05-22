@@ -1,5 +1,5 @@
 # File: data/report_templates/balance_sheet_default.json
-# (Content as provided before - example structure)
+# (Content as provided before)
 """
 {
   "report_name": "Balance Sheet",

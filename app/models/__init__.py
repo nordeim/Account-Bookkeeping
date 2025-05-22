@@ -1,5 +1,5 @@
 # File: app/models/__init__.py
-# Final version reflecting subdirectory structure.
+# (Content as previously generated and verified, reflecting subdirectory model structure)
 from .base import Base, TimestampMixin, UserAuditMixin
 
 # Core schema models
@@ -10,17 +10,17 @@ from .core.sequence import Sequence
 
 # Accounting schema models
 from .accounting.account_type import AccountType
-from .accounting.currency import Currency
-from .accounting.exchange_rate import ExchangeRate
-from .accounting.account import Account
+from .accounting.currency import Currency 
+from .accounting.exchange_rate import ExchangeRate 
+from .accounting.account import Account 
 from .accounting.fiscal_year import FiscalYear
-from .accounting.fiscal_period import FiscalPeriod
-from .accounting.journal_entry import JournalEntry, JournalEntryLine
+from .accounting.fiscal_period import FiscalPeriod 
+from .accounting.journal_entry import JournalEntry, JournalEntryLine 
 from .accounting.recurring_pattern import RecurringPattern
 from .accounting.dimension import Dimension 
-from .accounting.budget import Budget, BudgetDetail
-from .accounting.tax_code import TaxCode
-from .accounting.gst_return import GSTReturn
+from .accounting.budget import Budget, BudgetDetail 
+from .accounting.tax_code import TaxCode 
+from .accounting.gst_return import GSTReturn 
 from .accounting.withholding_tax_certificate import WithholdingTaxCertificate
 
 # Business schema models

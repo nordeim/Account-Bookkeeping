@@ -2,7 +2,7 @@
 # (Content as previously generated, verified)
 import asyncio
 from contextlib import asynccontextmanager
-from typing import Optional, AsyncGenerator # Added AsyncGenerator
+from typing import Optional, AsyncGenerator 
 
 import asyncpg # type: ignore
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
@@ -82,7 +82,7 @@ class DatabaseManager:
                 raise RuntimeError("Failed to acquire asyncpg pool.")
             
         async with self.pool.acquire() as connection:
-            yield connection # type: ignore # asyncpg.Connection
+            yield connection # type: ignore 
     
     async def execute_query(self, query, *args):
         async with self.connection() as conn:

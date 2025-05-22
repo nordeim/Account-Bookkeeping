@@ -1,5 +1,5 @@
 # File: app/ui/main_window.py
-# (Content as previously updated, verified for current ApplicationCore interactions)
+# (Content as previously generated and verified)
 from PySide6.QtWidgets import (
     QMainWindow, QTabWidget, QToolBar, QStatusBar, 
     QVBoxLayout, QWidget, QMessageBox, QLabel 
@@ -64,8 +64,12 @@ class MainWindow(QMainWindow):
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.toolbar) 
     
     def _add_module_tabs(self):
-        # Using direct paths; if QRC is compiled and imported in main.py, use ":/icons/..."
-        icon_path_prefix = "resources/icons/" 
+        icon_path_prefix = "" # Initialize
+        try:
+            import app.resources_rc # type: ignore
+            icon_path_prefix = ":/icons/" # Use QRC paths
+        except ImportError:
+            icon_path_prefix = "resources/icons/" # Fallback to direct paths
 
         self.dashboard_widget = DashboardWidget(self.app_core)
         self.tab_widget.addTab(self.dashboard_widget, QIcon(icon_path_prefix + "dashboard.svg"), "Dashboard")
@@ -105,7 +109,12 @@ class MainWindow(QMainWindow):
         self.status_bar.addPermanentWidget(self.version_label)
     
     def _create_actions(self):
-        icon_path_prefix = "resources/icons/"
+        icon_path_prefix = "" 
+        try:
+            import app.resources_rc # type: ignore
+            icon_path_prefix = ":/icons/"
+        except ImportError:
+            icon_path_prefix = "resources/icons/"
 
         self.new_company_action = QAction(QIcon(icon_path_prefix + "new_company.svg"), "New Company...", self)
         self.new_company_action.setShortcut(QKeySequence(QKeySequence.StandardKey.New))
@@ -183,10 +192,10 @@ class MainWindow(QMainWindow):
             f"About {QCoreApplication.applicationName()}",
             f"{QCoreApplication.applicationName()} {QCoreApplication.applicationVersion()}\n\n"
             "A comprehensive bookkeeping application for Singapore small businesses.\n\n"
-            f"© 2024 {QCoreApplication.organizationName()}" # Updated year
+            f"© 2024 {QCoreApplication.organizationName()}" 
         )
     
-    def closeEvent(self, event):
+    def closeEvent(self, event): # type: ignore # QCloseEvent type
         settings = QSettings()
         settings.setValue("MainWindow/geometry", self.saveGeometry())
         settings.setValue("MainWindow/state", self.saveState())
