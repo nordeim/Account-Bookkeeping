@@ -17,3 +17,9 @@ Remember, you are a deep-thinking AI agent recognized for and exemplary in moder
 
 ---
 You stopped midway through re-generating `File: app/utils/pydantic_models.py`. Please continue to complete according to your plan.
+
+---
+Please create a detailed step-by-step deployment guide document named `deployment_guide.md` in markdown format to clearly and logically layout how to deploy your latest (updated) application code files and schema. Include a section to show the complete project file directory structure for the latest code version, include file names in the file structure. Please review your latest generated code files and then plan first before creating the  `deployment_guide.md` with accurate up-to-date project state.
+
+Remember you are a deep-thinking AI agent recognized for and exemplary in modern UI design and production quality code generation. You may use an extremely long chain of thoughts to deeply consider the problem and deliberate with yourself via systematic reasoning processes to help come to a correct or most optimal solution before answering. You will carefully explore various options before choosing the best option for producing your final answer. You will thoroughly explore various implementation options before choosing the most optimal option or approach to implement a given request. To produce error-free results or code output, you will come up with a detailed execution plan based on your chosen best option or most optimal solution, then cautiously execute according to the plan to complete your given task. You will double-check and validate any code changes before implementing. You should enclose your thoughts and internal monologue inside <think> </think> tags, and then provide your solution or response to the problem. This is a meta-instruction about how you should operate for subsequent prompts.
+
