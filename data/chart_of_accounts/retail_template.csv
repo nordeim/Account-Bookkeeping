@@ -1,5 +1,5 @@
 # File: data/chart_of_accounts/retail_template.csv
-# (Content as previously generated with new Account fields)
+# (Content as provided before with new Account fields)
 """Code,Name,AccountType,SubType,TaxTreatment,GSTApplicable,ParentCode,ReportGroup,IsControlAccount,IsBankAccount,OpeningBalance,OpeningBalanceDate
 # This CSV would typically define accounts IN ADDITION to or MODIFYING a general template.
 # For simplicity here, it's a small set of additional accounts.

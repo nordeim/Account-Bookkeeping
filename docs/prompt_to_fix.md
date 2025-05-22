@@ -34,3 +34,6 @@ Below is the list of files that you just re-generated. Please use the same rigor
 
 # list of files you just generated - please validate them using line by line "diff" to ensure you just generated the complete updated replacement without accidentally loosing original features or functionalities.
 
+---
+awesome job again! now, please use the same rigorous and meticulous approach to review the error messages below and then think deeply and systematically to thoroughly explore the best implementation option to fix the issues. make sure you plan first before making any changes. always double-check and validate your changes using line by line diff to ensure that no original features or functions will be lost when you generate the complete updated version of the relevant files.
+

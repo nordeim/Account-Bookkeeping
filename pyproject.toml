@@ -16,6 +16,7 @@ classifiers = [
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12", # Explicitly supported
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Topic :: Office/Business :: Financial :: Accounting",
@@ -23,12 +24,12 @@ classifiers = [
 packages = [{include = "app", from = "."}]
 
 [tool.poetry.dependencies]
-python = "^3.9"
-PySide6 = ">=6.2.3"
-SQLAlchemy = {extras = ["asyncio"], version = ">=2.0.0"} # Updated to 2.0 for Mapped ORM
+python = ">=3.9,<3.13" # Supports 3.9, 3.10, 3.11, 3.12
+PySide6 = ">=6.5.0"   # Min version supporting Python 3.12 officially
+SQLAlchemy = {extras = ["asyncio"], version = ">=2.0.0"}
 asyncpg = ">=0.25.0"
 alembic = ">=1.7.5"
-pydantic = "^1.10.0" # Pydantic v1, as v2 has breaking changes if not careful with from_attributes
+pydantic = "^2.0"     # For Pydantic V2 features like from_attributes
 reportlab = ">=3.6.6"
 openpyxl = ">=3.0.9"
 python-dateutil = ">=2.8.2"
@@ -38,11 +39,11 @@ bcrypt = ">=3.2.0"
 pytest = "^7.0"
 pytest-cov = "^4.0"
 flake8 = "^6.0"
-black = "^23.0" # Matched to typical Black versions
-mypy = "^1.0"
+black = "^24.0" # Updated Black version
+mypy = "^1.0" # mypy version can be updated if needed
 pre-commit = "^3.0"
 pytest-qt = "^4.0"
-pytest-asyncio = "^0.21.0"
+pytest-asyncio = "^0.21.0" # Or newer
 
 [tool.poetry.scripts]
 sg_bookkeeper = "app.main:main"
@@ -54,10 +55,10 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.black]
 line-length = 88
-target-version = ['py39', 'py310', 'py311'] # Specify all supported Python versions
+target-version = ['py39', 'py310', 'py311', 'py312']
 
 [tool.pytest.ini_options]
-python_files = "test_*.py tests.py" # Added tests.py as per pytest default
+python_files = "test_*.py tests.py" 
 python_classes = "Test*"
 python_functions = "test_*"
 asyncio_mode = "auto"

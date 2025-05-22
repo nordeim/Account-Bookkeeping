@@ -1,5 +1,5 @@
 # File: scripts/db_init.py
-# (This is the latest version, consistent with previous outputs)
+# (Content as provided in the previous response, verified)
 import asyncio
 import asyncpg # type: ignore
 import argparse
