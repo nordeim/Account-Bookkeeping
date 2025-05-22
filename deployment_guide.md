@@ -217,7 +217,7 @@ Alternatively, download and extract a source code archive if provided.
 
 Navigate to the project root directory (`sg_bookkeeper`) and use Poetry to install dependencies:
 
-1.  **Ensure Poetry is installed**: If not, run `pip install poetry`.
+1.  **Ensure Poetry is installed**: If not, run `pip install poetry`. Optional: `poetry config virtualenvs.in-project true` for configuring Poetry for in-project virtual environments.
 2.  **Install project dependencies**:
     ```bash
     poetry install
