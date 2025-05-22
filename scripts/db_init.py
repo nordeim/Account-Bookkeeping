@@ -1,7 +1,5 @@
 # File: scripts/db_init.py
-# Content previously updated, verified to handle schema.sql and initial_data.sql.
-# No further changes needed for this file based on the current task.
-# (Content is the same as the one provided in the previous response "Okay, I will continue with the plan.")
+# This version correctly uses schema.sql and initial_data.sql from the scripts/ directory.
 import asyncio
 import asyncpg # type: ignore
 import argparse
@@ -58,7 +56,7 @@ async def create_database(args):
         
         if not SCHEMA_SQL_PATH.exists():
             print(f"Error: schema.sql not found at {SCHEMA_SQL_PATH}", file=sys.stderr)
-            await conn.close() # Close connection before returning
+            await conn.close() 
             return False
             
         print(f"Initializing database schema from {SCHEMA_SQL_PATH}...")

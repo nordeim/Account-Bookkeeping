@@ -1,0 +1,31 @@
+# File: resources/resources.qrc
+# (Commented QRC structure as provided before - user needs to create actual SVGs and compile if using QRC paths)
+"""
+<RCC>
+  <qresource prefix="/">
+    <file>icons/dashboard.svg</file>
+    <file>icons/accounting.svg</file>
+    <file>icons/customers.svg</file>
+    <file>icons/vendors.svg</file>
+    <file>icons/banking.svg</file>
+    <file>icons/reports.svg</file>
+    <file>icons/settings.svg</file>
+    <file>icons/new_company.svg</file>
+    <file>icons/open_company.svg</file>
+    <file>icons/backup.svg</file>
+    <file>icons/restore.svg</file>
+    <file>icons/exit.svg</file>
+    <file>icons/preferences.svg</file>
+    <file>icons/help.svg</file>
+    <file>icons/about.svg</file>
+    <file>icons/filter.svg</file>
+    <file>icons/expand_all.svg</file>
+    <file>icons/collapse_all.svg</file>
+    <file>icons/refresh.svg</file>
+    <file>icons/edit.svg</file>
+    <file>icons/transactions.svg</file>
+    <file>icons/deactivate.svg</file>
+    <file>images/splash.png</file>
+  </qresource>
+</RCC>
+"""

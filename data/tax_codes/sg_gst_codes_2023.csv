@@ -1,0 +1,10 @@
+# File: data/tax_codes/sg_gst_codes_2023.csv
+# (Content as provided before - example CSV for tax codes)
+"""Code,Description,TaxType,Rate,IsActive,AffectsAccountCode
+SR,Standard-Rated Supplies,GST,7.00,TRUE,SYS-GST-OUTPUT
+ZR,Zero-Rated Supplies,GST,0.00,TRUE,
+ES,Exempt Supplies,GST,0.00,TRUE,
+TX,Taxable Purchases (Standard-Rated),GST,7.00,TRUE,SYS-GST-INPUT
+BL,Blocked Input Tax (e.g. Club Subscriptions),GST,7.00,TRUE,
+OP,Out-of-Scope Supplies,GST,0.00,TRUE,
+"""

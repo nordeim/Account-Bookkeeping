@@ -1,0 +1,33 @@
+# File: data/report_templates/balance_sheet_default.json
+# (Content as provided before - example structure)
+"""
+{
+  "report_name": "Balance Sheet",
+  "sections": [
+    {
+      "title": "Assets",
+      "account_type": "Asset",
+      "sub_sections": [
+        {"title": "Current Assets", "account_sub_type_pattern": "Current Asset.*|Accounts Receivable|Cash.*"},
+        {"title": "Non-Current Assets", "account_sub_type_pattern": "Fixed Asset.*|Non-Current Asset.*"}
+      ]
+    },
+    {
+      "title": "Liabilities",
+      "account_type": "Liability",
+      "sub_sections": [
+        {"title": "Current Liabilities", "account_sub_type_pattern": "Current Liability.*|Accounts Payable|GST Payable"},
+        {"title": "Non-Current Liabilities", "account_sub_type_pattern": "Non-Current Liability.*|Loan.*"}
+      ]
+    },
+    {
+      "title": "Equity",
+      "account_type": "Equity"
+    }
+  ],
+  "options": {
+    "show_zero_balance": false,
+    "comparative_periods": 1
+  }
+}
+"""

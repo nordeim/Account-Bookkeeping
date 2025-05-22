@@ -1,0 +1,9 @@
+# File: data/chart_of_accounts/retail_template.csv
+# (Content as provided before - example delta for retail)
+"""Code,Name,AccountType,SubType,TaxTreatment,GSTApplicable,ParentCode,ReportGroup,IsControlAccount,IsBankAccount,OpeningBalance,OpeningBalanceDate
+# This CSV would typically define accounts IN ADDITION to or MODIFYING a general template.
+# For simplicity here, it's a small set of additional accounts.
+1130,Inventory On Hand,Asset,Current Asset,Non-Taxable,FALSE,1100,Inventory,TRUE,FALSE,2000.00,2023-01-01
+4110,Sales Discounts,Revenue,Sales Adjustments,Taxable,TRUE,4000,Revenue Adjustments,,,
+5110,Purchase Discounts,Expense,Cost of Sales Adjustments,Taxable,TRUE,5100,COGS Adjustments,,,
+"""

@@ -1,6 +1,6 @@
 # File: scripts/initial_data.sql
 # This file's content is IDENTICAL to the "-- INITIAL DATA --" section of "create_database_schema (reference).md"
-# (Content is too long to repeat here, but assume it's a direct copy)
+# (Content is too long to repeat here, but assume it's a direct copy from my previous response where it was fully listed)
 """
 -- ============================================================================
 -- INITIAL DATA (from reference schema)
@@ -111,15 +111,15 @@ ON CONFLICT (code) DO NOTHING;
 -- Insert default document sequences
 -- ----------------------------------------------------------------------------
 INSERT INTO core.sequences (sequence_name, prefix, next_value, format_template) VALUES
-('journal_entry', 'JE', 1, '{PREFIX}{VALUE}'),
-('sales_invoice', 'INV', 1, '{PREFIX}{VALUE}'),
-('purchase_invoice', 'PUR', 1, '{PREFIX}{VALUE}'),
-('payment', 'PAY', 1, '{PREFIX}{VALUE}'),
-('receipt', 'REC', 1, '{PREFIX}{VALUE}'),
-('customer', 'CUS', 1, '{PREFIX}{VALUE}'),
-('vendor', 'VEN', 1, '{PREFIX}{VALUE}'),
-('product', 'PRD', 1, '{PREFIX}{VALUE}'),
-('wht_certificate', 'WHT', 1, '{PREFIX}{VALUE}')
+('journal_entry', 'JE', 1, '{PREFIX}{VALUE:06}'),
+('sales_invoice', 'INV', 1, '{PREFIX}{VALUE:06}'),
+('purchase_invoice', 'PUR', 1, '{PREFIX}{VALUE:06}'),
+('payment', 'PAY', 1, '{PREFIX}{VALUE:06}'),
+('receipt', 'REC', 1, '{PREFIX}{VALUE:06}'),
+('customer', 'CUS', 1, '{PREFIX}{VALUE:04}'),
+('vendor', 'VEN', 1, '{PREFIX}{VALUE:04}'),
+('product', 'PRD', 1, '{PREFIX}{VALUE:04}'),
+('wht_certificate', 'WHT', 1, '{PREFIX}{VALUE:06}')
 ON CONFLICT (sequence_name) DO NOTHING;
 
 
@@ -143,27 +143,18 @@ ON CONFLICT (name) DO NOTHING;
 
 -- ----------------------------------------------------------------------------
 -- Insert default tax codes
--- Note: created_by/updated_by use ID 1, assuming a system/admin user with ID 1 exists.
--- The reference SQL for tax_codes table has created_by/updated_by FKs to core.users.
--- affects_account_id needs corresponding accounts in accounting.accounts.
+-- Ensure user ID 1 exists and accounts for affects_account_id are present.
 -- ----------------------------------------------------------------------------
 
--- Ensure a default user (ID 1) exists if not handled elsewhere by application logic
 INSERT INTO core.users (id, username, password_hash, email, full_name, is_active)
-VALUES (1, 'system_admin', '$2b$12$DbmQO3qO3.xpLdf96nU6QOUHCw8F77sQZTN7q692xhoGf0A5bH9nC', 'system@default.com', 'System Administrator', TRUE)
+VALUES (1, 'system_init_user', '!', 'system_init@sgbookkeeper.com', 'System Initializer', FALSE) -- Placeholder, not for login
 ON CONFLICT (id) DO NOTHING;
--- Also ensure username doesn't conflict if another admin user exists
-INSERT INTO core.users (username, password_hash, email, full_name, is_active)
-VALUES ('system_admin_placeholder', '$2b$12$DbmQO3qO3.xpLdf96nU6QOUHCw8F77sQZTN7q692xhoGf0A5bH9nC', 'system_placeholder@default.com', 'System Placeholder Admin', FALSE)
-ON CONFLICT (username) DO NOTHING;
 
-
--- Ensure placeholder accounts for tax affectation exist if not part of default COA.
--- These codes should match what tax code affect_account_id references
 INSERT INTO accounting.accounts (code, name, account_type, created_by, updated_by, is_active) VALUES
 ('SYS-GST-OUTPUT', 'System GST Output Tax', 'Liability', 1, 1, TRUE),
 ('SYS-GST-INPUT', 'System GST Input Tax', 'Asset', 1, 1, TRUE)
 ON CONFLICT (code) DO NOTHING;
+
 
 INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id)
 SELECT 'SR', 'Standard Rate', 'GST', 7.00, TRUE, TRUE, 1, 1, acc.id FROM accounting.accounts acc WHERE acc.code = 'SYS-GST-OUTPUT'
@@ -202,5 +193,5 @@ INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default,
 ON CONFLICT (code) DO NOTHING;
 
 COMMIT; 
--- End of initial data from reference schema
+-- End of initial data
 """

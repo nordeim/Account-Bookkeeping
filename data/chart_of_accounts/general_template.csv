@@ -1,0 +1,24 @@
+# File: data/chart_of_accounts/general_template.csv
+# (Content as provided before - example CSV for COA)
+"""Code,Name,AccountType,SubType,TaxTreatment,GSTApplicable,ParentCode,ReportGroup,IsControlAccount,IsBankAccount,OpeningBalance,OpeningBalanceDate
+1000,ASSETS,Asset,,,,,,,,
+1100,Current Assets,Asset,,,,1000,Current Assets,,,
+1110,Cash and Bank,Asset,Current Asset,,,1100,Cash Equivalents,FALSE,TRUE,,
+1111,Main Bank Account SGD,Asset,Cash and Cash Equivalents,Non-Taxable,FALSE,1110,Cash Equivalents,FALSE,TRUE,1000.00,2023-01-01
+1120,Accounts Receivable,Asset,Current Asset,,,1100,Receivables,TRUE,FALSE,500.00,2023-01-01
+1200,Non-Current Assets,Asset,,,,1000,Non-Current Assets,,,
+1210,Property, Plant & Equipment,Asset,Fixed Asset,,,1200,Fixed Assets,,,
+2000,LIABILITIES,Liability,,,,,,,,
+2100,Current Liabilities,Liability,,,,2000,Current Liabilities,,,
+2110,Accounts Payable,Liability,Current Liability,,,2100,Payables,TRUE,FALSE,,
+2120,GST Payable,Liability,Current Liability,Taxable,TRUE,2100,Tax Liabilities,,,
+3000,EQUITY,Equity,,,,,,,,
+3100,Owner's Equity,Equity,Equity,,,3000,Owners Equity,,,
+3200,Retained Earnings,Equity,Retained Earnings,,,3000,Retained Earnings,,,SYS-RETAINED-EARNINGS
+4000,REVENUE,Revenue,,,,,,,,
+4100,Sales Revenue,Revenue,Sales,Taxable,TRUE,4000,Operating Revenue,,,
+5000,EXPENSES,Expense,,,,,,,,
+5100,Cost of Goods Sold,Expense,Cost of Sales,Taxable,TRUE,5000,Cost of Sales,,,
+5200,Operating Expenses,Expense,Operating Expenses,,,5000,Operating Expenses,,,
+5210,Rent Expense,Expense,Operating Expenses,Taxable,TRUE,5200,Rent,,,
+"""
