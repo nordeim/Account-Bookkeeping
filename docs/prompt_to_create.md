@@ -28,3 +28,6 @@ Aiming for:
 • Beautiful, modern UI that feels native on Windows, macOS, and Linux.  
 • Robust local PostgreSQL storage with encrypted backups.  
 • One-click export of IRAS-ready tax schedules and XBRL-ready data.
+
+---
+That is an awesome refinement! Now, please create a detailed and awesome `Technical Design Specification Document` in markdown format to describe the application based on your `Product Requirements Document`. Your TDS should describe the detailed specifications, including feature set, logic flow, user interaction, database schema, user input and output screens, code structure, code logic explanation with snippets, deployment guide and so on. Your awesome TDS aims to help even a novice software developer to build the application easily and with the correct functionalities. Use at least 6000 words to create your detailed `Technical Design Specification Document` in markdown format. Again, give me your very best shot and good luck!
