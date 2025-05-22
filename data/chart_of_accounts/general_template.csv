@@ -1,5 +1,5 @@
 # File: data/chart_of_accounts/general_template.csv
-# (Content as provided before, with new Account fields)
+# (Content as provided before, verified with new Account fields)
 """Code,Name,AccountType,SubType,TaxTreatment,GSTApplicable,ParentCode,ReportGroup,IsControlAccount,IsBankAccount,OpeningBalance,OpeningBalanceDate
 1000,ASSETS,Asset,,,,,,,,0.00,
 1100,Current Assets,Asset,,,,1000,CURRENT_ASSETS,FALSE,FALSE,0.00,

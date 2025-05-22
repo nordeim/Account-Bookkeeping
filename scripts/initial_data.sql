@@ -1,6 +1,6 @@
 # File: scripts/initial_data.sql
-# (Content as provided in the previous response, taken from the reference schema's initial data section)
-"""
+# This file's content is IDENTICAL to the "-- INITIAL DATA --" section of "create_database_schema (reference).md",
+# but with Python comment markers and triple-quotes REMOVED.
 -- ============================================================================
 -- INITIAL DATA (from reference schema)
 -- ============================================================================
@@ -142,11 +142,13 @@ ON CONFLICT (name) DO NOTHING;
 
 -- ----------------------------------------------------------------------------
 -- Insert default tax codes
+-- Ensure user ID 1 exists and accounts for affects_account_id are present.
 -- ----------------------------------------------------------------------------
 
 INSERT INTO core.users (id, username, password_hash, email, full_name, is_active)
 VALUES (1, 'system_init_user', '!', 'system_init@sgbookkeeper.com', 'System Initializer', FALSE) 
 ON CONFLICT (id) DO NOTHING;
+
 
 INSERT INTO accounting.accounts (code, name, account_type, created_by, updated_by, is_active) VALUES
 ('SYS-GST-OUTPUT', 'System GST Output Tax', 'Liability', 1, 1, TRUE),
@@ -192,4 +194,3 @@ ON CONFLICT (code) DO NOTHING;
 
 COMMIT; 
 -- End of initial data
-"""

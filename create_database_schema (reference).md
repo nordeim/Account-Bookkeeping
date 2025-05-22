@@ -1,4 +1,4 @@
-# File: scripts/schema.sql
+```sql
 -- ============================================================================
 -- SG Bookkeeper - Complete Database Schema
 -- ============================================================================
@@ -20,8 +20,8 @@
 -- ============================================================================
 
 -- Terminate any existing connections to ensure clean execution
--- SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE 
---     datname = current_database() AND pid <> pg_backend_pid();
+SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE 
+    datname = current_database() AND pid <> pg_backend_pid();
 
 -- Drop database if it exists (for clean installation)
 -- DROP DATABASE IF EXISTS sg_bookkeeper;
@@ -331,8 +331,8 @@ CREATE TABLE accounting.fiscal_years (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     created_by INTEGER NOT NULL REFERENCES core.users(id),
     updated_by INTEGER NOT NULL REFERENCES core.users(id),
-    CONSTRAINT fy_date_range_check CHECK (start_date <= end_date),
-    CONSTRAINT fy_unique_date_ranges EXCLUDE USING gist (
+    CONSTRAINT date_range_check CHECK (start_date <= end_date),
+    CONSTRAINT unique_date_ranges EXCLUDE USING gist (
         daterange(start_date, end_date, '[]') WITH &&
     )
 );
@@ -364,8 +364,8 @@ CREATE TABLE accounting.fiscal_periods (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     created_by INTEGER NOT NULL REFERENCES core.users(id),
     updated_by INTEGER NOT NULL REFERENCES core.users(id),
-    CONSTRAINT fp_date_range_check CHECK (start_date <= end_date),
-    CONSTRAINT fp_unique_period_dates UNIQUE (fiscal_year_id, period_type, period_number)
+    CONSTRAINT date_range_check CHECK (start_date <= end_date),
+    CONSTRAINT unique_period_dates UNIQUE (start_date, end_date)
 );
 
 COMMENT ON TABLE accounting.fiscal_periods IS 'Defines accounting periods within fiscal years';
@@ -423,7 +423,7 @@ CREATE TABLE accounting.exchange_rates (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     created_by INTEGER REFERENCES core.users(id),
     updated_by INTEGER REFERENCES core.users(id),
-    CONSTRAINT uq_exchange_rates_pair_date UNIQUE (from_currency, to_currency, rate_date)
+    CONSTRAINT unique_currency_pair_date UNIQUE (from_currency, to_currency, rate_date)
 );
 
 COMMENT ON TABLE accounting.exchange_rates IS 'Stores currency exchange rates for specific dates';
@@ -449,7 +449,7 @@ CREATE TABLE accounting.journal_entries (
     description VARCHAR(500),
     reference VARCHAR(100),
     is_recurring BOOLEAN DEFAULT FALSE,
-    recurring_pattern_id INTEGER, -- Will be FK to recurring_patterns
+    recurring_pattern_id INTEGER,
     is_posted BOOLEAN DEFAULT FALSE,
     is_reversed BOOLEAN DEFAULT FALSE,
     reversing_entry_id INTEGER REFERENCES accounting.journal_entries(id),
@@ -496,13 +496,13 @@ CREATE TABLE accounting.journal_entry_lines (
     credit_amount NUMERIC(15,2) DEFAULT 0,
     currency_code CHAR(3) DEFAULT 'SGD' REFERENCES accounting.currencies(code),
     exchange_rate NUMERIC(15,6) DEFAULT 1,
-    tax_code VARCHAR(20), -- Can FK to accounting.tax_codes(code)
+    tax_code VARCHAR(20),
     tax_amount NUMERIC(15,2) DEFAULT 0,
-    dimension1_id INTEGER, -- References accounting.dimensions(id)
-    dimension2_id INTEGER, -- References accounting.dimensions(id)
+    dimension1_id INTEGER, -- For department, cost center, etc.
+    dimension2_id INTEGER, -- For project, product line, etc.
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT jel_check_debit_credit CHECK (
+    CONSTRAINT check_debit_credit CHECK (
         (debit_amount > 0 AND credit_amount = 0) OR
         (credit_amount > 0 AND debit_amount = 0) OR
         (debit_amount = 0 AND credit_amount = 0) -- Allow zero amounts for special cases
@@ -552,12 +552,6 @@ CREATE TABLE accounting.recurring_patterns (
     updated_by INTEGER NOT NULL REFERENCES core.users(id)
 );
 
--- Add FK constraint for recurring_pattern_id in journal_entries table
-ALTER TABLE accounting.journal_entries
-ADD CONSTRAINT fk_journal_entries_recurring_pattern
-FOREIGN KEY (recurring_pattern_id)
-REFERENCES accounting.recurring_patterns(id);
-
 COMMENT ON TABLE accounting.recurring_patterns IS 'Defines patterns for recurring journal entries';
 COMMENT ON COLUMN accounting.recurring_patterns.name IS 'Name of the recurring pattern';
 COMMENT ON COLUMN accounting.recurring_patterns.template_entry_id IS 'Journal entry to use as a template';
@@ -595,12 +589,6 @@ COMMENT ON COLUMN accounting.dimensions.dimension_type IS 'Type of dimension (De
 COMMENT ON COLUMN accounting.dimensions.code IS 'Short code for the dimension (unique per type)';
 COMMENT ON COLUMN accounting.dimensions.name IS 'Name of the dimension';
 COMMENT ON COLUMN accounting.dimensions.parent_id IS 'Parent dimension for hierarchical dimensions';
-
--- Add FK constraints for dimensions in journal_entry_lines table
-ALTER TABLE accounting.journal_entry_lines
-ADD CONSTRAINT fk_jel_dimension1 FOREIGN KEY (dimension1_id) REFERENCES accounting.dimensions(id),
-ADD CONSTRAINT fk_jel_dimension2 FOREIGN KEY (dimension2_id) REFERENCES accounting.dimensions(id);
-
 
 -- ----------------------------------------------------------------------------
 -- Budget Table
@@ -643,7 +631,7 @@ CREATE TABLE accounting.budget_details (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     created_by INTEGER NOT NULL REFERENCES core.users(id),
     updated_by INTEGER NOT NULL REFERENCES core.users(id),
-    CONSTRAINT uq_budget_details_key UNIQUE (budget_id, account_id, fiscal_period_id, 
+    CONSTRAINT unique_budget_account_period UNIQUE (budget_id, account_id, fiscal_period_id, 
                                                    COALESCE(dimension1_id, 0), COALESCE(dimension2_id, 0))
 );
 
@@ -785,7 +773,7 @@ CREATE TABLE business.products (
     sales_account_id INTEGER REFERENCES accounting.accounts(id),
     purchase_account_id INTEGER REFERENCES accounting.accounts(id),
     inventory_account_id INTEGER REFERENCES accounting.accounts(id),
-    tax_code VARCHAR(20), -- Can FK to accounting.tax_codes(code)
+    tax_code VARCHAR(20),
     is_active BOOLEAN DEFAULT TRUE,
     min_stock_level NUMERIC(15,2),
     reorder_point NUMERIC(15,2),
@@ -915,7 +903,7 @@ CREATE TABLE business.sales_invoice_lines (
     discount_percent NUMERIC(5,2) DEFAULT 0,
     discount_amount NUMERIC(15,2) DEFAULT 0,
     line_subtotal NUMERIC(15,2) NOT NULL,
-    tax_code VARCHAR(20), -- Can FK to accounting.tax_codes(code)
+    tax_code VARCHAR(20),
     tax_amount NUMERIC(15,2) DEFAULT 0,
     line_total NUMERIC(15,2) NOT NULL,
     dimension1_id INTEGER REFERENCES accounting.dimensions(id),
@@ -951,7 +939,7 @@ CREATE INDEX idx_sales_invoice_lines_product ON business.sales_invoice_lines(pro
 -- ----------------------------------------------------------------------------
 CREATE TABLE business.purchase_invoices (
     id SERIAL PRIMARY KEY,
-    invoice_no VARCHAR(20) NOT NULL UNIQUE, -- Internal number
+    invoice_no VARCHAR(20) NOT NULL UNIQUE,
     vendor_id INTEGER NOT NULL REFERENCES business.vendors(id),
     vendor_invoice_no VARCHAR(50),
     invoice_date DATE NOT NULL,
@@ -1009,7 +997,7 @@ CREATE TABLE business.purchase_invoice_lines (
     discount_percent NUMERIC(5,2) DEFAULT 0,
     discount_amount NUMERIC(15,2) DEFAULT 0,
     line_subtotal NUMERIC(15,2) NOT NULL,
-    tax_code VARCHAR(20), -- Can FK to accounting.tax_codes(code)
+    tax_code VARCHAR(20),
     tax_amount NUMERIC(15,2) DEFAULT 0,
     line_total NUMERIC(15,2) NOT NULL,
     dimension1_id INTEGER REFERENCES accounting.dimensions(id),
@@ -1052,7 +1040,7 @@ CREATE TABLE business.bank_accounts (
     bank_swift_code VARCHAR(20),
     currency_code CHAR(3) NOT NULL REFERENCES accounting.currencies(code),
     opening_balance NUMERIC(15,2) DEFAULT 0,
-    current_balance NUMERIC(15,2) DEFAULT 0, -- This might be calculated or denormalized
+    current_balance NUMERIC(15,2) DEFAULT 0,
     last_reconciled_date DATE,
     gl_account_id INTEGER NOT NULL REFERENCES accounting.accounts(id),
     is_active BOOLEAN DEFAULT TRUE,
@@ -1071,7 +1059,7 @@ COMMENT ON COLUMN business.bank_accounts.bank_branch IS 'Branch of the bank';
 COMMENT ON COLUMN business.bank_accounts.bank_swift_code IS 'SWIFT code for international transfers';
 COMMENT ON COLUMN business.bank_accounts.currency_code IS 'Currency of the account';
 COMMENT ON COLUMN business.bank_accounts.opening_balance IS 'Initial balance when account was created';
-COMMENT ON COLUMN business.bank_accounts.current_balance IS 'Current balance in the account (calculated or denormalized)';
+COMMENT ON COLUMN business.bank_accounts.current_balance IS 'Current balance in the account';
 COMMENT ON COLUMN business.bank_accounts.last_reconciled_date IS 'Date of last bank reconciliation';
 COMMENT ON COLUMN business.bank_accounts.gl_account_id IS 'Associated GL account in the chart of accounts';
 
@@ -1090,7 +1078,7 @@ CREATE TABLE business.bank_transactions (
     )),
     description VARCHAR(200) NOT NULL,
     reference VARCHAR(100),
-    amount NUMERIC(15,2) NOT NULL, -- Positive for deposit, negative for withdrawal
+    amount NUMERIC(15,2) NOT NULL,
     is_reconciled BOOLEAN DEFAULT FALSE,
     reconciled_date DATE,
     statement_date DATE,
@@ -1137,7 +1125,7 @@ CREATE TABLE business.payments (
     )),
     payment_date DATE NOT NULL,
     entity_type VARCHAR(20) NOT NULL CHECK (entity_type IN ('Customer', 'Vendor', 'Other')),
-    entity_id INTEGER NOT NULL, -- Refers to customer.id or vendor.id based on entity_type
+    entity_id INTEGER NOT NULL,
     bank_account_id INTEGER REFERENCES business.bank_accounts(id),
     currency_code CHAR(3) NOT NULL REFERENCES accounting.currencies(code),
     exchange_rate NUMERIC(15,6) DEFAULT 1,
@@ -1187,7 +1175,7 @@ CREATE TABLE business.payment_allocations (
     document_type VARCHAR(20) NOT NULL CHECK (document_type IN (
         'Sales Invoice', 'Purchase Invoice', 'Credit Note', 'Debit Note', 'Other'
     )),
-    document_id INTEGER NOT NULL, -- Refers to e.g. sales_invoices.id or purchase_invoices.id
+    document_id INTEGER NOT NULL,
     amount NUMERIC(15,2) NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     created_by INTEGER NOT NULL REFERENCES core.users(id)
@@ -1204,7 +1192,7 @@ CREATE INDEX idx_payment_allocations_payment ON business.payment_allocations(pay
 CREATE INDEX idx_payment_allocations_document ON business.payment_allocations(document_type, document_id);
 
 -- ============================================================================
--- TAX SCHEMA TABLES (Part of Accounting Schema in Reference)
+-- TAX SCHEMA TABLES
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
@@ -1294,7 +1282,7 @@ CREATE TABLE accounting.withholding_tax_certificates (
     id SERIAL PRIMARY KEY,
     certificate_no VARCHAR(20) NOT NULL UNIQUE,
     vendor_id INTEGER NOT NULL REFERENCES business.vendors(id),
-    tax_type VARCHAR(50) NOT NULL, -- e.g., 'Section 12(6) - Royalties'
+    tax_type VARCHAR(50) NOT NULL,
     tax_rate NUMERIC(5,2) NOT NULL,
     payment_date DATE NOT NULL,
     amount_before_tax NUMERIC(15,2) NOT NULL,
@@ -1335,11 +1323,11 @@ COMMENT ON COLUMN accounting.withholding_tax_certificates.journal_entry_id IS 'A
 CREATE TABLE audit.audit_log (
     id SERIAL PRIMARY KEY,
     user_id INTEGER REFERENCES core.users(id),
-    action VARCHAR(50) NOT NULL, -- e.g., LOGIN, CREATE_INVOICE, POST_JOURNAL
-    entity_type VARCHAR(50) NOT NULL, -- e.g., Account, Invoice, User
+    action VARCHAR(50) NOT NULL,
+    entity_type VARCHAR(50) NOT NULL,
     entity_id INTEGER,
-    entity_name VARCHAR(200), -- Display name or code of the entity
-    changes JSONB, -- For storing before/after values or specific changes
+    entity_name VARCHAR(200),
+    changes JSONB,
     ip_address VARCHAR(45),
     user_agent VARCHAR(255),
     timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -1364,12 +1352,12 @@ CREATE INDEX idx_audit_log_timestamp ON audit.audit_log(timestamp);
 -- ----------------------------------------------------------------------------
 -- Data Change History Table
 -- ----------------------------------------------------------------------------
--- Tracks detailed changes to important data fields
+-- Tracks detailed changes to important data
 -- ----------------------------------------------------------------------------
 CREATE TABLE audit.data_change_history (
     id SERIAL PRIMARY KEY,
-    table_name VARCHAR(100) NOT NULL, -- e.g., accounting.accounts
-    record_id INTEGER NOT NULL, -- PK of the record in table_name
+    table_name VARCHAR(100) NOT NULL,
+    record_id INTEGER NOT NULL,
     field_name VARCHAR(100) NOT NULL,
     old_value TEXT,
     new_value TEXT,
@@ -1378,7 +1366,7 @@ CREATE TABLE audit.data_change_history (
     changed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
-COMMENT ON TABLE audit.data_change_history IS 'Tracks detailed changes to important data fields';
+COMMENT ON TABLE audit.data_change_history IS 'Tracks detailed changes to important data';
 COMMENT ON COLUMN audit.data_change_history.table_name IS 'Name of the table that was changed';
 COMMENT ON COLUMN audit.data_change_history.record_id IS 'Primary key of the changed record';
 COMMENT ON COLUMN audit.data_change_history.field_name IS 'Name of the field that was changed';
@@ -1391,7 +1379,6 @@ COMMENT ON COLUMN audit.data_change_history.changed_at IS 'When the change occur
 -- Index for data change history queries
 CREATE INDEX idx_data_change_history_table_record ON audit.data_change_history(table_name, record_id);
 CREATE INDEX idx_data_change_history_changed_at ON audit.data_change_history(changed_at);
-
 
 -- ============================================================================
 -- VIEWS
@@ -1414,19 +1401,19 @@ SELECT
             WHEN jel.debit_amount > 0 THEN jel.debit_amount
             ELSE -jel.credit_amount
         END
-    ), 0) + a.opening_balance AS balance, -- Including opening balance
+    ), 0) AS balance,
     COALESCE(SUM(
         CASE 
             WHEN jel.debit_amount > 0 THEN jel.debit_amount
             ELSE 0
         END
-    ), 0) AS total_debits_activity, -- Activity from JEs only
+    ), 0) AS total_debits,
     COALESCE(SUM(
         CASE 
             WHEN jel.credit_amount > 0 THEN jel.credit_amount
             ELSE 0
         END
-    ), 0) AS total_credits_activity, -- Activity from JEs only
+    ), 0) AS total_credits,
     MAX(je.entry_date) AS last_activity_date
 FROM 
     accounting.accounts a
@@ -1435,9 +1422,9 @@ LEFT JOIN
 LEFT JOIN 
     accounting.journal_entries je ON jel.journal_entry_id = je.id AND je.is_posted = TRUE
 GROUP BY 
-    a.id, a.code, a.name, a.account_type, a.parent_id, a.opening_balance;
+    a.id, a.code, a.name, a.account_type, a.parent_id;
 
-COMMENT ON VIEW accounting.account_balances IS 'Calculates current balance for each account based on posted journal entries and opening balance';
+COMMENT ON VIEW accounting.account_balances IS 'Calculates current balance for each account based on posted journal entries';
 
 -- ----------------------------------------------------------------------------
 -- Trial Balance View
@@ -1452,23 +1439,21 @@ SELECT
     a.account_type,
     a.sub_type,
     CASE 
-        WHEN at.is_debit_balance THEN -- Asset, Expense
-            CASE WHEN ab.balance >= 0 THEN ab.balance ELSE 0 END
-        ELSE -- Liability, Equity, Revenue
+        WHEN a.account_type IN ('Asset', 'Expense') THEN
+            CASE WHEN ab.balance > 0 THEN ab.balance ELSE 0 END
+        ELSE 
             CASE WHEN ab.balance < 0 THEN -ab.balance ELSE 0 END
     END AS debit_balance,
     CASE 
-        WHEN at.is_debit_balance THEN -- Asset, Expense
+        WHEN a.account_type IN ('Asset', 'Expense') THEN
             CASE WHEN ab.balance < 0 THEN -ab.balance ELSE 0 END
-        ELSE -- Liability, Equity, Revenue
-            CASE WHEN ab.balance >= 0 THEN ab.balance ELSE 0 END
+        ELSE 
+            CASE WHEN ab.balance > 0 THEN ab.balance ELSE 0 END
     END AS credit_balance
 FROM 
     accounting.accounts a
 JOIN 
     accounting.account_balances ab ON a.id = ab.account_id
-JOIN
-    accounting.account_types at ON a.account_type = at.category 
 WHERE 
     a.is_active = TRUE
     AND ab.balance != 0;
@@ -1538,21 +1523,21 @@ SELECT
     p.unit_of_measure,
     COALESCE(SUM(im.quantity), 0) AS current_quantity,
     CASE 
-        WHEN COALESCE(SUM(im.quantity), 0) != 0 THEN 
-            COALESCE(SUM(im.total_cost), 0) / SUM(im.quantity) 
+        WHEN COALESCE(SUM(im.quantity), 0) > 0 THEN
+            COALESCE(SUM(im.total_cost), 0) / COALESCE(SUM(im.quantity), 0)
         ELSE
-            p.purchase_price 
+            p.purchase_price
     END AS average_cost,
     COALESCE(SUM(im.total_cost), 0) AS inventory_value,
     p.sales_price AS current_sales_price,
     p.min_stock_level,
     p.reorder_point,
     CASE 
-        WHEN p.min_stock_level IS NOT NULL AND COALESCE(SUM(im.quantity), 0) <= p.min_stock_level THEN TRUE
+        WHEN COALESCE(SUM(im.quantity), 0) <= p.min_stock_level THEN TRUE
         ELSE FALSE
     END AS below_minimum,
     CASE 
-        WHEN p.reorder_point IS NOT NULL AND COALESCE(SUM(im.quantity), 0) <= p.reorder_point THEN TRUE
+        WHEN COALESCE(SUM(im.quantity), 0) <= p.reorder_point THEN TRUE
         ELSE FALSE
     END AS reorder_needed
 FROM 
@@ -1583,6 +1568,7 @@ DECLARE
     v_next_value INTEGER;
     v_result VARCHAR;
 BEGIN
+    -- Lock the sequence record for update
     SELECT * INTO v_sequence 
     FROM core.sequences 
     WHERE sequence_name = p_sequence_name
@@ -1592,13 +1578,16 @@ BEGIN
         RAISE EXCEPTION 'Sequence % not found', p_sequence_name;
     END IF;
     
+    -- Get the next value
     v_next_value := v_sequence.next_value;
     
+    -- Update the sequence
     UPDATE core.sequences
     SET next_value = next_value + increment_by,
         updated_at = CURRENT_TIMESTAMP
     WHERE sequence_name = p_sequence_name;
     
+    -- Format the result
     v_result := v_sequence.format_template;
     v_result := REPLACE(v_result, '{PREFIX}', COALESCE(v_sequence.prefix, ''));
     v_result := REPLACE(v_result, '{VALUE}', LPAD(v_next_value::TEXT, 6, '0'));
@@ -1622,9 +1611,9 @@ CREATE OR REPLACE FUNCTION accounting.generate_journal_entry(
     p_reference VARCHAR,
     p_source_type VARCHAR,
     p_source_id INTEGER,
-    p_lines JSONB, 
+    p_lines JSONB,
     p_user_id INTEGER
-) RETURNS INTEGER AS $$ 
+) RETURNS INTEGER AS $$
 DECLARE
     v_fiscal_period_id INTEGER;
     v_entry_no VARCHAR;
@@ -1634,6 +1623,7 @@ DECLARE
     v_total_debits NUMERIC(15,2) := 0;
     v_total_credits NUMERIC(15,2) := 0;
 BEGIN
+    -- Find the fiscal period
     SELECT id INTO v_fiscal_period_id
     FROM accounting.fiscal_periods
     WHERE p_entry_date BETWEEN start_date AND end_date
@@ -1643,31 +1633,66 @@ BEGIN
         RAISE EXCEPTION 'No open fiscal period found for date %', p_entry_date;
     END IF;
     
+    -- Get next entry number
     v_entry_no := core.get_next_sequence_value('journal_entry');
     
+    -- Insert journal entry header
     INSERT INTO accounting.journal_entries (
-        entry_no, journal_type, entry_date, fiscal_period_id, description,
-        reference, is_posted, source_type, source_id, created_by, updated_by
+        entry_no,
+        journal_type,
+        entry_date,
+        fiscal_period_id,
+        description,
+        reference,
+        is_posted,
+        source_type,
+        source_id,
+        created_by,
+        updated_by
     ) VALUES (
-        v_entry_no, p_journal_type, p_entry_date, v_fiscal_period_id, p_description,
-        p_reference, FALSE, p_source_type, p_source_id, p_user_id, p_user_id
+        v_entry_no,
+        p_journal_type,
+        p_entry_date,
+        v_fiscal_period_id,
+        p_description,
+        p_reference,
+        FALSE, -- Not posted initially
+        p_source_type,
+        p_source_id,
+        p_user_id,
+        p_user_id
     )
     RETURNING id INTO v_journal_id;
     
+    -- Insert journal entry lines
     FOR v_line IN SELECT * FROM jsonb_array_elements(p_lines)
     LOOP
         INSERT INTO accounting.journal_entry_lines (
-            journal_entry_id, line_number, account_id, description, debit_amount, credit_amount,
-            currency_code, exchange_rate, tax_code, tax_amount, dimension1_id, dimension2_id
+            journal_entry_id,
+            line_number,
+            account_id,
+            description,
+            debit_amount,
+            credit_amount,
+            currency_code,
+            exchange_rate,
+            tax_code,
+            tax_amount,
+            dimension1_id,
+            dimension2_id
         ) VALUES (
-            v_journal_id, v_line_number, (v_line->>'account_id')::INTEGER,
-            v_line->>'description', COALESCE((v_line->>'debit_amount')::NUMERIC, 0),
+            v_journal_id,
+            v_line_number,
+            (v_line->>'account_id')::INTEGER,
+            v_line->>'description',
+            COALESCE((v_line->>'debit_amount')::NUMERIC, 0),
             COALESCE((v_line->>'credit_amount')::NUMERIC, 0),
             COALESCE(v_line->>'currency_code', 'SGD'),
             COALESCE((v_line->>'exchange_rate')::NUMERIC, 1),
-            v_line->>'tax_code', COALESCE((v_line->>'tax_amount')::NUMERIC, 0),
-            NULLIF((v_line->>'dimension1_id')::TEXT, '')::INTEGER, 
-            NULLIF((v_line->>'dimension2_id')::TEXT, '')::INTEGER
+            v_line->>'tax_code',
+            COALESCE((v_line->>'tax_amount')::NUMERIC, 0),
+            NULLIF((v_line->>'dimension1_id')::INTEGER, 0),
+            NULLIF((v_line->>'dimension2_id')::INTEGER, 0)
         );
         
         v_line_number := v_line_number + 1;
@@ -1675,6 +1700,7 @@ BEGIN
         v_total_credits := v_total_credits + COALESCE((v_line->>'credit_amount')::NUMERIC, 0);
     END LOOP;
     
+    -- Verify balanced entry
     IF round(v_total_debits, 2) != round(v_total_credits, 2) THEN
         RAISE EXCEPTION 'Journal entry is not balanced. Debits: %, Credits: %', 
             v_total_debits, v_total_credits;
@@ -1700,6 +1726,7 @@ DECLARE
     v_fiscal_period_status VARCHAR;
     v_is_already_posted BOOLEAN;
 BEGIN
+    -- Check if the entry is already posted
     SELECT is_posted INTO v_is_already_posted
     FROM accounting.journal_entries
     WHERE id = p_journal_id;
@@ -1708,6 +1735,7 @@ BEGIN
         RAISE EXCEPTION 'Journal entry % is already posted', p_journal_id;
     END IF;
     
+    -- Check fiscal period status
     SELECT fp.status INTO v_fiscal_period_status
     FROM accounting.journal_entries je
     JOIN accounting.fiscal_periods fp ON je.fiscal_period_id = fp.id
@@ -1717,11 +1745,29 @@ BEGIN
         RAISE EXCEPTION 'Cannot post to a closed or archived fiscal period';
     END IF;
     
+    -- Update the journal entry
     UPDATE accounting.journal_entries
     SET is_posted = TRUE,
         updated_at = CURRENT_TIMESTAMP,
         updated_by = p_user_id
     WHERE id = p_journal_id;
+    
+    -- Log the action
+    INSERT INTO audit.audit_log (
+        user_id,
+        action,
+        entity_type,
+        entity_id,
+        entity_name,
+        changes
+    ) VALUES (
+        p_user_id,
+        'Post',
+        'JournalEntry',
+        p_journal_id,
+        (SELECT entry_no FROM accounting.journal_entries WHERE id = p_journal_id),
+        jsonb_build_object('is_posted', TRUE)
+    );
     
     RETURN TRUE;
 END;
@@ -1741,20 +1787,18 @@ CREATE OR REPLACE FUNCTION accounting.calculate_account_balance(
 ) RETURNS NUMERIC AS $$
 DECLARE
     v_balance NUMERIC(15,2) := 0;
-    v_account_type_category VARCHAR; 
-    v_opening_balance NUMERIC(15,2);
+    v_account_type VARCHAR;
 BEGIN
-    SELECT 
-        acc.account_type, 
-        acc.opening_balance 
-    INTO v_account_type_category, v_opening_balance
-    FROM accounting.accounts acc
-    WHERE acc.id = p_account_id;
+    -- Get account type
+    SELECT account_type INTO v_account_type
+    FROM accounting.accounts
+    WHERE id = p_account_id;
     
     IF NOT FOUND THEN
         RAISE EXCEPTION 'Account with ID % not found', p_account_id;
     END IF;
     
+    -- Calculate balance based on posted journal entries
     SELECT COALESCE(SUM(
         CASE 
             WHEN jel.debit_amount > 0 THEN jel.debit_amount
@@ -1766,27 +1810,30 @@ BEGIN
     JOIN accounting.journal_entries je ON jel.journal_entry_id = je.id
     WHERE jel.account_id = p_account_id
     AND je.is_posted = TRUE
-    AND je.entry_date <= p_as_of_date
-    AND ( (SELECT opening_balance_date FROM accounting.accounts WHERE id = p_account_id) IS NULL OR 
-          je.entry_date >= (SELECT opening_balance_date FROM accounting.accounts WHERE id = p_account_id) );
-          
-    v_balance := v_balance + COALESCE(v_opening_balance, 0);
-        
+    AND je.entry_date <= p_as_of_date;
+    
+    -- Apply account type sign convention
+    IF v_account_type IN ('Liability', 'Equity', 'Revenue') THEN
+        v_balance := -v_balance;
+    END IF;
+    
     RETURN v_balance;
 END;
 $$ LANGUAGE plpgsql;
 
 COMMENT ON FUNCTION accounting.calculate_account_balance(INTEGER, DATE) IS 
-'Calculates the mathematical balance (Debits - Credits + Opening Balance) of an account as of a specific date';
+'Calculates the balance of an account as of a specific date with correct sign convention';
 
 -- ============================================================================
 -- TRIGGERS
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
--- Update Timestamp Trigger Function
+-- Update Timestamp Trigger
 -- ----------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION core.update_timestamp_trigger_func()
+-- Automatically updates the updated_at timestamp on record changes
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION core.update_timestamp()
 RETURNS TRIGGER AS $$
 BEGIN
     NEW.updated_at = CURRENT_TIMESTAMP;
@@ -1794,49 +1841,56 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-COMMENT ON FUNCTION core.update_timestamp_trigger_func() IS 
+COMMENT ON FUNCTION core.update_timestamp() IS 
 'Automatically updates the updated_at timestamp when a record is modified';
 
+-- Create update timestamp triggers for all tables with updated_at columns
+DO $$
+DECLARE
+    r RECORD;
+BEGIN
+    FOR r IN 
+        SELECT 
+            n.nspname AS schema_name,
+            c.relname AS table_name
+        FROM 
+            pg_class c
+        JOIN 
+            pg_namespace n ON c.relnamespace = n.oid
+        JOIN 
+            pg_attribute a ON a.attrelid = c.oid
+        JOIN 
+            pg_type t ON a.atttypid = t.oid
+        WHERE 
+            c.relkind = 'r'
+            AND a.attname = 'updated_at'
+            AND NOT a.attisdropped
+            AND n.nspname IN ('core', 'accounting', 'business', 'audit')
+        ORDER BY 
+            n.nspname, c.relname
+    LOOP
+        EXECUTE format('
+            CREATE TRIGGER update_timestamp
+            BEFORE UPDATE ON %I.%I
+            FOR EACH ROW
+            EXECUTE FUNCTION core.update_timestamp();
+        ', r.schema_name, r.table_name);
+    END LOOP;
+END;
+$$;
+
 -- ----------------------------------------------------------------------------
--- Audit Log Trigger Function
+-- Audit Log Trigger
 -- ----------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION audit.log_data_change_trigger_func()
+-- Records data changes to the audit log
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION audit.log_data_change()
 RETURNS TRIGGER AS $$
 DECLARE
     v_old_data JSONB;
     v_new_data JSONB;
     v_change_type VARCHAR;
-    v_user_id INTEGER;
-    column_name TEXT; 
 BEGIN
-    BEGIN
-        v_user_id := current_setting('app.current_user_id', TRUE)::INTEGER;
-    EXCEPTION WHEN OTHERS THEN
-        IF TG_OP = 'INSERT' AND TG_TABLE_SCHEMA || '.' || TG_TABLE_NAME != 'audit.audit_log' AND TG_TABLE_SCHEMA || '.' || TG_TABLE_NAME != 'audit.data_change_history' THEN
-            BEGIN
-                v_user_id := (to_jsonb(NEW) ->> 'created_by')::INTEGER;
-            EXCEPTION WHEN OTHERS THEN
-                BEGIN
-                    v_user_id := (to_jsonb(NEW) ->> 'created_by_user_id')::INTEGER;
-                EXCEPTION WHEN OTHERS THEN
-                    v_user_id := NULL;
-                END;
-            END;
-        ELSIF TG_OP = 'UPDATE' AND TG_TABLE_SCHEMA || '.' || TG_TABLE_NAME != 'audit.audit_log' AND TG_TABLE_SCHEMA || '.' || TG_TABLE_NAME != 'audit.data_change_history' THEN
-             BEGIN
-                v_user_id := (to_jsonb(NEW) ->> 'updated_by')::INTEGER;
-            EXCEPTION WHEN OTHERS THEN
-                BEGIN
-                    v_user_id := (to_jsonb(NEW) ->> 'updated_by_user_id')::INTEGER;
-                EXCEPTION WHEN OTHERS THEN
-                    v_user_id := NULL;
-                END;
-            END;
-        ELSE 
-            v_user_id := NULL; 
-        END IF;
-    END;
-
     IF TG_OP = 'INSERT' THEN
         v_change_type := 'Insert';
         v_old_data := NULL;
@@ -1851,113 +1905,248 @@ BEGIN
         v_new_data := NULL;
     END IF;
     
-    IF TG_TABLE_SCHEMA = 'audit' AND TG_TABLE_NAME IN ('audit_log', 'data_change_history') THEN
-        RETURN NULL; 
-    END IF;
-
+    -- Record in audit log
     INSERT INTO audit.audit_log (
-        user_id, action, entity_type, entity_id, entity_name, changes, timestamp
+        user_id,
+        action,
+        entity_type,
+        entity_id,
+        entity_name,
+        changes,
+        timestamp
     ) VALUES (
-        v_user_id,
+        COALESCE(current_setting('app.current_user_id', TRUE)::INTEGER, 
+                CASE WHEN TG_OP = 'INSERT' THEN NEW.created_by 
+                     WHEN TG_OP = 'UPDATE' THEN NEW.updated_by
+                     ELSE NULL END),
         v_change_type,
         TG_TABLE_SCHEMA || '.' || TG_TABLE_NAME,
         CASE WHEN TG_OP = 'DELETE' THEN OLD.id ELSE NEW.id END,
         CASE 
-            WHEN TG_TABLE_NAME IN ('accounts', 'customers', 'vendors', 'products', 'roles', 'account_types', 'dimensions', 'fiscal_years', 'budgets') THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.name ELSE NEW.name END)
+            WHEN TG_TABLE_NAME = 'accounts' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.name ELSE NEW.name END)
+            WHEN TG_TABLE_NAME = 'customers' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.name ELSE NEW.name END)
+            WHEN TG_TABLE_NAME = 'vendors' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.name ELSE NEW.name END)
             WHEN TG_TABLE_NAME = 'journal_entries' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.entry_no ELSE NEW.entry_no END)
-            WHEN TG_TABLE_NAME = 'sales_invoices' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.invoice_no ELSE NEW.invoice_no END)
-            WHEN TG_TABLE_NAME = 'purchase_invoices' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.invoice_no ELSE NEW.invoice_no END)
-            WHEN TG_TABLE_NAME = 'payments' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.payment_no ELSE NEW.payment_no END)
-            WHEN TG_TABLE_NAME = 'users' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.username ELSE NEW.username END)
-            WHEN TG_TABLE_NAME = 'tax_codes' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.code ELSE NEW.code END)
-            WHEN TG_TABLE_NAME = 'gst_returns' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.return_period ELSE NEW.return_period END)
             ELSE CASE WHEN TG_OP = 'DELETE' THEN OLD.id::TEXT ELSE NEW.id::TEXT END
         END,
-        jsonb_build_object('old', v_old_data, 'new', v_new_data),
+        jsonb_build_object(
+            'old', v_old_data,
+            'new', v_new_data
+        ),
         CURRENT_TIMESTAMP
     );
     
+    -- For updates, also record detailed field changes
     IF TG_OP = 'UPDATE' THEN
+        -- For each changed column, record the specific change
         FOR column_name IN 
             SELECT key 
-            FROM jsonb_each_text(row_to_json(OLD)) AS old_cols(key, value)
+            FROM jsonb_object_keys(v_old_data) AS key
+            WHERE v_old_data -> key IS DISTINCT FROM v_new_data -> key
         LOOP
-            IF (to_jsonb(OLD) ->> column_name) IS DISTINCT FROM (to_jsonb(NEW) ->> column_name) THEN
-                INSERT INTO audit.data_change_history (
-                    table_name, record_id, field_name, old_value, new_value,
-                    change_type, changed_by, changed_at
-                ) VALUES (
-                    TG_TABLE_SCHEMA || '.' || TG_TABLE_NAME,
-                    NEW.id,
-                    column_name,
-                    to_jsonb(OLD) ->> column_name,
-                    to_jsonb(NEW) ->> column_name,
-                    'Update',
-                    v_user_id,
-                    CURRENT_TIMESTAMP
-                );
-            END IF;
+            INSERT INTO audit.data_change_history (
+                table_name,
+                record_id,
+                field_name,
+                old_value,
+                new_value,
+                change_type,
+                changed_by,
+                changed_at
+            ) VALUES (
+                TG_TABLE_SCHEMA || '.' || TG_TABLE_NAME,
+                NEW.id,
+                column_name,
+                v_old_data ->> column_name,
+                v_new_data ->> column_name,
+                'Update',
+                COALESCE(current_setting('app.current_user_id', TRUE)::INTEGER, NEW.updated_by),
+                CURRENT_TIMESTAMP
+            );
         END LOOP;
     END IF;
     
-    RETURN NULL; 
+    RETURN NULL; -- result is ignored since this is an AFTER trigger
 END;
 $$ LANGUAGE plpgsql;
 
-COMMENT ON FUNCTION audit.log_data_change_trigger_func() IS 
-'Records data changes to the audit log and data change history for tracking and compliance';
+COMMENT ON FUNCTION audit.log_data_change() IS 
+'Records data changes to the audit log for tracking and compliance';
 
--- Create update_timestamp triggers for all tables with updated_at columns
+-- Create audit triggers for important tables
 DO $$
 DECLARE
-    r RECORD;
-BEGIN
-    FOR r IN 
-        SELECT table_schema, table_name
-        FROM information_schema.columns
-        WHERE column_name = 'updated_at'
-          AND table_schema IN ('core', 'accounting', 'business', 'audit')
-        GROUP BY table_schema, table_name
-    LOOP
-        EXECUTE format('
-            DROP TRIGGER IF EXISTS trg_update_timestamp ON %I.%I;
-            CREATE TRIGGER trg_update_timestamp
-            BEFORE UPDATE ON %I.%I
-            FOR EACH ROW
-            EXECUTE FUNCTION core.update_timestamp_trigger_func();
-        ', r.table_schema, r.table_name, r.table_schema, r.table_name);
-    END LOOP;
-END;
-$$;
-
--- Create audit_log triggers for important tables
-DO $$
-DECLARE
-    tables_to_audit TEXT[] := ARRAY[
-        'accounting.accounts', 'accounting.journal_entries', 'accounting.fiscal_periods', 'accounting.fiscal_years',
-        'business.customers', 'business.vendors', 'business.products', 
-        'business.sales_invoices', 'business.purchase_invoices', 'business.payments',
-        'accounting.tax_codes', 'accounting.gst_returns',
-        'core.users', 'core.roles', 'core.company_settings'
+    tables TEXT[] := ARRAY[
+        'accounting.accounts',
+        'accounting.journal_entries',
+        'accounting.fiscal_periods',
+        'business.customers',
+        'business.vendors',
+        'business.products',
+        'business.sales_invoices',
+        'business.purchase_invoices',
+        'business.payments',
+        'accounting.tax_codes',
+        'accounting.gst_returns'
     ];
-    table_fullname TEXT;
-    schema_name TEXT;
-    table_name TEXT;
+    t TEXT;
 BEGIN
-    FOREACH table_fullname IN ARRAY tables_to_audit
+    FOREACH t IN ARRAY tables
     LOOP
-        SELECT split_part(table_fullname, '.', 1) INTO schema_name;
-        SELECT split_part(table_fullname, '.', 2) INTO table_name;
-        
         EXECUTE format('
-            DROP TRIGGER IF EXISTS trg_audit_log ON %I.%I;
-            CREATE TRIGGER trg_audit_log
-            AFTER INSERT OR UPDATE OR DELETE ON %I.%I
+            CREATE TRIGGER audit_log_trigger
+            AFTER INSERT OR UPDATE OR DELETE ON %s
             FOR EACH ROW
-            EXECUTE FUNCTION audit.log_data_change_trigger_func();
-        ', schema_name, table_name, schema_name, table_name);
+            EXECUTE FUNCTION audit.log_data_change();
+        ', t);
     END LOOP;
 END;
 $$;
+
+-- ============================================================================
+-- INITIAL DATA
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- Insert default roles
+-- ----------------------------------------------------------------------------
+INSERT INTO core.roles (name, description) VALUES
+('Administrator', 'Full system access'),
+('Accountant', 'Access to accounting functions'),
+('Bookkeeper', 'Basic transaction entry and reporting'),
+('Manager', 'Access to reports and dashboards'),
+('Viewer', 'Read-only access to data');
+
+-- ----------------------------------------------------------------------------
+-- Insert default permissions
+-- ----------------------------------------------------------------------------
+INSERT INTO core.permissions (code, description, module) VALUES
+-- Core permissions
+('SYSTEM_SETTINGS', 'Manage system settings', 'System'),
+('USER_MANAGE', 'Manage users', 'System'),
+('ROLE_MANAGE', 'Manage roles and permissions', 'System'),
+('DATA_BACKUP', 'Backup and restore data', 'System'),
+('DATA_IMPORT', 'Import data', 'System'),
+('DATA_EXPORT', 'Export data', 'System'),
+
+-- Accounting permissions
+('ACCOUNT_VIEW', 'View chart of accounts', 'Accounting'),
+('ACCOUNT_CREATE', 'Create accounts', 'Accounting'),
+('ACCOUNT_EDIT', 'Edit accounts', 'Accounting'),
+('ACCOUNT_DELETE', 'Delete/deactivate accounts', 'Accounting'),
+('JOURNAL_VIEW', 'View journal entries', 'Accounting'),
+('JOURNAL_CREATE', 'Create journal entries', 'Accounting'),
+('JOURNAL_EDIT', 'Edit draft journal entries', 'Accounting'),
+('JOURNAL_POST', 'Post journal entries', 'Accounting'),
+('JOURNAL_REVERSE', 'Reverse posted journal entries', 'Accounting'),
+('PERIOD_MANAGE', 'Manage fiscal periods', 'Accounting'),
+('YEAR_CLOSE', 'Close fiscal years', 'Accounting'),
+
+-- Business permissions
+('CUSTOMER_VIEW', 'View customers', 'Business'),
+('CUSTOMER_CREATE', 'Create customers', 'Business'),
+('CUSTOMER_EDIT', 'Edit customers', 'Business'),
+('CUSTOMER_DELETE', 'Delete customers', 'Business'),
+('VENDOR_VIEW', 'View vendors', 'Business'),
+('VENDOR_CREATE', 'Create vendors', 'Business'),
+('VENDOR_EDIT', 'Edit vendors', 'Business'),
+('VENDOR_DELETE', 'Delete vendors', 'Business'),
+('PRODUCT_VIEW', 'View products', 'Business'),
+('PRODUCT_CREATE', 'Create products', 'Business'),
+('PRODUCT_EDIT', 'Edit products', 'Business'),
+('PRODUCT_DELETE', 'Delete products', 'Business'),
+
+-- Transaction permissions
+('INVOICE_VIEW', 'View invoices', 'Transactions'),
+('INVOICE_CREATE', 'Create invoices', 'Transactions'),
+('INVOICE_EDIT', 'Edit invoices', 'Transactions'),
+('INVOICE_DELETE', 'Delete invoices', 'Transactions'),
+('INVOICE_APPROVE', 'Approve invoices', 'Transactions'),
+('PAYMENT_VIEW', 'View payments', 'Transactions'),
+('PAYMENT_CREATE', 'Create payments', 'Transactions'),
+('PAYMENT_EDIT', 'Edit payments', 'Transactions'),
+('PAYMENT_DELETE', 'Delete payments', 'Transactions'),
+('PAYMENT_APPROVE', 'Approve payments', 'Transactions'),
+
+-- Banking permissions
+('BANK_VIEW', 'View bank accounts', 'Banking'),
+('BANK_CREATE', 'Create bank accounts', 'Banking'),
+('BANK_EDIT', 'Edit bank accounts', 'Banking'),
+('BANK_DELETE', 'Delete bank accounts', 'Banking'),
+('BANK_RECONCILE', 'Reconcile bank accounts', 'Banking'),
+('BANK_STATEMENT', 'Import bank statements', 'Banking'),
+
+-- Tax permissions
+('TAX_VIEW', 'View tax settings', 'Tax'),
+('TAX_EDIT', 'Edit tax settings', 'Tax'),
+('GST_PREPARE', 'Prepare GST returns', 'Tax'),
+('GST_SUBMIT', 'Mark GST returns as submitted', 'Tax'),
+('TAX_REPORT', 'Generate tax reports', 'Tax'),
+
+-- Reporting permissions
+('REPORT_FINANCIAL', 'Access financial reports', 'Reporting'),
+('REPORT_TAX', 'Access tax reports', 'Reporting'),
+('REPORT_MANAGEMENT', 'Access management reports', 'Reporting'),
+('REPORT_CUSTOM', 'Create custom reports', 'Reporting'),
+('REPORT_EXPORT', 'Export reports', 'Reporting');
+
+-- ----------------------------------------------------------------------------
+-- Insert default currencies
+-- ----------------------------------------------------------------------------
+INSERT INTO accounting.currencies (code, name, symbol, is_active, decimal_places) VALUES
+('SGD', 'Singapore Dollar', '$', TRUE, 2),
+('USD', 'US Dollar', '$', TRUE, 2),
+('EUR', 'Euro', '€', TRUE, 2),
+('GBP', 'British Pound', '£', TRUE, 2),
+('AUD', 'Australian Dollar', '$', TRUE, 2),
+('JPY', 'Japanese Yen', '¥', TRUE, 0),
+('CNY', 'Chinese Yuan', '¥', TRUE, 2),
+('MYR', 'Malaysian Ringgit', 'RM', TRUE, 2),
+('IDR', 'Indonesian Rupiah', 'Rp', TRUE, 0);
+
+-- ----------------------------------------------------------------------------
+-- Insert default document sequences
+-- ----------------------------------------------------------------------------
+INSERT INTO core.sequences (sequence_name, prefix, next_value, format_template) VALUES
+('journal_entry', 'JE', 1, '{PREFIX}{VALUE}'),
+('sales_invoice', 'INV', 1, '{PREFIX}{VALUE}'),
+('purchase_invoice', 'PUR', 1, '{PREFIX}{VALUE}'),
+('payment', 'PAY', 1, '{PREFIX}{VALUE}'),
+('receipt', 'REC', 1, '{PREFIX}{VALUE}'),
+('customer', 'CUS', 1, '{PREFIX}{VALUE}'),
+('vendor', 'VEN', 1, '{PREFIX}{VALUE}'),
+('product', 'PRD', 1, '{PREFIX}{VALUE}'),
+('wht_certificate', 'WHT', 1, '{PREFIX}{VALUE}');
+
+-- ----------------------------------------------------------------------------
+-- Insert account types
+-- ----------------------------------------------------------------------------
+INSERT INTO accounting.account_types (name, category, is_debit_balance, report_type, display_order, description) VALUES
+('Current Asset', 'Asset', TRUE, 'Balance Sheet', 10, 'Assets expected to be converted to cash within one year'),
+('Fixed Asset', 'Asset', TRUE, 'Balance Sheet', 20, 'Long-term tangible assets'),
+('Other Asset', 'Asset', TRUE, 'Balance Sheet', 30, 'Assets that don''t fit in other categories'),
+('Current Liability', 'Liability', FALSE, 'Balance Sheet', 40, 'Obligations due within one year'),
+('Long-term Liability', 'Liability', FALSE, 'Balance Sheet', 50, 'Obligations due beyond one year'),
+('Equity', 'Equity', FALSE, 'Balance Sheet', 60, 'Owner''s equity and retained earnings'),
+('Revenue', 'Revenue', FALSE, 'Income Statement', 70, 'Income from business operations'),
+('Cost of Sales', 'Expense', TRUE, 'Income Statement', 80, 'Direct costs of goods sold'),
+('Expense', 'Expense', TRUE, 'Income Statement', 90, 'General business expenses'),
+('Other Income', 'Revenue', FALSE, 'Income Statement', 100, 'Income from non-core activities'),
+('Other Expense', 'Expense', TRUE, 'Income Statement', 110, 'Expenses from non-core activities');
+
+-- ----------------------------------------------------------------------------
+-- Insert default tax codes
+-- ----------------------------------------------------------------------------
+INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by) VALUES
+('SR', 'Standard Rate', 'GST', 7.00, TRUE, TRUE, 1, 1),
+('ZR', 'Zero Rate', 'GST', 0.00, FALSE, TRUE, 1, 1),
+('ES', 'Exempt Supply', 'GST', 0.00, FALSE, TRUE, 1, 1),
+('OP', 'Out of Scope', 'GST', 0.00, FALSE, TRUE, 1, 1),
+('TX', 'Taxable Purchase', 'GST', 7.00, FALSE, TRUE, 1, 1),
+('BL', 'Blocked Input Tax', 'GST', 7.00, FALSE, TRUE, 1, 1),
+('NR', 'Non-Resident Services', 'Withholding Tax', 15.00, FALSE, TRUE, 1, 1),
+('ND', 'Non-Deductible', 'Income Tax', 0.00, FALSE, TRUE, 1, 1),
+('CA', 'Capital Allowance', 'Income Tax', 0.00, FALSE, TRUE, 1, 1);
 
 -- End of script
+```

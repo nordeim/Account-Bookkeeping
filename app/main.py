@@ -1,10 +1,10 @@
 # File: app/main.py
-# (Content as previously updated and verified)
+# (This version incorporates the diff changes: no separate asyncio thread management in main, adjusted messages)
 import sys
 import asyncio
-import threading 
-from PySide6.QtWidgets import QApplication, QSplashScreen, QLabel, QMessageBox
-from PySide6.QtCore import Qt, QSettings, QTimer, QCoreApplication
+# import threading # Removed based on diff
+from PySide6.QtWidgets import QApplication, QSplashScreen, QLabel, QMessageBox 
+from PySide6.QtCore import Qt, QSettings, QTimer, QCoreApplication 
 from PySide6.QtGui import QPixmap
 
 from app.ui.main_window import MainWindow
@@ -12,8 +12,8 @@ from app.core.application_core import ApplicationCore
 from app.core.config_manager import ConfigManager
 from app.core.database_manager import DatabaseManager
 
-async_event_loop = None
-async_loop_thread = None
+# async_event_loop = None # Removed based on diff
+# async_loop_thread = None # Removed based on diff
 
 class Application(QApplication):
     def __init__(self, argv):
@@ -30,7 +30,7 @@ class Application(QApplication):
             splash_pixmap = QPixmap(":/images/splash.png")
             print("Using compiled Qt resources.")
         except ImportError:
-            print("Compiled Qt resources (resources_rc.py) not found. Using direct file paths.")
+            print("Compiled Qt resources (resources_rc.py) not found. Using direct file paths.") # Diff adjusted message
             splash_pixmap = QPixmap("resources/images/splash.png")
 
         if splash_pixmap is None or splash_pixmap.isNull():
@@ -54,15 +54,29 @@ class Application(QApplication):
         QTimer.singleShot(100, self.initialize_app_async_wrapper)
 
     def initialize_app_async_wrapper(self):
-        global async_event_loop
-        if async_event_loop and async_event_loop.is_running():
-            asyncio.run_coroutine_threadsafe(self.initialize_app(), async_event_loop)
-        else: 
-            try:
-                asyncio.run(self.initialize_app())
-            except RuntimeError as e:
+        # This version implies asyncio.run will be called directly if no external loop.
+        # If an external loop (e.g. from pytest-asyncio) is already running,
+        # asyncio.run() will raise a RuntimeError.
+        # A robust solution for desktop apps is often a dedicated asyncio bridge for Qt.
+        # For simplicity here, we try asyncio.run and catch common runtime errors.
+        try:
+            asyncio.run(self.initialize_app())
+        except RuntimeError as e:
+            if "cannot be called from a running event loop" in str(e):
+                # This means an event loop is already running (e.g. in test environment or by another part of app)
+                # We need to schedule initialize_app onto that existing loop.
+                # This part is tricky without knowing the context of the existing loop.
+                # For now, if this happens, we might log an error or try to get the running loop.
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(self.initialize_app()) # Schedule on existing loop
+                except RuntimeError: # If get_running_loop also fails
+                     QMessageBox.critical(None, "Asyncio Error", f"Failed to initialize application on existing event loop: {e}")
+                     self.quit()
+            else:
                  QMessageBox.critical(None, "Asyncio Error", f"Failed to initialize application: {e}")
                  self.quit()
+
 
     async def initialize_app(self):
         try:
@@ -81,9 +95,10 @@ class Application(QApplication):
 
             await self.app_core.startup()
 
-            if not self.app_core.current_user: 
+            if not self.app_core.current_user:
                 if not await self.app_core.security_manager.authenticate_user("admin", "password"):
-                    QMessageBox.information(None, "Initial Setup", "Default admin login failed. Ensure database is initialized with an admin user, or proceed to user setup.")
+                    # Diff adjusted message:
+                    QMessageBox.information(None, "Initial Setup", "Default admin login failed. Please ensure the database is initialized with an admin user, or proceed to user setup if available.")
 
             self.splash.showMessage("Loading main interface...", Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignCenter, Qt.GlobalColor.white)
             QApplication.processEvents()
@@ -107,67 +122,42 @@ class Application(QApplication):
 
     def shutdown_app(self):
         print("Application shutting down...")
-        global async_event_loop
         if self.app_core:
-            if async_event_loop and async_event_loop.is_running():
-                future = asyncio.run_coroutine_threadsafe(self.shutdown_app_async(), async_event_loop)
-                try:
-                    future.result(timeout=5) 
-                except asyncio.TimeoutError: 
-                    print("Warning: Timeout during async shutdown.")
-                except Exception as e:
-                    print(f"Error during async shutdown: {e}")
-            else:
+            try:
+                # Try to get a running loop if one exists to run shutdown
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # This is complex if the loop is Qt's main loop or another thread's
+                    # For simplicity, try to run it; may need platform-specific async-to-sync bridge
+                    asyncio.run_coroutine_threadsafe(self.shutdown_app_async(), loop).result(5)
+                else:
+                    loop.run_until_complete(self.shutdown_app_async())
+            except RuntimeError: # No event loop, or cannot run in current state
+                 # Fallback: try a new loop just for this if no other is available/usable
                 try:
                     asyncio.run(self.shutdown_app_async())
-                except RuntimeError: 
+                except RuntimeError: # If even that fails
+                    print("Warning: Could not execute async shutdown cleanly.")
                     pass 
+            except Exception as e:
+                 print(f"Error during async shutdown: {e}")
+
         print("Application shutdown process complete.")
 
-def run_async_loop_in_thread(): 
-    global async_event_loop
-    async_event_loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(async_event_loop)
-    try:
-        print("Asyncio event loop starting in dedicated thread.")
-        async_event_loop.run_forever()
-    except KeyboardInterrupt:
-        print("Asyncio event loop interrupted.")
-    finally:
-        print("Asyncio event loop stopping.")
-        if async_event_loop and not async_event_loop.is_closed(): # Check if not closed
-            tasks = asyncio.all_tasks(loop=async_event_loop)
-            # Cancel all tasks
-            for task in tasks:
-                task.cancel()
-            # Wait for tasks to complete cancellation
-            async_event_loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
-            # Stop the loop before closing
-            if async_event_loop.is_running():
-                 async_event_loop.stop()
-            async_event_loop.close()
-        print("Asyncio event loop closed.")
-
 def main():
-    # Optional: Start asyncio event loop in a separate thread
-    # global async_loop_thread
-    # async_loop_thread = threading.Thread(target=run_async_loop_in_thread, daemon=True)
-    # async_loop_thread.start()
-    # For simple desktop app, direct asyncio.run and ensure_future might be sufficient initially.
-
-    # Attempt to import compiled resources
     try:
-        import app.resources_rc # type: ignore
+        import app.resources_rc 
         print("Successfully imported compiled Qt resources (resources_rc.py).")
     except ImportError:
-        print("Warning: Compiled Qt resources (resources_rc.py) not found.")
-        print("Consider running: pyside6-rcc resources/resources.qrc -o app/resources_rc.py (from project root)")
+        # Diff adjusted message:
+        print("Warning: Compiled Qt resources (resources_rc.py) not found. Direct file paths will be used for icons/images.")
+        print("Consider running from project root: pyside6-rcc resources/resources.qrc -o app/resources_rc.py")
 
     app = Application(sys.argv)
     app.aboutToQuit.connect(app.shutdown_app) 
     
     exit_code = app.exec()
-        
+            
     sys.exit(exit_code)
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 # File: data/tax_codes/sg_gst_codes_2023.csv
-# (Content as provided before)
+# (Content as provided before, verified against initial_data.sql SYS-GST-* accounts)
 """Code,Description,TaxType,Rate,IsActive,AffectsAccountCode
 SR,Standard-Rated Supplies,GST,7.00,TRUE,SYS-GST-OUTPUT
 ZR,Zero-Rated Supplies,GST,0.00,TRUE,

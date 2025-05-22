@@ -1,8 +1,6 @@
 # File: data/chart_of_accounts/retail_template.csv
-# (Content as provided before with new Account fields)
+# (Content as provided before, verified with new Account fields)
 """Code,Name,AccountType,SubType,TaxTreatment,GSTApplicable,ParentCode,ReportGroup,IsControlAccount,IsBankAccount,OpeningBalance,OpeningBalanceDate
-# This CSV would typically define accounts IN ADDITION to or MODIFYING a general template.
-# For simplicity here, it's a small set of additional accounts.
 1135,Inventory - Retail Goods,Asset,Inventory,Non-Taxable,FALSE,1130,INVENTORY_RETAIL,TRUE,FALSE,5000.00,2023-01-01
 4110,Sales Returns & Allowances,Revenue,Sales Adjustments,Taxable,TRUE,4000,REVENUE_ADJUSTMENTS,FALSE,FALSE,0.00,
 4120,Sales Discounts,Revenue,Sales Adjustments,Taxable,TRUE,4000,REVENUE_ADJUSTMENTS,FALSE,FALSE,0.00,

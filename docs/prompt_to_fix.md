@@ -37,3 +37,6 @@ Below is the list of files that you just re-generated. Please use the same rigor
 ---
 awesome job again! now, please use the same rigorous and meticulous approach to review the error messages below and then think deeply and systematically to thoroughly explore the best implementation option to fix the issues. make sure you plan first before making any changes. always double-check and validate your changes using line by line diff to ensure that no original features or functions will be lost when you generate the complete updated version of the relevant files.
 
+---
+please use line by line "diff" command to carefully and systematically compare your newly generated files against the prior version of the files to double-check and confirm that the changes in the latest generated files are valid and that no original features and functions have been accidentally left out (omitted). ensure that you always use a rigorous and meticulous approach to review and validate any newly generated files using line by line "diff" to ensure that no new regression errors are introduced or that no original features and functions are accidentally omitted.
+
