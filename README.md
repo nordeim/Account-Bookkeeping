@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![SG Bookkeeper Logo](https://via.placeholder.com/150?text=SG+Bookkeeper)
+![image](https://github.com/user-attachments/assets/efdea655-a502-4f0b-b337-c67e874da65b)
 
 **Enterprise-grade bookkeeping for Singapore small businesses**
 
