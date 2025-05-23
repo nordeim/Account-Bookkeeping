@@ -1,5 +1,4 @@
 # File: app/ui/accounting/chart_of_accounts_widget.py
-# (Content as previously updated and verified)
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTreeView, QHeaderView,
     QPushButton, QToolBar, QMenu, QDialog, QMessageBox, QLabel, QSpacerItem, QSizePolicy 
@@ -7,12 +6,14 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QModelIndex, Signal, Slot, QPoint, QSortFilterProxyModel, QTimer 
 from PySide6.QtGui import QIcon, QStandardItemModel, QStandardItem, QAction 
 from decimal import Decimal 
+from datetime import date 
+import asyncio 
+from typing import Optional, Dict, Any, List 
 
 from app.ui.accounting.account_dialog import AccountDialog
 from app.core.application_core import ApplicationCore
 from app.utils.result import Result 
-import asyncio 
-from typing import Optional # For type hints
+from app.main import schedule_task_from_qt # Import the new scheduler
 
 class ChartOfAccountsWidget(QWidget):
     account_selected = Signal(int)
@@ -21,12 +22,9 @@ class ChartOfAccountsWidget(QWidget):
         super().__init__(parent)
         self.app_core = app_core
         self._init_ui()
-        QTimer.singleShot(0, lambda: asyncio.ensure_future(self._load_accounts()))
-
 
     def _init_ui(self):
         self.main_layout = QVBoxLayout(self)
-        self._create_toolbar()
         
         self.account_tree = QTreeView()
         self.account_tree.setAlternatingRowColors(True)
@@ -51,20 +49,23 @@ class ChartOfAccountsWidget(QWidget):
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents) 
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        self.main_layout.addWidget(self.account_tree)
+        
+        self._create_toolbar()
+        self.main_layout.addWidget(self.toolbar) 
+
+        self.main_layout.addWidget(self.account_tree) 
         
         self.button_layout = QHBoxLayout()
         self.button_layout.setContentsMargins(0, 10, 0, 0)
         
         icon_path_prefix = "" 
         try:
-            import app.resources_rc # type: ignore
+            import app.resources_rc 
             icon_path_prefix = ":/icons/"
         except ImportError:
             icon_path_prefix = "resources/icons/"
 
-
-        self.add_button = QPushButton(QIcon(icon_path_prefix + "edit.svg"), "Add Account") # Placeholder icon
+        self.add_button = QPushButton(QIcon(icon_path_prefix + "edit.svg"), "Add Account") 
         self.add_button.clicked.connect(self.on_add_account)
         self.button_layout.addWidget(self.add_button)
         
@@ -79,18 +80,20 @@ class ChartOfAccountsWidget(QWidget):
         self.button_layout.addStretch() 
         self.main_layout.addLayout(self.button_layout)
 
+        # Use QTimer to schedule the async task via the global scheduler
+        QTimer.singleShot(0, lambda: schedule_task_from_qt(self._load_accounts()))
+
     def _create_toolbar(self):
         from PySide6.QtCore import QSize 
-        self.toolbar = QToolBar()
+        self.toolbar = QToolBar("COA Toolbar") 
         self.toolbar.setIconSize(QSize(16, 16))
         
         icon_path_prefix = ""
         try:
-            import app.resources_rc # type: ignore
+            import app.resources_rc 
             icon_path_prefix = ":/icons/"
         except ImportError:
             icon_path_prefix = "resources/icons/"
-
 
         self.filter_action = QAction(QIcon(icon_path_prefix + "filter.svg"), "Filter", self)
         self.filter_action.setCheckable(True)
@@ -110,33 +113,53 @@ class ChartOfAccountsWidget(QWidget):
         self.toolbar.addSeparator()
 
         self.refresh_action = QAction(QIcon(icon_path_prefix + "refresh.svg"), "Refresh", self)
-        self.refresh_action.triggered.connect(lambda: asyncio.ensure_future(self._load_accounts()))
+        self.refresh_action.triggered.connect(lambda: schedule_task_from_qt(self._load_accounts()))
         self.toolbar.addAction(self.refresh_action)
         
-        self.main_layout.addWidget(self.toolbar)
-    
     async def _load_accounts(self):
         try:
-            self.account_model.clear() 
-            self.account_model.setHorizontalHeaderLabels(["Code", "Name", "Type", "Opening Balance", "Is Active"])
+            # This method now runs in the dedicated asyncio thread.
+            # UI updates must be marshalled back to the Qt thread.
+            # For QStandardItemModel, direct manipulation might be okay if done carefully
+            # before the model is heavily used by the view, or use QMetaObject.invokeMethod
+            # for thread-safe updates if needed during interaction.
+            # For initial load, this direct manipulation is often fine.
+
+            # Clear model in Qt thread before scheduling this async task or pass data back
+            QMetaObject.invokeMethod(self.account_model, "clear", Qt.ConnectionType.QueuedConnection)
+            QMetaObject.invokeMethod(self.account_model, "setHorizontalHeaderLabels", Qt.ConnectionType.QueuedConnection, 
+                                     Q_ARG(list, ["Code", "Name", "Type", "Opening Balance", "Is Active"]))
             
             manager = self.app_core.accounting_service 
             if not (manager and hasattr(manager, 'get_account_tree')):
-                QMessageBox.critical(self, "Error", "Accounting service (ChartOfAccountsManager) or get_account_tree method not available.")
+                # This message box should be shown in the main thread
+                QMetaObject.invokeMethod(QMessageBox, "critical", Qt.ConnectionType.QueuedConnection,
+                    Q_ARG(QWidget, self), Q_ARG(str, "Error"), 
+                    Q_ARG(str,"Accounting service (ChartOfAccountsManager) or get_account_tree method not available."))
                 return
 
-            account_tree_data = await manager.get_account_tree(active_only=False) # type: ignore
+            account_tree_data: List[Dict[str, Any]] = await manager.get_account_tree(active_only=False) 
             
-            root_item = self.account_model.invisibleRootItem()
+            # For complex UI updates from a different thread, it's safer to build data
+            # and then use QMetaObject.invokeMethod to call a UI-thread slot to apply it.
+            # Or if QStandardItemModel is designed to be manipulated off-main-thread for population, it's fine.
+            # Let's assume direct manipulation for initial load for now, but this is an area for caution.
+            root_item = self.account_model.invisibleRootItem() 
             for account_node in account_tree_data:
-                 self._add_account_to_model(account_node, root_item)
+                 self._add_account_to_model(account_node, root_item) # This modifies the model directly
 
-            self.account_tree.expandToDepth(0) 
+            QMetaObject.invokeMethod(self.account_tree, "expandToDepth", Qt.ConnectionType.QueuedConnection, Q_ARG(int,0))
             
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to load accounts: {str(e)}")
+            error_message = f"Failed to load accounts: {str(e)}"
+            print(error_message) # Log to console
+            QMetaObject.invokeMethod(QMessageBox, "critical", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str, error_message))
     
     def _add_account_to_model(self, account_data: dict, parent_item: QStandardItem):
+        # This method directly manipulates QStandardItemModel. If called from non-GUI thread,
+        # it's generally unsafe unless QStandardItemModel is explicitly thread-safe for these operations.
+        # Assuming it's called sequentially by _load_accounts which is awaited.
         code_item = QStandardItem(account_data['code'])
         code_item.setData(account_data['id'], Qt.ItemDataRole.UserRole)
         
@@ -145,12 +168,11 @@ class ChartOfAccountsWidget(QWidget):
         type_item = QStandardItem(type_text)
         
         ob_val = account_data.get('opening_balance', Decimal(0))
-        # Ensure ob_val is Decimal for formatting
         if not isinstance(ob_val, Decimal):
             try:
                 ob_val = Decimal(str(ob_val))
             except:
-                ob_val = Decimal(0) # Fallback
+                ob_val = Decimal(0) 
         ob_text = f"{ob_val:,.2f}"
         ob_item = QStandardItem(ob_text)
         ob_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -170,9 +192,9 @@ class ChartOfAccountsWidget(QWidget):
             QMessageBox.warning(self, "Authentication Error", "No user logged in. Cannot add account.")
             return
         
-        dialog = AccountDialog(self.app_core, current_user_id=self.app_core.current_user.id, parent=self) # type: ignore
+        dialog = AccountDialog(self.app_core, current_user_id=self.app_core.current_user.id, parent=self) 
         if dialog.exec() == QDialog.DialogCode.Accepted: 
-            asyncio.ensure_future(self._load_accounts())
+            schedule_task_from_qt(self._load_accounts())
     
     @Slot()
     def on_edit_account(self):
@@ -194,9 +216,9 @@ class ChartOfAccountsWidget(QWidget):
             QMessageBox.warning(self, "Authentication Error", "No user logged in. Cannot edit account.")
             return
 
-        dialog = AccountDialog(self.app_core, account_id=account_id, current_user_id=self.app_core.current_user.id, parent=self) # type: ignore
+        dialog = AccountDialog(self.app_core, account_id=account_id, current_user_id=self.app_core.current_user.id, parent=self) 
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            asyncio.ensure_future(self._load_accounts())
+            schedule_task_from_qt(self._load_accounts())
             
     @Slot()
     def on_toggle_active_status(self): 
@@ -217,49 +239,75 @@ class ChartOfAccountsWidget(QWidget):
             QMessageBox.warning(self, "Authentication Error", "No user logged in.")
             return
             
-        asyncio.ensure_future(self._perform_toggle_active_status_logic(account_id, self.app_core.current_user.id)) # type: ignore
+        schedule_task_from_qt(self._perform_toggle_active_status_logic(account_id, self.app_core.current_user.id))
 
     async def _perform_toggle_active_status_logic(self, account_id: int, user_id: int):
+        # This runs in asyncio thread. UI updates need to be careful.
+        # QMessageBox.question must be run in the main thread.
+        # Solution: Perform async data fetching, then use QMetaObject.invokeMethod
+        # to call a new synchronous method in the main thread that shows the QMessageBox and then schedules the final save.
         try:
             manager = self.app_core.accounting_service 
             if not manager: raise RuntimeError("Accounting service not available.")
 
-            account = await manager.account_service.get_by_id(account_id) # type: ignore
+            account = await manager.account_service.get_by_id(account_id) 
             if not account:
-                QMessageBox.warning(self, "Error", f"Account ID {account_id} not found.")
-                return
-
-            result: Optional[Result] = None 
-            action_verb = ""
-            if account.is_active: 
-                confirm_msg = f"Are you sure you want to deactivate account '{account.code} - {account.name}'?"
-                action_verb = "deactivated"
-                reply = QMessageBox.question(self, "Confirm Deactivation", confirm_msg,
-                                             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
-                if reply == QMessageBox.StandardButton.Yes:
-                    result = await manager.deactivate_account(account_id, user_id) # type: ignore
-            else: 
-                confirm_msg = f"Are you sure you want to activate account '{account.code} - {account.name}'?"
-                action_verb = "activated"
-                reply = QMessageBox.question(self, "Confirm Activation", confirm_msg,
-                                             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
-                if reply == QMessageBox.StandardButton.Yes:
-                    account.is_active = True
-                    account.updated_by_user_id = user_id # type: ignore
-                    saved_acc = await manager.account_service.save(account) # type: ignore
-                    result = Result.success(saved_acc)
+                 QMetaObject.invokeMethod(QMessageBox, "warning", Qt.ConnectionType.QueuedConnection,
+                    Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str,f"Account ID {account_id} not found."))
+                 return
             
-            if result is None: # User cancelled
-                return
-
-            if result.is_success:
-                QMessageBox.information(self, "Success", f"Account {action_verb} successfully.")
-                await self._load_accounts() 
-            else:
-                QMessageBox.warning(self, "Warning", f"Failed to {action_verb.replace('ed','e')} account:\n{', '.join(result.errors)}")
+            # Schedule the confirmation dialog and subsequent action back on the main thread
+            QMetaObject.invokeMethod(self, "_confirm_and_toggle_status", Qt.ConnectionType.QueuedConnection,
+                                     Q_ARG(int, account_id), Q_ARG(bool, account.is_active), 
+                                     Q_ARG(str, account.code), Q_ARG(str, account.name),
+                                     Q_ARG(int, user_id))
 
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to toggle account active status: {str(e)}")
+            error_message = f"Failed to prepare toggle account active status: {str(e)}"
+            print(error_message)
+            QMetaObject.invokeMethod(QMessageBox, "critical", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str, error_message))
+
+    @Slot(int, bool, str, str, int)
+    def _confirm_and_toggle_status(self, account_id: int, is_currently_active: bool, acc_code: str, acc_name: str, user_id: int):
+        action_verb = "deactivate" if is_currently_active else "activate"
+        confirm_msg = f"Are you sure you want to {action_verb} account '{acc_code} - {acc_name}'?"
+        
+        reply = QMessageBox.question(self, f"Confirm {action_verb.capitalize()}", confirm_msg,
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            schedule_task_from_qt(self._finish_toggle_status(account_id, not is_currently_active, user_id, action_verb))
+
+    async def _finish_toggle_status(self, account_id: int, new_active_status: bool, user_id: int, action_verb_past: str):
+        # This runs in the asyncio thread again
+        try:
+            manager = self.app_core.accounting_service
+            account = await manager.account_service.get_by_id(account_id)
+            if not account: return # Should have been caught earlier
+
+            result: Optional[Result] = None
+            if not new_active_status: # Deactivating
+                result = await manager.deactivate_account(account_id, user_id)
+            else: # Activating
+                account.is_active = True
+                account.updated_by_user_id = user_id
+                saved_acc = await manager.account_service.save(account)
+                result = Result.success(saved_acc)
+
+            if result and result.is_success:
+                QMetaObject.invokeMethod(QMessageBox, "information", Qt.ConnectionType.QueuedConnection,
+                    Q_ARG(QWidget, self), Q_ARG(str, "Success"), Q_ARG(str,f"Account {action_verb_past}d successfully."))
+                await self._load_accounts() # This reloads and updates UI from async thread.
+            elif result:
+                error_str = f"Failed to {action_verb_past.replace('ed','e')} account:\n{', '.join(result.errors)}"
+                QMetaObject.invokeMethod(QMessageBox, "warning", Qt.ConnectionType.QueuedConnection,
+                    Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str, error_str))
+        except Exception as e:
+            error_message = f"Error finishing toggle status: {str(e)}"
+            print(error_message)
+            QMetaObject.invokeMethod(QMessageBox, "critical", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str, error_message))
 
 
     @Slot(QModelIndex)
@@ -294,17 +342,10 @@ class ChartOfAccountsWidget(QWidget):
         
         account_id = item_id_qstandarditem.data(Qt.ItemDataRole.UserRole)
         if not account_id: return 
-        
-        # Determine current active status for context menu text more reliably
-        is_currently_active = False
-        # This part is still tricky without fetching the account or storing 'is_active' in item data
-        # For simplicity, find the corresponding dictionary in the tree data if possible, or fetch.
-        # Or assume `on_toggle_active_status` handles the correct phrasing.
-        # For now, text is "Toggle Active"
-        
+                
         icon_path_prefix = ""
         try:
-            import app.resources_rc # type: ignore
+            import app.resources_rc 
             icon_path_prefix = ":/icons/"
         except ImportError:
             icon_path_prefix = "resources/icons/"

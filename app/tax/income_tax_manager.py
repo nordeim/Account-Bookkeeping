@@ -1,14 +1,18 @@
 # File: app/tax/income_tax_manager.py
 # (Content as previously generated, verified for ApplicationCore property access)
-from app.core.application_core import ApplicationCore
+from typing import TYPE_CHECKING # Added TYPE_CHECKING
+# from app.core.application_core import ApplicationCore # Removed direct import
 from app.services.account_service import AccountService
 from app.services.journal_service import JournalService
 from app.services.fiscal_period_service import FiscalPeriodService
 
+if TYPE_CHECKING:
+    from app.core.application_core import ApplicationCore # For type hinting
+
+
 class IncomeTaxManager:
-    def __init__(self, app_core: ApplicationCore):
+    def __init__(self, app_core: "ApplicationCore"): # Use string literal
         self.app_core = app_core
-        # Access services via app_core properties
         self.account_service: AccountService = app_core.account_service
         self.journal_service: JournalService = app_core.journal_service
         self.fiscal_period_service: FiscalPeriodService = app_core.fiscal_period_service

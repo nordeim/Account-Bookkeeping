@@ -1,16 +1,16 @@
 # File: app/ui/settings/settings_widget.py
-# (Stub content as previously generated and lightly expanded)
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QLabel, QPushButton, 
                                QFormLayout, QLineEdit, QMessageBox, QComboBox, 
-                               QSpinBox, QDateEdit, QCheckBox) # Added QCheckBox here
-from PySide6.QtCore import Slot, QDate, QTimer
+                               QSpinBox, QDateEdit, QCheckBox) 
+from PySide6.QtCore import Slot, QDate, QTimer, QMetaObject, Q_ARG # Added QMetaObject, Q_ARG
+from PySide6.QtGui import QColor # Added QColor
 from app.core.application_core import ApplicationCore
 from app.utils.pydantic_models import CompanySettingData 
 from app.models.core.company_setting import CompanySetting
 from decimal import Decimal, InvalidOperation
 import asyncio
 from typing import Optional
-
+from app.main import schedule_task_from_qt # Import the new scheduler
 
 class SettingsWidget(QWidget):
     def __init__(self, app_core: ApplicationCore, parent=None):
@@ -24,9 +24,7 @@ class SettingsWidget(QWidget):
         self.uen_edit = QLineEdit()
         self.gst_reg_edit = QLineEdit()
         self.gst_registered_check = QCheckBox("GST Registered")
-        # ... add more fields for address, contact, fiscal year, etc.
-        self.base_currency_combo = QComboBox() # Populate with currencies
-        # self.base_currency_combo.addItems(["SGD", "USD", "EUR"]) # Example
+        self.base_currency_combo = QComboBox() 
 
         self.form_layout.addRow("Company Name:", self.company_name_edit)
         self.form_layout.addRow("Legal Name:", self.legal_name_edit)
@@ -43,23 +41,57 @@ class SettingsWidget(QWidget):
         self.layout.addStretch()
 
         self.setLayout(self.layout)
-        QTimer.singleShot(0, lambda: asyncio.ensure_future(self.load_settings()))
+        QTimer.singleShot(0, lambda: schedule_task_from_qt(self.load_settings()))
 
 
     async def load_settings(self):
+        # This runs in the asyncio thread
         if not self.app_core.company_settings_service:
-            QMessageBox.critical(self, "Error", "Company Settings Service not available.")
+            QMetaObject.invokeMethod(QMessageBox, "critical", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Error"), 
+                Q_ARG(str,"Company Settings Service not available."))
             return
         
+        currencies_loaded = False
+        if self.app_core.currency_manager:
+            try:
+                currencies = await self.app_core.currency_manager.get_active_currencies()
+                # Marshal ComboBox update to main thread
+                QMetaObject.invokeMethod(self, "_populate_currency_combo", Qt.ConnectionType.QueuedConnection, Q_ARG(list, currencies))
+                currencies_loaded = True
+            except Exception as e:
+                print(f"Error loading currencies for settings: {e}")
+        
+        if not currencies_loaded: # Fallback if currency loading failed
+            QMetaObject.invokeMethod(self.base_currency_combo, "addItems", Qt.ConnectionType.QueuedConnection, Q_ARG(list, ["SGD", "USD"]))
+
+
         settings_obj: Optional[CompanySetting] = await self.app_core.company_settings_service.get_company_settings()
+        
+        # Marshal UI updates back to the main thread
+        QMetaObject.invokeMethod(self, "_update_ui_from_settings", Qt.ConnectionType.QueuedConnection, Q_ARG(CompanySetting, settings_obj) if settings_obj else Q_ARG(type(None), None))
+
+
+    @Slot(list) # Slot for currencies
+    def _populate_currency_combo(self, currencies: List[Any]): # Currency objects
+        self.base_currency_combo.clear()
+        for curr in currencies:
+            self.base_currency_combo.addItem(curr.code, curr.code) # User data is code
+        # After populating, try to set current if settings were loaded first
+        if hasattr(self, '_loaded_settings_obj') and self._loaded_settings_obj:
+            idx = self.base_currency_combo.findText(self._loaded_settings_obj.base_currency) # type: ignore
+            if idx != -1: self.base_currency_combo.setCurrentIndex(idx)
+
+
+    @Slot(CompanySetting) # Make sure CompanySetting is registered for queued connections if not a QObject
+    def _update_ui_from_settings(self, settings_obj: Optional[CompanySetting]):
+        self._loaded_settings_obj = settings_obj # Store for re-applying currency selection
         if settings_obj:
             self.company_name_edit.setText(settings_obj.company_name)
             self.legal_name_edit.setText(settings_obj.legal_name or "")
             self.uen_edit.setText(settings_obj.uen_no or "")
             self.gst_reg_edit.setText(settings_obj.gst_registration_no or "")
             self.gst_registered_check.setChecked(settings_obj.gst_registered)
-            # Find and set current currency in combo
-            # TODO: Populate base_currency_combo from available currencies first
             idx = self.base_currency_combo.findText(settings_obj.base_currency)
             if idx != -1: self.base_currency_combo.setCurrentIndex(idx)
         else:
@@ -80,14 +112,12 @@ class SettingsWidget(QWidget):
             gst_registration_no=self.gst_reg_edit.text() or None,
             gst_registered=self.gst_registered_check.isChecked(),
             user_id=self.app_core.current_user.id,
-            # Defaulting some required fields for the DTO not present in this simple UI form
             fiscal_year_start_month=1, 
-            fiscal_year_start_day=1,
+            fiscal_year_start_day=1,  
             base_currency=self.base_currency_combo.currentText() or "SGD", 
-            tax_id_label="UEN", 
-            date_format="yyyy-MM-dd",
-            # Ensure all required fields for CompanySettingData are present
-            address_line1=None, # Example default if not in UI
+            tax_id_label="UEN",       
+            date_format="yyyy-MM-dd", 
+            address_line1=None, 
             address_line2=None,
             postal_code=None,
             city="Singapore",
@@ -98,55 +128,40 @@ class SettingsWidget(QWidget):
             website=None,
             logo=None
         )
-        asyncio.ensure_future(self.perform_save(dto))
+        schedule_task_from_qt(self.perform_save(dto))
 
     async def perform_save(self, settings_data: CompanySettingData):
+        # This runs in asyncio thread
         if not self.app_core.company_settings_service:
-            QMessageBox.critical(self, "Error", "Company Settings Service not available.")
+            QMetaObject.invokeMethod(QMessageBox, "critical", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Error"), 
+                Q_ARG(str,"Company Settings Service not available."))
             return
 
-        # Assuming get_company_settings can take an ID or fetches the single row
         existing_settings = await self.app_core.company_settings_service.get_company_settings() 
         
         orm_obj_to_save: CompanySetting
         if existing_settings:
-            # Update existing_settings object with fields from settings_data
             orm_obj_to_save = existing_settings
-            orm_obj_to_save.company_name = settings_data.company_name
-            orm_obj_to_save.legal_name = settings_data.legal_name
-            orm_obj_to_save.uen_no = settings_data.uen_no
-            orm_obj_to_save.gst_registration_no = settings_data.gst_registration_no
-            orm_obj_to_save.gst_registered = settings_data.gst_registered
-            orm_obj_to_save.base_currency = settings_data.base_currency
-            # ... update other fields from DTO like address, fiscal year etc.
-            orm_obj_to_save.address_line1=settings_data.address_line1
-            orm_obj_to_save.address_line2=settings_data.address_line2
-            orm_obj_to_save.postal_code=settings_data.postal_code
-            orm_obj_to_save.city=settings_data.city
-            orm_obj_to_save.country=settings_data.country
-            orm_obj_to_save.contact_person=settings_data.contact_person
-            orm_obj_to_save.phone=settings_data.phone
-            orm_obj_to_save.email=settings_data.email
-            orm_obj_to_save.website=settings_data.website
-            orm_obj_to_save.logo=settings_data.logo # This would need handling for bytea
-            orm_obj_to_save.fiscal_year_start_month=settings_data.fiscal_year_start_month
-            orm_obj_to_save.fiscal_year_start_day=settings_data.fiscal_year_start_day
-            orm_obj_to_save.tax_id_label=settings_data.tax_id_label
-            orm_obj_to_save.date_format=settings_data.date_format
+            for field_name, field_value in settings_data.model_dump(exclude={'user_id', 'id'}, by_alias=False).items():
+                if hasattr(orm_obj_to_save, field_name):
+                    setattr(orm_obj_to_save, field_name, field_value)
         else: 
-            # This case implies creating settings for the first time for ID 1
-            # This is unlikely if initial_data.sql seeds it or if company settings must always exist.
-            # Ensure all required fields for CompanySetting model are provided by CompanySettingData
             dict_data = settings_data.model_dump(exclude={'user_id', 'id'}, by_alias=False)
-            orm_obj_to_save = CompanySetting(**dict_data) # type: ignore
-            if settings_data.id: # If DTO carries an ID, use it.
+            orm_obj_to_save = CompanySetting(**dict_data) 
+            if settings_data.id:
                  orm_obj_to_save.id = settings_data.id
 
         if self.app_core.current_user:
-             orm_obj_to_save.updated_by_user_id = self.app_core.current_user.id # type: ignore
+             orm_obj_to_save.updated_by_user_id = self.app_core.current_user.id 
 
         result = await self.app_core.company_settings_service.save_company_settings(orm_obj_to_save)
+        
         if result:
-            QMessageBox.information(self, "Success", "Settings saved successfully.")
+            QMetaObject.invokeMethod(QMessageBox, "information", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Success"), 
+                Q_ARG(str,"Settings saved successfully."))
         else:
-            QMessageBox.warning(self, "Error", "Failed to save settings.")
+            QMetaObject.invokeMethod(QMessageBox, "warning", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Error"), 
+                Q_ARG(str,"Failed to save settings."))

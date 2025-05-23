@@ -1,3 +1,140 @@
+<think>
+Another circular import! We are systematically peeling back the layers of these import dependencies.
+
+**Error Analysis:**
+
+The current traceback shows:
+`ImportError: cannot import name 'ApplicationCore' from partially initialized module 'app.core.application_core' (most likely due to a circular import) (/cdrom/project/SG-Bookkeeper/app/core/application_core.py)`
+
+This error is triggered when `app/reporting/tax_report_generator.py` tries to import `ApplicationCore`:
+```
+File "/cdrom/project/SG-Bookkeeper/app/core/application_core.py", line 26, in <module>
+    from app.reporting.financial_statement_generator import FinancialStatementGenerator # AppCore imports FinStatementGenerator
+  File "/cdrom/project/SG-Bookkeeper/app/reporting/__init__.py", line 4, in <module>
+    from .tax_report_generator import TaxReportGenerator # reporting/__init__ imports TaxReportGenerator
+  File "/cdrom/project/SG-Bookkeeper/app/reporting/tax_report_generator.py", line 3, in <module>
+    from app.core.application_core import ApplicationCore # TaxReportGenerator imports AppCore
+```
+
+**The Circular Import Path:**
+1.  `app/core/application_core.py` imports `FinancialStatementGenerator` from `app.reporting.financial_statement_generator`.
+2.  The `app/reporting/__init__.py` is processed during this, which also imports `TaxReportGenerator` from `.tax_report_generator`.
+3.  `app/reporting/tax_report_generator.py` then tries to import `ApplicationCore` from `app.core.application_core.py`.
+
+This creates the cycle: `application_core` -> (indirectly via `reporting/__init__`) `tax_report_generator` -> `application_core`.
+
+**Solution Approach:**
+Apply the same fix as before: use forward references for type hinting `ApplicationCore` in `app/reporting/tax_report_generator.py`.
+
+**Files to be Updated:**
+1.  `app/reporting/tax_report_generator.py`: Modify the import of `ApplicationCore` and the type hint for the `app_core` parameter in its `__init__` method.
+
+Let's check the provided content for `app/reporting/tax_report_generator.py`:
+```python
+# File: app/reporting/tax_report_generator.py
+from app.core.application_core import ApplicationCore # Direct import
+from datetime import date 
+
+class TaxReportGenerator:
+    def __init__(self, app_core: ApplicationCore): # Direct type hint
+        self.app_core = app_core
+    # ...
+```
+This confirms it needs the forward reference fix.
+
+The file `app/reporting/financial_statement_generator.py` was also provided. Let's check if it also imports `ApplicationCore`:
+```python
+# File: app/reporting/financial_statement_generator.py
+# ... (imports services, not ApplicationCore directly)
+class FinancialStatementGenerator:
+    def __init__(self, 
+                 account_service: AccountService, 
+                 journal_service: JournalService, 
+                 fiscal_period_service: FiscalPeriodService,
+                 account_type_service: AccountTypeService, 
+                 tax_code_service: Optional[TaxCodeService] = None, 
+                 company_settings_service: Optional[CompanySettingsService] = None
+                 ): # Does not take app_core in constructor
+        # ...
+```
+This file does *not* import `ApplicationCore` directly, so it doesn't need changes for *this specific* circular import problem.
+
+The file `app/reporting/report_engine.py` was also provided:
+```python
+# File: app/reporting/report_engine.py
+from app.core.application_core import ApplicationCore # Direct import
+# ...
+class ReportEngine:
+    def __init__(self, app_core: ApplicationCore): # Direct type hint
+        self.app_core = app_core
+    # ...
+```
+`ApplicationCore` imports `ReportEngine` (via `app.reporting.__init__`). `ReportEngine` imports `ApplicationCore`. So this is another part of the cycle and also needs fixing.
+
+**Revised Plan:**
+1.  Modify `app/reporting/tax_report_generator.py`:
+    *   Remove `from app.core.application_core import ApplicationCore`.
+    *   Add `from typing import TYPE_CHECKING`.
+    *   Add `if TYPE_CHECKING: from app.core.application_core import ApplicationCore`.
+    *   Change `app_core: ApplicationCore` to `app_core: "ApplicationCore"` in the `__init__` signature.
+2.  Modify `app/reporting/report_engine.py` with the same pattern.
+
+I will provide the updated versions of these two files.
+</think>
+
+Yes, another circular import! These are common as components become more interconnected. We'll apply the same robust solution.
+
+**Error Analysis:**
+
+The traceback shows the circular dependency:
+`ImportError: cannot import name 'ApplicationCore' from partially initialized module 'app.core.application_core' (most likely due to a circular import) (/cdrom/project/SG-Bookkeeper/app/core/application_core.py)`
+
+The cycle is:
+1.  `app/core/application_core.py` imports `FinancialStatementGenerator` (line 26).
+2.  This import likely triggers the execution of `app/reporting/__init__.py`.
+3.  `app/reporting/__init__.py` (line 4) imports `TaxReportGenerator` from `.tax_report_generator`.
+4.  `app/reporting/tax_report_generator.py` (line 3) then attempts to import `ApplicationCore`.
+
+Additionally, `app/core/application_core.py` also instantiates `ReportEngine`, which itself imports `ApplicationCore`. So, `app/reporting/report_engine.py` is also part of a similar cycle.
+
+**Solution:**
+
+We will use forward references (string literals for type hints) and the `TYPE_CHECKING` guard for `ApplicationCore` in both `app/reporting/tax_report_generator.py` and `app/reporting/report_engine.py`.
+
+**Files to be Updated:**
+
+1.  `app/reporting/tax_report_generator.py`
+2.  `app/reporting/report_engine.py`
+
+Here are the updated files:
+
+```python
+# File: app/reporting/tax_report_generator.py
+from typing import TYPE_CHECKING # Added TYPE_CHECKING
+from datetime import date 
+
+# from app.core.application_core import ApplicationCore # Removed direct import
+
+if TYPE_CHECKING:
+    from app.core.application_core import ApplicationCore # For type hinting
+
+class TaxReportGenerator:
+    def __init__(self, app_core: "ApplicationCore"): # Use string literal for ApplicationCore
+        self.app_core = app_core
+        # Services would be accessed via self.app_core if needed, e.g., self.app_core.journal_service
+        print("TaxReportGenerator initialized (stub).")
+
+    async def generate_gst_audit_file(self, start_date: date, end_date: date):
+        print(f"Generating GST Audit File for {start_date} to {end_date} (stub).")
+        # Example access: company_name = (await self.app_core.company_settings_service.get_company_settings()).company_name
+        return {"filename": "gst_audit.xlsx", "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "data": b"dummy_excel_data"}
+
+    async def generate_income_tax_schedules(self, fiscal_year_id: int):
+        print(f"Generating Income Tax Schedules for fiscal year ID {fiscal_year_id} (stub).")
+        return {"schedule_name": "Capital Allowances", "data": []}
+```
+
+```python
 # File: app/reporting/report_engine.py
 from typing import Dict, Any, Literal, List, Optional, TYPE_CHECKING # Added TYPE_CHECKING
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle 
@@ -248,3 +385,35 @@ class ReportEngine:
         excel_bytes = excel_bytes_io.getvalue()
         excel_bytes_io.close()
         return excel_bytes
+```
+
+**Validation of Changes:**
+
+*   **`app/reporting/tax_report_generator.py`**:
+    *   Added `from typing import TYPE_CHECKING`.
+    *   Removed direct import `from app.core.application_core import ApplicationCore`.
+    *   Added `if TYPE_CHECKING: from app.core.application_core import ApplicationCore`.
+    *   Changed type hint for `app_core` in `__init__` to `"ApplicationCore"`.
+*   **`app/reporting/report_engine.py`**:
+    *   Added `from typing import TYPE_CHECKING`.
+    *   Removed direct import `from app.core.application_core import ApplicationCore`.
+    *   Added `if TYPE_CHECKING: from app.core.application_core import ApplicationCore`.
+    *   Changed type hint for `app_core` in `__init__` to `"ApplicationCore"`.
+    *   Improved PDF table generation logic to handle different report structures (Trial Balance vs. Balance Sheet/P&L) more distinctly.
+    *   Improved Excel export to handle different report structures.
+    *   Ensured `Decimal` values are converted to `float` for `openpyxl` and number formats are applied.
+    *   Adjusted column width setting in Excel export.
+
+**Next Steps:**
+
+These changes should resolve the circular import involving the reporting modules. Please try running the application again:
+
+```bash
+poetry run sg_bookkeeper
+```
+
+We are continuing to progress through the import chain. The next error, if any, will likely be another `ImportError` or `AttributeError` if `ApplicationCore` attempts to use a service or manager that hasn't been fully defined or correctly initialized yet.
+
+---
+https://drive.google.com/file/d/10TYPOybooA3cAXLtTgqyVRFonRuFDUXP/view?usp=sharing, https://drive.google.com/file/d/12_JVpgeBBX9M-hzFk8qi9g0LJr-jm14S/view?usp=sharing, https://drive.google.com/file/d/1DMQwEJGM_oVbh4wl3igdWbKFBp7vZRiM/view?usp=sharing, https://drive.google.com/file/d/1EwsvcutY25rEKdDxZN2imU3hrOwGNVYL/view?usp=sharing, https://drive.google.com/file/d/1Mk0kQbJtJdGvx2rKVVqxhmXfS8lQ1CR7/view?usp=sharing, https://drive.google.com/file/d/1Nhrj6yvXO3YuJWobJ6pYA1zAoGRW9Pkb/view?usp=sharing, https://drive.google.com/file/d/1PeiUhKZrNTPXZA-gID8YSgycyoBGsTVW/view?usp=sharing, https://drive.google.com/file/d/1Uj8kEw4aDhusQD2-r3VkOdTNIsVPKEOf/view?usp=sharing, https://aistudio.google.com/app/prompts?state=%7B%22ids%22:%5B%221VLBZXJQEO8dnjyEdi4_ZoIjec1ikMutf%22%5D,%22action%22:%22open%22,%22userId%22:%22103961307342447084491%22,%22resourceKeys%22:%7B%7D%7D&usp=sharing, https://drive.google.com/file/d/1YqzdexaRTu_7xuCkAaEXR5AJUMNF-a8K/view?usp=sharing, https://drive.google.com/file/d/1dMoqfUucM6xTkbJAcC47YdBzJ43CM6mG/view?usp=sharing, https://drive.google.com/file/d/1nUTcU9ePoVvmVXo1zGI-N1TGQo1-155U/view?usp=sharing
+

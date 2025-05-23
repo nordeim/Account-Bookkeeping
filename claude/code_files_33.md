@@ -1,3 +1,51 @@
+<think>
+The application is very close to starting up without import errors! The current error is:
+
+`NameError: name 'Optional' is not defined`
+
+This error occurs in `app/main.py` at line 12:
+`_ASYNC_LOOP: Optional[asyncio.AbstractEventLoop] = None`
+
+**Cause of the Error:**
+The type hint `Optional` from the `typing` module is used for the global variable `_ASYNC_LOOP` without `Optional` being imported at the module level in `app/main.py`.
+
+**Solution:**
+Add `from typing import Optional` at the top of `app/main.py`.
+
+**Reviewing `app/main.py` for other `typing` imports:**
+The file already uses `asyncio`, `threading`, `time`, `Path`, `QApplication`, etc. It will need `Optional` from `typing`.
+
+**File to be Updated:**
+1.  `app/main.py`
+
+This is a very straightforward fix. I will provide the updated `app/main.py`.
+The rest of the file structure and the logic for the threaded asyncio loop seems sound for now, and this `NameError` is just a missing import for a type hint.
+</think>
+
+You've pinpointed the issue perfectly! This is a simple `NameError` due to a missing import for a type hint.
+
+**Error Analysis:**
+
+The traceback clearly shows the error in `app/main.py`:
+```
+File "/cdrom/project/SG-Bookkeeper/app/main.py", line 12, in <module>
+    _ASYNC_LOOP: Optional[asyncio.AbstractEventLoop] = None
+                 ^^^^^^^^
+NameError: name 'Optional' is not defined
+```
+The type hint `Optional` (used as `Optional[asyncio.AbstractEventLoop]`) is from the `typing` module, but it hasn't been imported at the top level of `app/main.py`.
+
+**Solution:**
+
+Add `from typing import Optional` to the import statements at the beginning of `app/main.py`.
+
+**File to be Updated:**
+
+1.  `app/main.py`
+
+Here's the updated `app/main.py` file:
+
+```python
 # File: app/main.py
 import sys
 import asyncio
@@ -226,3 +274,29 @@ def main():
 
 if __name__ == "__main__":
     main()
+```
+
+**Validation of Changes:**
+
+*   **`app/main.py`**:
+    *   Added `from typing import Optional` at the top of the file.
+    *   The local import `from pathlib import Path` within the `main()` function was already removed in the previous step as `Path` was moved to module-level imports.
+    *   Corrected the `finally` block in `start_asyncio_event_loop_thread` to ensure `_ASYNC_LOOP.close()` is only called if `_ASYNC_LOOP` is set.
+    *   Improved error handling in `_on_initialization_done` to check if `error_obj.__traceback__` exists before trying to print it.
+    *   Ensured `TimeoutError` (Python's built-in) is caught in `actual_shutdown_sequence`.
+    *   Added print statements for clarity during asyncio loop startup and shutdown.
+    *   If `schedule_task_from_qt` returns `None` in `Application.__init__` (meaning loop wasn't ready), it now calls `_on_initialization_done` to show an error and quit, instead of potentially continuing with a `None` future.
+
+**Next Steps:**
+
+This should resolve the `NameError`. Please try running the application again:
+
+```bash
+poetry run sg_bookkeeper
+```
+
+The application should now proceed further into the initialization and UI setup. If it launches successfully, great! If not, we'll tackle the next error.
+
+---
+https://drive.google.com/file/d/10TYPOybooA3cAXLtTgqyVRFonRuFDUXP/view?usp=sharing, https://drive.google.com/file/d/11KndoHQCP9vTKPlRbWLtqy6gHfC8w4Dk/view?usp=sharing, https://drive.google.com/file/d/12_JVpgeBBX9M-hzFk8qi9g0LJr-jm14S/view?usp=sharing, https://drive.google.com/file/d/17MfzKFSisoo3ZRtNqWL-vooRP8xDfXhS/view?usp=sharing, https://drive.google.com/file/d/1DMQwEJGM_oVbh4wl3igdWbKFBp7vZRiM/view?usp=sharing, https://drive.google.com/file/d/1EwsvcutY25rEKdDxZN2imU3hrOwGNVYL/view?usp=sharing, https://drive.google.com/file/d/1Mk0kQbJtJdGvx2rKVVqxhmXfS8lQ1CR7/view?usp=sharing, https://drive.google.com/file/d/1Nhrj6yvXO3YuJWobJ6pYA1zAoGRW9Pkb/view?usp=sharing, https://drive.google.com/file/d/1PeiUhKZrNTPXZA-gID8YSgycyoBGsTVW/view?usp=sharing, https://drive.google.com/file/d/1R8FgPOnpgTglA_cwhgFBLyk0dxvW48GY/view?usp=sharing, https://drive.google.com/file/d/1Uj8kEw4aDhusQD2-r3VkOdTNIsVPKEOf/view?usp=sharing, https://aistudio.google.com/app/prompts?state=%7B%22ids%22:%5B%221VLBZXJQEO8dnjyEdi4_ZoIjec1ikMutf%22%5D,%22action%22:%22open%22,%22userId%22:%22103961307342447084491%22,%22resourceKeys%22:%7B%7D%7D&usp=sharing, https://drive.google.com/file/d/1YqzdexaRTu_7xuCkAaEXR5AJUMNF-a8K/view?usp=sharing, https://drive.google.com/file/d/1dMoqfUucM6xTkbJAcC47YdBzJ43CM6mG/view?usp=sharing, https://drive.google.com/file/d/1l-_PWDhb0i9eaVtbVuN0Zg4sckshfr18/view?usp=sharing, https://drive.google.com/file/d/1nUTcU9ePoVvmVXo1zGI-N1TGQo1-155U/view?usp=sharing
+
