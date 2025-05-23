@@ -1,0 +1,26 @@
+$ poetry run sg_bookkeeper
+Starting global asyncio event loop thread...
+Asyncio event loop <_UnixSelectorEventLoop running=False closed=False debug=False> started in thread AsyncioLoopThread and set as current.
+Global asyncio event loop <_UnixSelectorEventLoop running=True closed=False debug=False> confirmed running in dedicated thread.
+Warning: Compiled Qt resources (resources_rc.py) not found. Direct file paths will be used for icons/images.
+Consider running from project root: pyside6-rcc resources/resources.qrc -o app/resources_rc.py
+Compiled Qt resources (resources_rc.py) not found. Using direct file paths.
+Warning: Splash image not found or invalid. Using fallback.
+ApplicationCore initialized.
+ApplicationCore starting up...
+ModuleManager: load_all_modules called (conceptual).
+ApplicationCore startup complete.
+Default admin/password authentication failed or no such user. MainWindow should handle login.
+Error loading currencies for settings: qArgDataFromPyType: Unable to find a QMetaType for "object".
+Failed to load accounts: qArgDataFromPyType: Unable to find a QMetaType for "object".
+Application shutting down (actual_shutdown_sequence)...
+Scheduling ApplicationCore shutdown...
+ApplicationCore shutting down...
+ApplicationCore shutdown complete.
+ApplicationCore shutdown completed.
+Requesting global asyncio event loop to stop...
+Joining asyncio event loop thread...
+Asyncio event loop from dedicated thread has been stopped and closed.
+Asyncio event loop thread joined.
+Application shutdown process finalized.
+

@@ -13,7 +13,7 @@ from typing import Optional, Dict, Any, List
 from app.ui.accounting.account_dialog import AccountDialog
 from app.core.application_core import ApplicationCore
 from app.utils.result import Result 
-from app.main import schedule_task_from_qt # Import the scheduler
+from app.main import schedule_task_from_qt 
 
 class ChartOfAccountsWidget(QWidget):
     account_selected = Signal(int)
@@ -85,7 +85,7 @@ class ChartOfAccountsWidget(QWidget):
     def _create_toolbar(self):
         from PySide6.QtCore import QSize 
         self.toolbar = QToolBar("COA Toolbar") 
-        self.toolbar.setObjectName("COAToolbar") # Set object name
+        self.toolbar.setObjectName("COAToolbar") 
         self.toolbar.setIconSize(QSize(16, 16))
         
         icon_path_prefix = ""
@@ -117,9 +117,7 @@ class ChartOfAccountsWidget(QWidget):
         self.toolbar.addAction(self.refresh_action)
         
     async def _load_accounts(self):
-        # This method runs in the dedicated asyncio thread.
         try:
-            # Prepare data for model update
             manager = self.app_core.accounting_service 
             if not (manager and hasattr(manager, 'get_account_tree')):
                 QMetaObject.invokeMethod(QMessageBox, "critical", Qt.ConnectionType.QueuedConnection,
@@ -129,9 +127,8 @@ class ChartOfAccountsWidget(QWidget):
 
             account_tree_data: List[Dict[str, Any]] = await manager.get_account_tree(active_only=False) 
             
-            # Signal main thread to update model with this data
             QMetaObject.invokeMethod(self, "_update_account_model_slot", Qt.ConnectionType.QueuedConnection,
-                                     Q_ARG(list, account_tree_data))
+                                     Q_ARG(object, account_tree_data)) # Pass as object
             
         except Exception as e:
             error_message = f"Failed to load accounts: {str(e)}"
@@ -139,18 +136,17 @@ class ChartOfAccountsWidget(QWidget):
             QMetaObject.invokeMethod(QMessageBox, "critical", Qt.ConnectionType.QueuedConnection,
                 Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str, error_message))
 
-    @Slot(list)
-    def _update_account_model_slot(self, account_tree_data: List[Dict[str, Any]]):
-        # This slot runs in the main Qt thread
+    @Slot(object) # Receive as object
+    def _update_account_model_slot(self, account_tree_data_obj: Any):
+        account_tree_data: List[Dict[str, Any]] = account_tree_data_obj
         self.account_model.clear() 
         self.account_model.setHorizontalHeaderLabels(["Code", "Name", "Type", "Opening Balance", "Is Active"])
         root_item = self.account_model.invisibleRootItem()
         for account_node in account_tree_data:
-             self._add_account_to_model_item(account_node, root_item) # Renamed to avoid confusion
+             self._add_account_to_model_item(account_node, root_item) 
         self.account_tree.expandToDepth(0) 
 
     def _add_account_to_model_item(self, account_data: dict, parent_item: QStandardItem):
-        # This method is now called by _update_account_model_slot (main Qt thread)
         code_item = QStandardItem(account_data['code'])
         code_item.setData(account_data['id'], Qt.ItemDataRole.UserRole)
         name_item = QStandardItem(account_data['name'])
@@ -224,17 +220,21 @@ class ChartOfAccountsWidget(QWidget):
                     Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str,f"Account ID {account_id} not found."))
                  return
             QMetaObject.invokeMethod(self, "_confirm_and_toggle_status_slot", Qt.ConnectionType.QueuedConnection,
-                                     Q_ARG(int, account_id), Q_ARG(bool, account.is_active), 
-                                     Q_ARG(str, account.code), Q_ARG(str, account.name),
-                                     Q_ARG(int, user_id))
+                                     Q_ARG(object, {"id": account_id, "is_active": account.is_active, "code": account.code, "name": account.name, "user_id": user_id}))
         except Exception as e:
             error_message = f"Failed to prepare toggle account active status: {str(e)}"
             print(error_message)
             QMetaObject.invokeMethod(QMessageBox, "critical", Qt.ConnectionType.QueuedConnection,
                 Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str, error_message))
 
-    @Slot(int, bool, str, str, int)
-    def _confirm_and_toggle_status_slot(self, account_id: int, is_currently_active: bool, acc_code: str, acc_name: str, user_id: int):
+    @Slot(object)
+    def _confirm_and_toggle_status_slot(self, data: Dict[str, Any]):
+        account_id = data["id"]
+        is_currently_active = data["is_active"]
+        acc_code = data["code"]
+        acc_name = data["name"]
+        user_id = data["user_id"]
+
         action_verb_present = "deactivate" if is_currently_active else "activate"
         action_verb_past = "deactivated" if is_currently_active else "activated"
         confirm_msg = f"Are you sure you want to {action_verb_present} account '{acc_code} - {acc_name}'?"
@@ -264,13 +264,14 @@ class ChartOfAccountsWidget(QWidget):
                 await self._load_accounts() 
             elif result:
                 error_str = f"Failed to {action_verb_past.replace('ed','e')} account:\n{', '.join(result.errors)}"
-                QMetaObject.invokeMethod(QMessageBox, "warning", Qt.ConnectionType.QueuedConnection,
+                QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "warning", Qt.ConnectionType.QueuedConnection,
                     Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str, error_str))
         except Exception as e:
             error_message = f"Error finishing toggle status: {str(e)}"
             print(error_message)
-            QMetaObject.invokeMethod(QMessageBox, "critical", Qt.ConnectionType.QueuedConnection,
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
                 Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str, error_message))
+
 
     @Slot(QModelIndex)
     def on_account_double_clicked(self, index: QModelIndex):
