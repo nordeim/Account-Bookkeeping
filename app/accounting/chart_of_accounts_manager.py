@@ -1,19 +1,23 @@
 # File: app/accounting/chart_of_accounts_manager.py
 # (Content previously updated to use AccountCreateData/UpdateData, ensure consistency)
 # Key: Uses AccountService. User ID comes from DTO which inherits UserAuditData.
-from typing import List, Optional, Dict, Any
-from app.models.accounting.account import Account # Corrected path
+from typing import List, Optional, Dict, Any, TYPE_CHECKING
+from app.models.accounting.account import Account 
 from app.services.account_service import AccountService 
 from app.utils.result import Result
 from app.utils.pydantic_models import AccountCreateData, AccountUpdateData, AccountValidator
-from app.core.application_core import ApplicationCore 
+# from app.core.application_core import ApplicationCore # Removed direct import
 from decimal import Decimal
+from datetime import date # Added for type hint in deactivate_account
+
+if TYPE_CHECKING:
+    from app.core.application_core import ApplicationCore # For type hinting
 
 class ChartOfAccountsManager:
-    def __init__(self, account_service: AccountService, app_core: ApplicationCore):
+    def __init__(self, account_service: AccountService, app_core: "ApplicationCore"):
         self.account_service = account_service
         self.account_validator = AccountValidator() 
-        self.app_core = app_core # Still useful for other context, though user_id is in DTO
+        self.app_core = app_core 
 
     async def create_account(self, account_data: AccountCreateData) -> Result[Account]:
         validation_result = self.account_validator.validate_create(account_data)
@@ -83,24 +87,16 @@ class ChartOfAccountsManager:
         if not account.is_active:
              return Result.failure([f"Account '{account.code}' is already inactive."])
 
-        # This balance check now uses JournalService which includes opening_balance.
-        # Ensure AppCore provides journal_service or inject JournalService.
-        # Assuming self.app_core.journal_service returns JournalService instance.
-        if not hasattr(self.app_core, 'journal_service'): # Defensive check
+        if not hasattr(self.app_core, 'journal_service'): 
             return Result.failure(["Journal service not available for balance check."])
 
-        total_current_balance = await self.app_core.journal_service.get_account_balance(account_id, date.today()) # type: ignore
+        total_current_balance = await self.app_core.journal_service.get_account_balance(account_id, date.today()) 
 
         if total_current_balance != Decimal(0):
             return Result.failure([f"Cannot deactivate account '{account.code}' as it has a non-zero balance ({total_current_balance:.2f})."])
 
-        # has_transactions also checks opening balance activity. If balance is zero, it implies JEs offset OB or no activity.
-        # The current has_transactions checks posted JEs. If OB is the only activity and balance is zero, it's fine.
-        # If balance is zero, implies either no activity or offsetting activity.
-        # The primary check is non-zero balance.
-
         account.is_active = False
-        account.updated_by_user_id = user_id # Correct field name
+        account.updated_by_user_id = user_id 
         
         try:
             updated_account = await self.account_service.save(account)
@@ -111,8 +107,6 @@ class ChartOfAccountsManager:
     async def get_account_tree(self, active_only: bool = True) -> List[Dict[str, Any]]:
         try:
             tree = await self.account_service.get_account_tree(active_only=active_only)
-            # Augment with balances if needed by UI; for now, tree structure is from service.
-            # This part is UI concern or reporting concern mainly.
             return tree 
         except Exception as e:
             print(f"Error getting account tree: {e}") 
@@ -124,4 +118,8 @@ class ChartOfAccountsManager:
         elif active_only:
             return await self.account_service.get_all_active()
         else:
-            return await self.account_service.get_all()
+            # Assuming get_all() exists on account_service, if not, this path needs adjustment
+            if hasattr(self.account_service, 'get_all'):
+                 return await self.account_service.get_all()
+            else: # Fallback to active if get_all not present for some reason
+                 return await self.account_service.get_all_active()

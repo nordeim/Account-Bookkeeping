@@ -65,16 +65,5 @@ class Permission(Base):
 
     roles: Mapped[List["Role"]] = relationship("Role", secondary=role_permissions_table, back_populates="permissions")
 
-class UserRole(Base): 
-    __tablename__ = 'user_roles' # Explicit model for junction table
-    __table_args__ = {'schema': 'core'}
-    user_id: Mapped[int] = mapped_column(ForeignKey('core.users.id', ondelete="CASCADE"), primary_key=True)
-    role_id: Mapped[int] = mapped_column(ForeignKey('core.roles.id', ondelete="CASCADE"), primary_key=True)
-    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
-class RolePermission(Base): 
-    __tablename__ = 'role_permissions' # Explicit model for junction table
-    __table_args__ = {'schema': 'core'}
-    role_id: Mapped[int] = mapped_column(ForeignKey('core.roles.id', ondelete="CASCADE"), primary_key=True)
-    permission_id: Mapped[int] = mapped_column(ForeignKey('core.permissions.id', ondelete="CASCADE"), primary_key=True)
-    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+# Removed UserRole class definition
+# Removed RolePermission class definition

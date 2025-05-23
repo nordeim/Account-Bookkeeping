@@ -3,7 +3,7 @@
 from .base import Base, TimestampMixin, UserAuditMixin
 
 # Core schema models
-from .core.user import User, Role, Permission, UserRole, RolePermission
+from .core.user import User, Role, Permission # Removed UserRole, RolePermission
 from .core.company_setting import CompanySetting
 from .core.configuration import Configuration
 from .core.sequence import Sequence
@@ -41,7 +41,7 @@ from .audit.data_change_history import DataChangeHistory
 __all__ = [
     "Base", "TimestampMixin", "UserAuditMixin",
     # Core
-    "User", "Role", "Permission", "UserRole", "RolePermission",
+    "User", "Role", "Permission", # Removed UserRole, RolePermission
     "CompanySetting", "Configuration", "Sequence",
     # Accounting
     "AccountType", "Currency", "ExchangeRate", "Account",

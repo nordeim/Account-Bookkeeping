@@ -1,5 +1,4 @@
 # File: app/services/__init__.py
-# (Content as previously generated, verified)
 from abc import ABC, abstractmethod
 from typing import List, Optional, Any, Generic, TypeVar, Dict 
 from datetime import date
@@ -28,11 +27,11 @@ from app.models.core.company_setting import CompanySetting
 from app.models.accounting.gst_return import GSTReturn
 from app.models.accounting.recurring_pattern import RecurringPattern
 from app.models.accounting.fiscal_year import FiscalYear 
-from app.models.accounting.account_type import AccountType # For AccountTypeService interface
-from app.models.accounting.currency import Currency # For CurrencyService interface
-from app.models.accounting.exchange_rate import ExchangeRate # For ExchangeRateService interface
-from app.models.core.sequence import Sequence # For SequenceService interface
-from app.models.core.configuration import Configuration # For ConfigurationService interface
+from app.models.accounting.account_type import AccountType 
+from app.models.accounting.currency import Currency 
+from app.models.accounting.exchange_rate import ExchangeRate 
+from app.models.core.sequence import Sequence 
+from app.models.core.configuration import Configuration 
 
 
 class IAccountRepository(IRepository[Account, int]):
@@ -74,9 +73,16 @@ class IFiscalPeriodRepository(IRepository[FiscalPeriod, int]):
     @abstractmethod
     async def get_by_date(self, target_date: date) -> Optional[FiscalPeriod]: pass
     @abstractmethod
-    async def get_fiscal_year(self, year_value: int) -> Optional[FiscalYear]: pass 
-    @abstractmethod
     async def get_fiscal_periods_for_year(self, fiscal_year_id: int, period_type: Optional[str] = None) -> List[FiscalPeriod]: pass
+
+# New Interface for FiscalYearService
+class IFiscalYearRepository(IRepository[FiscalYear, int]):
+    @abstractmethod
+    async def get_by_name(self, year_name: str) -> Optional[FiscalYear]: pass
+    @abstractmethod
+    async def get_by_date_overlap(self, start_date: date, end_date: date) -> Optional[FiscalYear]: pass
+    @abstractmethod
+    async def save(self, entity: FiscalYear) -> FiscalYear: pass
 
 
 class ITaxCodeRepository(IRepository[TaxCode, int]):
@@ -98,7 +104,6 @@ class IGSTReturnRepository(IRepository[GSTReturn, int]):
     @abstractmethod
     async def save_gst_return(self, gst_return_data: GSTReturn) -> GSTReturn: pass
 
-# Adding interfaces for new services for completeness
 class IAccountTypeRepository(IRepository[AccountType, int]):
     @abstractmethod
     async def get_by_name(self, name: str) -> Optional[AccountType]: pass
@@ -133,15 +138,15 @@ from .journal_service import JournalService
 from .fiscal_period_service import FiscalPeriodService
 from .tax_service import TaxCodeService, GSTReturnService 
 from .core_services import SequenceService, ConfigurationService, CompanySettingsService 
-from .accounting_services import AccountTypeService, CurrencyService, ExchangeRateService # New file
+from .accounting_services import AccountTypeService, CurrencyService, ExchangeRateService, FiscalYearService # Added FiscalYearService
 
 __all__ = [
     "IRepository",
-    "IAccountRepository", "IJournalEntryRepository", "IFiscalPeriodRepository",
+    "IAccountRepository", "IJournalEntryRepository", "IFiscalPeriodRepository", "IFiscalYearRepository",
     "ITaxCodeRepository", "ICompanySettingsRepository", "IGSTReturnRepository",
     "IAccountTypeRepository", "ICurrencyRepository", "IExchangeRateRepository",
     "ISequenceRepository", "IConfigurationRepository",
-    "AccountService", "JournalService", "FiscalPeriodService",
+    "AccountService", "JournalService", "FiscalPeriodService", "FiscalYearService",
     "TaxCodeService", "GSTReturnService",
     "SequenceService", "ConfigurationService", "CompanySettingsService",
     "AccountTypeService", "CurrencyService", "ExchangeRateService",

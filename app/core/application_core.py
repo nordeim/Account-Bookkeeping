@@ -16,9 +16,7 @@ from app.services.journal_service import JournalService
 from app.services.fiscal_period_service import FiscalPeriodService
 from app.services.core_services import SequenceService, CompanySettingsService, ConfigurationService
 from app.services.tax_service import TaxCodeService, GSTReturnService 
-# Assuming accounting_services.py contains AccountTypeService, CurrencyRepoService, ExchangeRateService
-# If they are split, import them directly. For this example, let's assume they are separate.
-from app.services.accounting_services import AccountTypeService, CurrencyService as CurrencyRepoService, ExchangeRateService
+from app.services.accounting_services import AccountTypeService, CurrencyService as CurrencyRepoService, ExchangeRateService, FiscalYearService # Added FiscalYearService
 
 
 from app.utils.sequence_generator import SequenceGenerator
@@ -40,6 +38,7 @@ class ApplicationCore:
         self._account_service_instance: Optional[AccountService] = None
         self._journal_service_instance: Optional[JournalService] = None
         self._fiscal_period_service_instance: Optional[FiscalPeriodService] = None
+        self._fiscal_year_service_instance: Optional[FiscalYearService] = None # Added
         self._sequence_service_instance: Optional[SequenceService] = None
         self._company_settings_service_instance: Optional[CompanySettingsService] = None
         self._tax_code_service_instance: Optional[TaxCodeService] = None
@@ -67,18 +66,16 @@ class ApplicationCore:
         self._account_service_instance = AccountService(self.db_manager, self)
         self._journal_service_instance = JournalService(self.db_manager, self)
         self._fiscal_period_service_instance = FiscalPeriodService(self.db_manager)
+        self._fiscal_year_service_instance = FiscalYearService(self.db_manager, self) # Added instantiation
         self._sequence_service_instance = SequenceService(self.db_manager)
         self._company_settings_service_instance = CompanySettingsService(self.db_manager, self)
-        self.config_service_instance = ConfigurationService(self.db_manager) # Corrected attribute name
+        self._configuration_service_instance = ConfigurationService(self.db_manager) # Corrected assignment from self.config_service_instance
         self._tax_code_service_instance = TaxCodeService(self.db_manager, self)
         self._gst_return_service_instance = GSTReturnService(self.db_manager, self)
         
-        # These services would need to be created (e.g. app/services/accounting_services.py)
-        # For now, assuming they are defined elsewhere and imported
-        self._account_type_service_instance = AccountTypeService(self.db_manager) 
+        self._account_type_service_instance = AccountTypeService(self.db_manager, self) 
         self._currency_repo_service_instance = CurrencyRepoService(self.db_manager, self)
         self._exchange_rate_service_instance = ExchangeRateService(self.db_manager, self)
-        self._configuration_service_instance = ConfigurationService(self.db_manager)
 
 
         self._coa_manager_instance = ChartOfAccountsManager(self.account_service, self)
@@ -116,6 +113,7 @@ class ApplicationCore:
     def current_user(self): 
         return self.security_manager.get_current_user()
 
+    # Service Properties
     @property
     def account_service(self) -> AccountService:
         if not self._account_service_instance: raise RuntimeError("AccountService not initialized.")
@@ -128,6 +126,10 @@ class ApplicationCore:
     def fiscal_period_service(self) -> FiscalPeriodService:
         if not self._fiscal_period_service_instance: raise RuntimeError("FiscalPeriodService not initialized.")
         return self._fiscal_period_service_instance
+    @property
+    def fiscal_year_service(self) -> FiscalYearService: # Added property
+        if not self._fiscal_year_service_instance: raise RuntimeError("FiscalYearService not initialized.")
+        return self._fiscal_year_service_instance
     @property
     def sequence_service(self) -> SequenceService:
         if not self._sequence_service_instance: raise RuntimeError("SequenceService not initialized.")
@@ -149,9 +151,12 @@ class ApplicationCore:
         if not self._account_type_service_instance: raise RuntimeError("AccountTypeService not initialized.")
         return self._account_type_service_instance 
     @property
-    def currency_repo_service(self) -> CurrencyRepoService: 
+    def currency_repo_service(self) -> CurrencyRepoService: # Name used in __init__
         if not self._currency_repo_service_instance: raise RuntimeError("CurrencyRepoService not initialized.")
         return self._currency_repo_service_instance 
+    @property
+    def currency_service(self) -> CurrencyRepoService: # Alias for consistency if CurrencyManager uses currency_service
+        return self.currency_repo_service
     @property
     def exchange_rate_service(self) -> ExchangeRateService: 
         if not self._exchange_rate_service_instance: raise RuntimeError("ExchangeRateService not initialized.")
@@ -161,7 +166,7 @@ class ApplicationCore:
         if not self._configuration_service_instance: raise RuntimeError("ConfigurationService not initialized.")
         return self._configuration_service_instance
 
-
+    # Manager Properties
     @property
     def chart_of_accounts_manager(self) -> ChartOfAccountsManager:
         if not self._coa_manager_instance: raise RuntimeError("ChartOfAccountsManager not initialized.")

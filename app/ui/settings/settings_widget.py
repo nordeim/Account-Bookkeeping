@@ -1,6 +1,8 @@
 # File: app/ui/settings/settings_widget.py
 # (Stub content as previously generated and lightly expanded)
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton, QFormLayout, QLineEdit, QMessageBox, QComboBox, QSpinBox, QDateEdit
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QLabel, QPushButton, 
+                               QFormLayout, QLineEdit, QMessageBox, QComboBox, 
+                               QSpinBox, QDateEdit, QCheckBox) # Added QCheckBox here
 from PySide6.QtCore import Slot, QDate, QTimer
 from app.core.application_core import ApplicationCore
 from app.utils.pydantic_models import CompanySettingData 
@@ -57,6 +59,7 @@ class SettingsWidget(QWidget):
             self.gst_reg_edit.setText(settings_obj.gst_registration_no or "")
             self.gst_registered_check.setChecked(settings_obj.gst_registered)
             # Find and set current currency in combo
+            # TODO: Populate base_currency_combo from available currencies first
             idx = self.base_currency_combo.findText(settings_obj.base_currency)
             if idx != -1: self.base_currency_combo.setCurrentIndex(idx)
         else:
@@ -82,8 +85,18 @@ class SettingsWidget(QWidget):
             fiscal_year_start_day=1,
             base_currency=self.base_currency_combo.currentText() or "SGD", 
             tax_id_label="UEN", 
-            date_format="yyyy-MM-dd"
-            # Add other fields from form...
+            date_format="yyyy-MM-dd",
+            # Ensure all required fields for CompanySettingData are present
+            address_line1=None, # Example default if not in UI
+            address_line2=None,
+            postal_code=None,
+            city="Singapore",
+            country="Singapore",
+            contact_person=None,
+            phone=None,
+            email=None,
+            website=None,
+            logo=None
         )
         asyncio.ensure_future(self.perform_save(dto))
 
@@ -92,25 +105,42 @@ class SettingsWidget(QWidget):
             QMessageBox.critical(self, "Error", "Company Settings Service not available.")
             return
 
-        existing_settings = await self.app_core.company_settings_service.get_company_settings(settings_data.id or 1)
+        # Assuming get_company_settings can take an ID or fetches the single row
+        existing_settings = await self.app_core.company_settings_service.get_company_settings() 
         
         orm_obj_to_save: CompanySetting
         if existing_settings:
             # Update existing_settings object with fields from settings_data
-            existing_settings.company_name = settings_data.company_name
-            existing_settings.legal_name = settings_data.legal_name
-            existing_settings.uen_no = settings_data.uen_no
-            existing_settings.gst_registration_no = settings_data.gst_registration_no
-            existing_settings.gst_registered = settings_data.gst_registered
-            existing_settings.base_currency = settings_data.base_currency
-            # ... update other fields from DTO ...
             orm_obj_to_save = existing_settings
+            orm_obj_to_save.company_name = settings_data.company_name
+            orm_obj_to_save.legal_name = settings_data.legal_name
+            orm_obj_to_save.uen_no = settings_data.uen_no
+            orm_obj_to_save.gst_registration_no = settings_data.gst_registration_no
+            orm_obj_to_save.gst_registered = settings_data.gst_registered
+            orm_obj_to_save.base_currency = settings_data.base_currency
+            # ... update other fields from DTO like address, fiscal year etc.
+            orm_obj_to_save.address_line1=settings_data.address_line1
+            orm_obj_to_save.address_line2=settings_data.address_line2
+            orm_obj_to_save.postal_code=settings_data.postal_code
+            orm_obj_to_save.city=settings_data.city
+            orm_obj_to_save.country=settings_data.country
+            orm_obj_to_save.contact_person=settings_data.contact_person
+            orm_obj_to_save.phone=settings_data.phone
+            orm_obj_to_save.email=settings_data.email
+            orm_obj_to_save.website=settings_data.website
+            orm_obj_to_save.logo=settings_data.logo # This would need handling for bytea
+            orm_obj_to_save.fiscal_year_start_month=settings_data.fiscal_year_start_month
+            orm_obj_to_save.fiscal_year_start_day=settings_data.fiscal_year_start_day
+            orm_obj_to_save.tax_id_label=settings_data.tax_id_label
+            orm_obj_to_save.date_format=settings_data.date_format
         else: 
             # This case implies creating settings for the first time for ID 1
-            # This is unlikely if initial_data.sql seeds it.
-            dict_data = settings_data.dict(exclude={'user_id', 'id'}) # Exclude fields not in CompanySetting model directly or handled by DB
+            # This is unlikely if initial_data.sql seeds it or if company settings must always exist.
+            # Ensure all required fields for CompanySetting model are provided by CompanySettingData
+            dict_data = settings_data.model_dump(exclude={'user_id', 'id'}, by_alias=False)
             orm_obj_to_save = CompanySetting(**dict_data) # type: ignore
-            orm_obj_to_save.id = settings_data.id or 1 
+            if settings_data.id: # If DTO carries an ID, use it.
+                 orm_obj_to_save.id = settings_data.id
 
         if self.app_core.current_user:
              orm_obj_to_save.updated_by_user_id = self.app_core.current_user.id # type: ignore

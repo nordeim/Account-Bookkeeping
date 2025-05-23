@@ -1,11 +1,11 @@
 # File: app/models/audit/audit_log.py
 # New model for audit.audit_log table
-from sqlalchemy import Column, Integer, String, DateTime, Text
+from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey # Added ForeignKey
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from app.models.base import Base
-# from app.models.user import User # For FK relationship type hint
+# from app.models.core.user import User # Changed to app.models.core.user
 import datetime
 from typing import Optional, Dict, Any
 
@@ -24,4 +24,4 @@ class AuditLog(Base):
     user_agent: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     timestamp: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-    # user: Mapped[Optional["User"]] = relationship("User") # If User model is accessible
+    # user: Mapped[Optional["User"]] = relationship("User") # If User model from core is accessible
