@@ -1,3 +1,82 @@
+Okay, the `psql` output is very helpful! It clearly points to the exact line:
+
+`psql:scripts/schema.sql:586: ERROR:  syntax error at or near "("`
+`LINE 15: ...                                          COALESCE(dimension...`
+                                                              `^`
+
+This error occurs within the `CREATE TABLE accounting.budget_details` statement. Let's look at the definition around line 586 of my last generated script:
+
+```sql
+-- File: scripts/schema.sql
+-- ... (around line 571) ...
+CREATE TABLE accounting.budget_details (
+    id SERIAL PRIMARY KEY,
+    budget_id INTEGER NOT NULL REFERENCES accounting.budgets(id) ON DELETE CASCADE,
+    account_id INTEGER NOT NULL REFERENCES accounting.accounts(id),
+    fiscal_period_id INTEGER NOT NULL REFERENCES accounting.fiscal_periods(id),
+    amount NUMERIC(15,2) NOT NULL,
+    dimension1_id INTEGER REFERENCES accounting.dimensions(id),
+    dimension2_id INTEGER REFERENCES accounting.dimensions(id),
+    notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    created_by INTEGER NOT NULL REFERENCES core.users(id),
+    updated_by INTEGER NOT NULL REFERENCES core.users(id),
+    CONSTRAINT uq_budget_details_key UNIQUE (budget_id, account_id, fiscal_period_id, 
+                                                   COALESCE(dimension1_id, 0), COALESCE(dimension2_id, 0)) -- This is line 586
+);
+-- ...
+```
+
+The issue is with the `UNIQUE` constraint `uq_budget_details_key`. **You cannot use functions like `COALESCE` directly within a standard `UNIQUE` constraint definition for columns.**
+
+A `UNIQUE` constraint applies to the values of the specified columns directly. If you need uniqueness based on an expression (like `COALESCE(dimension1_id, 0)`), you must create a **unique index** instead.
+
+**The Fix:**
+Remove the `CONSTRAINT uq_budget_details_key UNIQUE (...)` from the `CREATE TABLE` statement and add a separate `CREATE UNIQUE INDEX` statement after the table definition.
+
+Here's the corrected section for `accounting.budget_details`:
+
+```sql
+-- ----------------------------------------------------------------------------
+-- Budget Details Table
+-- ----------------------------------------------------------------------------
+CREATE TABLE accounting.budget_details (
+    id SERIAL PRIMARY KEY,
+    budget_id INTEGER NOT NULL REFERENCES accounting.budgets(id) ON DELETE CASCADE,
+    account_id INTEGER NOT NULL REFERENCES accounting.accounts(id),
+    fiscal_period_id INTEGER NOT NULL REFERENCES accounting.fiscal_periods(id),
+    amount NUMERIC(15,2) NOT NULL,
+    dimension1_id INTEGER REFERENCES accounting.dimensions(id),
+    dimension2_id INTEGER REFERENCES accounting.dimensions(id),
+    notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    created_by INTEGER NOT NULL REFERENCES core.users(id),
+    updated_by INTEGER NOT NULL REFERENCES core.users(id)
+    -- Removed UNIQUE constraint from here
+);
+
+-- Add unique index for budget_details key including COALESCE for optional dimensions
+CREATE UNIQUE INDEX uix_budget_details_key ON accounting.budget_details (
+    budget_id, 
+    account_id, 
+    fiscal_period_id, 
+    COALESCE(dimension1_id, 0), 
+    COALESCE(dimension2_id, 0)
+);
+
+COMMENT ON TABLE accounting.budget_details IS 'Stores budget amounts by account and period';
+-- ... (rest of the comments for budget_details) ...
+```
+
+This change will resolve the `syntax error at or near "("` on line 586. The subsequent errors like `relation "accounting.budget_details" does not exist` for the `COMMENT ON COLUMN` statements are because the table creation failed due to the syntax error in the constraint. Once the table is created successfully, those comments will apply correctly.
+
+The `NOTICE: trigger "..." for relation "..." does not exist, skipping` messages are normal during the first run of a script that includes `DROP TRIGGER IF EXISTS`. It just means there was no pre-existing trigger to drop, which is expected for a clean setup.
+
+I will now provide the fully corrected `scripts/schema.sql` file.
+
+```sql
 -- File: scripts/schema.sql
 -- ============================================================================
 -- SG Bookkeeper - Complete Database Schema
@@ -583,6 +662,7 @@ CREATE TABLE accounting.budget_details (
     updated_by INTEGER NOT NULL REFERENCES core.users(id)
 );
 
+-- Add unique index for budget_details key including COALESCE for optional dimensions
 CREATE UNIQUE INDEX uix_budget_details_key ON accounting.budget_details (
     budget_id, 
     account_id, 
@@ -1683,47 +1763,26 @@ DECLARE
     v_new_data JSONB;
     v_change_type VARCHAR(20);
     v_user_id INTEGER;
-    v_entity_id INTEGER;
-    v_entity_name VARCHAR(200);
-    temp_val TEXT; -- For entity_name construction
     column_name TEXT; 
 BEGIN
     -- Try to get user_id from session variable
     BEGIN
         v_user_id := current_setting('app.current_user_id', TRUE)::INTEGER;
     EXCEPTION WHEN OTHERS THEN
-        v_user_id := NULL; 
+        v_user_id := NULL; -- Fallback if session variable is not set or invalid
     END;
 
-    -- If session user_id is not set, try to get from record's audit columns
+    -- If user_id is still NULL, try to get from NEW record fields (created_by / updated_by)
     IF v_user_id IS NULL THEN
-        IF TG_OP = 'INSERT' THEN
-            BEGIN 
-                v_user_id := NEW.created_by; 
-            EXCEPTION WHEN undefined_column THEN 
-                -- If 'created_by' doesn't exist, check if this is 'core.users' table
-                IF TG_TABLE_SCHEMA = 'core' AND TG_TABLE_NAME = 'users' THEN
-                    v_user_id := NEW.id; -- For user creation, user itself is the "creator" if no session user
-                ELSE
-                    v_user_id := NULL; 
-                END IF;
-            END;
-        ELSIF TG_OP = 'UPDATE' THEN
-            BEGIN 
-                v_user_id := NEW.updated_by; 
-            EXCEPTION WHEN undefined_column THEN 
-                IF TG_TABLE_SCHEMA = 'core' AND TG_TABLE_NAME = 'users' THEN
-                     v_user_id := NEW.id; -- For user update, user itself is the "updater" if no session user
-                ELSE
-                    v_user_id := NULL;
-                END IF;
-            END;
-        END IF;
+        v_user_id := CASE 
+                        WHEN TG_OP = 'INSERT' AND NEW.created_by IS NOT NULL THEN NEW.created_by 
+                        WHEN TG_OP = 'UPDATE' AND NEW.updated_by IS NOT NULL THEN NEW.updated_by
+                        ELSE NULL 
+                     END;
     END IF;
     
-    -- Do not log changes to audit tables themselves to prevent recursion
     IF TG_TABLE_SCHEMA = 'audit' AND TG_TABLE_NAME IN ('audit_log', 'data_change_history') THEN
-        RETURN NULL; 
+        RETURN NULL; -- Do not log changes to audit tables themselves
     END IF;
 
     IF TG_OP = 'INSERT' THEN
@@ -1740,62 +1799,24 @@ BEGIN
         v_new_data := NULL;
     END IF;
     
-    -- Determine entity_id safely
-    BEGIN
-        IF TG_OP = 'DELETE' THEN
-            v_entity_id := OLD.id;
-        ELSE
-            v_entity_id := NEW.id;
-        END IF;
-    EXCEPTION WHEN undefined_column THEN
-        v_entity_id := NULL; 
-    END;
-
-    -- Determine entity_name safely
-    BEGIN
-        IF TG_OP = 'DELETE' THEN
-            temp_val := CASE 
-                WHEN TG_TABLE_NAME IN ('accounts', 'customers', 'vendors', 'products', 'roles', 'account_types', 'dimensions', 'fiscal_years', 'budgets') THEN OLD.name
-                WHEN TG_TABLE_NAME = 'journal_entries' THEN OLD.entry_no
-                WHEN TG_TABLE_NAME = 'sales_invoices' THEN OLD.invoice_no
-                WHEN TG_TABLE_NAME = 'purchase_invoices' THEN OLD.invoice_no
-                WHEN TG_TABLE_NAME = 'payments' THEN OLD.payment_no
-                WHEN TG_TABLE_NAME = 'users' THEN OLD.username
-                WHEN TG_TABLE_NAME = 'tax_codes' THEN OLD.code
-                WHEN TG_TABLE_NAME = 'gst_returns' THEN OLD.return_period
-                ELSE OLD.id::TEXT
-            END;
-        ELSE -- INSERT or UPDATE
-            temp_val := CASE 
-                WHEN TG_TABLE_NAME IN ('accounts', 'customers', 'vendors', 'products', 'roles', 'account_types', 'dimensions', 'fiscal_years', 'budgets') THEN NEW.name
-                WHEN TG_TABLE_NAME = 'journal_entries' THEN NEW.entry_no
-                WHEN TG_TABLE_NAME = 'sales_invoices' THEN NEW.invoice_no
-                WHEN TG_TABLE_NAME = 'purchase_invoices' THEN NEW.invoice_no
-                WHEN TG_TABLE_NAME = 'payments' THEN NEW.payment_no
-                WHEN TG_TABLE_NAME = 'users' THEN NEW.username
-                WHEN TG_TABLE_NAME = 'tax_codes' THEN NEW.code
-                WHEN TG_TABLE_NAME = 'gst_returns' THEN NEW.return_period
-                ELSE NEW.id::TEXT
-            END;
-        END IF;
-        v_entity_name := temp_val;
-    EXCEPTION WHEN undefined_column THEN
-        -- Fallback if specific named column (name, entry_no, etc.) doesn't exist for a listed table, or if OLD.id/NEW.id itself is problematic
-        BEGIN 
-            IF TG_OP = 'DELETE' THEN v_entity_name := OLD.id::TEXT; ELSE v_entity_name := NEW.id::TEXT; END IF;
-        EXCEPTION WHEN undefined_column THEN 
-            v_entity_name := NULL; 
-        END;
-    END;
-
     INSERT INTO audit.audit_log (
         user_id, action, entity_type, entity_id, entity_name, changes, timestamp
     ) VALUES (
         v_user_id,
         v_change_type,
         TG_TABLE_SCHEMA || '.' || TG_TABLE_NAME,
-        v_entity_id,
-        v_entity_name,
+        CASE WHEN TG_OP = 'DELETE' THEN OLD.id ELSE NEW.id END,
+        CASE 
+            WHEN TG_TABLE_NAME IN ('accounts', 'customers', 'vendors', 'products', 'roles', 'account_types', 'dimensions', 'fiscal_years', 'budgets') THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.name ELSE NEW.name END)
+            WHEN TG_TABLE_NAME = 'journal_entries' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.entry_no ELSE NEW.entry_no END)
+            WHEN TG_TABLE_NAME = 'sales_invoices' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.invoice_no ELSE NEW.invoice_no END)
+            WHEN TG_TABLE_NAME = 'purchase_invoices' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.invoice_no ELSE NEW.invoice_no END)
+            WHEN TG_TABLE_NAME = 'payments' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.payment_no ELSE NEW.payment_no END)
+            WHEN TG_TABLE_NAME = 'users' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.username ELSE NEW.username END)
+            WHEN TG_TABLE_NAME = 'tax_codes' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.code ELSE NEW.code END)
+            WHEN TG_TABLE_NAME = 'gst_returns' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.return_period ELSE NEW.return_period END)
+            ELSE CASE WHEN TG_OP = 'DELETE' THEN OLD.id::TEXT ELSE NEW.id::TEXT END
+        END,
         jsonb_build_object('old', v_old_data, 'new', v_new_data),
         CURRENT_TIMESTAMP
     );
@@ -1811,7 +1832,7 @@ BEGIN
                     change_type, changed_by, changed_at
                 ) VALUES (
                     TG_TABLE_SCHEMA || '.' || TG_TABLE_NAME,
-                    NEW.id, 
+                    NEW.id,
                     column_name,
                     v_old_data ->> column_name,
                     v_new_data ->> column_name,
@@ -1894,3 +1915,8 @@ END;
 $$;
 
 -- End of script
+```
+
+---
+https://drive.google.com/file/d/1EwsvcutY25rEKdDxZN2imU3hrOwGNVYL/view?usp=sharing, https://drive.google.com/file/d/1Nhrj6yvXO3YuJWobJ6pYA1zAoGRW9Pkb/view?usp=sharing, https://drive.google.com/file/d/1PeiUhKZrNTPXZA-gID8YSgycyoBGsTVW/view?usp=sharing, https://aistudio.google.com/app/prompts?state=%7B%22ids%22:%5B%221VLBZXJQEO8dnjyEdi4_ZoIjec1ikMutf%22%5D,%22action%22:%22open%22,%22userId%22:%22103961307342447084491%22,%22resourceKeys%22:%7B%7D%7D&usp=sharing, https://drive.google.com/file/d/1YqzdexaRTu_7xuCkAaEXR5AJUMNF-a8K/view?usp=sharing, https://drive.google.com/file/d/1dMoqfUucM6xTkbJAcC47YdBzJ43CM6mG/view?usp=sharing
+

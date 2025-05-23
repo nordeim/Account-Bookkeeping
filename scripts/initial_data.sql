@@ -1,6 +1,5 @@
-# File: scripts/initial_data.sql
-# This file's content is IDENTICAL to the "-- INITIAL DATA --" section of "create_database_schema (reference).md",
-# but with Python comment markers and triple-quotes REMOVED.
+-- # File: scripts/initial_data.sql
+-- # This file's content is IDENTICAL to the "-- INITIAL DATA --" section of "create_database_schema (reference).md",
 -- ============================================================================
 -- INITIAL DATA (from reference schema)
 -- ============================================================================

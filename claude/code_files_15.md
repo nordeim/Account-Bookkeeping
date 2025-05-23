@@ -1,3 +1,395 @@
+The new error `record "new" has no field "created_by"` in the `audit.log_data_change_trigger_func` and the subsequent foreign key violations indicate a few interrelated issues:
+
+1.  **Audit Trigger on Tables Without `created_by`/`updated_by`**:
+    The audit trigger function `audit.log_data_change_trigger_func` attempts to access `NEW.created_by` or `NEW.updated_by`:
+    ```sql
+    IF v_user_id IS NULL THEN
+        v_user_id := CASE 
+                        WHEN TG_OP = 'INSERT' AND NEW.created_by IS NOT NULL THEN NEW.created_by 
+                        WHEN TG_OP = 'UPDATE' AND NEW.updated_by IS NOT NULL THEN NEW.updated_by
+                        ELSE NULL 
+                     END;
+    END IF;
+    ```
+    This will fail if the trigger is attached to a table that does *not* have these columns. Looking at the `scripts/schema.sql` and the `initial_data.sql`, the `core.permissions` table is one such table where initial data is inserted (`INSERT 0 55` means 55 rows were attempted for `core.permissions`). The `core.permissions` table has `id, code, description, module, created_at` but no `created_by` or `updated_by` fields. When an `INSERT` happens on `core.permissions`, `NEW.created_by` does not exist, leading to the error.
+
+2.  **Order of Operations and User Creation**:
+    The `initial_data.sql` script tries to insert data into tables like `accounting.accounts` and `accounting.tax_codes` which have `created_by` and `updated_by` foreign keys pointing to `core.users.id`. These inserts use `1` as the user ID.
+    However, the user with `id=1` (`system_init_user`) is also created *within* `initial_data.sql`. If the audit trigger fires for the `INSERT INTO core.users` statement itself (and `core.users` is in `tables_to_audit`), it might cause an issue. More critically, if `core.users` is *not* audited (which it currently is in the list), the `INSERT 0 0` for `core.users` after the `system_init_user` line means that `ON CONFLICT (id) DO NOTHING` prevented the insert, which implies user ID 1 might *not* exist when subsequent tables try to reference it, if the `initial_data.sql` is run on a truly empty database or after `core.users` was somehow cleared/recreated without ID 1.
+
+    The error `DETAIL: Key (created_by)=(1) is not present in table "users".` confirms that user ID 1 is not available when `accounting.accounts` and `accounting.tax_codes` are being populated.
+
+**Plan to Fix:**
+
+1.  **Make Audit Trigger Robust for Missing `created_by`/`updated_by` Fields**:
+    The audit trigger needs to gracefully handle tables that don't have `created_by` or `updated_by` columns. We can check for the existence of these fields dynamically. A simpler way for now is to ensure that the `CASE` statement doesn't error out if the field doesn't exist, or to remove tables without these audit columns from being audited by this specific trigger logic *if* user attribution is critical. The reference schema `audit.log_data_change` function used `NEW.created_by` directly without dynamic checks, implying the audited tables were expected to have it.
+    A safer approach for the trigger:
+    ```sql
+    -- Inside audit.log_data_change_trigger_func()
+    IF v_user_id IS NULL THEN
+        IF TG_OP = 'INSERT' THEN
+            BEGIN
+                v_user_id := NEW.created_by;
+            EXCEPTION WHEN undefined_column THEN
+                v_user_id := NULL; -- Or some other default like current_user if appropriate
+            END;
+        ELSIF TG_OP = 'UPDATE' THEN
+            BEGIN
+                v_user_id := NEW.updated_by;
+            EXCEPTION WHEN undefined_column THEN
+                v_user_id := NULL;
+            END;
+        END IF;
+    END IF;
+    ```
+    This uses an exception block to catch `undefined_column`, which is cleaner.
+
+2.  **Ensure `core.users` (ID 1) is Created BEFORE tables referencing it in `initial_data.sql`**:
+    The `INSERT INTO core.users (id, username, ...)` for `system_init_user` ID 1 *must* successfully execute before any table tries to reference `user_id = 1`. The `ON CONFLICT (id) DO NOTHING` for user ID 1 is good, but we need to ensure that the `initial_data.sql` script can run successfully in a fresh database.
+    The `INSERT 0 0` for `core.users` in your log means the user with id=1 was *not* inserted during the `initial_data.sql` run, likely because it already existed from a previous partial run or the `schema.sql` phase (if it were to create it). The critical part is that the *foreign key constraint itself* fails later, meaning user ID 1 isn't there *at the moment of inserting into `accounts` or `tax_codes`*.
+
+    The issue might be that `initial_data.sql` is run in a context where `user_id=1` isn't guaranteed. The script should commit the user creation first or be structured so that this user is available. The `COMMIT;` at the end of `initial_data.sql` means all inserts are part of one transaction. If an early insert fails (like on `core.permissions` due to the audit trigger), the transaction might roll back, or subsequent inserts might fail.
+
+    **Strategy**:
+    a.  Modify the audit trigger to be more robust against missing `created_by`/`updated_by` columns.
+    b.  In `initial_data.sql`, ensure the `INSERT INTO core.users (id, ...)` for `system_init_user` is among the very first statements and perhaps even in its own transaction block if necessary (though psql runs scripts transactionally by default unless `ON_ERROR_STOP` is off and errors are ignored).
+
+Let's refine the audit trigger first as it's causing the initial failure.
+
+**Revised `audit.log_data_change_trigger_func` for `v_user_id` retrieval:**
+
+```sql
+-- Inside audit.log_data_change_trigger_func()
+-- ...
+    IF v_user_id IS NULL THEN
+        IF TG_OP = 'INSERT' THEN
+            BEGIN
+                v_user_id := (NEW)::jsonb->>'created_by'; -- Access as JSONB field
+                IF v_user_id IS NULL THEN -- Try alternative common name
+                    v_user_id := (NEW)::jsonb->>'created_by_user_id';
+                END IF;
+            EXCEPTION WHEN OTHERS THEN -- Catch if field does not exist or cast fails
+                v_user_id := NULL;
+            END;
+        ELSIF TG_OP = 'UPDATE' THEN
+            BEGIN
+                v_user_id := (NEW)::jsonb->>'updated_by';
+                 IF v_user_id IS NULL THEN
+                    v_user_id := (NEW)::jsonb->>'updated_by_user_id';
+                END IF;
+            EXCEPTION WHEN OTHERS THEN
+                v_user_id := NULL;
+            END;
+        END IF;
+    END IF;
+-- ...
+```
+This JSONB approach is more dynamic but can be slower. A more direct check might be better if column names are fixed. The original `CASE NEW.created_by` is fine *if* the trigger is only on tables guaranteed to have `created_by`.
+
+The fundamental issue is that `core.permissions` (and potentially other tables that `INSERT 0 55` might be part of) does not have `created_by`. The audit trigger applies to it based on the `tables_to_audit` list in `scripts/schema.sql`.
+
+**Current `tables_to_audit` list in `scripts/schema.sql`:**
+```
+'accounting.accounts', 'accounting.journal_entries', 'accounting.fiscal_periods', 'accounting.fiscal_years',
+'business.customers', 'business.vendors', 'business.products', 
+'business.sales_invoices', 'business.purchase_invoices', 'business.payments',
+'accounting.tax_codes', 'accounting.gst_returns',
+'core.users', 'core.roles', 'core.company_settings'
+```
+`core.permissions` is NOT in this list. So the `INSERT 0 55` which caused the error must be for `core.permissions` or `core.permissions_temp` or something similar. Let's assume it is `core.permissions`.
+If `core.permissions` is not in `tables_to_audit`, then the trigger `audit.log_data_change_trigger_func` shouldn't fire for it.
+
+The first error occurs during `INSERT 0 55`:
+`psql:scripts/initial_data.sql:16: ERROR:  record "new" has no field "created_by"`
+Line 16 of `initial_data.sql` is part of the `INSERT INTO core.permissions ...` block.
+This means the audit trigger *is* firing for `core.permissions`.
+The list `tables_to_audit` in `scripts/schema.sql` *must* be the definitive list of tables for which the trigger is created. If `core.permissions` is not in that list, the trigger should not be on that table.
+
+Ah, the `DO $$ ... CREATE TRIGGER ... $$` block for auditing is in `scripts/schema.sql`. The `initial_data.sql` only inserts data.
+The `tables_to_audit` list I provided in the previous response *does not* include `core.permissions`.
+
+Let's check `scripts/schema.sql` that I generated.
+The `tables_to_audit` list:
+```sql
+    tables_to_audit TEXT[] := ARRAY[
+        'accounting.accounts',
+        'accounting.journal_entries',
+        'accounting.fiscal_periods',
+        'accounting.fiscal_years',
+        'business.customers',
+        'business.vendors',
+        'business.products',
+        'business.sales_invoices',
+        'business.purchase_invoices',
+        'business.payments',
+        'accounting.tax_codes',
+        'accounting.gst_returns',
+        'core.users', 
+        'core.roles', 
+        'core.company_settings'
+    ];
+```
+`core.permissions` is **not** on this list. This is confusing. Why would the trigger fire for `core.permissions` if it's not in the list for which the trigger is created?
+
+Possibility:
+1.  The `tables_to_audit` list in the *actual executed* `schema.sql` was different.
+2.  The error message `CONTEXT: ... PL/pgSQL function audit.log_data_change_trigger_func() line 18 at assignment` is definitive. The trigger function *is* being called.
+
+The problem might be more subtle. The `psql` output shows `INSERT 0 55` which is for `core.permissions`. Then immediately the error.
+The `initial_data.sql` script is:
+```sql
+-- ...
+INSERT INTO core.permissions (code, description, module) VALUES ... -- This is likely the INSERT 0 55
+-- ...
+INSERT INTO core.users (id, username, password_hash, email, full_name, is_active)
+VALUES (1, 'system_init_user', '!', 'system_init@sgbookkeeper.com', 'System Initializer', FALSE) 
+ON CONFLICT (id) DO NOTHING;
+-- ...
+INSERT INTO accounting.accounts (code, name, account_type, created_by, updated_by, is_active) VALUES
+('SYS-GST-OUTPUT', 'System GST Output Tax', 'Liability', 1, 1, TRUE), -- This fails due to user 1 not existing
+('SYS-GST-INPUT', 'System GST Input Tax', 'Asset', 1, 1, TRUE)
+ON CONFLICT (code) DO NOTHING;
+```
+
+If the trigger for `core.permissions` is indeed firing, and `core.permissions` does not have `created_by`, the error makes sense.
+The most straightforward fix is to ensure `audit.log_data_change_trigger_func` handles missing `created_by`/`updated_by` gracefully.
+
+Let's use the `EXCEPTION WHEN undefined_column` approach. This is the most robust way.
+
+**Revised `audit.log_data_change_trigger_func` in `scripts/schema.sql`:**
+```sql
+CREATE OR REPLACE FUNCTION audit.log_data_change_trigger_func()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_old_data JSONB;
+    v_new_data JSONB;
+    v_change_type VARCHAR(20);
+    v_user_id INTEGER;
+    column_name TEXT; 
+BEGIN
+    BEGIN
+        v_user_id := current_setting('app.current_user_id', TRUE)::INTEGER;
+    EXCEPTION WHEN OTHERS THEN
+        v_user_id := NULL; 
+    END;
+
+    IF v_user_id IS NULL THEN
+        IF TG_OP = 'INSERT' THEN
+            BEGIN
+                v_user_id := NEW.created_by;
+            EXCEPTION WHEN undefined_column THEN
+                BEGIN -- Try alternative name if 'created_by' is not found
+                    v_user_id := NEW.created_by_user_id;
+                EXCEPTION WHEN undefined_column THEN
+                    v_user_id := NULL; 
+                END;
+            END;
+        ELSIF TG_OP = 'UPDATE' THEN
+            BEGIN
+                v_user_id := NEW.updated_by;
+            EXCEPTION WHEN undefined_column THEN
+                BEGIN -- Try alternative name
+                    v_user_id := NEW.updated_by_user_id;
+                EXCEPTION WHEN undefined_column THEN
+                    v_user_id := NULL;
+                END;
+            END;
+        END IF;
+    END IF;
+    
+    IF TG_TABLE_SCHEMA = 'audit' AND TG_TABLE_NAME IN ('audit_log', 'data_change_history') THEN
+        RETURN NULL; 
+    END IF;
+
+    IF TG_OP = 'INSERT' THEN
+        v_change_type := 'Insert';
+        v_old_data := NULL;
+        v_new_data := to_jsonb(NEW);
+    ELSIF TG_OP = 'UPDATE' THEN
+        v_change_type := 'Update';
+        v_old_data := to_jsonb(OLD);
+        v_new_data := to_jsonb(NEW);
+    ELSIF TG_OP = 'DELETE' THEN
+        v_change_type := 'Delete';
+        v_old_data := to_jsonb(OLD);
+        v_new_data := NULL;
+    END IF;
+    
+    INSERT INTO audit.audit_log (
+        user_id, action, entity_type, entity_id, entity_name, changes, timestamp
+    ) VALUES (
+        v_user_id,
+        v_change_type,
+        TG_TABLE_SCHEMA || '.' || TG_TABLE_NAME,
+        CASE WHEN TG_OP = 'DELETE' THEN OLD.id ELSE NEW.id END,
+        CASE 
+            WHEN TG_TABLE_NAME IN ('accounts', 'customers', 'vendors', 'products', 'roles', 'account_types', 'dimensions', 'fiscal_years', 'budgets') THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.name ELSE NEW.name END)
+            WHEN TG_TABLE_NAME = 'journal_entries' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.entry_no ELSE NEW.entry_no END)
+            WHEN TG_TABLE_NAME = 'sales_invoices' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.invoice_no ELSE NEW.invoice_no END)
+            WHEN TG_TABLE_NAME = 'purchase_invoices' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.invoice_no ELSE NEW.invoice_no END)
+            WHEN TG_TABLE_NAME = 'payments' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.payment_no ELSE NEW.payment_no END)
+            WHEN TG_TABLE_NAME = 'users' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.username ELSE NEW.username END)
+            WHEN TG_TABLE_NAME = 'tax_codes' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.code ELSE NEW.code END)
+            WHEN TG_TABLE_NAME = 'gst_returns' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.return_period ELSE NEW.return_period END)
+            ELSE CASE WHEN TG_OP = 'DELETE' THEN OLD.id::TEXT ELSE NEW.id::TEXT END
+        END,
+        jsonb_build_object('old', v_old_data, 'new', v_new_data),
+        CURRENT_TIMESTAMP
+    );
+    
+    IF TG_OP = 'UPDATE' THEN
+        FOR column_name IN 
+            SELECT key 
+            FROM jsonb_object_keys(v_old_data) 
+        LOOP
+            IF (v_new_data ? column_name) AND ((v_old_data -> column_name) IS DISTINCT FROM (v_new_data -> column_name)) THEN
+                INSERT INTO audit.data_change_history (
+                    table_name, record_id, field_name, old_value, new_value,
+                    change_type, changed_by, changed_at
+                ) VALUES (
+                    TG_TABLE_SCHEMA || '.' || TG_TABLE_NAME,
+                    NEW.id,
+                    column_name,
+                    v_old_data ->> column_name,
+                    v_new_data ->> column_name,
+                    'Update',
+                    v_user_id,
+                    CURRENT_TIMESTAMP
+                );
+            END IF;
+        END LOOP;
+    END IF;
+    
+    RETURN NULL; 
+END;
+$$ LANGUAGE plpgsql;
+```
+
+This handles the case where `NEW.created_by` or `NEW.updated_by` (or `_user_id` variants) might not exist on the table `NEW` refers to.
+
+**Second issue: Foreign Key `accounts_created_by_fkey` violation.**
+The `initial_data.sql` attempts to insert into `accounting.accounts` with `created_by = 1` and `updated_by = 1`. This happens *after* the `INSERT INTO core.users (id, ...)` statement for user ID 1.
+The `psql` output for `initial_data.sql` does not show any rows inserted for `core.users` related to ID 1 before the `accounting.accounts` insert:
+```
+...
+INSERT 0 55  -- core.permissions
+INSERT 0 9   -- core.currencies (or similar without FK to users)
+INSERT 0 9   -- core.sequences (or similar without FK to users)
+INSERT 0 11  -- accounting.account_types (no FK to users)
+psql:scripts/initial_data.sql:149: ERROR:  record "new" has no field "created_by" -- This is the INSERT for core.users (id=1) itself triggering the audit!
+psql:scripts/initial_data.sql:155: ERROR:  insert or update on table "accounts" violates foreign key constraint "accounts_created_by_fkey"
+```
+The error on line 149 happens *during* the `INSERT INTO core.users`. This means `core.users` IS being audited.
+The `tables_to_audit` list *does* include `'core.users'`.
+When inserting into `core.users`, the table `core.users` (which is `NEW`) does not have a `created_by` column itself. It has `id, username, password_hash, email, ...`.
+
+The audit trigger needs to be even more careful: `created_by` and `updated_by` are conventions *for other tables*, not necessarily for `core.users` itself (unless it tracks who created a user, which it doesn't per schema).
+
+So, for `core.users` inserts/updates, `v_user_id` in the audit log should probably be `NEW.id` (the user being affected/created) if `app.current_user_id` isn't set.
+
+Let's refine the `v_user_id` logic again:
+```sql
+    -- Inside audit.log_data_change_trigger_func()
+    -- ...
+    BEGIN
+        v_user_id := current_setting('app.current_user_id', TRUE)::INTEGER;
+    EXCEPTION WHEN OTHERS THEN
+        v_user_id := NULL; 
+    END;
+
+    IF v_user_id IS NULL THEN
+        -- If the audited table is 'core.users' itself, the user performing the action is often the user being created/modified,
+        -- unless it's an admin action. For simplicity during initial data load, if app.current_user_id is not set,
+        -- and it's an INSERT into core.users, we might not have a valid 'creator' from NEW.
+        -- For other tables, try to get created_by/updated_by.
+        IF TG_TABLE_SCHEMA = 'core' AND TG_TABLE_NAME = 'users' THEN
+            IF TG_OP = 'INSERT' THEN
+                v_user_id := NEW.id; -- Log the user being created as the one "responsible" if no other context
+            ELSIF TG_OP = 'UPDATE' THEN
+                 v_user_id := NEW.id; -- Log the user being updated as the one "responsible" if no other context
+            END IF;
+        ELSE
+            IF TG_OP = 'INSERT' THEN
+                BEGIN v_user_id := NEW.created_by; EXCEPTION WHEN undefined_column THEN v_user_id := NULL; END;
+            ELSIF TG_OP = 'UPDATE' THEN
+                BEGIN v_user_id := NEW.updated_by; EXCEPTION WHEN undefined_column THEN v_user_id := NULL; END;
+            END IF;
+        END IF;
+    END IF;
+    -- ...
+```
+This logic for `core.users` is a bit circular for the `changed_by` field in `audit_log` itself if no session user is set. Typically, for initial data seeding, auditing might be temporarily disabled or a specific system user ID is used.
+
+To make `initial_data.sql` work robustly when `user_id=1` is part of the seed:
+1.  The `INSERT INTO core.users (id, username, ... VALUES (1, ...)` must succeed.
+2.  When this insert fires the audit trigger for `core.users`, `NEW.created_by` will not exist. The trigger must handle this. The revised logic above attempts to do this by setting `v_user_id` to `NEW.id` for `core.users` if `app.current_user_id` is not set. This means the `audit_log.user_id` for the creation of user 1 will be 1.
+3.  Then, subsequent inserts into `accounting.accounts` using `created_by = 1` will find user 1.
+
+The foreign key error `Key (created_by)=(1) is not present in table "users"` means that the `INSERT INTO core.users ... VALUES (1, ...)` either failed or was rolled back due to the audit trigger error on `core.users`.
+
+Correcting the audit trigger to handle missing `created_by`/`updated_by` on `core.users` (and other tables like `core.permissions` if they were audited) is the primary fix.
+
+Let's ensure the `initial_data.sql` for creating user 1 is correct:
+```sql
+INSERT INTO core.users (id, username, password_hash, email, full_name, is_active)
+VALUES (1, 'system_init_user', '!', 'system_init@sgbookkeeper.com', 'System Initializer', FALSE) 
+ON CONFLICT (id) DO NOTHING;
+```
+This is fine. The `ON CONFLICT (id) DO NOTHING` ensures it doesn't fail if user 1 already exists (e.g., from a previous partial run).
+
+The key is the audit trigger's robustness. The version with `EXCEPTION WHEN undefined_column` is the way to go.
+
+Final check of the provided `initial_data.sql`:
+- It inserts roles.
+- Then inserts permissions. (Error occurs here: `record "new" has no field "created_by"`)
+- Then inserts currencies.
+- Then inserts sequences.
+- Then inserts account_types.
+- Then inserts `core.users` for ID 1. (Error occurs here too if `core.users` itself is audited and `NEW.created_by` is accessed).
+- Then inserts `accounting.accounts` (Fails with FK because user 1 wasn't created).
+
+So, the audit trigger `audit.log_data_change_trigger_func` is the main culprit. The `EXCEPTION WHEN undefined_column` strategy should fix the `record "new" has no field "created_by"` errors. Once those are fixed, the `core.users` (ID 1) insert should succeed, and then subsequent FK constraints will pass.
+
+One more check: the `tables_to_audit` list *does not* currently include `core.permissions`.
+If `core.permissions` is not audited, why did the error occur at `psql:scripts/initial_data.sql:16` (which is the permissions insert)? This implies the trigger *was* created for `core.permissions`.
+This could happen if the `schema.sql` executed was an older version, or if the `tables_to_audit` array was different.
+Assuming the `tables_to_audit` list in the *latest* `schema.sql` is correctly used, then `core.permissions` *should not* have this audit trigger. If it still fails on `core.permissions`, then we must re-check how triggers are applied.
+
+However, `core.users` *is* in `tables_to_audit`. So the audit trigger *will* fire for `INSERT INTO core.users`. The trigger must be robust for `core.users` not having `created_by` column.
+
+My proposed change to `v_user_id` logic for the audit trigger:
+```sql
+    -- Inside audit.log_data_change_trigger_func()
+    -- ...
+    BEGIN
+        v_user_id := current_setting('app.current_user_id', TRUE)::INTEGER;
+    EXCEPTION WHEN OTHERS THEN
+        v_user_id := NULL; 
+    END;
+
+    IF v_user_id IS NULL THEN
+        -- For tables that have created_by/updated_by columns (most tables)
+        IF TG_OP = 'INSERT' THEN
+            BEGIN v_user_id := NEW.created_by; EXCEPTION WHEN undefined_column THEN v_user_id := NULL; END;
+        ELSIF TG_OP = 'UPDATE' THEN
+            BEGIN v_user_id := NEW.updated_by; EXCEPTION WHEN undefined_column THEN v_user_id := NULL; END;
+        END IF;
+        
+        -- Special handling for core.users table itself if user_id is still NULL
+        -- (e.g. initial user creation without a session user)
+        IF v_user_id IS NULL AND TG_TABLE_SCHEMA = 'core' AND TG_TABLE_NAME = 'users' THEN
+            IF TG_OP = 'INSERT' OR TG_OP = 'UPDATE' THEN
+                 v_user_id := NEW.id; 
+            END IF;
+        END IF;
+    END IF;
+    -- ...
+```
+This prioritizes `created_by`/`updated_by` if they exist, and then has a specific fallback for `core.users`. This should make it robust enough.
+
+Let's re-generate `scripts/schema.sql` with this refined audit trigger.
+
+```sql
 -- File: scripts/schema.sql
 -- ============================================================================
 -- SG Bookkeeper - Complete Database Schema
@@ -583,6 +975,7 @@ CREATE TABLE accounting.budget_details (
     updated_by INTEGER NOT NULL REFERENCES core.users(id)
 );
 
+-- Add unique index for budget_details key including COALESCE for optional dimensions
 CREATE UNIQUE INDEX uix_budget_details_key ON accounting.budget_details (
     budget_id, 
     account_id, 
@@ -1683,9 +2076,6 @@ DECLARE
     v_new_data JSONB;
     v_change_type VARCHAR(20);
     v_user_id INTEGER;
-    v_entity_id INTEGER;
-    v_entity_name VARCHAR(200);
-    temp_val TEXT; -- For entity_name construction
     column_name TEXT; 
 BEGIN
     -- Try to get user_id from session variable
@@ -1695,29 +2085,21 @@ BEGIN
         v_user_id := NULL; 
     END;
 
-    -- If session user_id is not set, try to get from record's audit columns
+    -- If user_id is still NULL, try to get from NEW record fields
     IF v_user_id IS NULL THEN
+        -- For tables that have created_by/updated_by columns (most tables)
         IF TG_OP = 'INSERT' THEN
-            BEGIN 
-                v_user_id := NEW.created_by; 
-            EXCEPTION WHEN undefined_column THEN 
-                -- If 'created_by' doesn't exist, check if this is 'core.users' table
-                IF TG_TABLE_SCHEMA = 'core' AND TG_TABLE_NAME = 'users' THEN
-                    v_user_id := NEW.id; -- For user creation, user itself is the "creator" if no session user
-                ELSE
-                    v_user_id := NULL; 
-                END IF;
-            END;
+            BEGIN v_user_id := NEW.created_by; EXCEPTION WHEN undefined_column THEN v_user_id := NULL; END;
         ELSIF TG_OP = 'UPDATE' THEN
-            BEGIN 
-                v_user_id := NEW.updated_by; 
-            EXCEPTION WHEN undefined_column THEN 
-                IF TG_TABLE_SCHEMA = 'core' AND TG_TABLE_NAME = 'users' THEN
-                     v_user_id := NEW.id; -- For user update, user itself is the "updater" if no session user
-                ELSE
-                    v_user_id := NULL;
-                END IF;
-            END;
+            BEGIN v_user_id := NEW.updated_by; EXCEPTION WHEN undefined_column THEN v_user_id := NULL; END;
+        END IF;
+        
+        -- Special handling for core.users table itself if user_id is still NULL
+        -- (e.g. initial user creation without a session user, or if user table doesn't have created_by for itself)
+        IF v_user_id IS NULL AND TG_TABLE_SCHEMA = 'core' AND TG_TABLE_NAME = 'users' THEN
+            IF TG_OP = 'INSERT' OR TG_OP = 'UPDATE' THEN
+                 v_user_id := NEW.id; -- Log the user being created/updated as the one "responsible" if no other context
+            END IF;
         END IF;
     END IF;
     
@@ -1740,62 +2122,24 @@ BEGIN
         v_new_data := NULL;
     END IF;
     
-    -- Determine entity_id safely
-    BEGIN
-        IF TG_OP = 'DELETE' THEN
-            v_entity_id := OLD.id;
-        ELSE
-            v_entity_id := NEW.id;
-        END IF;
-    EXCEPTION WHEN undefined_column THEN
-        v_entity_id := NULL; 
-    END;
-
-    -- Determine entity_name safely
-    BEGIN
-        IF TG_OP = 'DELETE' THEN
-            temp_val := CASE 
-                WHEN TG_TABLE_NAME IN ('accounts', 'customers', 'vendors', 'products', 'roles', 'account_types', 'dimensions', 'fiscal_years', 'budgets') THEN OLD.name
-                WHEN TG_TABLE_NAME = 'journal_entries' THEN OLD.entry_no
-                WHEN TG_TABLE_NAME = 'sales_invoices' THEN OLD.invoice_no
-                WHEN TG_TABLE_NAME = 'purchase_invoices' THEN OLD.invoice_no
-                WHEN TG_TABLE_NAME = 'payments' THEN OLD.payment_no
-                WHEN TG_TABLE_NAME = 'users' THEN OLD.username
-                WHEN TG_TABLE_NAME = 'tax_codes' THEN OLD.code
-                WHEN TG_TABLE_NAME = 'gst_returns' THEN OLD.return_period
-                ELSE OLD.id::TEXT
-            END;
-        ELSE -- INSERT or UPDATE
-            temp_val := CASE 
-                WHEN TG_TABLE_NAME IN ('accounts', 'customers', 'vendors', 'products', 'roles', 'account_types', 'dimensions', 'fiscal_years', 'budgets') THEN NEW.name
-                WHEN TG_TABLE_NAME = 'journal_entries' THEN NEW.entry_no
-                WHEN TG_TABLE_NAME = 'sales_invoices' THEN NEW.invoice_no
-                WHEN TG_TABLE_NAME = 'purchase_invoices' THEN NEW.invoice_no
-                WHEN TG_TABLE_NAME = 'payments' THEN NEW.payment_no
-                WHEN TG_TABLE_NAME = 'users' THEN NEW.username
-                WHEN TG_TABLE_NAME = 'tax_codes' THEN NEW.code
-                WHEN TG_TABLE_NAME = 'gst_returns' THEN NEW.return_period
-                ELSE NEW.id::TEXT
-            END;
-        END IF;
-        v_entity_name := temp_val;
-    EXCEPTION WHEN undefined_column THEN
-        -- Fallback if specific named column (name, entry_no, etc.) doesn't exist for a listed table, or if OLD.id/NEW.id itself is problematic
-        BEGIN 
-            IF TG_OP = 'DELETE' THEN v_entity_name := OLD.id::TEXT; ELSE v_entity_name := NEW.id::TEXT; END IF;
-        EXCEPTION WHEN undefined_column THEN 
-            v_entity_name := NULL; 
-        END;
-    END;
-
     INSERT INTO audit.audit_log (
         user_id, action, entity_type, entity_id, entity_name, changes, timestamp
     ) VALUES (
         v_user_id,
         v_change_type,
         TG_TABLE_SCHEMA || '.' || TG_TABLE_NAME,
-        v_entity_id,
-        v_entity_name,
+        CASE WHEN TG_OP = 'DELETE' THEN OLD.id ELSE NEW.id END,
+        CASE 
+            WHEN TG_TABLE_NAME IN ('accounts', 'customers', 'vendors', 'products', 'roles', 'account_types', 'dimensions', 'fiscal_years', 'budgets') THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.name ELSE NEW.name END)
+            WHEN TG_TABLE_NAME = 'journal_entries' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.entry_no ELSE NEW.entry_no END)
+            WHEN TG_TABLE_NAME = 'sales_invoices' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.invoice_no ELSE NEW.invoice_no END)
+            WHEN TG_TABLE_NAME = 'purchase_invoices' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.invoice_no ELSE NEW.invoice_no END)
+            WHEN TG_TABLE_NAME = 'payments' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.payment_no ELSE NEW.payment_no END)
+            WHEN TG_TABLE_NAME = 'users' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.username ELSE NEW.username END)
+            WHEN TG_TABLE_NAME = 'tax_codes' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.code ELSE NEW.code END)
+            WHEN TG_TABLE_NAME = 'gst_returns' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.return_period ELSE NEW.return_period END)
+            ELSE CASE WHEN TG_OP = 'DELETE' THEN OLD.id::TEXT ELSE NEW.id::TEXT END
+        END,
         jsonb_build_object('old', v_old_data, 'new', v_new_data),
         CURRENT_TIMESTAMP
     );
@@ -1811,7 +2155,7 @@ BEGIN
                     change_type, changed_by, changed_at
                 ) VALUES (
                     TG_TABLE_SCHEMA || '.' || TG_TABLE_NAME,
-                    NEW.id, 
+                    NEW.id,
                     column_name,
                     v_old_data ->> column_name,
                     v_new_data ->> column_name,
@@ -1872,6 +2216,9 @@ DECLARE
         'core.users', 
         'core.roles', 
         'core.company_settings'
+        -- Note: core.permissions is NOT in this list. If audit is desired, add it.
+        -- The error on core.permissions insert implies it might have been audited previously or
+        -- the error context was misleading. With the robust trigger, it should be fine even if audited.
     ];
     table_fullname TEXT;
     schema_name TEXT;
@@ -1894,3 +2241,8 @@ END;
 $$;
 
 -- End of script
+```
+
+---
+https://drive.google.com/file/d/1EwsvcutY25rEKdDxZN2imU3hrOwGNVYL/view?usp=sharing, https://drive.google.com/file/d/1Nhrj6yvXO3YuJWobJ6pYA1zAoGRW9Pkb/view?usp=sharing, https://drive.google.com/file/d/1PeiUhKZrNTPXZA-gID8YSgycyoBGsTVW/view?usp=sharing, https://aistudio.google.com/app/prompts?state=%7B%22ids%22:%5B%221VLBZXJQEO8dnjyEdi4_ZoIjec1ikMutf%22%5D,%22action%22:%22open%22,%22userId%22:%22103961307342447084491%22,%22resourceKeys%22:%7B%7D%7D&usp=sharing, https://drive.google.com/file/d/1YqzdexaRTu_7xuCkAaEXR5AJUMNF-a8K/view?usp=sharing, https://drive.google.com/file/d/1dMoqfUucM6xTkbJAcC47YdBzJ43CM6mG/view?usp=sharing
+

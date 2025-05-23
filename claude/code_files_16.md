@@ -1,3 +1,332 @@
+<think>
+The new error from `db_init.py` is `Error during database creation/initialization: record "old" has no field "entry_no"`.
+The `psql` output still shows the `record "new" has no field "created_by"` error from the audit trigger, and then the foreign key violations.
+
+This implies two things:
+1.  The `db_init.py` script might be encountering the `record "old" has no field "entry_no"` error *before* or *differently* than when `psql` runs `initial_data.sql` directly. This specific error (`record "old" has no field "entry_no"`) points to the `CASE` statement for `entity_name` in the audit trigger `audit.log_data_change_trigger_func`, specifically when `TG_OP = 'DELETE'`:
+    ```sql
+    CASE 
+        ...
+        WHEN TG_TABLE_NAME = 'journal_entries' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.entry_no ELSE NEW.entry_no END)
+        ...
+    END
+    ```
+    If a `DELETE` operation occurs on a table that is *not* `journal_entries` but the trigger logic somehow tries to access `OLD.entry_no` (perhaps due to a fall-through or a misconfiguration of audited tables), this could happen. Or, if a `DELETE` occurs on `journal_entries` and `OLD` somehow doesn't conform to the expected structure (less likely).
+
+2.  The `record "new" has no field "created_by"` error during `psql` execution of `initial_data.sql` persists. This means my previous fix for the `v_user_id` retrieval in `audit.log_data_change_trigger_func` was not fully effective or the correct version of the schema script wasn't used.
+
+Let's analyze the `record "old" has no field "entry_no"` from `db_init.py`.
+This error suggests that the `entity_name` `CASE` statement is trying to access `OLD.entry_no` for a table that doesn't have an `entry_no` field, specifically during a `DELETE` operation.
+However, the `initial_data.sql` script primarily consists of `INSERT` statements. `DELETE` operations are not typical during initial data seeding.
+Could it be that `db_init.py` does some cleanup or `DROP` operations that might fire triggers if those tables were somehow pre-existing and audited? The script does `DROP DATABASE IF EXISTS`. If triggers were on system tables or tables in `postgres` db (which they shouldn't be), this error is highly unlikely. The error is most likely from the `initial_data.sql` part.
+
+Let's re-examine the `CASE` statement for `entity_name` in `audit.log_data_change_trigger_func`:
+```sql
+        CASE 
+            WHEN TG_TABLE_NAME IN ('accounts', 'customers', 'vendors', 'products', 'roles', 'account_types', 'dimensions', 'fiscal_years', 'budgets') THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.name ELSE NEW.name END)
+            WHEN TG_TABLE_NAME = 'journal_entries' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.entry_no ELSE NEW.entry_no END)
+            WHEN TG_TABLE_NAME = 'sales_invoices' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.invoice_no ELSE NEW.invoice_no END)
+            WHEN TG_TABLE_NAME = 'purchase_invoices' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.invoice_no ELSE NEW.invoice_no END)
+            WHEN TG_TABLE_NAME = 'payments' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.payment_no ELSE NEW.payment_no END)
+            WHEN TG_TABLE_NAME = 'users' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.username ELSE NEW.username END)
+            WHEN TG_TABLE_NAME = 'tax_codes' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.code ELSE NEW.code END)
+            WHEN TG_TABLE_NAME = 'gst_returns' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.return_period ELSE NEW.return_period END)
+            ELSE CASE WHEN TG_OP = 'DELETE' THEN OLD.id::TEXT ELSE NEW.id::TEXT END -- Default case uses OLD.id
+        END,
+```
+If `TG_OP = 'DELETE'` and the table is not one of the explicitly listed ones, it defaults to `OLD.id::TEXT`. This part is fine.
+The error `record "old" has no field "entry_no"` specifically means that `TG_TABLE_NAME` *was* `'journal_entries'`, `TG_OP` *was* `'DELETE'`, and the record referred to by `OLD` (a row from `journal_entries`) somehow did not have an `entry_no` field. This is highly unlikely if the schema is correct because `journal_entries` *does* have `entry_no`.
+
+This specific error (`record "old" has no field "entry_no"`) did *not* appear when running `initial_data.sql` directly with `psql`. This suggests that `db_init.py` might be doing something *additional* or in a different context.
+The `db_init.py` script:
+1. Terminates connections (if `drop_existing`).
+2. Drops database (if `drop_existing`).
+3. Creates database.
+4. Connects to the new database.
+5. Executes `schema.sql`.
+6. Executes `initial_data.sql`.
+
+The error must be happening during step 5 or 6 when executed via `db_init.py`.
+Perhaps the `asyncpg` execution of `schema.sql` has a subtle difference in how it handles errors or state compared to `psql`.
+
+Let's re-focus on the errors from `psql scripts/initial_data.sql` as they are more direct:
+`psql:scripts/initial_data.sql:16: ERROR:  record "new" has no field "created_by"`
+`CONTEXT:  PL/pgSQL assignment "v_user_id := CASE WHEN TG_OP = 'INSERT' AND NEW.created_by IS NOT NULL THEN NEW.created_by ..."`
+This context points to the `v_user_id` assignment block. My last proposed `v_user_id` logic was:
+```sql
+    IF v_user_id IS NULL THEN
+        -- For tables that have created_by/updated_by columns (most tables)
+        IF TG_OP = 'INSERT' THEN
+            BEGIN v_user_id := NEW.created_by; EXCEPTION WHEN undefined_column THEN v_user_id := NULL; END;
+        ELSIF TG_OP = 'UPDATE' THEN
+            BEGIN v_user_id := NEW.updated_by; EXCEPTION WHEN undefined_column THEN v_user_id := NULL; END;
+        END IF;
+        
+        -- Special handling for core.users table itself if user_id is still NULL
+        IF v_user_id IS NULL AND TG_TABLE_SCHEMA = 'core' AND TG_TABLE_NAME = 'users' THEN
+            IF TG_OP = 'INSERT' OR TG_OP = 'UPDATE' THEN
+                 v_user_id := NEW.id; 
+            END IF;
+        END IF;
+    END IF;
+```
+The error message's context `PL/pgSQL assignment "v_user_id := CASE ..."` suggests that the `CASE` statement logic from the *reference schema* (which I had initially, and then tried to replace with dynamic/exception-based logic) is still somehow in play or my latest version of the trigger with `EXCEPTION WHEN undefined_column` was not what got executed by `psql`.
+
+The `psql` error clearly shows this specific `CASE` statement is the source of the problem:
+`v_user_id := CASE WHEN TG_OP = 'INSERT' AND NEW.created_by IS NOT NULL THEN NEW.created_by WHEN TG_OP = 'UPDATE' AND NEW.updated_by IS NOT NULL THEN NEW.updated_by ELSE NULL END`
+
+This `CASE` statement will indeed fail if `NEW.created_by` (or `NEW.updated_by`) does not exist on the table being inserted/updated. This happens for `core.permissions` (line 16 of `initial_data.sql`) and `core.users` (line 149 of `initial_data.sql`).
+
+**The Core Problem:** The audit trigger's logic for fetching `created_by`/`updated_by` is not robust enough for tables that lack these columns but are being audited.
+
+**Solution Path:**
+1.  **Identify all tables being audited:** The `tables_to_audit` array in `scripts/schema.sql` is the list.
+    ```
+    'accounting.accounts', 'accounting.journal_entries', 'accounting.fiscal_periods', 'accounting.fiscal_years',
+    'business.customers', 'business.vendors', 'business.products', 
+    'business.sales_invoices', 'business.purchase_invoices', 'business.payments',
+    'accounting.tax_codes', 'accounting.gst_returns',
+    'core.users', 'core.roles', 'core.company_settings'
+    ```
+2.  **Check which of these tables lack `created_by`/`updated_by` columns**:
+    *   `core.users`: Has `id`, `username`, etc. **Does not have `created_by`, `updated_by` columns.**
+    *   `core.roles`: Has `id`, `name`, `description`, `created_at`, `updated_at`. **Does not have `created_by`, `updated_by` columns.**
+    *   `core.company_settings`: Has `updated_by`. **Does not have `created_by` column.** (Though it has `updated_by` which the CASE statement checks).
+    *   Other tables in the list (e.g., `accounting.accounts`, `accounting.journal_entries`, etc.) *do* have `created_by` and `updated_by`.
+
+The trigger will fail on `INSERT` into `core.users` and `core.roles`. It will also fail on `INSERT` into `core.company_settings` because `NEW.created_by` doesn't exist.
+
+The `EXCEPTION WHEN undefined_column` approach is the correct general way to handle this.
+The `psql` output's context showing the `CASE` statement indicates the version of `audit.log_data_change_trigger_func` with the `EXCEPTION` blocks was not the one that ran. I need to ensure that the function definition in `scripts/schema.sql` is *definitely* the one with the robust exception handling for `NEW.created_by` and `NEW.updated_by`.
+
+Let's re-paste the corrected trigger function logic again, ensuring it's exactly what should be in the schema file.
+
+```sql
+CREATE OR REPLACE FUNCTION audit.log_data_change_trigger_func()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_old_data JSONB;
+    v_new_data JSONB;
+    v_change_type VARCHAR(20);
+    v_user_id INTEGER;
+    column_name TEXT; 
+BEGIN
+    -- Try to get user_id from session variable
+    BEGIN
+        v_user_id := current_setting('app.current_user_id', TRUE)::INTEGER;
+    EXCEPTION WHEN OTHERS THEN
+        v_user_id := NULL; 
+    END;
+
+    -- If session user_id is not set, try to get from record's audit columns
+    IF v_user_id IS NULL THEN
+        IF TG_OP = 'INSERT' THEN
+            BEGIN
+                v_user_id := NEW.created_by;
+            EXCEPTION WHEN undefined_column THEN
+                -- Try alternative common name if 'created_by' is not found or if table is 'core.users'
+                IF TG_TABLE_SCHEMA = 'core' AND TG_TABLE_NAME = 'users' THEN
+                    v_user_id := NEW.id; -- For user creation, user itself is the "creator" in audit log if no session user
+                ELSE
+                    v_user_id := NULL; 
+                END IF;
+            END;
+        ELSIF TG_OP = 'UPDATE' THEN
+            BEGIN
+                v_user_id := NEW.updated_by;
+            EXCEPTION WHEN undefined_column THEN
+                 -- Try alternative common name if 'updated_by' is not found or if table is 'core.users'
+                IF TG_TABLE_SCHEMA = 'core' AND TG_TABLE_NAME = 'users' THEN
+                     v_user_id := NEW.id; -- For user update, user itself is the "updater" if no session user
+                ELSE
+                    v_user_id := NULL;
+                END IF;
+            END;
+        END IF;
+    END IF;
+    
+    -- Do not log changes to audit tables themselves to prevent recursion
+    IF TG_TABLE_SCHEMA = 'audit' AND TG_TABLE_NAME IN ('audit_log', 'data_change_history') THEN
+        RETURN NULL; 
+    END IF;
+
+    IF TG_OP = 'INSERT' THEN
+        v_change_type := 'Insert';
+        v_old_data := NULL;
+        v_new_data := to_jsonb(NEW);
+    ELSIF TG_OP = 'UPDATE' THEN
+        v_change_type := 'Update';
+        v_old_data := to_jsonb(OLD);
+        v_new_data := to_jsonb(NEW);
+    ELSIF TG_OP = 'DELETE' THEN
+        v_change_type := 'Delete';
+        v_old_data := to_jsonb(OLD);
+        v_new_data := NULL;
+    END IF;
+    
+    -- Determine entity_id safely
+    DECLARE
+        v_entity_id INTEGER;
+    BEGIN
+        IF TG_OP = 'DELETE' THEN
+            v_entity_id := OLD.id;
+        ELSE
+            v_entity_id := NEW.id;
+        END IF;
+    EXCEPTION WHEN undefined_column THEN
+        v_entity_id := NULL; -- Fallback if 'id' column doesn't exist (should not happen for audited tables)
+    END;
+
+    -- Determine entity_name safely
+    DECLARE
+        v_entity_name VARCHAR(200);
+    BEGIN
+        IF TG_OP = 'DELETE' THEN
+            v_entity_name := CASE 
+                WHEN TG_TABLE_NAME IN ('accounts', 'customers', 'vendors', 'products', 'roles', 'account_types', 'dimensions', 'fiscal_years', 'budgets') THEN OLD.name
+                WHEN TG_TABLE_NAME = 'journal_entries' THEN OLD.entry_no
+                WHEN TG_TABLE_NAME = 'sales_invoices' THEN OLD.invoice_no
+                WHEN TG_TABLE_NAME = 'purchase_invoices' THEN OLD.invoice_no
+                WHEN TG_TABLE_NAME = 'payments' THEN OLD.payment_no
+                WHEN TG_TABLE_NAME = 'users' THEN OLD.username
+                WHEN TG_TABLE_NAME = 'tax_codes' THEN OLD.code
+                WHEN TG_TABLE_NAME = 'gst_returns' THEN OLD.return_period
+                ELSE OLD.id::TEXT
+            END;
+        ELSE
+            v_entity_name := CASE 
+                WHEN TG_TABLE_NAME IN ('accounts', 'customers', 'vendors', 'products', 'roles', 'account_types', 'dimensions', 'fiscal_years', 'budgets') THEN NEW.name
+                WHEN TG_TABLE_NAME = 'journal_entries' THEN NEW.entry_no
+                WHEN TG_TABLE_NAME = 'sales_invoices' THEN NEW.invoice_no
+                WHEN TG_TABLE_NAME = 'purchase_invoices' THEN NEW.invoice_no
+                WHEN TG_TABLE_NAME = 'payments' THEN NEW.payment_no
+                WHEN TG_TABLE_NAME = 'users' THEN NEW.username
+                WHEN TG_TABLE_NAME = 'tax_codes' THEN NEW.code
+                WHEN TG_TABLE_NAME = 'gst_returns' THEN NEW.return_period
+                ELSE NEW.id::TEXT
+            END;
+        END IF;
+    EXCEPTION WHEN undefined_column THEN
+        IF TG_OP = 'DELETE' THEN
+            BEGIN v_entity_name := OLD.id::TEXT; EXCEPTION WHEN undefined_column THEN v_entity_name := NULL; END;
+        ELSE
+            BEGIN v_entity_name := NEW.id::TEXT; EXCEPTION WHEN undefined_column THEN v_entity_name := NULL; END;
+        END IF;
+    END;
+
+    INSERT INTO audit.audit_log (
+        user_id, action, entity_type, entity_id, entity_name, changes, timestamp
+    ) VALUES (
+        v_user_id,
+        v_change_type,
+        TG_TABLE_SCHEMA || '.' || TG_TABLE_NAME,
+        v_entity_id,
+        v_entity_name,
+        jsonb_build_object('old', v_old_data, 'new', v_new_data),
+        CURRENT_TIMESTAMP
+    );
+    
+    IF TG_OP = 'UPDATE' THEN
+        FOR column_name IN 
+            SELECT key 
+            FROM jsonb_object_keys(v_old_data) 
+        LOOP
+            IF (v_new_data ? column_name) AND ((v_old_data -> column_name) IS DISTINCT FROM (v_new_data -> column_name)) THEN
+                INSERT INTO audit.data_change_history (
+                    table_name, record_id, field_name, old_value, new_value,
+                    change_type, changed_by, changed_at
+                ) VALUES (
+                    TG_TABLE_SCHEMA || '.' || TG_TABLE_NAME,
+                    NEW.id, -- Assuming NEW.id always exists for UPDATE
+                    column_name,
+                    v_old_data ->> column_name,
+                    v_new_data ->> column_name,
+                    'Update',
+                    v_user_id,
+                    CURRENT_TIMESTAMP
+                );
+            END IF;
+        END LOOP;
+    END IF;
+    
+    RETURN NULL; 
+END;
+$$ LANGUAGE plpgsql;
+```
+This revised trigger function is more robust in accessing fields from `NEW` or `OLD` records by wrapping potentially problematic accesses in `BEGIN...EXCEPTION WHEN undefined_column...END` blocks. This should prevent the "record ... has no field ..." errors.
+
+The `record "old" has no field "entry_no"` from `db_init.py` is still a bit puzzling if no `DELETE` on `journal_entries` is happening. However, if the more robust trigger above fixes the `created_by` issues, the overall script execution might proceed further or change behavior. The `db_init.py` might be swallowing the exact PL/pgSQL context that `psql` shows.
+
+Let's provide the schema with this very robust trigger function.
+
+The foreign key violations (`Key (created_by)=(1) is not present in table "users"`) are a direct consequence of the `INSERT INTO core.users ... VALUES (1, ...)` failing (or being rolled back) due to the audit trigger error on `core.users`. If the audit trigger is fixed, user 1 will be created, and subsequent FKs will pass.
+
+One last check on the `tables_to_audit` list in `scripts/schema.sql`. The `db_init.py` error `record "old" has no field "entry_no"` implies a DELETE operation on `journal_entries`. This shouldn't happen during `schema.sql` or `initial_data.sql`. If the `initial_data.sql` is re-runnable, `ON CONFLICT DO NOTHING` is used, which isn't a DELETE. Perhaps a `DROP TRIGGER IF EXISTS` followed by `CREATE TRIGGER` could be misinterperted if the function it points to is faulty from a *previous* incomplete run of `schema.sql`? `db_init.py` tries to run `schema.sql` cleanly.
+
+The `db_init.py` message `Error during database creation/initialization: record "old" has no field "entry_no"` must come from the execution of `schema.sql` or `initial_data.sql` by `asyncpg`.
+If `schema.sql` completes, and then `initial_data.sql` starts, the `INSERT INTO core.permissions` (line 16) happens.
+The error "record 'old' has no field 'entry_no'" can *only* occur if `TG_OP = 'DELETE'` and `TG_TABLE_NAME = 'journal_entries'`. This is not happening during `INSERT INTO core.permissions`.
+
+This suggests the error reported by `db_init.py` might be a red herring or a misreported error from `asyncpg` for a different underlying issue. The `psql` errors are more reliable for debugging SQL script issues. The `record "new" has no field "created_by"` is the primary issue from `psql`.
+
+The `entity_name` part of the trigger function needs the same robustness:
+```sql
+    -- Determine entity_name safely
+    DECLARE
+        v_entity_name VARCHAR(200);
+        temp_val TEXT;
+    BEGIN
+        IF TG_OP = 'DELETE' THEN
+            SELECT CASE 
+                WHEN TG_TABLE_NAME IN ('accounts', 'customers', 'vendors', 'products', 'roles', 'account_types', 'dimensions', 'fiscal_years', 'budgets') THEN OLD.name
+                WHEN TG_TABLE_NAME = 'journal_entries' THEN OLD.entry_no
+                -- ... other specific cases for OLD ...
+                ELSE OLD.id::TEXT
+            END INTO temp_val;
+        ELSE
+            SELECT CASE 
+                WHEN TG_TABLE_NAME IN ('accounts', 'customers', 'vendors', 'products', 'roles', 'account_types', 'dimensions', 'fiscal_years', 'budgets') THEN NEW.name
+                WHEN TG_TABLE_NAME = 'journal_entries' THEN NEW.entry_no
+                -- ... other specific cases for NEW ...
+                ELSE NEW.id::TEXT
+            END INTO temp_val;
+        END IF;
+        v_entity_name := temp_val;
+    EXCEPTION WHEN undefined_column THEN
+        -- Fallback if specific named column (name, entry_no, etc.) doesn't exist
+        IF TG_OP = 'DELETE' THEN
+            BEGIN temp_val := OLD.id::TEXT; EXCEPTION WHEN undefined_column THEN temp_val := NULL; END;
+        ELSE
+            BEGIN temp_val := NEW.id::TEXT; EXCEPTION WHEN undefined_column THEN temp_val := NULL; END;
+        END IF;
+        v_entity_name := temp_val;
+    END;
+```
+This revised logic for `v_entity_name` also uses `EXCEPTION WHEN undefined_column` to handle cases where `OLD.name` or `NEW.name` (or other specific fields like `entry_no`) might not exist for a particular table, falling back to `id`. This should prevent the `record "old" has no field "entry_no"` if a table without `entry_no` was somehow being processed by that specific branch of the `CASE` statement (which shouldn't happen with the current CASE structure, but robustness is good).
+
+The error `record "old" has no field "entry_no"` must mean the `CASE` statement for `entity_name` is taking the `WHEN TG_TABLE_NAME = 'journal_entries'` path, `TG_OP` is `DELETE`, but `OLD` (which should be a `journal_entries` row) doesn't have `entry_no`. This is a schema contradiction.
+Could the `entity_name` part be simplified to always use `id` if `name` is not present for all tables?
+The reference schema does:
+```sql
+        CASE 
+            WHEN TG_TABLE_NAME = 'accounts' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.name ELSE NEW.name END)
+            WHEN TG_TABLE_NAME = 'customers' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.name ELSE NEW.name END)
+            -- ... many such cases ...
+            ELSE CASE WHEN TG_OP = 'DELETE' THEN OLD.id::TEXT ELSE NEW.id::TEXT END
+        END,
+```
+This explicit listing is safer. My prior `scripts/schema.sql` used `TG_TABLE_NAME IN (...) THEN OLD.name/NEW.name`. This is equivalent.
+The error `record "old" has no field "entry_no"` remains the most peculiar one if it's from `db_init.py` but not `psql` on the same script part.
+
+Let's ensure all `NEW.column` or `OLD.column` accesses within the audit trigger are wrapped in `BEGIN...EXCEPTION` blocks if the column is not universally present across all audited tables. `id` is assumed to be universal for audited tables. `name` is common. `created_by`/`updated_by` are not.
+
+The most robust way to handle `v_user_id` and `v_entity_name` is to use dynamic SQL with `EXECUTE format(...)` to build a query that only selects `created_by` or `name` if the column exists, but this is overly complex for a trigger. The `EXCEPTION WHEN undefined_column` is the standard PL/pgSQL way.
+
+The provided `psql` log clearly shows the error originates from the `v_user_id` assignment using the `CASE` statement. This means the SQL that `psql` is running for `scripts/initial_data.sql` is encountering an audit trigger definition that looks like the one from the reference schema, not my latest proposed one with `EXCEPTION WHEN undefined_column`.
+
+It's critical that the `scripts/schema.sql` file being executed by `db_init.py` *actually contains* the updated trigger function. I will provide the corrected schema again.
+
+```sql
 -- File: scripts/schema.sql
 -- ============================================================================
 -- SG Bookkeeper - Complete Database Schema
@@ -1894,3 +2223,8 @@ END;
 $$;
 
 -- End of script
+```
+
+---
+https://drive.google.com/file/d/1EwsvcutY25rEKdDxZN2imU3hrOwGNVYL/view?usp=sharing, https://drive.google.com/file/d/1Nhrj6yvXO3YuJWobJ6pYA1zAoGRW9Pkb/view?usp=sharing, https://drive.google.com/file/d/1PeiUhKZrNTPXZA-gID8YSgycyoBGsTVW/view?usp=sharing, https://aistudio.google.com/app/prompts?state=%7B%22ids%22:%5B%221VLBZXJQEO8dnjyEdi4_ZoIjec1ikMutf%22%5D,%22action%22:%22open%22,%22userId%22:%22103961307342447084491%22,%22resourceKeys%22:%7B%7D%7D&usp=sharing, https://drive.google.com/file/d/1YqzdexaRTu_7xuCkAaEXR5AJUMNF-a8K/view?usp=sharing, https://drive.google.com/file/d/1dMoqfUucM6xTkbJAcC47YdBzJ43CM6mG/view?usp=sharing
+

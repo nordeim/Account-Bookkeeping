@@ -1,3 +1,745 @@
+<think>
+The user pointed out that the `CREATE OR REPLACE FUNCTION audit.log_data_change_trigger_func()` was incomplete. I need to carefully review the last generated version of `scripts/schema.sql`, compare it with the reference schema (`create_database_schema (reference).md`) for the audit trigger logic, and complete the function.
+
+My previous attempt to simplify the `v_user_id` retrieval in the audit trigger was one step. The `audit.log_data_change_trigger_func` from the `scripts/schema.sql` provided in the prompt had a slightly different logic than the reference one. I need to ensure the completion uses the intended logic, which seems to be a mix of `current_setting` and falling back to record fields if the setting is not available.
+
+The reference schema's audit trigger logic (`audit.log_data_change` function) is:
+```sql
+CREATE OR REPLACE FUNCTION audit.log_data_change()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_old_data JSONB;
+    v_new_data JSONB;
+    v_change_type VARCHAR;
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        v_change_type := 'Insert';
+        v_old_data := NULL;
+        v_new_data := to_jsonb(NEW);
+    ELSIF TG_OP = 'UPDATE' THEN
+        v_change_type := 'Update';
+        v_old_data := to_jsonb(OLD);
+        v_new_data := to_jsonb(NEW);
+    ELSIF TG_OP = 'DELETE' THEN
+        v_change_type := 'Delete';
+        v_old_data := to_jsonb(OLD);
+        v_new_data := NULL;
+    END IF;
+    
+    -- Record in audit log
+    INSERT INTO audit.audit_log (
+        user_id,
+        action,
+        entity_type,
+        entity_id,
+        entity_name,
+        changes,
+        timestamp
+    ) VALUES (
+        COALESCE(current_setting('app.current_user_id', TRUE)::INTEGER, 
+                CASE WHEN TG_OP = 'INSERT' THEN NEW.created_by 
+                     WHEN TG_OP = 'UPDATE' THEN NEW.updated_by
+                     ELSE NULL END), -- This is a key part
+        v_change_type,
+        TG_TABLE_SCHEMA || '.' || TG_TABLE_NAME,
+        CASE WHEN TG_OP = 'DELETE' THEN OLD.id ELSE NEW.id END,
+        CASE 
+            WHEN TG_TABLE_NAME = 'accounts' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.name ELSE NEW.name END)
+            -- ... other entity_name cases
+            ELSE CASE WHEN TG_OP = 'DELETE' THEN OLD.id::TEXT ELSE NEW.id::TEXT END
+        END,
+        jsonb_build_object(
+            'old', v_old_data,
+            'new', v_new_data
+        ),
+        CURRENT_TIMESTAMP
+    );
+    
+    -- For updates, also record detailed field changes
+    IF TG_OP = 'UPDATE' THEN
+        -- For each changed column, record the specific change
+        FOR column_name IN -- This loop variable name is fine.
+            SELECT key 
+            FROM jsonb_object_keys(v_old_data) AS key
+            WHERE v_old_data -> key IS DISTINCT FROM v_new_data -> key
+        LOOP
+            INSERT INTO audit.data_change_history (
+                table_name,
+                record_id,
+                field_name,
+                old_value,
+                new_value,
+                change_type,
+                changed_by,
+                changed_at
+            ) VALUES (
+                TG_TABLE_SCHEMA || '.' || TG_TABLE_NAME,
+                NEW.id,
+                column_name, -- Using the loop variable
+                v_old_data ->> column_name,
+                v_new_data ->> column_name,
+                'Update',
+                COALESCE(current_setting('app.current_user_id', TRUE)::INTEGER, NEW.updated_by), -- Again, user_id logic
+                CURRENT_TIMESTAMP
+            );
+        END LOOP;
+    END IF;
+    
+    RETURN NULL; 
+END;
+$$ LANGUAGE plpgsql;
+```
+
+The incomplete `audit.log_data_change_trigger_func` in my previous response was:
+```sql
+-- ... (user_id retrieval, v_change_type, v_old_data, v_new_data, audit_log exclusion) ...
+    INSERT INTO audit.audit_log (
+        user_id, action, entity_type, entity_id, entity_name, changes, timestamp
+    ) VALUES (
+        v_user_id, -- This was the simplified part
+        v_change_type,
+        TG_TABLE_SCHEMA || '.' || TG_TABLE_NAME,
+        CASE WHEN TG_OP = 'DELETE' THEN OLD.id ELSE NEW.id END,
+        CASE 
+            WHEN TG_TABLE_NAME IN ('accounts', 'customers', 'vendors', 'products', 'roles', 'account_types', 'dimensions', 'fiscal_years', 'budgets') THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.name ELSE NEW.name END)
+            -- ... other entity_name cases ...
+            ELSE CASE WHEN TG_OP = 'DELETE' THEN OLD.id::TEXT ELSE NEW.id::TEXT END
+        END,
+        jsonb_build_object('old', v_old_data, 'new', v_new_data),
+        CURRENT_TIMESTAMP
+    );
+    
+    IF TG_OP = 'UPDATE' THEN
+        FOR column_name_ IN  -- I used column_name_ here in my prior response
+            SELECT key 
+            FROM jsonb_each_text(row_to_json(OLD)) AS old_cols(key, value) -- This is one way to get keys
+            -- Reference used: FROM jsonb_object_keys(v_old_data) AS key
+        LOOP
+            IF (to_jsonb(OLD) ->> column_name_) IS DISTINCT FROM (to_jsonb(NEW) ->> column_name_) THEN -- Using column_name_
+                INSERT INTO audit.data_change_history (
+                    table_name, record_id, field_name, old_value, new_value,
+                    change_type, changed_by, changed_at
+                ) VALUES (
+                    TG_TABLE_SCHEMA || '.' || TG_TABLE_NAME,
+                    NEW.id,
+                    column_name_, -- Using column_name_
+                    to_jsonb(OLD) ->> column_name_,
+                    to_jsonb(NEW) ->> column_name_,
+                    'Update',
+                    v_user_id, -- Using the simplified v_user_id
+                    CURRENT_TIMESTAMP
+                );
+            END IF;
+        END LOOP;
+    END IF;
+    
+    RETURN NULL; 
+END;
+$$ LANGUAGE plpgsql;
+```
+
+The key differences in the `audit.log_data_change_trigger_func` that I was generating versus the `audit.log_data_change` function from the reference schema are:
+1.  **User ID Retrieval**:
+    *   Reference: `COALESCE(current_setting('app.current_user_id', TRUE)::INTEGER, CASE WHEN TG_OP = 'INSERT' THEN NEW.created_by WHEN TG_OP = 'UPDATE' THEN NEW.updated_by ELSE NULL END)`
+    *   My previous attempt was more complex with nested BEGIN/EXCEPTION for `v_user_id`. I'll revert to the reference's COALESCE structure for simplicity and robustness as it seems more standard.
+2.  **Looping through columns for `data_change_history`**:
+    *   Reference: `SELECT key FROM jsonb_object_keys(v_old_data) AS key`
+    *   My previous attempt: `SELECT key FROM jsonb_each_text(row_to_json(OLD)) AS old_cols(key, value)`
+    Both are valid ways to iterate keys. `jsonb_object_keys(v_old_data)` is probably cleaner if `v_old_data` (which is `to_jsonb(OLD)`) is already a JSONB object. Let's stick to `jsonb_object_keys(v_old_data)` as in the reference.
+3.  **Variable name for column loop**: Reference uses `column_name`. My previous used `column_name_`. I'll use `column_name` to align.
+
+The syntax error `syntax error at or near "("` could still be anywhere, but often trigger functions are complex. Let's ensure this function is robust.
+
+**Plan for completing the `scripts/schema.sql`:**
+1.  Ensure the `CREATE OR REPLACE FUNCTION audit.log_data_change_trigger_func()` is fully defined, aligning closely with the logic from the reference `audit.log_data_change()` especially for `user_id` retrieval and the loop for `data_change_history`.
+2.  Verify the `DO` blocks for creating triggers use the correct function name (`audit.log_data_change_trigger_func`).
+3.  Double-check parenthesis and semicolon placement throughout the file, especially in the trigger function and the `DO` blocks.
+4.  The problem might also be in how `NULLIF((v_line->>'dimension1_id')::TEXT, '')::INTEGER` is handled in `accounting.generate_journal_entry`. If `v_line->>'dimension1_id'` is `NULL` or not a valid integer string after being non-empty, this could cause issues. However, the error is `syntax error at or near "("`, which is usually a structural SQL problem, not a runtime cast error. The casting `::TEXT` then `::INTEGER` with `NULLIF` is a common pattern to handle empty strings for optional integer fields, so it's likely correct.
+
+Let's reconstruct the `audit.log_data_change_trigger_func()` carefully.
+
+The problem `syntax error at or near "("` could be related to how `current_setting` is called or how the CASE statement for `entity_name` is structured if there's a typo leading to an unexpected parenthesis.
+
+Let's review the `entity_name` CASE statement in `audit.log_data_change_trigger_func()`:
+```sql
+        CASE 
+            WHEN TG_TABLE_NAME IN ('accounts', 'customers', 'vendors', 'products', 'roles', 'account_types', 'dimensions', 'fiscal_years', 'budgets') THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.name ELSE NEW.name END)
+            WHEN TG_TABLE_NAME = 'journal_entries' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.entry_no ELSE NEW.entry_no END)
+            WHEN TG_TABLE_NAME = 'sales_invoices' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.invoice_no ELSE NEW.invoice_no END)
+            WHEN TG_TABLE_NAME = 'purchase_invoices' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.invoice_no ELSE NEW.invoice_no END)
+            WHEN TG_TABLE_NAME = 'payments' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.payment_no ELSE NEW.payment_no END)
+            WHEN TG_TABLE_NAME = 'users' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.username ELSE NEW.username END)
+            WHEN TG_TABLE_NAME = 'tax_codes' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.code ELSE NEW.code END)
+            WHEN TG_TABLE_NAME = 'gst_returns' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.return_period ELSE NEW.return_period END)
+            ELSE CASE WHEN TG_OP = 'DELETE' THEN OLD.id::TEXT ELSE NEW.id::TEXT END
+        END,
+```
+This structure seems fine. Each `WHEN ... THEN (...)` looks balanced.
+
+Let's focus on the `v_user_id` part and the loop in `audit.log_data_change_trigger_func`.
+
+Corrected `v_user_id` logic based on reference:
+```sql
+    v_user_id := COALESCE(
+        (SELECT current_setting('app.current_user_id', TRUE)), -- Try to get it as text first
+        NULL -- Placeholder if above fails, then handle specific cases
+    )::INTEGER; -- Attempt cast only after COALESCE logic.
+
+    IF v_user_id IS NULL THEN
+        IF TG_OP = 'INSERT' AND jsonb_typeof(to_jsonb(NEW) -> 'created_by') = 'number' THEN
+             v_user_id := (to_jsonb(NEW) ->> 'created_by')::INTEGER;
+        ELSIF TG_OP = 'UPDATE' AND jsonb_typeof(to_jsonb(NEW) -> 'updated_by') = 'number' THEN
+            v_user_id := (to_jsonb(NEW) ->> 'updated_by')::INTEGER;
+        -- Add similar fallbacks for created_by_user_id / updated_by_user_id if those are column names
+        ELSIF TG_OP = 'INSERT' AND jsonb_typeof(to_jsonb(NEW) -> 'created_by_user_id') = 'number' THEN
+             v_user_id := (to_jsonb(NEW) ->> 'created_by_user_id')::INTEGER;
+        ELSIF TG_OP = 'UPDATE' AND jsonb_typeof(to_jsonb(NEW) -> 'updated_by_user_id') = 'number' THEN
+            v_user_id := (to_jsonb(NEW) ->> 'updated_by_user_id')::INTEGER;
+        END IF;
+    END IF;
+```
+The reference schema had a slightly different, perhaps more robust, `COALESCE` for user_id:
+`COALESCE(current_setting('app.current_user_id', TRUE)::INTEGER, CASE WHEN TG_OP = 'INSERT' THEN NEW.created_by WHEN TG_OP = 'UPDATE' THEN NEW.updated_by ELSE NULL END)`
+This is assuming `NEW.created_by` and `NEW.updated_by` are always INTEGER columns if they exist. The previous version in the prompt (that I cut short) was trying to handle various JSON extractions which might be more error-prone. The reference schema's `CASE` directly accesses `NEW.created_by` or `NEW.updated_by` which is cleaner if these columns are standard (and named `created_by`, `updated_by`). The schema *does* define `created_by` and `updated_by` as `INTEGER REFERENCES core.users(id)` on many tables. So this direct access is fine.
+
+Let's use the reference schema's way of getting `v_user_id` for the audit log trigger.
+Also, the loop for `data_change_history` should use `jsonb_object_keys(v_old_data)` and the loop variable `column_name`.
+
+The `trial_balance` view in the provided `scripts/schema.sql` was:
+```sql
+CREATE OR REPLACE VIEW accounting.trial_balance AS
+SELECT 
+    a.id AS account_id,
+    a.code AS account_code,
+    a.name AS account_name,
+    a.account_type,
+    a.sub_type,
+    CASE 
+        WHEN at.is_debit_balance THEN -- Asset, Expense
+            CASE WHEN ab.balance >= 0 THEN ab.balance ELSE 0 END
+        ELSE -- Liability, Equity, Revenue
+            CASE WHEN ab.balance < 0 THEN -ab.balance ELSE 0 END -- Problem here: if e.g. Liability has positive math balance (credit), this is 0
+    END AS debit_balance,
+    CASE 
+        WHEN at.is_debit_balance THEN -- Asset, Expense
+            CASE WHEN ab.balance < 0 THEN -ab.balance ELSE 0 END -- Problem here: if e.g. Asset has negative math balance (credit), this is 0
+        ELSE -- Liability, Equity, Revenue
+            CASE WHEN ab.balance >= 0 THEN ab.balance ELSE 0 END
+    END AS credit_balance
+FROM 
+    accounting.accounts a
+JOIN 
+    accounting.account_balances ab ON a.id = ab.account_id
+JOIN
+    accounting.account_types at ON a.account_type = at.category -- This join might be problematic if account_type in accounts is the category, not the name from account_types
+WHERE 
+    a.is_active = TRUE
+    AND ab.balance != 0;
+```
+The `accounting.accounts.account_type` is `VARCHAR(20) NOT NULL CHECK (account_type IN ('Asset', 'Liability', 'Equity', 'Revenue', 'Expense'))`.
+The `accounting.account_types.category` is `VARCHAR(20) NOT NULL CHECK (category IN ('Asset', 'Liability', 'Equity', 'Revenue', 'Expense'))`.
+So, `JOIN accounting.account_types at ON a.account_type = at.category` is likely correct.
+
+The reference schema `trial_balance` view:
+```sql
+CREATE OR REPLACE VIEW accounting.trial_balance AS
+SELECT 
+    a.id AS account_id,
+    a.code AS account_code,
+    a.name AS account_name,
+    a.account_type, -- This refers to the category 'Asset', 'Liability' etc.
+    a.sub_type,
+    CASE 
+        WHEN a.account_type IN ('Asset', 'Expense') THEN -- These are typically debit balance accounts
+            CASE WHEN ab.balance >= 0 THEN ab.balance ELSE 0 END -- If mathematical balance is positive, it's a debit balance.
+        ELSE -- ('Liability', 'Equity', 'Revenue') - typically credit balance accounts
+            CASE WHEN ab.balance < 0 THEN -ab.balance ELSE 0 END -- If mathematical balance is negative, it's effectively a debit balance (e.g. contra-liability).
+    END AS debit_balance,
+    CASE 
+        WHEN a.account_type IN ('Asset', 'Expense') THEN
+            CASE WHEN ab.balance < 0 THEN -ab.balance ELSE 0 END -- If mathematical balance is negative, it's effectively a credit balance (e.g. contra-asset).
+        ELSE 
+            CASE WHEN ab.balance >= 0 THEN ab.balance ELSE 0 END -- If mathematical balance is positive, it's a credit balance.
+    END AS credit_balance
+FROM 
+    accounting.accounts a
+JOIN 
+    accounting.account_balances ab ON a.id = ab.account_id
+WHERE 
+    a.is_active = TRUE
+    AND ab.balance != 0;
+```
+The logic in the reference is a bit more direct without joining `account_types` again just for `is_debit_balance`, as it directly checks `a.account_type`. This is fine.
+My previous `trial_balance` view in the prior response used this:
+```sql
+    CASE 
+        WHEN at.is_debit_balance THEN -- Asset, Expense
+            CASE WHEN ab.balance >= 0 THEN ab.balance ELSE 0 END
+        ELSE -- Liability, Equity, Revenue
+            CASE WHEN ab.balance < 0 THEN -ab.balance ELSE 0 END
+    END AS debit_balance,
+    CASE 
+        WHEN at.is_debit_balance THEN -- Asset, Expense
+            CASE WHEN ab.balance < 0 THEN -ab.balance ELSE 0 END
+        ELSE -- Liability, Equity, Revenue
+            CASE WHEN ab.balance >= 0 THEN ab.balance ELSE 0 END
+    END AS credit_balance
+```
+This is actually a standard way to display trial balances. If `is_debit_balance` is TRUE (Asset, Expense), then a positive mathematical balance from `account_balances` (where debits are positive, credits negative) goes to the debit column. A negative mathematical balance (meaning net credit) for such an account would mean it has a credit balance, so `-ab.balance` goes to the credit column.
+If `is_debit_balance` is FALSE (Liability, Equity, Revenue), then a positive mathematical balance (meaning net credit) goes to the credit column. A negative mathematical balance (meaning net debit) for such an account would mean it has a debit balance, so `-ab.balance` goes to the debit column.
+So the logic I had in my `scripts/schema.sql` for trial_balance was indeed correct and standard. The `account_balances.balance` is calculated as `(Debits - Credits) + OpeningBalance`.
+
+Let's ensure the entire script is provided. The syntax error is the main concern. I'll focus on completing the trigger function and ensuring the overall structure is sound.
+The incomplete `audit.log_data_change_trigger_func` stopped after `entity_name` CASE statement and before the `jsonb_build_object`.
+
+I will ensure the function is completed, using the more robust user_id retrieval from the reference schema.
+The original `scripts/schema.sql` file has constraint names like `fy_date_range_check`, `fy_unique_date_ranges`, `fp_date_range_check`, `fp_unique_period_dates`, `uq_exchange_rates_pair_date`, `jel_check_debit_credit`, `uq_budget_details_key`. These seem fine.
+
+The issue `syntax error at or near "("` is often tricky. Let's provide the complete `scripts/schema.sql` with the corrected and completed trigger. If the error persists, it might be in a less obvious place, or related to an earlier statement.
+The `generate_journal_entry` function has:
+`NULLIF( (v_line->>'dimension1_id')::TEXT, '')::INTEGER`
+The extra parenthesis around `(v_line->>'dimension1_id')::TEXT` are not strictly necessary but harmless.
+`NULLIF(expression, value_to_be_null_if_expression_matches)`
+So `NULLIF( (v_line->>'dimension1_id')::TEXT, '')` becomes NULL if `dimension1_id` is an empty string. Then `NULL::INTEGER` is `NULL`. This is fine.
+
+The `calculate_account_balance` function in the previous SQL:
+```sql
+CREATE OR REPLACE FUNCTION accounting.calculate_account_balance(
+    p_account_id INTEGER,
+    p_as_of_date DATE
+) RETURNS NUMERIC AS $$
+DECLARE
+    v_balance NUMERIC(15,2) := 0;
+    v_account_type_category VARCHAR; -- Unused in this version
+    v_opening_balance NUMERIC(15,2);
+    v_account_opening_balance_date DATE; -- New variable to store the date
+BEGIN
+    SELECT 
+        acc.account_type, -- Still selected but not used below
+        acc.opening_balance,
+        acc.opening_balance_date -- Fetching the date
+    INTO v_account_type_category, v_opening_balance, v_account_opening_balance_date
+    FROM accounting.accounts acc
+    WHERE acc.id = p_account_id;
+    
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Account with ID % not found', p_account_id;
+    END IF;
+    
+    SELECT COALESCE(SUM(
+        CASE 
+            WHEN jel.debit_amount > 0 THEN jel.debit_amount
+            ELSE -jel.credit_amount
+        END
+    ), 0)
+    INTO v_balance
+    FROM accounting.journal_entry_lines jel
+    JOIN accounting.journal_entries je ON jel.journal_entry_id = je.id
+    WHERE jel.account_id = p_account_id
+    AND je.is_posted = TRUE
+    AND je.entry_date <= p_as_of_date
+    -- Only include transactions on or after opening balance date if it exists
+    AND (v_account_opening_balance_date IS NULL OR je.entry_date >= v_account_opening_balance_date);
+          
+    v_balance := v_balance + COALESCE(v_opening_balance, 0);
+    -- The sign convention logic was removed, this function now returns mathematical balance.
+    -- The view (trial_balance) handles presentation.
+        
+    RETURN v_balance;
+END;
+$$ LANGUAGE plpgsql;
+```
+This revised `calculate_account_balance` function looks more correct regarding the handling of opening balance date. The previous version in the `scripts/schema.sql` had an error in its `WHERE` clause for `opening_balance_date`.
+Previous error: `AND ( (SELECT opening_balance_date FROM accounting.accounts WHERE id = p_account_id) IS NULL OR je.entry_date >= (SELECT opening_balance_date FROM accounting.accounts WHERE id = p_account_id) );`
+This subquery approach is less efficient and prone to error if `p_account_id` somehow doesn't match. Fetching it once is better.
+
+So the plan is to provide the full schema.sql, ensuring the audit trigger is complete and using the reference logic for user_id, and that the `calculate_account_balance` function is correct. The `trial_balance` view should be correct.
+One final check on the `DO` blocks creating triggers:
+```sql
+DO $$
+DECLARE
+    r RECORD;
+BEGIN
+    FOR r IN 
+        SELECT table_schema, table_name
+        FROM information_schema.columns
+        WHERE column_name = 'updated_at'
+          AND table_schema IN ('core', 'accounting', 'business', 'audit') -- audit schema tables often don't have updated_at manually managed by user, but system
+        GROUP BY table_schema, table_name
+    LOOP
+        EXECUTE format('
+            DROP TRIGGER IF EXISTS trg_update_timestamp ON %I.%I; -- Using specific trigger name
+            CREATE TRIGGER trg_update_timestamp
+            BEFORE UPDATE ON %I.%I
+            FOR EACH ROW
+            EXECUTE FUNCTION core.update_timestamp_trigger_func(); -- Correct function name
+        ', r.table_schema, r.table_name, r.table_schema, r.table_name);
+    END LOOP;
+END;
+$$;
+
+DO $$
+DECLARE
+    tables_to_audit TEXT[] := ARRAY[ -- This list needs to be consistent
+        'accounting.accounts', 'accounting.journal_entries', 'accounting.fiscal_periods', 'accounting.fiscal_years',
+        'business.customers', 'business.vendors', 'business.products', 
+        'business.sales_invoices', 'business.purchase_invoices', 'business.payments',
+        'accounting.tax_codes', 'accounting.gst_returns',
+        'core.users', 'core.roles', 'core.company_settings'
+        -- Missing: accounting.account_types, accounting.currencies, accounting.exchange_rates, accounting.dimensions, accounting.budgets, accounting.budget_details, accounting.recurring_patterns, accounting.withholding_tax_certificates
+        -- business.inventory_movements, business.bank_accounts, business.bank_transactions, business.payment_allocations
+        -- core.permissions, core.role_permissions, core.user_roles, core.configuration, core.sequences
+    ];
+    table_fullname TEXT;
+    schema_name TEXT;
+    table_name_var TEXT; -- Renamed table_name to table_name_var to avoid conflict with information_schema.columns.table_name
+BEGIN
+    FOREACH table_fullname IN ARRAY tables_to_audit
+    LOOP
+        SELECT split_part(table_fullname, '.', 1) INTO schema_name;
+        SELECT split_part(table_fullname, '.', 2) INTO table_name_var;
+        
+        EXECUTE format('
+            DROP TRIGGER IF EXISTS trg_audit_log ON %I.%I; -- Using specific trigger name
+            CREATE TRIGGER trg_audit_log
+            AFTER INSERT OR UPDATE OR DELETE ON %I.%I
+            FOR EACH ROW
+            EXECUTE FUNCTION audit.log_data_change_trigger_func(); -- Correct function name
+        ', schema_name, table_name_var, schema_name, table_name_var);
+    END LOOP;
+END;
+$$;
+```
+The list `tables_to_audit` in `scripts/schema.sql` is much shorter than what's in the reference schema's `audit.log_data_change` trigger `DO` block (`tables TEXT[] := ARRAY[...]`). I should make the `tables_to_audit` list in `scripts/schema.sql` consistent with the reference file's intent for broader auditing, or at least ensure the current list is what's intended. The reference schema's `DO` block for audit triggers has a more comprehensive list. I will use the list from the file `create_database_schema (reference).md` for the `tables_to_audit` array.
+
+Reference list:
+`'accounting.accounts', 'accounting.journal_entries', 'accounting.fiscal_periods', 'business.customers', 'business.vendors', 'business.products', 'business.sales_invoices', 'business.purchase_invoices', 'business.payments', 'accounting.tax_codes', 'accounting.gst_returns'`
+The provided `scripts/schema.sql` actually had a slightly longer list:
+`'accounting.accounts', 'accounting.journal_entries', 'accounting.fiscal_periods', 'accounting.fiscal_years', 'business.customers', 'business.vendors', 'business.products', 'business.sales_invoices', 'business.purchase_invoices', 'business.payments', 'accounting.tax_codes', 'accounting.gst_returns', 'core.users', 'core.roles', 'core.company_settings'`
+This is fine. It's a subset of all tables but covers critical ones.
+
+I will now generate the complete `scripts/schema.sql`.
+
+```diff
+--- a/scripts/schema.sql
++++ b/scripts/schema.sql
+@@ -158,8 +158,7 @@
+     source_type VARCHAR(50), -- Origin of the entry (e.g., Invoice, Payment, Manual)
+     source_id INTEGER, -- ID in the source table
+     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+-    created_by INTEGER NOT NULL REFERENCES core.users(id),
++    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,    created_by INTEGER NOT NULL REFERENCES core.users(id),
+     updated_by INTEGER NOT NULL REFERENCES core.users(id)
+ );
+ 
+@@ -193,7 +192,7 @@
+     credit_amount NUMERIC(15,2) DEFAULT 0,
+     currency_code CHAR(3) DEFAULT 'SGD' REFERENCES accounting.currencies(code),
+     exchange_rate NUMERIC(15,6) DEFAULT 1,
+-    tax_code VARCHAR(20), -- Can FK to accounting.tax_codes(code)
++    tax_code VARCHAR(20), -- Can FK to accounting.tax_codes(code) on accounting.tax_codes(code)
+     tax_amount NUMERIC(15,2) DEFAULT 0,
+     dimension1_id INTEGER, -- References accounting.dimensions(id)
+     dimension2_id INTEGER, -- References accounting.dimensions(id)
+@@ -400,7 +399,7 @@
+     product_type VARCHAR(20) NOT NULL CHECK (product_type IN ('Inventory', 'Service', 'Non-Inventory')),
+     category VARCHAR(50),
+     unit_of_measure VARCHAR(20),
+-    barcode VARCHAR(50),
++    barcode VARCHAR(50),    sales_price NUMERIC(15,2),
+     purchase_price NUMERIC(15,2),
+     sales_account_id INTEGER REFERENCES accounting.accounts(id),
+     purchase_account_id INTEGER REFERENCES accounting.accounts(id),
+@@ -409,8 +408,7 @@
+     is_active BOOLEAN DEFAULT TRUE,
+     min_stock_level NUMERIC(15,2),
+     reorder_point NUMERIC(15,2),
+-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
++    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+     created_by INTEGER NOT NULL REFERENCES core.users(id),
+     updated_by INTEGER NOT NULL REFERENCES core.users(id)
+ );
+@@ -478,8 +476,7 @@
+     notes TEXT,
+     terms_and_conditions TEXT,
+     journal_entry_id INTEGER REFERENCES accounting.journal_entries(id),
+-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
++    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+     created_by INTEGER NOT NULL REFERENCES core.users(id),
+     updated_by INTEGER NOT NULL REFERENCES core.users(id)
+ );
+@@ -513,7 +510,7 @@
+     discount_percent NUMERIC(5,2) DEFAULT 0,
+     discount_amount NUMERIC(15,2) DEFAULT 0,
+     line_subtotal NUMERIC(15,2) NOT NULL,
+-    tax_code VARCHAR(20), -- Can FK to accounting.tax_codes(code)
++    tax_code VARCHAR(20), -- Can FK to accounting.tax_codes(code) on accounting.tax_codes(code)
+     tax_amount NUMERIC(15,2) DEFAULT 0,
+     line_total NUMERIC(15,2) NOT NULL,
+     dimension1_id INTEGER REFERENCES accounting.dimensions(id),
+@@ -557,8 +554,7 @@
+     )),
+     notes TEXT,
+     journal_entry_id INTEGER REFERENCES accounting.journal_entries(id),
+-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
++    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+     created_by INTEGER NOT NULL REFERENCES core.users(id),
+     updated_by INTEGER NOT NULL REFERENCES core.users(id)
+ );
+@@ -645,8 +641,7 @@
+     is_active BOOLEAN DEFAULT TRUE,
+     description TEXT,
+     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+-    created_by INTEGER NOT NULL REFERENCES core.users(id),
++    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,    created_by INTEGER NOT NULL REFERENCES core.users(id),
+     updated_by INTEGER NOT NULL REFERENCES core.users(id)
+ );
+ 
+@@ -684,8 +679,7 @@
+     statement_id VARCHAR(50),
+     journal_entry_id INTEGER REFERENCES accounting.journal_entries(id),
+     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+-    created_by INTEGER NOT NULL REFERENCES core.users(id),
++    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,    created_by INTEGER NOT NULL REFERENCES core.users(id),
+     updated_by INTEGER NOT NULL REFERENCES core.users(id)
+ );
+ 
+@@ -733,8 +727,7 @@
+     )),
+     journal_entry_id INTEGER REFERENCES accounting.journal_entries(id),
+     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+-    created_by INTEGER NOT NULL REFERENCES core.users(id),
++    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,    created_by INTEGER NOT NULL REFERENCES core.users(id),
+     updated_by INTEGER NOT NULL REFERENCES core.users(id)
+ );
+ 
+@@ -896,11 +889,11 @@
+     a.account_type,
+     a.sub_type,
+     CASE 
+-        WHEN at.is_debit_balance THEN -- Asset, Expense
++        WHEN a.account_type IN ('Asset', 'Expense') THEN -- These are typically debit balance accounts
+             CASE WHEN ab.balance >= 0 THEN ab.balance ELSE 0 END
+-        ELSE -- Liability, Equity, Revenue
++        ELSE -- ('Liability', 'Equity', 'Revenue') - typically credit balance accounts
+             CASE WHEN ab.balance < 0 THEN -ab.balance ELSE 0 END
+     END AS debit_balance,
+     CASE 
+-        WHEN at.is_debit_balance THEN -- Asset, Expense
++        WHEN a.account_type IN ('Asset', 'Expense') THEN
+             CASE WHEN ab.balance < 0 THEN -ab.balance ELSE 0 END
+-        ELSE -- Liability, Equity, Revenue
++        ELSE 
+             CASE WHEN ab.balance >= 0 THEN ab.balance ELSE 0 END
+     END AS credit_balance
+ FROM 
+@@ -908,8 +901,6 @@
+ JOIN 
+     accounting.account_balances ab ON a.id = ab.account_id
+ JOIN
+-    accounting.account_types at ON a.account_type = at.category 
+-WHERE 
+     a.is_active = TRUE
+     AND ab.balance != 0;
+ 
+@@ -1034,8 +1025,8 @@
+             COALESCE(v_line->>'currency_code', 'SGD'),
+             COALESCE((v_line->>'exchange_rate')::NUMERIC, 1),
+             v_line->>'tax_code', COALESCE((v_line->>'tax_amount')::NUMERIC, 0),
+-            NULLIF((v_line->>'dimension1_id')::TEXT, '')::INTEGER, 
+-            NULLIF((v_line->>'dimension2_id')::TEXT, '')::INTEGER
++            NULLIF(TRIM(v_line->>'dimension1_id'), '')::INTEGER, 
++            NULLIF(TRIM(v_line->>'dimension2_id'), '')::INTEGER
+         );
+         
+         v_line_number := v_line_number + 1;
+@@ -1089,16 +1080,15 @@
+ ) RETURNS NUMERIC AS $$
+ DECLARE
+     v_balance NUMERIC(15,2) := 0;
+-    v_account_type_category VARCHAR; 
+     v_opening_balance NUMERIC(15,2);
++    v_account_opening_balance_date DATE; 
+ BEGIN
+-    SELECT 
+-        acc.account_type, 
+-        acc.opening_balance 
+-    INTO v_account_type_category, v_opening_balance
++    SELECT acc.opening_balance, acc.opening_balance_date
++    INTO v_opening_balance, v_account_opening_balance_date
+     FROM accounting.accounts acc
+     WHERE acc.id = p_account_id;
+     
+     IF NOT FOUND THEN
+         RAISE EXCEPTION 'Account with ID % not found', p_account_id;
+     END IF;
+@@ -1113,7 +1103,7 @@
+     WHERE jel.account_id = p_account_id
+     AND je.is_posted = TRUE
+     AND je.entry_date <= p_as_of_date
+-    AND ( (SELECT opening_balance_date FROM accounting.accounts WHERE id = p_account_id) IS NULL OR 
+-          je.entry_date >= (SELECT opening_balance_date FROM accounting.accounts WHERE id = p_account_id) );
++    AND (v_account_opening_balance_date IS NULL OR je.entry_date >= v_account_opening_balance_date);
+           
+     v_balance := v_balance + COALESCE(v_opening_balance, 0);
+         
+@@ -1145,30 +1135,19 @@
+ DECLARE
+     v_old_data JSONB;
+     v_new_data JSONB;
+-    v_change_type VARCHAR;
++    v_change_type VARCHAR(20);
+     v_user_id INTEGER;
+     column_name TEXT; 
+ BEGIN
++    -- Try to get user_id from session variable
+     BEGIN
+         v_user_id := current_setting('app.current_user_id', TRUE)::INTEGER;
+     EXCEPTION WHEN OTHERS THEN
+-        IF TG_OP = 'INSERT' AND TG_TABLE_SCHEMA || '.' || TG_TABLE_NAME != 'audit.audit_log' AND TG_TABLE_SCHEMA || '.' || TG_TABLE_NAME != 'audit.data_change_history' THEN
+-            BEGIN
+-                v_user_id := (to_jsonb(NEW) ->> 'created_by')::INTEGER;
+-            EXCEPTION WHEN OTHERS THEN
+-                BEGIN
+-                    v_user_id := (to_jsonb(NEW) ->> 'created_by_user_id')::INTEGER;
+-                EXCEPTION WHEN OTHERS THEN
+-                    v_user_id := NULL;
+-                END;
+-            END;
+-        ELSIF TG_OP = 'UPDATE' AND TG_TABLE_SCHEMA || '.' || TG_TABLE_NAME != 'audit.audit_log' AND TG_TABLE_SCHEMA || '.' || TG_TABLE_NAME != 'audit.data_change_history' THEN
+-             BEGIN
+-                v_user_id := (to_jsonb(NEW) ->> 'updated_by')::INTEGER;
+-            EXCEPTION WHEN OTHERS THEN
+-                BEGIN
+-                    v_user_id := (to_jsonb(NEW) ->> 'updated_by_user_id')::INTEGER;
+-                EXCEPTION WHEN OTHERS THEN
+-                    v_user_id := NULL;
+-                END;
+-            END;
+-        ELSE 
+-            v_user_id := NULL; 
+-        END IF;
++        v_user_id := NULL; -- Fallback if session variable is not set or invalid
++    END;
++
++    IF v_user_id IS NULL THEN
++        v_user_id := CASE WHEN TG_OP = 'INSERT' THEN NEW.created_by 
++                          WHEN TG_OP = 'UPDATE' THEN NEW.updated_by
++                          ELSE NULL END;
+     END;
+ 
+     IF TG_OP = 'INSERT' THEN
+@@ -1185,7 +1164,7 @@
+     END IF;
+     
+     IF TG_TABLE_SCHEMA = 'audit' AND TG_TABLE_NAME IN ('audit_log', 'data_change_history') THEN
+-        RETURN NULL; 
++        RETURN NULL; -- Do not log changes to audit tables themselves
+     END IF;
+ 
+     INSERT INTO audit.audit_log (
+@@ -1214,17 +1193,23 @@
+         FOR column_name IN 
+             SELECT key 
+             FROM jsonb_each_text(row_to_json(OLD)) AS old_cols(key, value)
++            -- Using jsonb_object_keys aligned with reference, but jsonb_each_text(row_to_json(OLD)) works too.
++            -- For consistency with reference:
++            -- FROM jsonb_object_keys(v_old_data) AS key
+         LOOP
+-            IF (to_jsonb(OLD) ->> column_name) IS DISTINCT FROM (to_jsonb(NEW) ->> column_name) THEN
++            -- Check if the column is part of the NEW record to avoid errors on dropped columns (though less likely with ORM)
++            -- And also ensure the value actually changed.
++            IF (v_old_data -> column_name) IS DISTINCT FROM (v_new_data -> column_name) THEN
+                 INSERT INTO audit.data_change_history (
+                     table_name, record_id, field_name, old_value, new_value,
+                     change_type, changed_by, changed_at
+                 ) VALUES (
+                     TG_TABLE_SCHEMA || '.' || TG_TABLE_NAME,
+                     NEW.id,
+-                    column_name,
+-                    to_jsonb(OLD) ->> column_name,
+-                    to_jsonb(NEW) ->> column_name,
++                    column_name, -- Use the loop variable
++                    v_old_data ->> column_name,
++                    v_new_data ->> column_name,
+                     'Update',
+                     v_user_id,
+                     CURRENT_TIMESTAMP
+@@ -1233,7 +1218,7 @@
+         END LOOP;
+     END IF;
+     
+-    RETURN NULL; 
++    RETURN NULL; -- result is ignored since this is an AFTER trigger
+ END;
+ $$ LANGUAGE plpgsql;
+ 
+@@ -1264,20 +1249,23 @@
+     ];
+     table_fullname TEXT;
+     schema_name TEXT;
+-    table_name TEXT;
++    table_name_var TEXT; -- Renamed to avoid conflict if used inside format string with %I
+ BEGIN
+     FOREACH table_fullname IN ARRAY tables_to_audit
+     LOOP
+         SELECT split_part(table_fullname, '.', 1) INTO schema_name;
+-        SELECT split_part(table_fullname, '.', 2) INTO table_name;
++        SELECT split_part(table_fullname, '.', 2) INTO table_name_var;
+         
+         EXECUTE format('
+             DROP TRIGGER IF EXISTS trg_audit_log ON %I.%I;
+             CREATE TRIGGER trg_audit_log
+             AFTER INSERT OR UPDATE OR DELETE ON %I.%I
+             FOR EACH ROW
+             EXECUTE FUNCTION audit.log_data_change_trigger_func();
+-        ', schema_name, table_name, schema_name, table_name);
++        ', schema_name, table_name_var, schema_name, table_name_var);
+     END LOOP;
+ END;
+ $$;
+ 
+ -- End of script
++
+```Okay, I've completed the `audit.log_data_change_trigger_func()` function and made other corrections as discussed in the thought block.
+
+The main changes include:
+1.  **Completed `audit.log_data_change_trigger_func`**: Ensured the function structure is complete, especially the `INSERT INTO audit.audit_log` and the loop for `audit.data_change_history`.
+2.  **Revised User ID Retrieval in Audit Trigger**: Aligned the `v_user_id` retrieval in `audit.log_data_change_trigger_func` more closely with the reference schema's logic:
+    ```sql
+    -- Try to get user_id from session variable
+    BEGIN
+        v_user_id := current_setting('app.current_user_id', TRUE)::INTEGER;
+    EXCEPTION WHEN OTHERS THEN
+        v_user_id := NULL; -- Fallback if session variable is not set or invalid
+    END;
+
+    -- If user_id is still NULL, try to get from NEW record fields (created_by / updated_by)
+    IF v_user_id IS NULL THEN
+        v_user_id := CASE 
+                        WHEN TG_OP = 'INSERT' AND NEW.created_by IS NOT NULL THEN NEW.created_by 
+                        WHEN TG_OP = 'UPDATE' AND NEW.updated_by IS NOT NULL THEN NEW.updated_by
+                        ELSE NULL 
+                     END;
+    END IF;
+    ```
+    This assumes `NEW.created_by` and `NEW.updated_by` are standard integer columns referring to `core.users.id`. If those columns have different names (e.g., `created_by_user_id`), this `CASE` statement would need to be adjusted. Given the schema, `created_by` and `updated_by` are the correct names.
+3.  **Column Iteration in Audit Trigger**: The loop for populating `audit.data_change_history` now uses `jsonb_object_keys(v_old_data)` and the loop variable `column_name` as in the reference schema for consistency.
+4.  **Corrected `accounting.calculate_account_balance` Function**: Ensured the logic for considering `opening_balance_date` is correct.
+5.  **Standardized `accounting.trial_balance` View**: Ensured the trial balance view correctly reflects debit/credit balances based on the account's natural balance type and its mathematical balance. The version in your `scripts/schema.sql` was already quite good and aligned with standard trial balance presentation; I've used a slightly more direct approach by checking `a.account_type IN ('Asset', 'Expense')` instead of joining `account_types` again for `is_debit_balance`, similar to the reference schema's view.
+6.  **Minor fix in `accounting.generate_journal_entry`**: Added `TRIM()` for dimension IDs just in case they come in with leading/trailing spaces before `NULLIF`. `NULLIF(TRIM(v_line->>'dimension1_id'), '')::INTEGER`
+7.  **Variable Naming in `DO` block**: Renamed `table_name` to `table_name_var` in the `DO` block for creating audit triggers to avoid any potential conflict if `table_name` were part of the `format()` string replacement.
+
+Here is the complete `scripts/schema.sql` file:
+
+```sql
 -- File: scripts/schema.sql
 -- ============================================================================
 -- SG Bookkeeper - Complete Database Schema
@@ -580,15 +1322,9 @@ CREATE TABLE accounting.budget_details (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     created_by INTEGER NOT NULL REFERENCES core.users(id),
-    updated_by INTEGER NOT NULL REFERENCES core.users(id)
-);
-
-CREATE UNIQUE INDEX uix_budget_details_key ON accounting.budget_details (
-    budget_id, 
-    account_id, 
-    fiscal_period_id, 
-    COALESCE(dimension1_id, 0), 
-    COALESCE(dimension2_id, 0)
+    updated_by INTEGER NOT NULL REFERENCES core.users(id),
+    CONSTRAINT uq_budget_details_key UNIQUE (budget_id, account_id, fiscal_period_id, 
+                                                   COALESCE(dimension1_id, 0), COALESCE(dimension2_id, 0))
 );
 
 COMMENT ON TABLE accounting.budget_details IS 'Stores budget amounts by account and period';
@@ -598,8 +1334,6 @@ COMMENT ON COLUMN accounting.budget_details.fiscal_period_id IS 'Fiscal period t
 COMMENT ON COLUMN accounting.budget_details.amount IS 'Budgeted amount for the account and period';
 COMMENT ON COLUMN accounting.budget_details.dimension1_id IS 'Optional first dimension for the budget line';
 COMMENT ON COLUMN accounting.budget_details.dimension2_id IS 'Optional second dimension for the budget line';
-COMMENT ON COLUMN accounting.budget_details.notes IS 'Additional notes for the budget line';
-
 
 -- ============================================================================
 -- BUSINESS SCHEMA TABLES
@@ -1683,47 +2417,26 @@ DECLARE
     v_new_data JSONB;
     v_change_type VARCHAR(20);
     v_user_id INTEGER;
-    v_entity_id INTEGER;
-    v_entity_name VARCHAR(200);
-    temp_val TEXT; -- For entity_name construction
     column_name TEXT; 
 BEGIN
     -- Try to get user_id from session variable
     BEGIN
         v_user_id := current_setting('app.current_user_id', TRUE)::INTEGER;
     EXCEPTION WHEN OTHERS THEN
-        v_user_id := NULL; 
+        v_user_id := NULL; -- Fallback if session variable is not set or invalid
     END;
 
-    -- If session user_id is not set, try to get from record's audit columns
+    -- If user_id is still NULL, try to get from NEW record fields (created_by / updated_by)
     IF v_user_id IS NULL THEN
-        IF TG_OP = 'INSERT' THEN
-            BEGIN 
-                v_user_id := NEW.created_by; 
-            EXCEPTION WHEN undefined_column THEN 
-                -- If 'created_by' doesn't exist, check if this is 'core.users' table
-                IF TG_TABLE_SCHEMA = 'core' AND TG_TABLE_NAME = 'users' THEN
-                    v_user_id := NEW.id; -- For user creation, user itself is the "creator" if no session user
-                ELSE
-                    v_user_id := NULL; 
-                END IF;
-            END;
-        ELSIF TG_OP = 'UPDATE' THEN
-            BEGIN 
-                v_user_id := NEW.updated_by; 
-            EXCEPTION WHEN undefined_column THEN 
-                IF TG_TABLE_SCHEMA = 'core' AND TG_TABLE_NAME = 'users' THEN
-                     v_user_id := NEW.id; -- For user update, user itself is the "updater" if no session user
-                ELSE
-                    v_user_id := NULL;
-                END IF;
-            END;
-        END IF;
+        v_user_id := CASE 
+                        WHEN TG_OP = 'INSERT' AND NEW.created_by IS NOT NULL THEN NEW.created_by 
+                        WHEN TG_OP = 'UPDATE' AND NEW.updated_by IS NOT NULL THEN NEW.updated_by
+                        ELSE NULL 
+                     END;
     END IF;
     
-    -- Do not log changes to audit tables themselves to prevent recursion
     IF TG_TABLE_SCHEMA = 'audit' AND TG_TABLE_NAME IN ('audit_log', 'data_change_history') THEN
-        RETURN NULL; 
+        RETURN NULL; -- Do not log changes to audit tables themselves
     END IF;
 
     IF TG_OP = 'INSERT' THEN
@@ -1740,62 +2453,24 @@ BEGIN
         v_new_data := NULL;
     END IF;
     
-    -- Determine entity_id safely
-    BEGIN
-        IF TG_OP = 'DELETE' THEN
-            v_entity_id := OLD.id;
-        ELSE
-            v_entity_id := NEW.id;
-        END IF;
-    EXCEPTION WHEN undefined_column THEN
-        v_entity_id := NULL; 
-    END;
-
-    -- Determine entity_name safely
-    BEGIN
-        IF TG_OP = 'DELETE' THEN
-            temp_val := CASE 
-                WHEN TG_TABLE_NAME IN ('accounts', 'customers', 'vendors', 'products', 'roles', 'account_types', 'dimensions', 'fiscal_years', 'budgets') THEN OLD.name
-                WHEN TG_TABLE_NAME = 'journal_entries' THEN OLD.entry_no
-                WHEN TG_TABLE_NAME = 'sales_invoices' THEN OLD.invoice_no
-                WHEN TG_TABLE_NAME = 'purchase_invoices' THEN OLD.invoice_no
-                WHEN TG_TABLE_NAME = 'payments' THEN OLD.payment_no
-                WHEN TG_TABLE_NAME = 'users' THEN OLD.username
-                WHEN TG_TABLE_NAME = 'tax_codes' THEN OLD.code
-                WHEN TG_TABLE_NAME = 'gst_returns' THEN OLD.return_period
-                ELSE OLD.id::TEXT
-            END;
-        ELSE -- INSERT or UPDATE
-            temp_val := CASE 
-                WHEN TG_TABLE_NAME IN ('accounts', 'customers', 'vendors', 'products', 'roles', 'account_types', 'dimensions', 'fiscal_years', 'budgets') THEN NEW.name
-                WHEN TG_TABLE_NAME = 'journal_entries' THEN NEW.entry_no
-                WHEN TG_TABLE_NAME = 'sales_invoices' THEN NEW.invoice_no
-                WHEN TG_TABLE_NAME = 'purchase_invoices' THEN NEW.invoice_no
-                WHEN TG_TABLE_NAME = 'payments' THEN NEW.payment_no
-                WHEN TG_TABLE_NAME = 'users' THEN NEW.username
-                WHEN TG_TABLE_NAME = 'tax_codes' THEN NEW.code
-                WHEN TG_TABLE_NAME = 'gst_returns' THEN NEW.return_period
-                ELSE NEW.id::TEXT
-            END;
-        END IF;
-        v_entity_name := temp_val;
-    EXCEPTION WHEN undefined_column THEN
-        -- Fallback if specific named column (name, entry_no, etc.) doesn't exist for a listed table, or if OLD.id/NEW.id itself is problematic
-        BEGIN 
-            IF TG_OP = 'DELETE' THEN v_entity_name := OLD.id::TEXT; ELSE v_entity_name := NEW.id::TEXT; END IF;
-        EXCEPTION WHEN undefined_column THEN 
-            v_entity_name := NULL; 
-        END;
-    END;
-
     INSERT INTO audit.audit_log (
         user_id, action, entity_type, entity_id, entity_name, changes, timestamp
     ) VALUES (
         v_user_id,
         v_change_type,
         TG_TABLE_SCHEMA || '.' || TG_TABLE_NAME,
-        v_entity_id,
-        v_entity_name,
+        CASE WHEN TG_OP = 'DELETE' THEN OLD.id ELSE NEW.id END,
+        CASE 
+            WHEN TG_TABLE_NAME IN ('accounts', 'customers', 'vendors', 'products', 'roles', 'account_types', 'dimensions', 'fiscal_years', 'budgets') THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.name ELSE NEW.name END)
+            WHEN TG_TABLE_NAME = 'journal_entries' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.entry_no ELSE NEW.entry_no END)
+            WHEN TG_TABLE_NAME = 'sales_invoices' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.invoice_no ELSE NEW.invoice_no END)
+            WHEN TG_TABLE_NAME = 'purchase_invoices' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.invoice_no ELSE NEW.invoice_no END)
+            WHEN TG_TABLE_NAME = 'payments' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.payment_no ELSE NEW.payment_no END)
+            WHEN TG_TABLE_NAME = 'users' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.username ELSE NEW.username END)
+            WHEN TG_TABLE_NAME = 'tax_codes' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.code ELSE NEW.code END)
+            WHEN TG_TABLE_NAME = 'gst_returns' THEN (CASE WHEN TG_OP = 'DELETE' THEN OLD.return_period ELSE NEW.return_period END)
+            ELSE CASE WHEN TG_OP = 'DELETE' THEN OLD.id::TEXT ELSE NEW.id::TEXT END
+        END,
         jsonb_build_object('old', v_old_data, 'new', v_new_data),
         CURRENT_TIMESTAMP
     );
@@ -1803,15 +2478,16 @@ BEGIN
     IF TG_OP = 'UPDATE' THEN
         FOR column_name IN 
             SELECT key 
-            FROM jsonb_object_keys(v_old_data) 
+            FROM jsonb_object_keys(v_old_data) -- Iterate over keys of the old JSONB object
         LOOP
+            -- Check if the column exists in the new record and if the value has changed
             IF (v_new_data ? column_name) AND ((v_old_data -> column_name) IS DISTINCT FROM (v_new_data -> column_name)) THEN
                 INSERT INTO audit.data_change_history (
                     table_name, record_id, field_name, old_value, new_value,
                     change_type, changed_by, changed_at
                 ) VALUES (
                     TG_TABLE_SCHEMA || '.' || TG_TABLE_NAME,
-                    NEW.id, 
+                    NEW.id,
                     column_name,
                     v_old_data ->> column_name,
                     v_new_data ->> column_name,
@@ -1823,7 +2499,7 @@ BEGIN
         END LOOP;
     END IF;
     
-    RETURN NULL; 
+    RETURN NULL; -- result is ignored since this is an AFTER trigger
 END;
 $$ LANGUAGE plpgsql;
 
@@ -1872,6 +2548,14 @@ DECLARE
         'core.users', 
         'core.roles', 
         'core.company_settings'
+        -- Add more tables here as needed, for example:
+        -- 'accounting.account_types', 'accounting.currencies', 'accounting.exchange_rates', 
+        -- 'accounting.dimensions', 'accounting.budgets', 'accounting.budget_details', 
+        -- 'accounting.recurring_patterns', 'accounting.withholding_tax_certificates',
+        -- 'business.inventory_movements', 'business.bank_accounts', 'business.bank_transactions', 
+        -- 'business.payment_allocations',
+        -- 'core.permissions', 'core.role_permissions', 'core.user_roles', 
+        -- 'core.configuration', 'core.sequences'
     ];
     table_fullname TEXT;
     schema_name TEXT;
@@ -1894,3 +2578,4 @@ END;
 $$;
 
 -- End of script
+```

@@ -1,0 +1,58 @@
+$ poetry run sg_bookkeeper
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+  File "/usr/lib/python3.12/importlib/__init__.py", line 90, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap>", line 1387, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1360, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1331, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 935, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 995, in exec_module
+  File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+  File "/cdrom/project/SG-Bookkeeper/app/main.py", line 10, in <module>
+    from app.ui.main_window import MainWindow
+  File "/cdrom/project/SG-Bookkeeper/app/ui/__init__.py", line 3, in <module>
+    from .main_window import MainWindow
+  File "/cdrom/project/SG-Bookkeeper/app/ui/main_window.py", line 10, in <module>
+    from app.ui.dashboard.dashboard_widget import DashboardWidget
+  File "/cdrom/project/SG-Bookkeeper/app/ui/dashboard/__init__.py", line 3, in <module>
+    from .dashboard_widget import DashboardWidget
+  File "/cdrom/project/SG-Bookkeeper/app/ui/dashboard/dashboard_widget.py", line 4, in <module>
+    from app.core.application_core import ApplicationCore 
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/cdrom/project/SG-Bookkeeper/app/core/__init__.py", line 3, in <module>
+    from .application_core import ApplicationCore
+  File "/cdrom/project/SG-Bookkeeper/app/core/application_core.py", line 6, in <module>
+    from app.core.security_manager import SecurityManager
+  File "/cdrom/project/SG-Bookkeeper/app/core/security_manager.py", line 5, in <module>
+    from app.models.core.user import User, Role 
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/cdrom/project/SG-Bookkeeper/app/models/__init__.py", line 6, in <module>
+    from .core.user import User, Role, Permission, UserRole, RolePermission
+  File "/cdrom/project/SG-Bookkeeper/app/models/core/user.py", line 68, in <module>
+    class UserRole(Base): 
+    ^^^^^^^^^^^^^^^^^^^^^
+  File "/cdrom/project/SG-Bookkeeper/lib/python3.12/site-packages/sqlalchemy/orm/decl_api.py", line 198, in __init__
+    _as_declarative(reg, cls, dict_)
+  File "/cdrom/project/SG-Bookkeeper/lib/python3.12/site-packages/sqlalchemy/orm/decl_base.py", line 244, in _as_declarative
+    return _MapperConfig.setup_mapping(registry, cls, dict_, None, {})
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/cdrom/project/SG-Bookkeeper/lib/python3.12/site-packages/sqlalchemy/orm/decl_base.py", line 325, in setup_mapping
+    return _ClassScanMapperConfig(
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/cdrom/project/SG-Bookkeeper/lib/python3.12/site-packages/sqlalchemy/orm/decl_base.py", line 576, in __init__
+    self._setup_table(table)
+  File "/cdrom/project/SG-Bookkeeper/lib/python3.12/site-packages/sqlalchemy/orm/decl_base.py", line 1755, in _setup_table
+    table_cls(
+  File "<string>", line 2, in __new__
+  File "/cdrom/project/SG-Bookkeeper/lib/python3.12/site-packages/sqlalchemy/util/deprecations.py", line 281, in warned
+    return fn(*args, **kwargs)  # type: ignore[no-any-return]
+           ^^^^^^^^^^^^^^^^^^^
+  File "/cdrom/project/SG-Bookkeeper/lib/python3.12/site-packages/sqlalchemy/sql/schema.py", line 429, in __new__
+    return cls._new(*args, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/cdrom/project/SG-Bookkeeper/lib/python3.12/site-packages/sqlalchemy/sql/schema.py", line 461, in _new
+    raise exc.InvalidRequestError(
+sqlalchemy.exc.InvalidRequestError: Table 'core.user_roles' is already defined for this MetaData instance.  Specify 'extend_existing=True' to redefine options and columns on an existing Table object.
+
