@@ -4,7 +4,7 @@ import asyncio
 import threading
 import time 
 from pathlib import Path
-from typing import Optional # <--- ADDED IMPORT HERE
+from typing import Optional, Any # Any for the error object in signal
 
 from PySide6.QtWidgets import QApplication, QSplashScreen, QLabel, QMessageBox, QCheckBox 
 from PySide6.QtCore import Qt, QSettings, QTimer, QCoreApplication, QMetaObject, Signal, Slot, Q_ARG 
@@ -30,15 +30,14 @@ def start_asyncio_event_loop_thread():
         traceback.print_exc()
     finally:
         if _ASYNC_LOOP and _ASYNC_LOOP.is_running():
-            _ASYNC_LOOP.call_soon_threadsafe(_ASYNC_LOOP.stop)
-        if _ASYNC_LOOP: # Ensure loop is closed only if it was set
-             _ASYNC_LOOP.close()
+            # This stop might be called from another thread via call_soon_threadsafe
+            # loop.stop() will make run_forever() return.
+             pass # Loop stopping is handled in actual_shutdown_sequence
+        if _ASYNC_LOOP: 
+             _ASYNC_LOOP.close() # Close the loop after it has stopped
         print("Asyncio event loop from dedicated thread has been stopped and closed.")
 
 def schedule_task_from_qt(coro) -> Optional[asyncio.Future]:
-    """
-    Schedules a coroutine to run on the global asyncio event loop from a non-asyncio thread (e.g., Qt main thread).
-    """
     global _ASYNC_LOOP
     if _ASYNC_LOOP and _ASYNC_LOOP.is_running():
         return asyncio.run_coroutine_threadsafe(coro, _ASYNC_LOOP)
@@ -54,6 +53,7 @@ from app.core.database_manager import DatabaseManager
 
 
 class Application(QApplication):
+    # Signal: success (bool), result_or_error (Any - ApplicationCore on success, Exception on error)
     initialization_done_signal = Signal(bool, object) 
 
     def __init__(self, argv):
@@ -91,44 +91,52 @@ class Application(QApplication):
         self.splash.show()
         self.processEvents() 
         
-        self.main_window = None
-        self.app_core = None
+        self.main_window: Optional[MainWindow] = None # Type hint
+        self.app_core: Optional[ApplicationCore] = None # Type hint
 
         self.initialization_done_signal.connect(self._on_initialization_done)
         
         future = schedule_task_from_qt(self.initialize_app())
         if future is None:
-            # This means schedule_task_from_qt itself indicated the loop wasn't ready.
-            # Directly call _on_initialization_done to handle the critical failure.
             self._on_initialization_done(False, RuntimeError("Failed to schedule app initialization (async loop not ready)."))
             
     @Slot(bool, object)
-    def _on_initialization_done(self, success: bool, error_obj: Optional[BaseException]):
-        if success and self.main_window:
+    def _on_initialization_done(self, success: bool, result_or_error: Any):
+        if success:
+            self.app_core = result_or_error # result_or_error is app_core instance on success
+            if not self.app_core: # Should not happen if success is True
+                 QMessageBox.critical(None, "Fatal Error", "App core not received on successful initialization.")
+                 self.quit()
+                 return
+
+            self.main_window = MainWindow(self.app_core) 
             self.main_window.show()
             self.splash.finish(self.main_window)
         else:
             self.splash.hide()
-            if self.main_window: self.main_window.hide()
+            # self.main_window is None here, so no need to hide it
             
-            error_message = str(error_obj) if error_obj else "An unknown error occurred during initialization."
+            error_message = str(result_or_error) if result_or_error else "An unknown error occurred during initialization."
             print(f"Critical error during application startup: {error_message}") 
-            if isinstance(error_obj, Exception) and error_obj.__traceback__: # Check if traceback exists
+            if isinstance(result_or_error, Exception) and result_or_error.__traceback__:
                 import traceback
-                traceback.print_exception(type(error_obj), error_obj, error_obj.__traceback__)
+                traceback.print_exception(type(result_or_error), result_or_error, result_or_error.__traceback__)
 
             QMessageBox.critical(None, "Application Initialization Error", 
                                  f"An error occurred during application startup:\n{error_message[:500]}\n\nThe application will now exit.")
             self.quit()
 
     async def initialize_app(self):
+        # This coroutine now runs in the dedicated asyncio thread (_ASYNC_LOOP)
+        current_app_core = None
         try:
             def update_splash_threadsafe(message):
                 if hasattr(self, 'splash') and self.splash:
+                    # QColor needs to be imported where Q_ARG is used, or passed as an object
                     QMetaObject.invokeMethod(self.splash, "showMessage", Qt.ConnectionType.QueuedConnection,
                                              Q_ARG(str, message),
                                              Q_ARG(int, Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignCenter),
-                                             Q_ARG(QColor, Qt.GlobalColor.white))
+                                             Q_ARG(QColor, QColor(Qt.GlobalColor.white)))
             
             update_splash_threadsafe("Loading configuration...")
             
@@ -138,20 +146,20 @@ class Application(QApplication):
             db_manager = DatabaseManager(config_manager)
             
             update_splash_threadsafe("Initializing application core...")
-            self.app_core = ApplicationCore(config_manager, db_manager)
+            # Store app_core locally in this async method first
+            current_app_core = ApplicationCore(config_manager, db_manager)
 
-            await self.app_core.startup() 
+            await current_app_core.startup() 
 
-            if not self.app_core.current_user: 
-                authenticated_user = await self.app_core.security_manager.authenticate_user("admin", "password")
+            if not current_app_core.current_user: 
+                authenticated_user = await current_app_core.security_manager.authenticate_user("admin", "password")
                 if not authenticated_user:
                     print("Default admin/password authentication failed or no such user. MainWindow should handle login.")
 
-            update_splash_threadsafe("Loading main interface...")
+            update_splash_threadsafe("Finalizing initialization...")
             
-            self.main_window = MainWindow(self.app_core) 
-            
-            self.initialization_done_signal.emit(True, None) 
+            # MainWindow creation will be done in the main thread via the signal
+            self.initialization_done_signal.emit(True, current_app_core) 
 
         except Exception as e:
             self.initialization_done_signal.emit(False, e) 
@@ -161,16 +169,17 @@ class Application(QApplication):
         print("Application shutting down (actual_shutdown_sequence)...")
         global _ASYNC_LOOP, _ASYNC_LOOP_THREAD
         
+        # app_core is now set on self by _on_initialization_done
         if self.app_core:
             print("Scheduling ApplicationCore shutdown...")
             future = schedule_task_from_qt(self.app_core.shutdown())
             if future:
                 try:
-                    future.result(timeout=5) 
+                    future.result(timeout=2) # Reduced timeout slightly
                     print("ApplicationCore shutdown completed.")
-                except TimeoutError: # Python's built-in TimeoutError
+                except TimeoutError: 
                     print("Warning: ApplicationCore async shutdown timed out.")
-                except Exception as e: # Catch other exceptions from future.result()
+                except Exception as e: 
                     print(f"Error during ApplicationCore async shutdown via future: {e}")
             else:
                 print("Warning: Could not schedule ApplicationCore async shutdown task.")
@@ -181,7 +190,7 @@ class Application(QApplication):
         
         if _ASYNC_LOOP_THREAD and _ASYNC_LOOP_THREAD.is_alive():
             print("Joining asyncio event loop thread...")
-            _ASYNC_LOOP_THREAD.join(timeout=3) 
+            _ASYNC_LOOP_THREAD.join(timeout=2) # Reduced timeout
             if _ASYNC_LOOP_THREAD.is_alive():
                 print("Warning: Asyncio event loop thread did not terminate cleanly.")
             else:
@@ -209,12 +218,13 @@ def main():
         print("Consider running from project root: pyside6-rcc resources/resources.qrc -o app/resources_rc.py")
 
     app = Application(sys.argv)
+    # Connect aboutToQuit to actual_shutdown_sequence AFTER app object is created
     app.aboutToQuit.connect(app.actual_shutdown_sequence) 
     
     exit_code = app.exec()
     
-    # Ensure loop is stopped and thread joined if aboutToQuit didn't run (e.g. crash before event loop start)
-    # This part is mostly a fallback, actual_shutdown_sequence should handle it.
+    # Ensure loop is stopped and thread joined if aboutToQuit didn't run
+    # This fallback is less critical if aboutToQuit is robustly connected
     if _ASYNC_LOOP and _ASYNC_LOOP.is_running():
         print("Post app.exec(): Forcing asyncio loop stop (fallback).")
         _ASYNC_LOOP.call_soon_threadsafe(_ASYNC_LOOP.stop)

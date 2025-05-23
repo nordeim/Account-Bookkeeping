@@ -1,5 +1,5 @@
 # File: app/ui/main_window.py
-# (Content as previously generated and verified)
+# (Content as previously generated and verified - adding objectName to toolbar)
 from PySide6.QtWidgets import (
     QMainWindow, QTabWidget, QToolBar, QStatusBar, 
     QVBoxLayout, QWidget, QMessageBox, QLabel 
@@ -26,14 +26,14 @@ class MainWindow(QMainWindow):
         
         settings = QSettings() 
         if settings.contains("MainWindow/geometry"):
-            self.restoreGeometry(settings.value("MainWindow/geometry")) # type: ignore
+            self.restoreGeometry(settings.value("MainWindow/geometry")) 
         else:
             self.resize(1280, 800)
         
         self._init_ui()
         
         if settings.contains("MainWindow/state"):
-            self.restoreState(settings.value("MainWindow/state")) # type: ignore
+            self.restoreState(settings.value("MainWindow/state")) 
     
     def _init_ui(self):
         self.central_widget = QWidget()
@@ -58,18 +58,19 @@ class MainWindow(QMainWindow):
     
     def _create_toolbar(self):
         self.toolbar = QToolBar("Main Toolbar")
+        self.toolbar.setObjectName("MainToolbar") # Added object name
         self.toolbar.setMovable(False)
         self.toolbar.setIconSize(QSize(32, 32)) 
         self.toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.toolbar) 
     
     def _add_module_tabs(self):
-        icon_path_prefix = "" # Initialize
+        icon_path_prefix = "" 
         try:
-            import app.resources_rc # type: ignore
-            icon_path_prefix = ":/icons/" # Use QRC paths
+            import app.resources_rc 
+            icon_path_prefix = ":/icons/" 
         except ImportError:
-            icon_path_prefix = "resources/icons/" # Fallback to direct paths
+            icon_path_prefix = "resources/icons/" 
 
         self.dashboard_widget = DashboardWidget(self.app_core)
         self.tab_widget.addTab(self.dashboard_widget, QIcon(icon_path_prefix + "dashboard.svg"), "Dashboard")
@@ -111,7 +112,7 @@ class MainWindow(QMainWindow):
     def _create_actions(self):
         icon_path_prefix = "" 
         try:
-            import app.resources_rc # type: ignore
+            import app.resources_rc 
             icon_path_prefix = ":/icons/"
         except ImportError:
             icon_path_prefix = "resources/icons/"
@@ -195,7 +196,7 @@ class MainWindow(QMainWindow):
             f"© 2024 {QCoreApplication.organizationName()}" 
         )
     
-    def closeEvent(self, event): # type: ignore # QCloseEvent type
+    def closeEvent(self, event): 
         settings = QSettings()
         settings.setValue("MainWindow/geometry", self.saveGeometry())
         settings.setValue("MainWindow/state", self.saveState())
@@ -207,6 +208,6 @@ class MainWindow(QMainWindow):
         )
         
         if reply == QMessageBox.StandardButton.Yes:
-            event.accept()
+            event.accept() # Application.actual_shutdown_sequence will be called via aboutToQuit
         else:
             event.ignore()

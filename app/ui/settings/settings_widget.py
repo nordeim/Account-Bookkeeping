@@ -7,16 +7,17 @@ from PySide6.QtGui import QColor
 from app.core.application_core import ApplicationCore
 from app.utils.pydantic_models import CompanySettingData 
 from app.models.core.company_setting import CompanySetting
+from app.models.accounting.currency import Currency # For type hint
 from decimal import Decimal, InvalidOperation
 import asyncio
-from typing import Optional, List, Any # Added List and Any
+from typing import Optional, List, Any 
 from app.main import schedule_task_from_qt 
 
 class SettingsWidget(QWidget):
     def __init__(self, app_core: ApplicationCore, parent=None):
         super().__init__(parent)
         self.app_core = app_core
-        self._loaded_settings_obj: Optional[CompanySetting] = None # Initialize attribute
+        self._loaded_settings_obj: Optional[CompanySetting] = None 
         self.layout = QVBoxLayout(self)
         
         self.form_layout = QFormLayout()
@@ -44,9 +45,7 @@ class SettingsWidget(QWidget):
         self.setLayout(self.layout)
         QTimer.singleShot(0, lambda: schedule_task_from_qt(self.load_settings()))
 
-
     async def load_settings(self):
-        # This runs in the asyncio thread
         if not self.app_core.company_settings_service:
             QMetaObject.invokeMethod(QMessageBox, "critical", Qt.ConnectionType.QueuedConnection,
                 Q_ARG(QWidget, self), Q_ARG(str, "Error"), 
@@ -56,9 +55,8 @@ class SettingsWidget(QWidget):
         currencies_loaded_successfully = False
         if self.app_core.currency_manager:
             try:
-                active_currencies = await self.app_core.currency_manager.get_active_currencies()
-                # Marshal ComboBox update to main thread
-                QMetaObject.invokeMethod(self, "_populate_currency_combo", Qt.ConnectionType.QueuedConnection, Q_ARG(list, active_currencies))
+                active_currencies: List[Currency] = await self.app_core.currency_manager.get_active_currencies()
+                QMetaObject.invokeMethod(self, "_populate_currency_combo_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(list, active_currencies))
                 currencies_loaded_successfully = True
             except Exception as e:
                 error_msg = f"Error loading currencies for settings: {e}"
@@ -69,33 +67,26 @@ class SettingsWidget(QWidget):
         if not currencies_loaded_successfully: 
             QMetaObject.invokeMethod(self.base_currency_combo, "addItems", Qt.ConnectionType.QueuedConnection, Q_ARG(list, ["SGD", "USD"]))
 
-
         settings_obj: Optional[CompanySetting] = await self.app_core.company_settings_service.get_company_settings()
+        self._loaded_settings_obj = settings_obj 
         
-        # Store settings object for _populate_currency_combo to use if it runs later
-        self._loaded_settings_obj = settings_obj
-        
-        # Marshal UI updates back to the main thread
-        QMetaObject.invokeMethod(self, "_update_ui_from_settings", Qt.ConnectionType.QueuedConnection, Q_ARG(CompanySetting, settings_obj) if settings_obj else Q_ARG(type(None), None))
-
+        QMetaObject.invokeMethod(self, "_update_ui_from_settings_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(CompanySetting, settings_obj) if settings_obj else Q_ARG(type(None), None))
 
     @Slot(list) 
-    def _populate_currency_combo(self, currencies: List[Any]): 
+    def _populate_currency_combo_slot(self, currencies: List[Currency]): 
         self.base_currency_combo.clear()
-        for curr in currencies: # Assuming curr is a Currency ORM object
-            self.base_currency_combo.addItem(f"{curr.code} - {curr.name}", curr.code) # Display name and code, store code
+        for curr in currencies: 
+            self.base_currency_combo.addItem(f"{curr.code} - {curr.name}", curr.code) 
         
         if hasattr(self, '_loaded_settings_obj') and self._loaded_settings_obj:
-            idx = self.base_currency_combo.findData(self._loaded_settings_obj.base_currency) # Find by data (code)
+            idx = self.base_currency_combo.findData(self._loaded_settings_obj.base_currency) 
             if idx != -1: self.base_currency_combo.setCurrentIndex(idx)
-            else: # Fallback if loaded currency not in list (e.g. inactive)
+            else: 
                 idx_sgd = self.base_currency_combo.findData("SGD")
                 if idx_sgd != -1: self.base_currency_combo.setCurrentIndex(idx_sgd)
 
-
     @Slot(CompanySetting) 
-    def _update_ui_from_settings(self, settings_obj: Optional[CompanySetting]):
-        # self._loaded_settings_obj is already set in load_settings
+    def _update_ui_from_settings_slot(self, settings_obj: Optional[CompanySetting]):
         if settings_obj:
             self.company_name_edit.setText(settings_obj.company_name)
             self.legal_name_edit.setText(settings_obj.legal_name or "")
@@ -103,18 +94,15 @@ class SettingsWidget(QWidget):
             self.gst_reg_edit.setText(settings_obj.gst_registration_no or "")
             self.gst_registered_check.setChecked(settings_obj.gst_registered)
             
-            # Ensure currency combo is populated before trying to set index
             if self.base_currency_combo.count() > 0:
-                idx = self.base_currency_combo.findData(settings_obj.base_currency) # Find by data (code)
+                idx = self.base_currency_combo.findData(settings_obj.base_currency) 
                 if idx != -1: 
                     self.base_currency_combo.setCurrentIndex(idx)
-                else: # Fallback if current base_currency not in list
+                else: 
                     idx_sgd = self.base_currency_combo.findData("SGD")
                     if idx_sgd != -1: self.base_currency_combo.setCurrentIndex(idx_sgd)
-
         else:
             QMessageBox.warning(self, "Settings", "Default company settings not found. Please configure.")
-
 
     @Slot()
     def on_save_settings(self):
@@ -122,7 +110,6 @@ class SettingsWidget(QWidget):
             QMessageBox.warning(self, "Error", "No user logged in. Cannot save settings.")
             return
 
-        # Get selected currency code from combo box data
         selected_currency_code = self.base_currency_combo.currentData() or "SGD"
 
         dto = CompanySettingData(
@@ -138,7 +125,7 @@ class SettingsWidget(QWidget):
             base_currency=selected_currency_code, 
             tax_id_label="UEN",       
             date_format="yyyy-MM-dd", 
-            address_line1=None, # Placeholder - these should come from UI fields
+            address_line1=None, 
             address_line2=None,
             postal_code=None,
             city="Singapore",
@@ -163,23 +150,31 @@ class SettingsWidget(QWidget):
         orm_obj_to_save: CompanySetting
         if existing_settings:
             orm_obj_to_save = existing_settings
-            for field_name, field_value in settings_data.model_dump(exclude={'user_id', 'id'}, by_alias=False).items():
-                if hasattr(orm_obj_to_save, field_name):
-                    setattr(orm_obj_to_save, field_name, field_value)
+            # Update only fields present in UI for now for simplicity
+            orm_obj_to_save.company_name = settings_data.company_name
+            orm_obj_to_save.legal_name = settings_data.legal_name
+            orm_obj_to_save.uen_no = settings_data.uen_no
+            orm_obj_to_save.gst_registration_no = settings_data.gst_registration_no
+            orm_obj_to_save.gst_registered = settings_data.gst_registered
+            orm_obj_to_save.base_currency = settings_data.base_currency
+            # For a full implementation, all fields from CompanySettingData should be mapped
+            # or the UI should expose all editable fields.
         else: 
+            # Create new if somehow settings don't exist, assuming id=1
             dict_data = settings_data.model_dump(exclude={'user_id', 'id'}, by_alias=False)
             orm_obj_to_save = CompanySetting(**dict_data) 
-            if settings_data.id: # Should be 1 for the single company setting
-                 orm_obj_to_save.id = settings_data.id
+            orm_obj_to_save.id = 1 # Force ID 1 for the single company settings row
 
         if self.app_core.current_user:
              orm_obj_to_save.updated_by_user_id = self.app_core.current_user.id 
 
         result = await self.app_core.company_settings_service.save_company_settings(orm_obj_to_save)
         
-        message_title = "Success" if result else "Error"
-        message_text = "Settings saved successfully." if result else "Failed to save settings."
-        message_method = QMessageBox.information if result else QMessageBox.warning
-
-        QMetaObject.invokeMethod(message_method, "", Qt.ConnectionType.QueuedConnection, # Use static method with self for parent
-            Q_ARG(QWidget, self), Q_ARG(str, message_title), Q_ARG(str, message_text))
+        if result:
+            QMetaObject.invokeMethod(QMessageBox, "information", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Success"), 
+                Q_ARG(str,"Settings saved successfully."))
+        else:
+            QMetaObject.invokeMethod(QMessageBox, "warning", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Error"), 
+                Q_ARG(str,"Failed to save settings."))
