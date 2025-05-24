@@ -10,8 +10,17 @@ from app.models.core.company_setting import CompanySetting
 from app.models.accounting.currency import Currency 
 from decimal import Decimal, InvalidOperation
 import asyncio
-from typing import Optional, List, Any, Dict # Added Dict
+import json # For JSON serialization
+from typing import Optional, List, Any, Dict 
 from app.main import schedule_task_from_qt 
+
+# Helper for JSON serialization with Decimal and date (can be moved to a utility module)
+def json_converter(obj):
+    if isinstance(obj, Decimal):
+        return str(obj)
+    if isinstance(obj, date):
+        return obj.isoformat()
+    raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
 
 class SettingsWidget(QWidget):
     def __init__(self, app_core: ApplicationCore, parent=None):
@@ -35,7 +44,6 @@ class SettingsWidget(QWidget):
         self.form_layout.addRow(self.gst_registered_check)
         self.form_layout.addRow("Base Currency:", self.base_currency_combo)
         
-        # Placeholders for other CompanySetting fields (add to form_layout as needed)
         self.address_line1_edit = QLineEdit()
         self.address_line2_edit = QLineEdit()
         self.postal_code_edit = QLineEdit()
@@ -50,9 +58,8 @@ class SettingsWidget(QWidget):
         self.fiscal_year_start_day_spin = QSpinBox()
         self.fiscal_year_start_day_spin.setRange(1,31)
         self.tax_id_label_edit = QLineEdit()
-        self.date_format_combo = QComboBox() # e.g. "yyyy-MM-dd", "dd/MM/yyyy"
+        self.date_format_combo = QComboBox() 
         self.date_format_combo.addItems(["yyyy-MM-dd", "dd/MM/yyyy", "MM/dd/yyyy"])
-
 
         self.form_layout.addRow("Address Line 1:", self.address_line1_edit)
         self.form_layout.addRow("Address Line 2:", self.address_line2_edit)
@@ -68,7 +75,6 @@ class SettingsWidget(QWidget):
         self.form_layout.addRow("Tax ID Label:", self.tax_id_label_edit)
         self.form_layout.addRow("Date Format:", self.date_format_combo)
 
-
         self.layout.addLayout(self.form_layout)
 
         self.save_button = QPushButton("Save Settings")
@@ -79,9 +85,7 @@ class SettingsWidget(QWidget):
         self.setLayout(self.layout)
         QTimer.singleShot(0, lambda: schedule_task_from_qt(self.load_settings()))
 
-
     async def load_settings(self):
-        # This runs in the asyncio thread
         if not self.app_core.company_settings_service:
             QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
                 Q_ARG(QWidget, self), Q_ARG(str, "Error"), 
@@ -89,13 +93,15 @@ class SettingsWidget(QWidget):
             return
         
         currencies_loaded_successfully = False
-        active_currencies_data: List[Dict[str, str]] = [] 
+        active_currencies_data_json: Optional[str] = None
         if self.app_core.currency_manager:
             try:
                 active_currencies_orm: List[Currency] = await self.app_core.currency_manager.get_active_currencies()
-                for curr in active_currencies_orm:
-                    active_currencies_data.append({"code": curr.code, "name": curr.name})
-                QMetaObject.invokeMethod(self, "_populate_currency_combo_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(object, active_currencies_data))
+                # Prepare data for JSON serialization
+                currencies_list_of_dicts = [{"code": curr.code, "name": curr.name} for curr in active_currencies_orm]
+                active_currencies_data_json = json.dumps(currencies_list_of_dicts)
+                QMetaObject.invokeMethod(self, "_populate_currency_combo_slot", Qt.ConnectionType.QueuedConnection, 
+                                         Q_ARG(str, active_currencies_data_json))
                 currencies_loaded_successfully = True
             except Exception as e:
                 error_msg = f"Error loading currencies for settings: {e}"
@@ -104,62 +110,69 @@ class SettingsWidget(QWidget):
                     Q_ARG(QWidget, self), Q_ARG(str, "Currency Load Error"), Q_ARG(str, error_msg))
         
         if not currencies_loaded_successfully: 
-             # Fallback if currency loading failed
-            QMetaObject.invokeMethod(self.base_currency_combo, "addItems", Qt.ConnectionType.QueuedConnection, Q_ARG(list, ["SGD", "USD"]))
+            fallback_currencies_json = json.dumps([{"code": "SGD", "name": "Singapore Dollar"}, {"code": "USD", "name": "US Dollar"}])
+            QMetaObject.invokeMethod(self, "_populate_currency_combo_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, fallback_currencies_json))
 
 
         settings_obj: Optional[CompanySetting] = await self.app_core.company_settings_service.get_company_settings()
         self._loaded_settings_obj = settings_obj 
         
-        settings_data_for_ui = None
+        settings_data_for_ui_json: Optional[str] = None
         if settings_obj:
-            settings_data_for_ui = {
-                "company_name": settings_obj.company_name,
-                "legal_name": settings_obj.legal_name,
-                "uen_no": settings_obj.uen_no,
-                "gst_registration_no": settings_obj.gst_registration_no,
-                "gst_registered": settings_obj.gst_registered,
-                "base_currency": settings_obj.base_currency,
-                "address_line1": settings_obj.address_line1,
-                "address_line2": settings_obj.address_line2,
-                "postal_code": settings_obj.postal_code,
-                "city": settings_obj.city,
-                "country": settings_obj.country,
-                "contact_person": settings_obj.contact_person,
-                "phone": settings_obj.phone,
-                "email": settings_obj.email,
-                "website": settings_obj.website,
+            settings_dict = {
+                "company_name": settings_obj.company_name, "legal_name": settings_obj.legal_name,
+                "uen_no": settings_obj.uen_no, "gst_registration_no": settings_obj.gst_registration_no,
+                "gst_registered": settings_obj.gst_registered, "base_currency": settings_obj.base_currency,
+                "address_line1": settings_obj.address_line1, "address_line2": settings_obj.address_line2,
+                "postal_code": settings_obj.postal_code, "city": settings_obj.city, "country": settings_obj.country,
+                "contact_person": settings_obj.contact_person, "phone": settings_obj.phone,
+                "email": settings_obj.email, "website": settings_obj.website,
                 "fiscal_year_start_month": settings_obj.fiscal_year_start_month,
                 "fiscal_year_start_day": settings_obj.fiscal_year_start_day,
-                "tax_id_label": settings_obj.tax_id_label,
-                "date_format": settings_obj.date_format,
+                "tax_id_label": settings_obj.tax_id_label, "date_format": settings_obj.date_format,
             }
-        QMetaObject.invokeMethod(self, "_update_ui_from_settings_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(object, settings_data_for_ui))
+            settings_data_for_ui_json = json.dumps(settings_dict, default=json_converter)
+        
+        QMetaObject.invokeMethod(self, "_update_ui_from_settings_slot", Qt.ConnectionType.QueuedConnection, 
+                                 Q_ARG(str, settings_data_for_ui_json if settings_data_for_ui_json else ""))
 
-    @Slot(object) 
-    def _populate_currency_combo_slot(self, currencies_data_obj: Any): 
-        currencies_data: List[Dict[str,str]] = currencies_data_obj
+
+    @Slot(str) 
+    def _populate_currency_combo_slot(self, currencies_json_str: str): 
+        try:
+            currencies_data: List[Dict[str,str]] = json.loads(currencies_json_str)
+        except json.JSONDecodeError:
+            currencies_data = [{"code": "SGD", "name": "Singapore Dollar"}] # Fallback
+            
         current_selection = self.base_currency_combo.currentData()
         self.base_currency_combo.clear()
-        for curr_data in currencies_data: 
-            self.base_currency_combo.addItem(f"{curr_data['code']} - {curr_data['name']}", curr_data['code']) 
+        if currencies_data: 
+            for curr_data in currencies_data: 
+                self.base_currency_combo.addItem(f"{curr_data['code']} - {curr_data['name']}", curr_data['code']) 
         
-        # Try to restore previous selection or loaded selection
-        target_currency = current_selection
+        target_currency_code = current_selection
         if hasattr(self, '_loaded_settings_obj') and self._loaded_settings_obj and self._loaded_settings_obj.base_currency:
-            target_currency = self._loaded_settings_obj.base_currency
+            target_currency_code = self._loaded_settings_obj.base_currency
         
-        if target_currency:
-            idx = self.base_currency_combo.findData(target_currency) 
+        if target_currency_code:
+            idx = self.base_currency_combo.findData(target_currency_code) 
             if idx != -1: self.base_currency_combo.setCurrentIndex(idx)
             else: 
                 idx_sgd = self.base_currency_combo.findData("SGD")
                 if idx_sgd != -1: self.base_currency_combo.setCurrentIndex(idx_sgd)
+        elif self.base_currency_combo.count() > 0: 
+             self.base_currency_combo.setCurrentIndex(0)
 
+    @Slot(str) 
+    def _update_ui_from_settings_slot(self, settings_json_str: str):
+        settings_data: Optional[Dict[str, Any]] = None
+        if settings_json_str:
+            try:
+                settings_data = json.loads(settings_json_str)
+            except json.JSONDecodeError:
+                QMessageBox.critical(self, "Error", "Failed to parse settings data.")
+                settings_data = None
 
-    @Slot(object) 
-    def _update_ui_from_settings_slot(self, settings_data_obj: Any):
-        settings_data: Optional[Dict[str, Any]] = settings_data_obj
         if settings_data:
             self.company_name_edit.setText(settings_data.get("company_name", ""))
             self.legal_name_edit.setText(settings_data.get("legal_name", "") or "")
@@ -183,6 +196,7 @@ class SettingsWidget(QWidget):
             date_fmt = settings_data.get("date_format", "yyyy-MM-dd")
             date_fmt_idx = self.date_format_combo.findText(date_fmt, Qt.MatchFlag.MatchFixedString)
             if date_fmt_idx != -1: self.date_format_combo.setCurrentIndex(date_fmt_idx)
+            else: self.date_format_combo.setCurrentIndex(0) 
 
             if self.base_currency_combo.count() > 0: 
                 base_currency = settings_data.get("base_currency")
@@ -243,12 +257,11 @@ class SettingsWidget(QWidget):
         orm_obj_to_save: CompanySetting
         if existing_settings:
             orm_obj_to_save = existing_settings
-            # Update all fields from DTO to ORM object
-            for field_name, field_value in settings_data.model_dump(exclude={'user_id', 'id', 'logo'}, by_alias=False).items():
+            for field_name, field_value in settings_data.model_dump(exclude={'user_id', 'id', 'logo'}, by_alias=False, exclude_none=False).items():
                 if hasattr(orm_obj_to_save, field_name):
                     setattr(orm_obj_to_save, field_name, field_value)
         else: 
-            dict_data = settings_data.model_dump(exclude={'user_id', 'id', 'logo'}, by_alias=False)
+            dict_data = settings_data.model_dump(exclude={'user_id', 'id', 'logo'}, by_alias=False, exclude_none=False)
             orm_obj_to_save = CompanySetting(**dict_data) 
             if settings_data.id:
                  orm_obj_to_save.id = settings_data.id
@@ -264,4 +277,3 @@ class SettingsWidget(QWidget):
         msg_box_method = QMessageBox.information if result else QMessageBox.warning
         QMetaObject.invokeMethod(msg_box_method, "", Qt.ConnectionType.QueuedConnection, 
             Q_ARG(QWidget, self), Q_ARG(str, message_title), Q_ARG(str, message_text))
-
