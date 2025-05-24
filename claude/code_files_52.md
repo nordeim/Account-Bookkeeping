@@ -1,3 +1,57 @@
+<think>
+The application launched successfully without any errors after the last set of changes! This is a very positive sign. The console output shows:
+1.  Asyncio loop starts correctly.
+2.  Resource warnings (normal if not compiled).
+3.  Splash image fallback (normal if `splash.png` is missing).
+4.  `ApplicationCore` initializes and starts up.
+5.  The default admin login attempt happens and "fails" (meaning 'admin'/'password' is not a valid credential, which is correct as 'admin' has a proper hash in `initial_data.sql`). The message "MainWindow should handle login" indicates the app proceeds.
+6.  No `AttributeError` or `ImportError` or `QMetaType` errors.
+7.  The application then proceeds to a clean shutdown sequence.
+
+This means the UI shell is up, and the initial async data loading attempts in `ChartOfAccountsWidget` and `SettingsWidget` (which involve `schedule_task_from_qt` and `QMetaObject.invokeMethod` with JSON string serialization) did not crash the application. The "Default company settings not found" dialog, which appeared in a previous screenshot, should also be gone now because `initial_data.sql` seeds the company settings.
+
+**Current State Assessment:**
+The application is stable at launch. The core asyncio integration with Qt seems to be working for scheduling tasks and basic UI updates via `QMetaObject.invokeMethod`.
+
+**Next Step from the Plan: Step 1 - Enhance Company Settings & Fiscal Year Setup (Continued)**
+
+We've updated `FiscalYearService`. Now we need to:
+1.  **Enhance `app/accounting/fiscal_period_manager.py`**:
+    *   Implement robust logic for `create_fiscal_year` (using `FiscalYearService` to check for overlaps and name conflicts).
+    *   Implement robust logic for `generate_periods_for_year` (correctly calculating monthly/quarterly period boundaries within the fiscal year).
+2.  **Create `app/ui/accounting/fiscal_year_dialog.py` (New File)**:
+    *   A dialog for users to input Fiscal Year details (Name, Start Date, End Date).
+    *   An option (e.g., `QComboBox`) to choose whether to auto-generate "Monthly" or "Quarterly" periods, or "None".
+3.  **Modify `app/ui/settings/settings_widget.py`**:
+    *   Add a section to display a list/table of existing Fiscal Years.
+    *   Add an "Add New Fiscal Year..." button that launches the `FiscalYearDialog`.
+    *   Implement async loading and refresh for the list of fiscal years.
+4.  **Define `FiscalYearCreateData` Pydantic DTO** in `app/utils/pydantic_models.py`.
+
+Let's proceed with enhancing `app/accounting/fiscal_period_manager.py`.
+</think>
+
+This is excellent! The application is now launching without any errors and shutting down cleanly. This confirms that the foundational setup, including the database, core services, asyncio integration, and the basic UI shell, is stable. The previous message "Default company settings not found" should also be resolved as `initial_data.sql` now seeds this information.
+
+We can now confidently proceed with implementing the features outlined in **Step 1: Enhance Company Settings & Fiscal Year Setup**, focusing on Fiscal Year management.
+
+**Phase 1.1.2: Implementing Fiscal Year Manager Logic, Dialog, and Settings UI Integration**
+
+The next logical steps are:
+1.  Define a Pydantic DTO for creating Fiscal Years.
+2.  Enhance `app/accounting/fiscal_period_manager.py` with the business logic for creating fiscal years (including validation like checking for overlaps) and generating their associated accounting periods.
+3.  Create the new UI dialog `app/ui/accounting/fiscal_year_dialog.py` to capture user input for a new fiscal year.
+4.  Update `app/ui/settings/settings_widget.py` to include a section for managing fiscal years (listing existing ones and providing a way to add new ones via the `FiscalYearDialog`).
+5.  Ensure relevant `__init__.py` files are updated to export new classes.
+
+I will provide these updates step-by-step.
+
+---
+**1. Define `FiscalYearCreateData` DTO in `app/utils/pydantic_models.py`**
+
+We need a Pydantic model to transfer data for creating a new fiscal year.
+
+```python
 # File: app/utils/pydantic_models.py
 from pydantic import BaseModel, Field, validator, root_validator # type: ignore
 from typing import List, Optional, Union, Any, Dict 
@@ -226,3 +280,13 @@ class FiscalYearData(AppBaseModel): # For listing or returning fiscal year info
     closed_date: Optional[datetime] = None
     periods: List[FiscalPeriodData] = []
 
+```
+
+**Validation of `app/utils/pydantic_models.py`:**
+*   Added `FiscalYearCreateData`, `FiscalPeriodData`, and `FiscalYearData` DTOs.
+*   `FiscalYearCreateData` includes basic date validation and a field `auto_generate_periods`.
+*   `UserAuditData` mixin is used for `FiscalYearCreateData`.
+
+---
+Next, I will provide the updated `app/accounting/fiscal_period_manager.py`.
+This will be followed by the new `app/ui/accounting/fiscal_year_dialog.py`, and finally the modifications to `app/ui/settings/settings_widget.py`.

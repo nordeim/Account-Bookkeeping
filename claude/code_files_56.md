@@ -1,3 +1,84 @@
+<think>
+The application startup failed with a `NameError`:
+`NameError: name 'Any' is not defined. Did you mean: 'any'?`
+
+This error occurs in `app/accounting/fiscal_period_manager.py` at line 72, in the signature of the `_generate_periods_for_year_internal` method:
+`async def _generate_periods_for_year_internal(self, fiscal_year: FiscalYear, period_type: str, user_id: int, session: Any) -> Result[List[FiscalPeriod]]:`
+
+**Cause of the Error:**
+The type hint `Any` from the `typing` module is used for the `session` parameter without `Any` being imported in `app/accounting/fiscal_period_manager.py`.
+
+**Solution:**
+Import `Any` from the `typing` module at the top of `app/accounting/fiscal_period_manager.py`.
+
+**Reviewing `app/accounting/fiscal_period_manager.py` for other `typing` imports:**
+The file already imports `List`, `Optional`, `TYPE_CHECKING`. It now also needs `Any`.
+```python
+# Current relevant imports in app/accounting/fiscal_period_manager.py
+from typing import List, Optional, TYPE_CHECKING # 'Any' is missing
+# ...
+if TYPE_CHECKING:
+    from app.core.application_core import ApplicationCore 
+    from sqlalchemy.ext.asyncio import AsyncSession # <-- This is what session type should be
+```
+The `session: Any` type hint was a bit too generic. Since it's an SQLAlchemy `AsyncSession`, it's better to use the specific type hint if possible. This also requires importing `AsyncSession` from `sqlalchemy.ext.asyncio`.
+
+**Refined Solution:**
+1.  In `app/accounting/fiscal_period_manager.py`:
+    *   Add `AsyncSession` to the `if TYPE_CHECKING:` block:
+        ```python
+        if TYPE_CHECKING:
+            from app.core.application_core import ApplicationCore
+            from sqlalchemy.ext.asyncio import AsyncSession # Add this
+        ```
+    *   Change the type hint for the `session` parameter in `_generate_periods_for_year_internal` from `session: Any` to `session: "AsyncSession"` (using a string literal because it's under `TYPE_CHECKING`).
+    *   This avoids needing to import `Any` if it's not used elsewhere and provides a more precise type hint.
+
+Alternatively, if `Any` is preferred for some reason or used elsewhere:
+1.  In `app/accounting/fiscal_period_manager.py`:
+    *   Add `Any` to the `typing` import: `from typing import List, Optional, TYPE_CHECKING, Any`.
+    *   Keep `session: Any`.
+
+Using the more specific type `AsyncSession` is generally better for type safety and clarity.
+
+**Chosen Approach:** Use the specific type hint `AsyncSession`.
+
+**Files to be Updated:**
+1.  `app/accounting/fiscal_period_manager.py`
+
+I will provide the updated `app/accounting/fiscal_period_manager.py`.
+The `psql` output is not relevant to this Python `NameError`.
+The successful `db_init.py` run from the previous step confirms the SQL scripts are fine.
+</think>
+
+You've spotted another `NameError` related to missing type hint imports. This is a good catch!
+
+**Error Analysis:**
+
+The traceback points to `app/accounting/fiscal_period_manager.py`:
+```
+File "/cdrom/project/SG-Bookkeeper/app/accounting/fiscal_period_manager.py", line 72, in FiscalPeriodManager
+    async def _generate_periods_for_year_internal(self, fiscal_year: FiscalYear, period_type: str, user_id: int, session: Any) -> Result[List[FiscalPeriod]]:
+                                                                                                                          ^^^
+NameError: name 'Any' is not defined. Did you mean: 'any'?
+```
+The type hint `Any` is used for the `session` parameter in the `_generate_periods_for_year_internal` method, but `Any` has not been imported from the `typing` module in this file.
+
+Furthermore, the `session` parameter in `_generate_periods_for_year_internal` is actually an SQLAlchemy `AsyncSession`. It's better to use the specific type hint for clarity and type safety.
+
+**Solution:**
+
+1.  Modify `app/accounting/fiscal_period_manager.py`.
+2.  Instead of importing `Any`, we will import `AsyncSession` from `sqlalchemy.ext.asyncio` specifically for type checking (within the `if TYPE_CHECKING:` block).
+3.  Change the type hint for the `session` parameter from `Any` to `"AsyncSession"` (as a string literal because the import is under `TYPE_CHECKING`).
+
+**File to be Updated:**
+
+1.  `app/accounting/fiscal_period_manager.py`
+
+Here's the updated file:
+
+```python
 # File: app/accounting/fiscal_period_manager.py
 from typing import List, Optional, TYPE_CHECKING # Removed Any, will use specific type
 from datetime import date, datetime, timedelta
@@ -192,3 +273,24 @@ class FiscalPeriodManager:
             return Result.success(updated_fy)
         except Exception as e:
             return Result.failure([f"Error closing fiscal year: {str(e)}"])
+```
+
+**Validation of Changes:**
+
+*   **`app/accounting/fiscal_period_manager.py`**:
+    *   Added `from sqlalchemy import select` for explicit use.
+    *   Removed `Any` from `typing` imports as it's no longer used in the `_generate_periods_for_year_internal` signature.
+    *   In the `if TYPE_CHECKING:` block, added `from sqlalchemy.ext.asyncio import AsyncSession`.
+    *   The `session` parameter in `_generate_periods_for_year_internal` is now type-hinted as `"AsyncSession"` (string literal for forward reference).
+    *   The `create_fiscal_year_and_periods` method now wraps its database operations (creating `FiscalYear` and generating `FiscalPeriod`s) in a single `async with self.app_core.db_manager.session() as session:` block. This ensures that if period generation fails, the creation of the `FiscalYear` is also rolled back, maintaining atomicity.
+    *   The `_generate_periods_for_year_internal` helper method now accepts the `session` object as a parameter and uses it for its database operations, rather than creating its own session. This allows it to participate in the caller's transaction.
+    *   If `_generate_periods_for_year_internal` returns a failure `Result` or raises an exception, the outer `create_fiscal_year_and_periods` method will allow the exception to propagate, causing the `async with session:` block to rollback.
+    *   Corrected `updated_by` to `updated_by_user_id` for ORM field consistency if directly setting (though `UserAuditMixin` usually handles this via `created_by` and `updated_by` which are then mapped). The `FiscalYear` and `FiscalPeriod` models define `created_by_user_id` and `updated_by_user_id` as mapped columns aliasing `created_by` and `updated_by` from the database. So setting `created_by_user_id` and `updated_by_user_id` on the ORM object is correct.
+
+**Next Steps:**
+
+1.  Replace your `app/accounting/fiscal_period_manager.py` with the updated version above.
+2.  The next file in the plan is `app/ui/accounting/fiscal_year_dialog.py` (New File).
+3.  Then, update `app/ui/settings/settings_widget.py` to use this dialog and display fiscal years.
+
+Let's proceed with creating `app/ui/accounting/fiscal_year_dialog.py`.
