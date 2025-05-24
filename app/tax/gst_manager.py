@@ -13,7 +13,6 @@ from app.services.core_services import CompanySettingsService
 from app.utils.sequence_generator import SequenceGenerator 
 from app.utils.result import Result
 from app.utils.pydantic_models import GSTReturnData, JournalEntryData, JournalEntryLineData 
-# from app.core.application_core import ApplicationCore # Removed direct import
 from app.models.accounting.gst_return import GSTReturn 
 from app.models.accounting.journal_entry import JournalEntry 
 from app.common.enums import GSTReturnStatusEnum 
@@ -53,27 +52,56 @@ class GSTManager:
         input_tax_calc = Decimal('0.00')
         
         sr_tax_code = await self.tax_code_service.get_tax_code('SR')
-        gst_rate = Decimal('0.09') # Default to 9%
-        if sr_tax_code and sr_tax_code.tax_type == 'GST' and sr_tax_code.rate is not None: # Ensure rate is not None
-            gst_rate = sr_tax_code.rate / Decimal(100)
+        gst_rate_decimal = Decimal('0.09') # Default to 9%
+        if sr_tax_code and sr_tax_code.tax_type == 'GST' and sr_tax_code.rate is not None:
+            gst_rate_decimal = sr_tax_code.rate / Decimal(100)
         else:
-            print("Warning: Standard Rate GST tax code 'SR' not found, not GST type, or rate is null. Defaulting to 9% for calculation.")
-
-        # Placeholder logic for calculating GST figures.
-        # In a real implementation, this would iterate through relevant transactions (e.g., JournalEntryLine)
-        # within the date range, check their tax codes, and sum up amounts.
-        # Example:
-        # std_rated_supplies = await self.journal_service.get_sum_for_gst_box(start_date, end_date, 'SR_SUPPLIES_BOX')
-        # output_tax_calc = await self.journal_service.get_sum_for_gst_box(start_date, end_date, 'OUTPUT_TAX_BOX')
-        # etc.
+            print("Warning: Standard Rate GST tax code 'SR' not found or not GST type or rate is null. Defaulting to 9% for calculation.")
         
-        # For now, using illustrative fixed values for demonstration
+        # --- Placeholder for actual data aggregation ---
+        # This section needs to query JournalEntryLines within the date range,
+        # join with Accounts and TaxCodes to categorize amounts correctly.
+        # Example structure (conceptual, actual queries would be more complex):
+        #
+        # async with self.app_core.db_manager.session() as session:
+        #     # Output Tax related (Sales)
+        #     sales_lines = await session.execute(
+        #         select(JournalEntryLine, Account.account_type, TaxCode.code)
+        #         .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+        #         .join(Account, Account.id == JournalEntryLine.account_id)
+        #         .outerjoin(TaxCode, TaxCode.code == JournalEntryLine.tax_code)
+        #         .where(JournalEntry.is_posted == True)
+        #         .where(JournalEntry.entry_date >= start_date)
+        #         .where(JournalEntry.entry_date <= end_date)
+        #         .where(Account.account_type == 'Revenue') # Example: Only revenue lines for supplies
+        #     )
+        #     for line, acc_type, tax_c in sales_lines.all():
+        #         amount = line.credit_amount - line.debit_amount # Net credit for revenue
+        #         if tax_c == 'SR':
+        #             std_rated_supplies += amount
+        #             output_tax_calc += line.tax_amount # Assuming tax_amount is correctly populated
+        #         elif tax_c == 'ZR':
+        #             zero_rated_supplies += amount
+        #         elif tax_c == 'ES':
+        #             exempt_supplies += amount
+            
+        #     # Input Tax related (Purchases/Expenses)
+        #     purchase_lines = await session.execute(...) # Similar query for expense/asset accounts
+        #     for line, acc_type, tax_c in purchase_lines.all():
+        #         amount = line.debit_amount - line.credit_amount # Net debit for expense/asset
+        #         if tax_c == 'TX':
+        #             taxable_purchases += amount
+        #             input_tax_calc += line.tax_amount
+        #         # Handle 'BL' - Blocked Input Tax if necessary
+        # --- End of Placeholder ---
+
+        # For now, using illustrative fixed values for demonstration (if above is commented out)
         std_rated_supplies = Decimal('10000.00') 
         zero_rated_supplies = Decimal('2000.00')  
         exempt_supplies = Decimal('500.00')     
         taxable_purchases = Decimal('5000.00')   
-        output_tax_calc = (std_rated_supplies * gst_rate).quantize(Decimal("0.01"))
-        input_tax_calc = (taxable_purchases * gst_rate).quantize(Decimal("0.01"))
+        output_tax_calc = (std_rated_supplies * gst_rate_decimal).quantize(Decimal("0.01"))
+        input_tax_calc = (taxable_purchases * gst_rate_decimal).quantize(Decimal("0.01"))
 
         total_supplies = std_rated_supplies + zero_rated_supplies + exempt_supplies
         tax_payable = output_tax_calc - input_tax_calc
@@ -108,22 +136,19 @@ class GSTManager:
                 return Result.failure([f"GST Return with ID {gst_return_data.id} not found for update."])
             
             orm_return = existing_return
-            # Update all fields from DTO
             update_dict = gst_return_data.model_dump(exclude={'id', 'user_id'}, exclude_none=True)
             for key, value in update_dict.items():
                 if hasattr(orm_return, key):
                     setattr(orm_return, key, value)
             orm_return.updated_by_user_id = current_user_id
         else: 
-            # Create new
-            # Ensure all NOT NULL fields are present in GSTReturnData or have defaults in model
             create_dict = gst_return_data.model_dump(exclude={'id', 'user_id'}, exclude_none=True)
             orm_return = GSTReturn(
                 **create_dict,
                 created_by_user_id=current_user_id,
                 updated_by_user_id=current_user_id
             )
-            if not orm_return.filing_due_date: # Calculate if not provided
+            if not orm_return.filing_due_date: 
                  orm_return.filing_due_date = orm_return.end_date + relativedelta(months=1, day=31)
 
         try:
@@ -144,11 +169,13 @@ class GSTManager:
         gst_return.submission_reference = submission_reference
         gst_return.updated_by_user_id = user_id
 
-        if gst_return.tax_payable != Decimal(0):
-            # Define system account codes
-            gst_output_tax_acc_code = self.app_core.config_manager.get_setting("SystemAccounts", "GSTOutputTax", "SYS-GST-OUTPUT") or "SYS-GST-OUTPUT"
-            gst_input_tax_acc_code = self.app_core.config_manager.get_setting("SystemAccounts", "GSTInputTax", "SYS-GST-INPUT") or "SYS-GST-INPUT"
-            gst_payable_control_acc_code = self.app_core.config_manager.get_setting("SystemAccounts", "GSTPayableControl", "GST-PAYABLE") or "GST-PAYABLE"
+        if gst_return.tax_payable != Decimal(0): # Only create JE if there's a net payable/refundable
+            # System account codes from config or defaults
+            sys_acc_config = self.app_core.config_manager.parser['SystemAccounts'] if self.app_core.config_manager.parser.has_section('SystemAccounts') else {}
+            gst_output_tax_acc_code = sys_acc_config.get("GSTOutputTax", "SYS-GST-OUTPUT")
+            gst_input_tax_acc_code = sys_acc_config.get("GSTInputTax", "SYS-GST-INPUT")
+            gst_payable_control_acc_code = sys_acc_config.get("GSTPayableControl", "GST-PAYABLE")
+
 
             output_tax_acc = await self.account_service.get_by_code(gst_output_tax_acc_code)
             input_tax_acc = await self.account_service.get_by_code(gst_input_tax_acc_code)
@@ -162,14 +189,17 @@ class GSTManager:
                     return Result.failure([f"Failed to finalize GST return and also failed to save it before JE creation: {str(e_save)}"])
 
             lines = []
+            # To clear Output Tax (usually a credit balance): Debit Output Tax Account
             if gst_return.output_tax != Decimal(0):
-                 lines.append(JournalEntryLineData(account_id=output_tax_acc.id, debit_amount=gst_return.output_tax, credit_amount=Decimal(0), description="Clear GST Output Tax for period " + gst_return.return_period))
-            if gst_return.input_tax != Decimal(0): # Input tax reduces liability, so it's a debit to Input Tax (asset) when clearing, meaning credit here
-                 lines.append(JournalEntryLineData(account_id=input_tax_acc.id, debit_amount=Decimal(0), credit_amount=gst_return.input_tax, description="Clear GST Input Tax for period " + gst_return.return_period))
+                 lines.append(JournalEntryLineData(account_id=output_tax_acc.id, debit_amount=gst_return.output_tax, credit_amount=Decimal(0), description=f"Clear GST Output Tax for period {gst_return.return_period}"))
+            # To clear Input Tax (usually a debit balance): Credit Input Tax Account
+            if gst_return.input_tax != Decimal(0):
+                 lines.append(JournalEntryLineData(account_id=input_tax_acc.id, debit_amount=Decimal(0), credit_amount=gst_return.input_tax, description=f"Clear GST Input Tax for period {gst_return.return_period}"))
             
-            if gst_return.tax_payable > Decimal(0): 
+            # Net effect on GST Payable/Control Account
+            if gst_return.tax_payable > Decimal(0): # Tax Payable (Liability)
                 lines.append(JournalEntryLineData(account_id=payable_control_acc.id, debit_amount=Decimal(0), credit_amount=gst_return.tax_payable, description=f"GST Payable to IRAS for period {gst_return.return_period}"))
-            elif gst_return.tax_payable < Decimal(0): 
+            elif gst_return.tax_payable < Decimal(0): # Tax Refundable (Asset)
                 lines.append(JournalEntryLineData(account_id=payable_control_acc.id, debit_amount=abs(gst_return.tax_payable), credit_amount=Decimal(0), description=f"GST Refundable from IRAS for period {gst_return.return_period}"))
             
             if lines:
@@ -192,6 +222,10 @@ class GSTManager:
                 else:
                     assert je_result.value is not None
                     gst_return.journal_entry_id = je_result.value.id
+                    # Optionally auto-post the JE
+                    # post_result = await self.app_core.journal_entry_manager.post_journal_entry(je_result.value.id, user_id)
+                    # if not post_result.is_success:
+                    #     print(f"Warning: GST JE created (ID: {je_result.value.id}) but failed to auto-post: {post_result.errors}")
         try:
             updated_return = await self.gst_return_service.save_gst_return(gst_return)
             return Result.success(updated_return)

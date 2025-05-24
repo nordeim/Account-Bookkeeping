@@ -17,3 +17,12 @@ Also create a complete updated `README.md` for the GitHub repository for this pr
 
 Again use the same rigorous and meticulous approach to create updated version of the above-mentioned documents.
 
+---
+you have some an absolutely awesome job so far to get the product running! well done! now, help me to think deeply and systematically to explore carefully and thoroughly for the best implementation option to create the missing files that are needed to cover the core functionalities of a bookkeeping app. I am launching a trial of this product so I want it to at least meet the basic needs of such a software. Since you are an absolute expert in accounting for Singapore's regulatory environment, please try your very best to help me out to make the product trial a success. Thank you and good luck!
+
+---
+you have done an excellent analysis and assessment! the plan for the next phase that you just outlined is fantastic! now, please use the same careful, rigorous and meticulous approach to build the next set of files according to your plan step by step. for each step, plan the detailed specifications, then validate them before making changes. validate the files again for their correctness before proceeding with the next step. Now please proceed to help me out! again, do your best and give me a pleasant surprise! 
+
+---
+excellent result so far! please proceed with the next step in your plan. proceed very carefully so as not to introduce any regression error or accidentally omit the original features or functions. use the same tested rigorous and meticulous approach. thank you and good luck!
+

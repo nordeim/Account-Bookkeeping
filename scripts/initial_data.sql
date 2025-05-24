@@ -1,6 +1,6 @@
 -- File: scripts/initial_data.sql
 -- ============================================================================
--- INITIAL DATA
+-- INITIAL DATA (Version 1.0.1 - Corrected Order, Idempotency, GST 9%)
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
@@ -20,12 +20,14 @@ ON CONFLICT (name) DO UPDATE SET
 -- Insert default permissions
 -- ----------------------------------------------------------------------------
 INSERT INTO core.permissions (code, description, module) VALUES
+-- Core permissions
 ('SYSTEM_SETTINGS', 'Manage system settings', 'System'),
 ('USER_MANAGE', 'Manage users', 'System'),
 ('ROLE_MANAGE', 'Manage roles and permissions', 'System'),
 ('DATA_BACKUP', 'Backup and restore data', 'System'),
 ('DATA_IMPORT', 'Import data', 'System'),
 ('DATA_EXPORT', 'Export data', 'System'),
+-- Accounting permissions
 ('ACCOUNT_VIEW', 'View chart of accounts', 'Accounting'),
 ('ACCOUNT_CREATE', 'Create accounts', 'Accounting'),
 ('ACCOUNT_EDIT', 'Edit accounts', 'Accounting'),
@@ -37,6 +39,7 @@ INSERT INTO core.permissions (code, description, module) VALUES
 ('JOURNAL_REVERSE', 'Reverse posted journal entries', 'Accounting'),
 ('PERIOD_MANAGE', 'Manage fiscal periods', 'Accounting'),
 ('YEAR_CLOSE', 'Close fiscal years', 'Accounting'),
+-- Business permissions
 ('CUSTOMER_VIEW', 'View customers', 'Business'),
 ('CUSTOMER_CREATE', 'Create customers', 'Business'),
 ('CUSTOMER_EDIT', 'Edit customers', 'Business'),
@@ -49,6 +52,7 @@ INSERT INTO core.permissions (code, description, module) VALUES
 ('PRODUCT_CREATE', 'Create products', 'Business'),
 ('PRODUCT_EDIT', 'Edit products', 'Business'),
 ('PRODUCT_DELETE', 'Delete products', 'Business'),
+-- Transaction permissions
 ('INVOICE_VIEW', 'View invoices', 'Transactions'),
 ('INVOICE_CREATE', 'Create invoices', 'Transactions'),
 ('INVOICE_EDIT', 'Edit invoices', 'Transactions'),
@@ -59,17 +63,20 @@ INSERT INTO core.permissions (code, description, module) VALUES
 ('PAYMENT_EDIT', 'Edit payments', 'Transactions'),
 ('PAYMENT_DELETE', 'Delete payments', 'Transactions'),
 ('PAYMENT_APPROVE', 'Approve payments', 'Transactions'),
+-- Banking permissions
 ('BANK_VIEW', 'View bank accounts', 'Banking'),
 ('BANK_CREATE', 'Create bank accounts', 'Banking'),
 ('BANK_EDIT', 'Edit bank accounts', 'Banking'),
 ('BANK_DELETE', 'Delete bank accounts', 'Banking'),
 ('BANK_RECONCILE', 'Reconcile bank accounts', 'Banking'),
 ('BANK_STATEMENT', 'Import bank statements', 'Banking'),
+-- Tax permissions
 ('TAX_VIEW', 'View tax settings', 'Tax'),
 ('TAX_EDIT', 'Edit tax settings', 'Tax'),
 ('GST_PREPARE', 'Prepare GST returns', 'Tax'),
 ('GST_SUBMIT', 'Mark GST returns as submitted', 'Tax'),
 ('TAX_REPORT', 'Generate tax reports', 'Tax'),
+-- Reporting permissions
 ('REPORT_FINANCIAL', 'Access financial reports', 'Reporting'),
 ('REPORT_TAX', 'Access tax reports', 'Reporting'),
 ('REPORT_MANAGEMENT', 'Access management reports', 'Reporting'),
@@ -95,13 +102,54 @@ ON CONFLICT (id) DO UPDATE SET
 
 -- Synchronize the sequence for core.users.id after inserting user with ID 1
 -- This ensures the next user (e.g., 'admin') gets a correct auto-generated ID
-SELECT setval(pg_get_serial_sequence('core.users', 'id'), COALESCE((SELECT MAX(id) FROM core.users), 1));
+SELECT setval(pg_get_serial_sequence('core.users', 'id'), COALESCE((SELECT MAX(id) FROM core.users), 1), true);
 
 -- ----------------------------------------------------------------------------
--- Insert default currencies (now references user ID 1)
+-- Insert Default Company Settings (ID = 1)
+-- This MUST come AFTER core.users ID 1 is created and currencies are defined.
 -- ----------------------------------------------------------------------------
 INSERT INTO accounting.currencies (code, name, symbol, is_active, decimal_places, created_by, updated_by) VALUES
-('SGD', 'Singapore Dollar', '$', TRUE, 2, 1, 1),
+('SGD', 'Singapore Dollar', '$', TRUE, 2, 1, 1)
+ON CONFLICT (code) DO UPDATE SET 
+    name = EXCLUDED.name, symbol = EXCLUDED.symbol, is_active = EXCLUDED.is_active, 
+    decimal_places = EXCLUDED.decimal_places, created_by = COALESCE(accounting.currencies.created_by, EXCLUDED.created_by), 
+    updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
+
+INSERT INTO core.company_settings (
+    id, company_name, legal_name, uen_no, gst_registration_no, gst_registered, 
+    address_line1, postal_code, city, country, 
+    fiscal_year_start_month, fiscal_year_start_day, base_currency, tax_id_label, date_format, 
+    updated_by 
+) VALUES (
+    1, 
+    'My Demo Company Pte. Ltd.', 
+    'My Demo Company Private Limited',
+    '202400001Z', 
+    'M90000001Z', 
+    TRUE,
+    '1 Marina Boulevard', 
+    '018989',
+    'Singapore',
+    'Singapore',
+    1, 
+    1, 
+    'SGD',
+    'UEN',
+    'dd/MM/yyyy',
+    1 
+)
+ON CONFLICT (id) DO UPDATE SET
+    company_name = EXCLUDED.company_name, legal_name = EXCLUDED.legal_name, uen_no = EXCLUDED.uen_no,
+    gst_registration_no = EXCLUDED.gst_registration_no, gst_registered = EXCLUDED.gst_registered,
+    address_line1 = EXCLUDED.address_line1, postal_code = EXCLUDED.postal_code, city = EXCLUDED.city, country = EXCLUDED.country,
+    fiscal_year_start_month = EXCLUDED.fiscal_year_start_month, fiscal_year_start_day = EXCLUDED.fiscal_year_start_day,
+    base_currency = EXCLUDED.base_currency, tax_id_label = EXCLUDED.tax_id_label, date_format = EXCLUDED.date_format,
+    updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
+
+-- ----------------------------------------------------------------------------
+-- Insert other default currencies (now references user ID 1)
+-- ----------------------------------------------------------------------------
+INSERT INTO accounting.currencies (code, name, symbol, is_active, decimal_places, created_by, updated_by) VALUES
 ('USD', 'US Dollar', '$', TRUE, 2, 1, 1),
 ('EUR', 'Euro', '€', TRUE, 2, 1, 1),
 ('GBP', 'British Pound', '£', TRUE, 2, 1, 1),
@@ -111,32 +159,22 @@ INSERT INTO accounting.currencies (code, name, symbol, is_active, decimal_places
 ('MYR', 'Malaysian Ringgit', 'RM', TRUE, 2, 1, 1),
 ('IDR', 'Indonesian Rupiah', 'Rp', TRUE, 0, 1, 1)
 ON CONFLICT (code) DO UPDATE SET 
-    name = EXCLUDED.name, 
-    symbol = EXCLUDED.symbol, 
-    is_active = EXCLUDED.is_active, 
-    decimal_places = EXCLUDED.decimal_places,
-    created_by = COALESCE(accounting.currencies.created_by, EXCLUDED.created_by), 
-    updated_by = EXCLUDED.updated_by,
-    updated_at = CURRENT_TIMESTAMP;
+    name = EXCLUDED.name, symbol = EXCLUDED.symbol, is_active = EXCLUDED.is_active, 
+    decimal_places = EXCLUDED.decimal_places, created_by = COALESCE(accounting.currencies.created_by, EXCLUDED.created_by), 
+    updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
 
 -- ----------------------------------------------------------------------------
 -- Insert default document sequences
 -- ----------------------------------------------------------------------------
 INSERT INTO core.sequences (sequence_name, prefix, next_value, format_template) VALUES
-('journal_entry', 'JE', 1, '{PREFIX}{VALUE:06}'),
-('sales_invoice', 'INV', 1, '{PREFIX}{VALUE:06}'),
-('purchase_invoice', 'PUR', 1, '{PREFIX}{VALUE:06}'),
-('payment', 'PAY', 1, '{PREFIX}{VALUE:06}'),
-('receipt', 'REC', 1, '{PREFIX}{VALUE:06}'),
-('customer', 'CUS', 1, '{PREFIX}{VALUE:04}'),
-('vendor', 'VEN', 1, '{PREFIX}{VALUE:04}'),
-('product', 'PRD', 1, '{PREFIX}{VALUE:04}'),
+('journal_entry', 'JE', 1, '{PREFIX}{VALUE:06}'), ('sales_invoice', 'INV', 1, '{PREFIX}{VALUE:06}'),
+('purchase_invoice', 'PUR', 1, '{PREFIX}{VALUE:06}'), ('payment', 'PAY', 1, '{PREFIX}{VALUE:06}'),
+('receipt', 'REC', 1, '{PREFIX}{VALUE:06}'), ('customer', 'CUS', 1, '{PREFIX}{VALUE:04}'),
+('vendor', 'VEN', 1, '{PREFIX}{VALUE:04}'), ('product', 'PRD', 1, '{PREFIX}{VALUE:04}'),
 ('wht_certificate', 'WHT', 1, '{PREFIX}{VALUE:06}')
 ON CONFLICT (sequence_name) DO UPDATE SET
-    prefix = EXCLUDED.prefix,
-    next_value = GREATEST(core.sequences.next_value, EXCLUDED.next_value), -- Keep existing next_value if higher
-    format_template = EXCLUDED.format_template,
-    updated_at = CURRENT_TIMESTAMP;
+    prefix = EXCLUDED.prefix, next_value = GREATEST(core.sequences.next_value, EXCLUDED.next_value), 
+    format_template = EXCLUDED.format_template, updated_at = CURRENT_TIMESTAMP;
 
 -- ----------------------------------------------------------------------------
 -- Insert account types
@@ -154,56 +192,8 @@ INSERT INTO accounting.account_types (name, category, is_debit_balance, report_t
 ('Other Income', 'Revenue', FALSE, 'Income Statement', 100, 'Income from non-core activities'),
 ('Other Expense', 'Expense', TRUE, 'Income Statement', 110, 'Expenses from non-core activities')
 ON CONFLICT (name) DO UPDATE SET
-    category = EXCLUDED.category,
-    is_debit_balance = EXCLUDED.is_debit_balance,
-    report_type = EXCLUDED.report_type,
-    display_order = EXCLUDED.display_order,
-    description = EXCLUDED.description,
-    updated_at = CURRENT_TIMESTAMP;
-
--- ----------------------------------------------------------------------------
--- Insert Default Company Settings (ID = 1)
--- ----------------------------------------------------------------------------
-INSERT INTO core.company_settings (
-    id, company_name, legal_name, uen_no, gst_registration_no, gst_registered, 
-    address_line1, postal_code, city, country, 
-    fiscal_year_start_month, fiscal_year_start_day, base_currency, tax_id_label, date_format, 
-    updated_by 
-) VALUES (
-    1, 
-    'My SME Pte. Ltd.', 
-    'My Small Medium Enterprise Private Limited',
-    '202400001A', 
-    'M90000001A', 
-    TRUE,
-    '123 Example Street', 
-    '123456',
-    'Singapore',
-    'Singapore',
-    1, 
-    1, 
-    'SGD',
-    'UEN',
-    'dd/MM/yyyy',
-    1 
-)
-ON CONFLICT (id) DO UPDATE SET
-    company_name = EXCLUDED.company_name,
-    legal_name = EXCLUDED.legal_name,
-    uen_no = EXCLUDED.uen_no,
-    gst_registration_no = EXCLUDED.gst_registration_no,
-    gst_registered = EXCLUDED.gst_registered,
-    address_line1 = EXCLUDED.address_line1,
-    postal_code = EXCLUDED.postal_code,
-    city = EXCLUDED.city,
-    country = EXCLUDED.country,
-    fiscal_year_start_month = EXCLUDED.fiscal_year_start_month,
-    fiscal_year_start_day = EXCLUDED.fiscal_year_start_day,
-    base_currency = EXCLUDED.base_currency,
-    tax_id_label = EXCLUDED.tax_id_label,
-    date_format = EXCLUDED.date_format,
-    updated_by = EXCLUDED.updated_by,
-    updated_at = CURRENT_TIMESTAMP;
+    category = EXCLUDED.category, is_debit_balance = EXCLUDED.is_debit_balance, report_type = EXCLUDED.report_type,
+    display_order = EXCLUDED.display_order, description = EXCLUDED.description, updated_at = CURRENT_TIMESTAMP;
 
 -- ----------------------------------------------------------------------------
 -- Insert default tax codes related accounts
@@ -212,17 +202,14 @@ INSERT INTO accounting.accounts (code, name, account_type, created_by, updated_b
 ('SYS-GST-OUTPUT', 'System GST Output Tax', 'Liability', 1, 1, TRUE),
 ('SYS-GST-INPUT', 'System GST Input Tax', 'Asset', 1, 1, TRUE)
 ON CONFLICT (code) DO UPDATE SET
-    name = EXCLUDED.name,
-    account_type = EXCLUDED.account_type,
-    updated_by = EXCLUDED.updated_by, 
-    is_active = EXCLUDED.is_active,
-    updated_at = CURRENT_TIMESTAMP;
+    name = EXCLUDED.name, account_type = EXCLUDED.account_type, updated_by = EXCLUDED.updated_by, 
+    is_active = EXCLUDED.is_active, updated_at = CURRENT_TIMESTAMP;
 
 -- ----------------------------------------------------------------------------
 -- Insert default tax codes (GST updated to 9%)
 -- ----------------------------------------------------------------------------
 INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id)
-SELECT 'SR', 'Standard Rate', 'GST', 9.00, TRUE, TRUE, 1, 1, acc.id FROM accounting.accounts acc WHERE acc.code = 'SYS-GST-OUTPUT'
+SELECT 'SR', 'Standard Rate (9%)', 'GST', 9.00, TRUE, TRUE, 1, 1, acc.id FROM accounting.accounts acc WHERE acc.code = 'SYS-GST-OUTPUT'
 ON CONFLICT (code) DO UPDATE SET
     description = EXCLUDED.description, tax_type = EXCLUDED.tax_type, rate = EXCLUDED.rate,
     is_default = EXCLUDED.is_default, is_active = EXCLUDED.is_active, updated_by = EXCLUDED.updated_by, 
@@ -230,74 +217,49 @@ ON CONFLICT (code) DO UPDATE SET
 
 INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
 ('ZR', 'Zero Rate', 'GST', 0.00, FALSE, TRUE, 1, 1, NULL)
-ON CONFLICT (code) DO UPDATE SET
-    description = EXCLUDED.description, tax_type = EXCLUDED.tax_type, rate = EXCLUDED.rate,
-    is_default = EXCLUDED.is_default, is_active = EXCLUDED.is_active, updated_by = EXCLUDED.updated_by, 
-    affects_account_id = EXCLUDED.affects_account_id, updated_at = CURRENT_TIMESTAMP;
+ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
 
 INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
 ('ES', 'Exempt Supply', 'GST', 0.00, FALSE, TRUE, 1, 1, NULL)
-ON CONFLICT (code) DO UPDATE SET
-    description = EXCLUDED.description, tax_type = EXCLUDED.tax_type, rate = EXCLUDED.rate,
-    is_default = EXCLUDED.is_default, is_active = EXCLUDED.is_active, updated_by = EXCLUDED.updated_by, 
-    affects_account_id = EXCLUDED.affects_account_id, updated_at = CURRENT_TIMESTAMP;
+ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
 
 INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
 ('OP', 'Out of Scope', 'GST', 0.00, FALSE, TRUE, 1, 1, NULL)
-ON CONFLICT (code) DO UPDATE SET
-    description = EXCLUDED.description, tax_type = EXCLUDED.tax_type, rate = EXCLUDED.rate,
-    is_default = EXCLUDED.is_default, is_active = EXCLUDED.is_active, updated_by = EXCLUDED.updated_by, 
-    affects_account_id = EXCLUDED.affects_account_id, updated_at = CURRENT_TIMESTAMP;
+ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
 
 INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id)
-SELECT 'TX', 'Taxable Purchase', 'GST', 9.00, FALSE, TRUE, 1, 1, acc.id FROM accounting.accounts acc WHERE acc.code = 'SYS-GST-INPUT'
+SELECT 'TX', 'Taxable Purchase (9%)', 'GST', 9.00, FALSE, TRUE, 1, 1, acc.id FROM accounting.accounts acc WHERE acc.code = 'SYS-GST-INPUT'
 ON CONFLICT (code) DO UPDATE SET
     description = EXCLUDED.description, tax_type = EXCLUDED.tax_type, rate = EXCLUDED.rate,
     is_default = EXCLUDED.is_default, is_active = EXCLUDED.is_active, updated_by = EXCLUDED.updated_by, 
     affects_account_id = EXCLUDED.affects_account_id, updated_at = CURRENT_TIMESTAMP;
 
 INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
-('BL', 'Blocked Input Tax', 'GST', 9.00, FALSE, TRUE, 1, 1, NULL)
-ON CONFLICT (code) DO UPDATE SET
-    description = EXCLUDED.description, tax_type = EXCLUDED.tax_type, rate = EXCLUDED.rate,
-    is_default = EXCLUDED.is_default, is_active = EXCLUDED.is_active, updated_by = EXCLUDED.updated_by, 
-    affects_account_id = EXCLUDED.affects_account_id, updated_at = CURRENT_TIMESTAMP;
+('BL', 'Blocked Input Tax (9%)', 'GST', 9.00, FALSE, TRUE, 1, 1, NULL)
+ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, rate = EXCLUDED.rate, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
 
 INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
 ('NR', 'Non-Resident Services', 'Withholding Tax', 15.00, FALSE, TRUE, 1, 1, NULL)
-ON CONFLICT (code) DO UPDATE SET
-    description = EXCLUDED.description, tax_type = EXCLUDED.tax_type, rate = EXCLUDED.rate,
-    is_default = EXCLUDED.is_default, is_active = EXCLUDED.is_active, updated_by = EXCLUDED.updated_by, 
-    affects_account_id = EXCLUDED.affects_account_id, updated_at = CURRENT_TIMESTAMP;
+ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
 
 INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
 ('ND', 'Non-Deductible', 'Income Tax', 0.00, FALSE, TRUE, 1, 1, NULL)
-ON CONFLICT (code) DO UPDATE SET
-    description = EXCLUDED.description, tax_type = EXCLUDED.tax_type, rate = EXCLUDED.rate,
-    is_default = EXCLUDED.is_default, is_active = EXCLUDED.is_active, updated_by = EXCLUDED.updated_by, 
-    affects_account_id = EXCLUDED.affects_account_id, updated_at = CURRENT_TIMESTAMP;
+ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
 
 INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
 ('CA', 'Capital Allowance', 'Income Tax', 0.00, FALSE, TRUE, 1, 1, NULL)
-ON CONFLICT (code) DO UPDATE SET
-    description = EXCLUDED.description, tax_type = EXCLUDED.tax_type, rate = EXCLUDED.rate,
-    is_default = EXCLUDED.is_default, is_active = EXCLUDED.is_active, updated_by = EXCLUDED.updated_by, 
-    affects_account_id = EXCLUDED.affects_account_id, updated_at = CURRENT_TIMESTAMP;
+ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
 
 -- Create an active 'admin' user for application login
 -- ID will be auto-generated by sequence (should be 2 if ID 1 is system_init_user)
 INSERT INTO core.users (username, password_hash, email, full_name, is_active, require_password_change)
 VALUES ('admin', crypt('password', gen_salt('bf')), 'admin@sgbookkeeper.com', 'Administrator', TRUE, TRUE)
 ON CONFLICT (username) DO UPDATE SET
-    password_hash = EXCLUDED.password_hash,
-    email = EXCLUDED.email,
-    full_name = EXCLUDED.full_name,
-    is_active = EXCLUDED.is_active,
-    require_password_change = EXCLUDED.require_password_change,
+    password_hash = EXCLUDED.password_hash, email = EXCLUDED.email, full_name = EXCLUDED.full_name,
+    is_active = EXCLUDED.is_active, require_password_change = EXCLUDED.require_password_change,
     updated_at = CURRENT_TIMESTAMP;
 
 -- Assign 'Administrator' role to 'admin' user
--- Ensure role 'Administrator' and user 'admin' exist from above inserts.
 WITH admin_user_id_cte AS (SELECT id FROM core.users WHERE username = 'admin'),
      admin_role_id_cte AS (SELECT id FROM core.roles WHERE name = 'Administrator')
 INSERT INTO core.user_roles (user_id, role_id, created_at)
