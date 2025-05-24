@@ -3,7 +3,7 @@
 <div align="center">
 
 <!-- Replace with actual logo if available -->
-<img src="https://via.placeholder.com/150?text=SG+Bookkeeper+Logo" alt="SG Bookkeeper Logo" width="150"/>
+<img src="https://raw.githubusercontent.com/nordeim/SG-Bookkeeper/refs/heads/main/home_screen.png" alt="SG Bookkeeper Logo" width="150"/>
 
 **Singapore-Focused Small Business Accounting Software**
 
