@@ -2,775 +2,294 @@
 
 <div align="center">
 
-![image](https://github.com/user-attachments/assets/efdea655-a502-4f0b-b337-c67e874da65b)
+<!-- Replace with actual logo if available -->
+<img src="https://via.placeholder.com/150?text=SG+Bookkeeper+Logo" alt="SG Bookkeeper Logo" width="150"/>
 
-**Enterprise-grade bookkeeping for Singapore small businesses**
+**Singapore-Focused Small Business Accounting Software**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
-[![PySide6](https://img.shields.io/badge/UI-PySide6-green.svg)](https://wiki.qt.io/Qt_for_Python)
-[![PostgreSQL](https://img.shields.io/badge/DB-PostgreSQL-blue.svg)](https://www.postgresql.org/)
+[![PySide6 6.9+](https://img.shields.io/badge/UI-PySide6_6.9-green.svg)](https://doc.qt.io/qtforpython/)
+[![PostgreSQL 14+](https://img.shields.io/badge/DB-PostgreSQL_14+-blue.svg)](https://www.postgresql.org/)
+[![SQLAlchemy 2.0+](https://img.shields.io/badge/ORM-SQLAlchemy_2.0-orange.svg)](https://www.sqlalchemy.org/)
+[![Asyncpg](https://img.shields.io/badge/Async-Asyncpg-purple.svg)](https://github.com/MagicStack/asyncpg)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
-[![codecov](https://img.shields.io/badge/codecov-80%25-green.svg)](https://codecov.io/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
 
-[Features](#key-features) • [Screenshots](#screenshots) • [Installation](#installation) • [Documentation](#documentation) • [Contributing](#contributing) • [Roadmap](#roadmap) • [License](#license)
+[Key Features](#key-features) • [Technology Stack](#technology-stack) • [Installation](#installation) • [Usage](#usage-guide) • [Project Structure](#project-structure) • [Contributing](#contributing) • [Roadmap](#roadmap) • [License](#license)
 
 </div>
 
 ## Overview
 
-SG Bookkeeper is a comprehensive, cross-platform desktop application designed specifically for Singapore small businesses to manage their accounting needs with precision and ease. Built with Python and modern UI frameworks, it offers enterprise-grade bookkeeping capabilities without the enterprise price tag.
+SG Bookkeeper is a comprehensive, cross-platform desktop application designed to meet the accounting and bookkeeping needs of small to medium-sized businesses in Singapore. Built with Python and leveraging the power of PySide6 for a modern user interface and PostgreSQL for robust data management, it offers professional-grade financial tools tailored to Singapore's regulatory environment.
 
-The application combines professional accounting standards with an intuitive interface, enabling business owners and accountants to maintain compliant financial records, generate insightful reports, and streamline tax filing processes—all tailored to Singapore's unique regulatory environment.
+The application features a double-entry accounting core, GST management, financial reporting, and modules for essential business operations. Its goal is to provide an intuitive, powerful, and compliant solution that empowers business owners and accountants.
 
 ### Why SG Bookkeeper?
 
-- **Singapore-Focused**: Built from the ground up for Singapore's accounting standards and tax regulations (SFRS, GST, IRAS compliance)
-- **Professional-Grade**: Double-entry accounting system with comprehensive audit trails and validation
-- **User-Friendly**: Designed for business owners, not just accountants
-- **Open Source**: Transparent, community-driven development with extensibility in mind
-- **Cross-Platform**: Works on Windows, macOS, and Linux with a consistent experience
-- **Local First**: Your data stays on your computer—no cloud dependency or subscription fees
-
-## Screenshots
-
-<div align="center">
-  <table>
-    <tr>
-      <td><img src="https://via.placeholder.com/400x240?text=Dashboard" alt="Dashboard"/></td>
-      <td><img src="https://via.placeholder.com/400x240?text=Chart+of+Accounts" alt="Chart of Accounts"/></td>
-    </tr>
-    <tr>
-      <td><em>Dashboard with financial insights</em></td>
-      <td><em>Hierarchical chart of accounts</em></td>
-    </tr>
-    <tr>
-      <td><img src="https://via.placeholder.com/400x240?text=Journal+Entry" alt="Journal Entry"/></td>
-      <td><img src="https://via.placeholder.com/400x240?text=GST+Report" alt="GST Report"/></td>
-    </tr>
-    <tr>
-      <td><em>Transaction entry with tax calculation</em></td>
-      <td><em>GST F5 form preparation</em></td>
-    </tr>
-  </table>
-</div>
+-   **Singapore-Centric**: Designed with Singapore Financial Reporting Standards (SFRS), GST regulations, and IRAS compliance considerations at its core.
+-   **Professional Grade**: Implements a full double-entry system, detailed audit trails, and robust data validation.
+-   **User-Friendly Interface**: Aims for an intuitive experience for users who may not be accounting experts, while providing depth for professionals.
+-   **Open Source & Local First**: Transparent development. Your financial data stays on your local machine or private server, ensuring privacy and control. No subscription fees.
+-   **Modern & Performant**: Utilizes asynchronous operations for a responsive UI and efficient database interactions.
 
 ## Key Features
 
+*(This section can be expanded as features are fully implemented. Based on schema and design intent:)*
+
 ### Core Accounting
-- **Double-Entry Bookkeeping**: Complete implementation of double-entry accounting principles
-- **Chart of Accounts**: Hierarchical account structure with Singapore-compliant default templates
-- **Journal System**: Multiple journal types with transaction validation and balancing
-- **Financial Statements**: Generate balance sheets, profit & loss statements, and cash flow reports
-- **Multi-Currency**: Handle transactions in multiple currencies with automatic exchange rate calculation
+-   Comprehensive Double-Entry Bookkeeping
+-   Customizable Hierarchical Chart of Accounts (Singapore-specific templates)
+-   General Ledger with detailed transaction history
+-   Journal Entry System (General, Sales, Purchases, etc.)
+-   Multi-Currency Support with Exchange Rate Management
+-   Fiscal Year and Period Management
+-   Budgeting and Variance Analysis
 
 ### Singapore Tax Compliance
-- **GST Management**: Automatic GST calculation, tracking, and reporting
-- **F5 Form Preparation**: Direct preparation of GST F5 return data
-- **Income Tax Computation**: Tax computation worksheets and adjustments
-- **XBRL Ready**: Export financial data in XBRL format for ACRA filing
-- **Withholding Tax**: Calculation and reporting for services from non-resident entities
+-   GST Tracking and Calculation (SR, ZR, ES, TX codes)
+-   GST F5 Return Data Preparation
+-   (Planned) Income Tax Estimation Aids
+-   (Planned) Withholding Tax Management
 
 ### Business Operations
-- **Customer & Vendor Management**: Comprehensive contact management with transaction history
-- **Invoicing**: Professional invoice creation and management with payment tracking
-- **Banking**: Bank reconciliation, statement import, and payment processing
-- **Financial Analytics**: Business performance dashboards and trend analysis
-- **Inventory Tracking**: Basic inventory management with cost tracking
+-   Customer and Vendor Relationship Management (CRM)
+-   Sales Invoicing and Accounts Receivable
+-   Purchase Invoicing and Accounts Payable
+-   Payment Processing and Allocation
+-   Bank Account Management and Reconciliation Tools
+-   Product and Service Management (Inventory, Non-Inventory, Services)
+-   (Planned) Basic Inventory Control
 
-### Technical Features
-- **Modern UI**: Clean, responsive interface built with Qt6
-- **Database-Backed**: PostgreSQL database for robust data storage and integrity
-- **User Management**: Role-based access control and permissions
-- **Backup & Recovery**: Automated backup and point-in-time recovery
-- **Audit Trail**: Comprehensive change logging for compliance and security
+### Reporting & Analytics
+-   Standard Financial Statements: Balance Sheet, Profit & Loss, Trial Balance
+-   (Planned) Cash Flow Statement
+-   GST Reports
+-   (Planned) Customizable Reporting Engine
+-   (Planned) Dashboard with Key Performance Indicators (KPIs)
+
+### System & Security
+-   User Authentication with Role-Based Access Control (RBAC)
+-   Granular Permissions System
+-   Comprehensive Audit Trails for data changes and system actions
+-   PostgreSQL Database Backend for data integrity and scalability
+-   Data Backup and Restore Utilities (Conceptual/Planned)
 
 ## Technology Stack
 
-SG Bookkeeper leverages modern, robust technologies to deliver a reliable, performant application:
-
-- **Frontend**: PyQt6/PySide6 for the user interface
-- **Backend**: Python 3.9+ for application logic
-- **Database**: PostgreSQL 14+ for data storage
-- **ORM**: SQLAlchemy with asyncio support
-- **Reporting**: ReportLab and openpyxl for document generation
-- **Data Validation**: Pydantic for model validation
-- **Testing**: Pytest for unit and integration testing
-- **Build System**: Poetry for dependency management
-- **Packaging**: PyInstaller for executable creation
+-   **Programming Language**: Python 3.9+
+-   **UI Framework**: PySide6 6.9.0+
+-   **Database**: PostgreSQL 14+
+-   **ORM**: SQLAlchemy 2.0+ (Async ORM with `asyncpg`)
+-   **Async DB Driver**: `asyncpg`
+-   **Data Validation (DTOs)**: Pydantic V2
+-   **Password Hashing**: `bcrypt`
+-   **Reporting Libraries**: `reportlab` (PDF), `openpyxl` (Excel)
+-   **Dependency Management**: Poetry
+-   **Date/Time Utilities**: `python-dateutil`
 
 ## Installation
 
 ### Prerequisites
 
-- Python 3.9 or higher
-- PostgreSQL 14 or higher
-- pip (Python package installer)
-- Qt 6.2+ (automatically installed with PySide6)
+-   Python 3.9 or higher (check with `python --version`)
+-   PostgreSQL Server 14 or higher (running and accessible)
+-   Poetry (Python packaging and dependency management tool). Install via `pip install poetry`.
+-   Git (for cloning the repository)
 
-### Quick Install (End Users)
+### Developer Installation Steps
 
-#### Windows
+1.  **Clone the Repository:**
+    ```bash
+    git clone https://github.com/yourusername/sg_bookkeeper.git # Replace with actual URL
+    cd sg_bookkeeper
+    ```
 
-1. Download the latest installer from the [releases page](https://github.com/yourusername/sg_bookkeeper/releases)
-2. Run the installer and follow the wizard instructions
-3. Launch SG Bookkeeper from the Start Menu
+2.  **Set Up Python Virtual Environment & Install Dependencies:**
+    It's highly recommended to use a virtual environment.
+    ```bash
+    poetry install
+    ```
+    This command will create a virtual environment (if not already present in the project via `.venv`) and install all dependencies listed in `pyproject.toml`.
 
-#### macOS
+3.  **Prepare PostgreSQL Database and User:**
+    *   Connect to your PostgreSQL instance as a superuser (e.g., `postgres`):
+        ```bash
+        sudo -u postgres psql
+        ```
+    *   Create a dedicated database user and database (replace passwords securely):
+        ```sql
+        CREATE USER sgbookkeeper_user WITH PASSWORD 'YourSecurePassword123!';
+        -- Database will be created by db_init.py script, or you can create it:
+        -- CREATE DATABASE sg_bookkeeper OWNER sgbookkeeper_user; 
+        -- \q 
+        ```
+        *Note: The `db_init.py` script can create the database if it doesn't exist, using the admin credentials you provide to the script.*
 
-1. Download the latest .dmg file from the [releases page](https://github.com/yourusername/sg_bookkeeper/releases)
-2. Open the .dmg file and drag SG Bookkeeper to your Applications folder
-3. Launch SG Bookkeeper from Applications
+4.  **Configure Database Connection:**
+    *   The application looks for `config.ini` in a platform-specific user configuration directory. On Linux, this is typically `~/.config/SGBookkeeper/config.ini`.
+    *   Copy or create `config.ini` in that location. Example content:
+        ```ini
+        [Database]
+        username = sgbookkeeper_user
+        password = YourSecurePassword123!
+        host = localhost
+        port = 5432
+        database = sg_bookkeeper
+        echo_sql = False 
+        pool_min_size = 2
+        pool_max_size = 10
+        pool_recycle_seconds = 3600
 
-#### Linux
+        [Application]
+        theme = light
+        language = en
+        ```
+    *   Ensure the `username`, `password`, `host`, `port`, and `database` match your PostgreSQL setup.
 
-```bash
-# Install PostgreSQL if not already installed
-sudo apt install postgresql-14
+5.  **Initialize the Database Schema and Seed Initial Data:**
+    Run the database initialization script using Poetry. This script will create all necessary tables, views, functions, and populate essential default data.
+    *   Use an admin PostgreSQL user (like `postgres` or one with `CREATEDB` rights) for the initial setup, as it needs to create the database and extensions if they don't exist.
+    ```bash
+    poetry run sg_bookkeeper_db_init --user postgres --password YOUR_POSTGRES_ADMIN_PASSWORD --dbname sg_bookkeeper --drop-existing
+    ```
+    *   `--drop-existing`: Use this flag with caution as it will delete the database if it already exists, ensuring a clean setup. Omit it if you want to preserve an existing `sg_bookkeeper` database (the script will then fail if tables conflict without `IF NOT EXISTS`).
+    *   The script also sets a default `search_path` for the database for easier `psql` interaction.
 
-# Install SG Bookkeeper from PyPI
-pip install sg-bookkeeper
+6.  **Grant Privileges to Application User:**
+    After the database is initialized (by the admin user like `postgres`), grant necessary privileges to your application user (`sgbookkeeper_user` in this example). Connect to `psql` as `postgres`:
+    ```bash
+    sudo -u postgres psql -d sg_bookkeeper 
+    ```
+    Then execute these grant commands (replace `sgbookkeeper_user` if you used a different name):
+    ```sql
+    GRANT USAGE ON SCHEMA core, accounting, business, audit TO sgbookkeeper_user;
+    GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA core TO sgbookkeeper_user;
+    GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA accounting TO sgbookkeeper_user;
+    GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA business TO sgbookkeeper_user;
+    GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA audit TO sgbookkeeper_user;
+    GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA core TO sgbookkeeper_user;
+    GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA accounting TO sgbookkeeper_user;
+    GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA audit TO sgbookkeeper_user;
+    GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA business TO sgbookkeeper_user;
+    GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA core TO sgbookkeeper_user;
+    GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA accounting TO sgbookkeeper_user;
+    GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA audit TO sgbookkeeper_user;
 
-# Launch the application
-sg_bookkeeper
-```
+    -- For future tables created by postgres user (or role running migrations)
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA core GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO sgbookkeeper_user;
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA accounting GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO sgbookkeeper_user;
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA business GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO sgbookkeeper_user;
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA audit GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO sgbookkeeper_user;
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA core GRANT USAGE, SELECT ON SEQUENCES TO sgbookkeeper_user;
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA accounting GRANT USAGE, SELECT ON SEQUENCES TO sgbookkeeper_user;
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA audit GRANT USAGE, SELECT ON SEQUENCES TO sgbookkeeper_user;
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA business GRANT USAGE, SELECT ON SEQUENCES TO sgbookkeeper_user;
+    \q
+    ```
 
-### Developer Installation
+7.  **Compile Qt Resources (Optional but Recommended):**
+    For icons and other Qt resources to be bundled correctly, especially for packaging.
+    ```bash
+    poetry run pyside6-rcc resources/resources.qrc -o app/resources_rc.py
+    ```
+    If `app/resources_rc.py` is not found, the application will attempt to load resources from direct file paths relative to the `resources` directory.
 
-For developers who want to contribute or customize the application:
-
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/sg_bookkeeper.git
-cd sg_bookkeeper
-
-# Set up a virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies with Poetry
-pip install poetry
-poetry install
-
-# Initialize the database
-python -m sg_bookkeeper.db_init --user postgres
-
-# Run the application
-python -m sg_bookkeeper
-```
-
-See the [Development Setup](#development-setup) section for more detailed instructions.
+8.  **Run the Application:**
+    Ensure your `config.ini` points to `sgbookkeeper_user`.
+    ```bash
+    poetry run sg_bookkeeper
+    ```
 
 ## Usage Guide
 
-### First-Time Setup
+*(This section would be filled out as UI and workflows are developed. Currently, the application launches to a basic UI shell.)*
 
-When you first launch SG Bookkeeper, you'll be guided through a setup wizard that helps you:
+### First-Time Setup (Conceptual)
+-   Initial launch would guide through Company Information, Fiscal Year setup, Chart of Accounts selection, and Admin User creation if not seeded.
+-   Currently, `initial_data.sql` seeds some of this. The "Settings" tab allows viewing/editing company settings.
 
-1. Configure your company information
-2. Set up your fiscal year
-3. Choose a chart of accounts template
-4. Create your first user account
-5. Configure tax settings for GST
-
-### Daily Operations
-
-#### Recording Transactions
-
-1. Navigate to the "Transactions" tab
-2. Click "New Transaction"
-3. Select transaction type (e.g., Sale, Purchase, Journal Entry)
-4. Enter transaction details and line items
-5. Click "Save" to record the transaction
-
-#### Generating Reports
-
-1. Navigate to the "Reports" tab
-2. Select the desired report type
-3. Configure report parameters (date range, comparison periods, etc.)
-4. Click "Generate Report"
-5. View, print, or export the report as needed
-
-### Period-End Procedures
-
-#### Monthly Reconciliation
-
-1. Navigate to the "Banking" tab
-2. Select "Bank Reconciliation"
-3. Choose the account and statement period
-4. Import bank statement or enter transactions manually
-5. Match transactions and resolve discrepancies
-6. Finalize reconciliation
-
-#### GST Filing (Quarterly)
-
-1. Navigate to the "Taxes" tab
-2. Select "GST Returns"
-3. Choose the quarter to prepare
-4. Review and adjust the draft GST F5 form
-5. Finalize and export for submission to IRAS
-
-#### Year-End Closing
-
-1. Navigate to the "Accounting" tab
-2. Select "Year-End Closing"
-3. Review year-end checklist
-4. Perform closing entries
-5. Generate year-end financial statements
-6. Archive fiscal year data
-
-## Architecture
-
-SG Bookkeeper follows a modular, three-tier architecture designed for extensibility and maintainability:
-
-```
-+---------------------------------------------------+
-|                  Presentation Layer                |
-|  (PyQt6/PySide6 UI Components, QML Custom Widgets) |
-+---------------------------------------------------+
-                         |
-                         v
-+---------------------------------------------------+
-|                  Business Logic Layer              |
-|   (Core Modules, Tax Engine, Reporting Engine)     |
-+---------------------------------------------------+
-                         |
-                         v
-+---------------------------------------------------+
-|                  Data Access Layer                 |
-|      (SQLAlchemy ORM, PostgreSQL Connector)        |
-+---------------------------------------------------+
-                         |
-                         v
-+---------------------------------------------------+
-|                  Database                          |
-|                (PostgreSQL)                        |
-+---------------------------------------------------+
-```
-
-### Key Components
-
-#### ApplicationCore
-Central management component that coordinates the application's modules and services.
-
-#### ModuleManager
-Handles dynamic loading of functional modules and their inter-communication.
-
-#### AccountingEngine
-Core implementation of accounting rules, transaction processing, and financial calculations.
-
-#### TaxEngine
-Specialized component for tax calculations, compliance rules, and reporting requirements.
-
-#### ReportingEngine
-Generates financial reports, statements, and regulatory documents.
-
-#### SecurityManager
-Handles authentication, authorization, and audit logging.
+### Key Modules (Tabs)
+-   **Dashboard**: Overview of financial health (To be implemented).
+-   **Accounting**: Chart of Accounts, Journal Entries, Fiscal Period management (Chart of Accounts view is partially implemented).
+-   **Customers**: Manage customer data and related transactions (To be implemented).
+-   **Vendors**: Manage vendor data and related transactions (To be implemented).
+-   **Banking**: Manage bank accounts, transactions, reconciliation (To be implemented).
+-   **Reports**: Generate financial statements and tax reports (To be implemented).
+-   **Settings**: Configure company details, application preferences (Partially implemented).
 
 ## Project Structure
 
 ```
 sg_bookkeeper/
 ├── app/                    # Application source code
-│   ├── core/               # Core application components
-│   │   ├── application_core.py
-│   │   ├── config_manager.py
-│   │   ├── database_manager.py
-│   │   ├── module_manager.py
-│   │   └── security_manager.py
-│   ├── accounting/         # Accounting module
-│   │   ├── chart_of_accounts.py
-│   │   ├── journal_manager.py
-│   │   ├── fiscal_period.py
-│   │   └── currency_manager.py
-│   ├── tax/                # Tax management module
-│   │   ├── gst_manager.py
-│   │   ├── income_tax.py
-│   │   └── withholding_tax.py
-│   ├── reporting/          # Reporting module
-│   │   ├── financial_statements.py
-│   │   ├── tax_reports.py
-│   │   └── report_engine.py
-│   ├── ui/                 # User interface components
-│   │   ├── main_window.py
-│   │   ├── dashboard/
-│   │   ├── accounting/
-│   │   ├── customers/
-│   │   ├── vendors/
-│   │   ├── banking/
-│   │   ├── reports/
-│   │   └── settings/
-│   ├── models/             # Data models
-│   │   ├── account.py
-│   │   ├── journal_entry.py
-│   │   ├── customer.py
-│   │   └── vendor.py
-│   └── utils/              # Utility functions
-│       ├── validation.py
-│       ├── formatting.py
-│       └── converters.py
-├── data/                   # Default data and templates
-│   ├── chart_of_accounts/
-│   ├── report_templates/
-│   └── tax_codes/
-├── docs/                   # Documentation
-│   ├── user_guide/
-│   ├── developer_guide/
-│   └── api_reference/
-├── resources/              # Application resources
-│   ├── icons/
-│   ├── styles/
-│   └── translations/
-├── scripts/                # Utility scripts
-│   ├── db_init.py
-│   ├── build.py
-│   └── release.py
-├── tests/                  # Test suite
-│   ├── unit/
-│   ├── integration/
-│   └── ui/
-├── .github/                # GitHub workflows and templates
-├── pyproject.toml          # Poetry project configuration
+│   ├── __init__.py
+│   ├── main.py             # Main application entry point (QApplication)
+│   ├── core/               # Core components (ApplicationCore, DBManager, Config, Security)
+│   ├── common/             # Common utilities, enums
+│   ├── models/             # SQLAlchemy ORM models (organized by schema: core, accounting, etc.)
+│   ├── services/           # Data access services (repositories)
+│   ├── accounting/         # Business logic for accounting module
+│   ├── tax/                # Business logic for tax module
+│   ├── business_logic/     # Placeholder for other business operations modules (customers, vendors etc.)
+│   ├── reporting/          # Logic for generating reports
+│   ├── ui/                 # PySide6 UI components (organized by module)
+│   └── utils/              # General utility functions, Pydantic DTOs
+├── data/                   # Default data templates (e.g., CoA templates)
+├── docs/                   # Project documentation
+├── resources/              # UI assets
+│   ├── icons/              # SVG icons
+│   ├── images/             # Splash screen, etc.
+│   └── resources.qrc       # Qt resource collection file
+├── scripts/                # Database initialization scripts
+│   ├── db_init.py          # Python script to initialize DB
+│   ├── schema.sql          # Full DDL for database schema
+│   └── initial_data.sql    # SQL for seeding initial/default data
+├── tests/                  # Automated tests (unit, integration, UI)
+├── .gitignore
+├── pyproject.toml          # Poetry configuration
+├── poetry.lock
 ├── README.md               # This file
-└── LICENSE                 # MIT License
+└── LICENSE
 ```
 
 ## Database Schema
+The application uses a PostgreSQL database with a schema organized into four main parts: `core`, `accounting`, `business`, and `audit`. For the complete schema details, please refer to `scripts/schema.sql`.
 
-SG Bookkeeper uses a carefully designed relational database schema organized into four main schemas:
-
-1. **core**: System tables and configuration
-2. **accounting**: Core accounting tables
-3. **business**: Business operations tables
-4. **audit**: Audit and logging tables
-
-### Core Entity Relationship Diagram
-
-The following diagram shows the relationships between the main accounting entities:
-
-```
-   +---------------+       +---------------+       +----------------+
-   |   accounts    |       | fiscal_periods|       |journal_entries |
-   +---------------+       +---------------+       +----------------+
-   | id            |       | id            |       | id             |
-   | code          |       | name          |       | entry_no       |
-   | name          |       | start_date    |       | journal_type   |
-   | account_type  |       | end_date      |       | entry_date     |
-   | parent_id ---------+  | period_type   |       | fiscal_period_id -+
-   +---------------+    |  | status        |       | description    |  |
-           ^            |  +---------------+       | is_posted      |  |
-           |            |         ^               +----------------+  |
-           +------------+         |                      |            |
-                                  +----------------------+            |
-                                                                      |
-   +----------------+                                                 |
-   |journal_entry_lines          +------------------------+           |
-   +----------------+            |      tax_codes         |           |
-   | id             |            +------------------------+           |
-   | journal_entry_id --------+  | id                     |           |
-   | line_number    |         |  | code                   |           |
-   | account_id ---------+    |  | description            |           |
-   | description    |    |    |  | tax_type               |           |
-   | debit_amount   |    |    |  | rate                   |           |
-   | credit_amount  |    |    |  +------------------------+           |
-   | tax_code_id ----------+                                          |
-   +----------------+    |  |                                         |
-                         |  |                                         |
-           +-------------+  |                                         |
-           |                +----------------------------------------+
-           v
-   +---------------+
-   |   customers   |       +---------------+       +----------------+
-   +---------------+       |    vendors    |       |    products    |
-   | id            |       +---------------+       +----------------+
-   | customer_code |       | id            |       | id             |
-   | name          |       | vendor_code   |       | product_code   |
-   | is_active     |       | name          |       | name           |
-   +---------------+       | is_active     |       | product_type   |
-                           +---------------+       +----------------+
-```
-
-## Development Setup
-
-### Setting Up Your Development Environment
-
-Follow these steps to set up a complete development environment for SG Bookkeeper:
-
-1. **Install PostgreSQL**
-   ```bash
-   # Ubuntu/Debian
-   sudo apt install postgresql-14 postgresql-contrib-14
-   
-   # macOS with Homebrew
-   brew install postgresql@14
-   
-   # Windows
-   # Download and install from https://www.postgresql.org/download/windows/
-   ```
-
-2. **Clone the repository and set up virtual environment**
-   ```bash
-   git clone https://github.com/yourusername/sg_bookkeeper.git
-   cd sg_bookkeeper
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
-
-3. **Install Poetry and dependencies**
-   ```bash
-   pip install poetry
-   poetry install
-   ```
-
-4. **Initialize the database**
-   ```bash
-   python -m sg_bookkeeper.db_init --user postgres
-   # Enter your PostgreSQL password when prompted
-   ```
-
-5. **Run the application in development mode**
-   ```bash
-   python -m sg_bookkeeper --debug
-   ```
-
-### Development Tools
-
-The project includes several tools to assist with development:
-
-- **Black**: Code formatting
-  ```bash
-  black sg_bookkeeper
-  ```
-
-- **Flake8**: Linting
-  ```bash
-  flake8 sg_bookkeeper
-  ```
-
-- **Pytest**: Running tests
-  ```bash
-  pytest
-  ```
-
-- **Coverage**: Test coverage reporting
-  ```bash
-  pytest --cov=sg_bookkeeper
-  ```
-
-- **Pre-commit hooks**: Automatic code checks
-  ```bash
-  pre-commit install
-  ```
-
-### Debugging Tips
-
-- **Enable debug logging**
-  ```python
-  import logging
-  logging.basicConfig(level=logging.DEBUG)
-  ```
-
-- **Use QDebug for Qt-specific issues**
-  ```python
-  from PySide6.QtCore import qDebug
-  qDebug("This is a Qt debug message")
-  ```
-
-- **Debug database queries**
-  ```python
-  # In config.ini
-  [Database]
-  echo_sql = True
-  ```
-
-## API Documentation
-
-SG Bookkeeper provides several internal APIs for extending and customizing the application:
-
-### AccountingEngine API
-
-```python
-# Create a new journal entry
-result = await accounting_engine.create_journal_entry(entry_data)
-
-# Post a journal entry
-result = await accounting_engine.post_journal_entry(entry_id, user_id)
-
-# Reverse a journal entry
-result = await accounting_engine.reverse_journal_entry(entry_id, reversal_date, description, user_id)
-
-# Get account balance
-balance = await accounting_engine.get_account_balance(account_id, as_of_date)
-```
-
-### TaxEngine API
-
-```python
-# Calculate GST for a transaction
-tax_results = await tax_engine.calculate_transaction_taxes(transaction_data)
-
-# Prepare GST F5 return
-gst_return = await tax_engine.prepare_gst_return(start_date, end_date)
-
-# Calculate income tax
-tax_computation = await tax_engine.calculate_income_tax(fiscal_year)
-```
-
-### ReportingEngine API
-
-```python
-# Generate balance sheet
-balance_sheet = await reporting_engine.generate_balance_sheet(as_of_date, comparative_date)
-
-# Generate profit and loss statement
-profit_loss = await reporting_engine.generate_profit_loss(start_date, end_date, comparative_start, comparative_end)
-
-# Export report to PDF
-pdf_data = await reporting_engine.export_report(report_data, "pdf")
-```
-
-See the [API Reference Documentation](https://yourusername.github.io/sg_bookkeeper/api) for complete details.
-
-## Testing
-
-SG Bookkeeper uses a comprehensive test suite to ensure reliability and correctness:
-
-### Unit Tests
-
-Unit tests focus on testing individual components in isolation:
-
-```bash
-# Run unit tests
-pytest tests/unit
-
-# Run specific test file
-pytest tests/unit/test_accounting_engine.py
-```
-
-### Integration Tests
-
-Integration tests verify that components work together correctly:
-
-```bash
-# Run integration tests
-pytest tests/integration
-
-# Run specific integration test
-pytest tests/integration/test_journal_posting.py
-```
-
-### UI Tests
-
-UI tests validate the user interface components:
-
-```bash
-# Run UI tests
-pytest tests/ui
-
-# Run specific UI test
-pytest tests/ui/test_chart_of_accounts.py
-```
-
-### Test Coverage
-
-The project aims to maintain high test coverage:
-
-```bash
-# Generate coverage report
-pytest --cov=sg_bookkeeper --cov-report=html
-
-# View coverage report
-open htmlcov/index.html
-```
+## Development
+(Information about linters, formatters, test execution - from original README - can be kept here)
+-   **Formatting**: `poetry run black .`
+-   **Linting**: `poetry run flake8 .`
+-   **Testing**: `poetry run pytest`
+-   **Test Coverage**: `poetry run pytest --cov=app`
 
 ## Contributing
+Contributions are welcome! Please follow these steps:
+1.  Fork the repository.
+2.  Create a new branch for your feature or bug fix (`git checkout -b feature/your-feature-name`).
+3.  Make your changes, ensuring to add relevant tests.
+4.  Run tests and linters.
+5.  Commit your changes with descriptive messages.
+6.  Push to your branch (`git push origin feature/your-feature-name`).
+7.  Submit a Pull Request against the `main` (or `develop`) branch.
 
-We welcome contributions from the community! Whether you're fixing bugs, improving documentation, or proposing new features, your input is valuable.
-
-### Getting Started
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b my-new-feature`
-3. Make your changes
-4. Run tests: `pytest`
-5. Commit your changes: `git commit -am 'Add some feature'`
-6. Push to the branch: `git push origin my-new-feature`
-7. Submit a pull request
-
-### Contribution Guidelines
-
-- Follow the [PEP 8](https://www.python.org/dev/peps/pep-0008/) style guide
-- Write tests for new features and bug fixes
-- Update documentation for changes
-- Add a descriptive commit message
-- Make focused, atomic commits
-
-### Code of Conduct
-
-This project adheres to a [Code of Conduct](CODE_OF_CONDUCT.md) that we expect all contributors to follow.
+Please adhere to the project's [Code of Conduct](CODE_OF_CONDUCT.md) (if one exists).
 
 ## Roadmap
-
-The future development of SG Bookkeeper will focus on the following areas:
-
-### Short-term (0-6 months)
-- Enhance bank reconciliation with automated matching algorithms
-- Add PDF report templates for all standard reports
-- Implement multi-company support
-- Add support for barcode/QR code scanning for invoices
-- Improve performance for large transaction volumes
-
-### Medium-term (6-12 months)
-- Develop mobile companion app for expense tracking and approvals
-- Add API for third-party integrations
-- Implement budgeting and forecasting module
-- Create data visualization dashboards
-- Add support for e-invoicing standards
-
-### Long-term (12+ months)
-- Implement cloud synchronization (optional)
-- Add machine learning for transaction categorization
-- Develop industry-specific modules (retail, services, etc.)
-- Create marketplace for extensions and templates
-- Add support for additional languages
-
-## Performance Considerations
-
-SG Bookkeeper is designed to handle the accounting needs of growing businesses while maintaining performance:
-
-### Database Optimization
-- Table partitioning for transaction history
-- Appropriate indexing strategy for common queries
-- Regular VACUUM and optimization
-
-### Application Performance
-- Asynchronous operations for long-running tasks
-- Pagination for large datasets
-- Background processing for report generation
-- Lazy loading of UI components
-
-### Memory Management
-- Efficient handling of large datasets
-- Controlled object lifecycle
-- Resource cleanup for unused components
-
-## Security Features
-
-Security is a priority for financial applications:
-
-### Authentication
-- Strong password policies
-- Optional multi-factor authentication
-- Session management and timeout
-
-### Authorization
-- Role-based access control
-- Granular permission system
-- Object-level security
-
-### Data Protection
-- Encryption of sensitive data
-- Secure audit logging
-- Protection against common vulnerabilities
-
-## Community and Support
-
-Join our community to get help, share ideas, and contribute to the project:
-
-- **GitHub Discussions**: For feature requests and general discussion
-- **GitHub Issues**: For bug reports and specific technical problems
-- **Documentation**: Comprehensive guides at [docs.sgbookkeeper.org](https://docs.sgbookkeeper.org)
-- **Discord Channel**: Real-time chat with developers and users
-- **Monthly Webinars**: Learn about new features and best practices
-
-## Case Studies
-
-### ABC Trading Pte Ltd
-A small import/export business with 3 employees reduced their accounting time from 20 hours per month to just 5 hours using SG Bookkeeper.
-
-### XYZ Consulting
-A service business with 12 employees simplified their GST filing process and eliminated errors in their quarterly returns.
-
-### Local Retail Shop
-A family-owned retail business used SG Bookkeeper to gain insights into product profitability and optimize their inventory.
-
-## Frequently Asked Questions
-
-**Q: Can I migrate from other accounting software?**  
-A: Yes, SG Bookkeeper supports importing data from common formats like CSV, Excel, and QIF. We also provide migration utilities for popular accounting software.
-
-**Q: Is this suitable for my industry?**  
-A: SG Bookkeeper is designed to be flexible and can be adapted to most industries. It includes templates for retail, services, manufacturing, and general businesses.
-
-**Q: How does SG Bookkeeper handle compliance updates?**  
-A: We monitor Singapore regulatory changes and provide timely updates to ensure compliance with the latest requirements.
-
-**Q: Can multiple users access the system simultaneously?**  
-A: Yes, SG Bookkeeper supports multiple concurrent users with different permission levels.
-
-**Q: Is my data secure?**  
-A: Your data is stored locally on your computer or server. We implement industry-standard security practices, including encryption for sensitive data.
+*(This reflects the aspirational state from the original README. Actual progress may vary.)*
+### Short-term
+-   Complete core UI for Chart of Accounts and Journal Entries.
+-   Implement basic Customer and Vendor management UI.
+-   Basic Sales and Purchase Invoicing.
+### Medium-term
+-   Bank Reconciliation features.
+-   Full GST F5 reporting.
+-   User and Role management UI in Settings.
+### Long-term
+-   Advanced reporting and analytics.
+-   Multi-company support.
+-   Cloud synchronization options.
 
 ## License
-
-SG Bookkeeper is released under the MIT License. See the [LICENSE](LICENSE) file for details.
-
-```
-MIT License
-
-Copyright (c) 2023 Your Name
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
-
-## Acknowledgments
-
-SG Bookkeeper builds on the work of many open source projects and is inspired by accounting best practices. We'd like to acknowledge:
-
-- The [Python](https://www.python.org/) community for the amazing language and ecosystem
-- [Qt](https://www.qt.io/) and [PySide6](https://wiki.qt.io/Qt_for_Python) for the UI framework
-- [PostgreSQL](https://www.postgresql.org/) for the robust database engine
-- [SQLAlchemy](https://www.sqlalchemy.org/) for the powerful ORM
-- [IRAS](https://www.iras.gov.sg/) for their clear tax guidelines and examples
-- All contributors who have invested time and effort into making this project better
-
-## Get Involved
-
-We're building SG Bookkeeper to empower Singapore's small businesses with professional accounting tools. If you share this vision, we'd love to have you join us:
-
-- Star the repository to show your support
-- Watch the repository to stay updated
-- Fork and contribute to help improve the project
-- Share feedback and ideas through GitHub issues
-- Help spread the word about SG Bookkeeper
-
-Together, we can make financial management accessible, efficient, and hassle-free for small businesses.
-
----
-
-<div align="center">
-  <p>Built with ❤️ in Singapore</p>
-  <p>
-    <a href="https://github.com/yourusername/sg_bookkeeper/stargazers">Star us on GitHub</a> •
-    <a href="https://github.com/yourusername/sg_bookkeeper/issues">Report Bug</a> •
-    <a href="https://github.com/yourusername/sg_bookkeeper/issues">Request Feature</a>
-  </p>
-</div>
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

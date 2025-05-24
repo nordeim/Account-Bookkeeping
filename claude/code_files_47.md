@@ -1,3 +1,335 @@
+<think>
+This is a complex set of errors, and the difference in behavior between `db_init.py` and direct `psql` execution is key.
+
+**Error Analysis from `db_init.py` output:**
+```
+Error during database creation/initialization: relation "accounting.recurring_patterns" does not exist
+  SQLSTATE: 42P01
+```
+This error `42P01` (Undefined Table) means that when `db_init.py` (via `asyncpg`) was executing `scripts/schema.sql`, a statement tried to reference `accounting.recurring_patterns` before it was created.
+
+Looking at `scripts/schema.sql` (the version from my last response where I used placeholder CREATE TABLE statements for brevity in the thought block, but the actual file should have full definitions):
+The `ALTER TABLE accounting.journal_entries ADD CONSTRAINT fk_journal_entries_recurring_pattern FOREIGN KEY (recurring_pattern_id) REFERENCES accounting.recurring_patterns(id) DEFERRABLE INITIALLY DEFERRED;` statement might be executed before `CREATE TABLE IF NOT EXISTS accounting.recurring_patterns (...)` if the order is not strictly sequential or if the placeholder `CREATE TABLE` statements were indeed what I used in the final output (which would be a major mistake).
+
+**Error Analysis from direct `psql -f scripts/schema.sql` output:**
+This output is very revealing:
+1.  **`NOTICE: extension "..." already exists, skipping`**: This is fine if the script is re-run.
+2.  **`NOTICE: schema "..." already exists, skipping`**: Also fine.
+3.  **`ERROR: relation "users" already exists`** (and for many other tables in `core` schema): This happens because `scripts/schema.sql` uses `CREATE TABLE core.users (...)` not `CREATE TABLE IF NOT EXISTS core.users (...)`. When `psql` runs the script directly on a database that *already has these tables* (perhaps from a previous successful `db_init.py` run, or a partial run of `schema.sql`), these `CREATE TABLE` statements will fail.
+4.  **`NOTICE: relation "account_types" already exists, skipping`**: This suggests that for some tables, I *did* use `CREATE TABLE IF NOT EXISTS` in the placeholder part of my thought block, which then made it into the output. This inconsistency is problematic.
+5.  **`ERROR: constraint "fk_journal_entries_recurring_pattern" for relation "journal_entries" already exists`**: Similar to tables, if the script is re-run.
+6.  **`ERROR: relation "accounting.recurring_patterns" does not exist` (from `db_init.py`) vs. `NOTICE: relation "recurring_patterns" already exists, skipping` (from `psql` on re-run).** This is the crux.
+    *   The `db_init.py` output clearly states the relation doesn't exist when it's needed. This usually happens if an `ALTER TABLE ... ADD CONSTRAINT FOREIGN KEY ... REFERENCES accounting.recurring_patterns` is encountered *before* `CREATE TABLE accounting.recurring_patterns` is executed.
+    *   The `psql` output shows that `CREATE TABLE IF NOT EXISTS accounting.recurring_patterns` was executed (and it skipped because it existed from a prior run).
+
+    This implies an ordering issue in `scripts/schema.sql` or an issue with how `asyncpg` handles a large multi-statement script if it's not perfectly ordered for all dependencies like FKs. PostgreSQL typically requires tables to exist before FKs can reference them (unless `DEFERRABLE`).
+
+7.  **`ERROR: cannot drop columns from view`**: This happens when `CREATE OR REPLACE VIEW` is used and the new view definition has fewer columns than the old one, or different column types in a way that requires a drop and recreate. `CREATE OR REPLACE VIEW` cannot change column types or remove columns if the view is dependent upon. The view must be dropped first.
+
+**Root Causes:**
+
+1.  **Inconsistent use of `IF NOT EXISTS` for `CREATE TABLE` statements**: My previous `schema.sql` generation, especially where I noted "[Skipping re-listing all ... tables for brevity, assume they are correct...]" and then put placeholder `CREATE TABLE IF NOT EXISTS` statements, was flawed. The actual full definitions from the reference schema (which mostly use plain `CREATE TABLE`) need to be used consistently. When `db_init.py` runs `--drop-existing`, it creates an empty database, so `CREATE TABLE` is fine. But if the script were ever run on an existing DB (e.g., for an update, or if `--drop-existing` failed partially), `CREATE TABLE IF NOT EXISTS` would be more robust. However, for a clean init script designed to be run after a drop, plain `CREATE TABLE` is standard. The `psql` re-run errors show this.
+2.  **Order of `ALTER TABLE ... ADD CONSTRAINT`**: Foreign key constraints must be added *after* both the referencing and referenced tables are fully defined. The `ALTER TABLE accounting.journal_entries ADD CONSTRAINT fk_journal_entries_recurring_pattern ... REFERENCES accounting.recurring_patterns(id)` needs `accounting.recurring_patterns` to exist. The `db_init.py` error "relation accounting.recurring_patterns does not exist" is the most direct symptom of this ordering problem when the script is run on a fresh database.
+3.  **`CREATE OR REPLACE VIEW` limitations**: If view definitions change significantly (column removal/type change), they need to be `DROP VIEW IF EXISTS ...; CREATE VIEW ...;`.
+
+**Plan for Resolution:**
+
+1.  **Full Table Definitions in `schema.sql`**: Ensure `scripts/schema.sql` contains the *full, correct `CREATE TABLE` statements* for ALL tables from the reference schema, not placeholders. For a script that is always run after `DROP DATABASE`, `CREATE TABLE` (without `IF NOT EXISTS`) is fine. If the script needs to be idempotent for running on an existing schema, then `CREATE TABLE IF NOT EXISTS` is better for tables, and `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` (PostgreSQL 9.6+) for columns. Given `db_init.py` drops the database, plain `CREATE TABLE` is okay.
+2.  **Order of Operations**:
+    *   All `CREATE TABLE` statements for a given schema should appear first.
+    *   Then, all `ALTER TABLE ... ADD CONSTRAINT FOREIGN KEY` statements should come *after* all tables they reference have been created. It's safest to put all `ALTER TABLE ADD CONSTRAINT` at the end of all table creations within a schema, or even at the very end of all `CREATE TABLE` statements across all schemas. The `DEFERRABLE INITIALLY DEFERRED` helps but doesn't negate the need for the table to exist at parse time for the `ALTER` command.
+    *   The `ALTER TABLE accounting.journal_entries ADD CONSTRAINT fk_journal_entries_recurring_pattern...` statement must come **after** `CREATE TABLE accounting.recurring_patterns...`.
+    *   Similarly for `fk_jel_dimension1` and `fk_jel_dimension2` referencing `accounting.dimensions`.
+3.  **View Definitions**: For `CREATE OR REPLACE VIEW`, if column signatures change, the robust way is `DROP VIEW IF EXISTS ...; CREATE VIEW ...;`. For now, let's assume the view definitions are stable or compatible replacements. The "cannot drop columns from view" error during `psql` re-run suggests the current view in the DB (from a previous run) is incompatible with the `CREATE OR REPLACE VIEW` statement being applied. This is less critical if `db_init.py --drop-existing` works.
+4.  **Python Error Handling in `db_init.py`**: The `An unexpected error occurred in main: 'ForeignKeyViolationError' object has no attribute 'details'` is a secondary Python error. While the primary fix is the SQL, the Python error handling can be made more generic:
+    ```python
+    # In db_init.py, create_database's except block
+    except Exception as e:
+        print(f"Error during database creation/initialization: {type(e).__name__} - {str(e)}", file=sys.stderr)
+        # If asyncpg error, it might have sqlstate
+        if hasattr(e, 'sqlstate'):
+            print(f"  SQLSTATE: {e.sqlstate}", file=sys.stderr)
+        return False
+    ```
+
+**Reconstructing `scripts/schema.sql` Carefully:**
+
+I will now meticulously reconstruct `scripts/schema.sql`, ensuring:
+*   All `CREATE TABLE` statements are complete and based on the reference schema.
+*   All `ALTER TABLE ... ADD CONSTRAINT FOREIGN KEY ...` statements are moved to a section *after* all tables have been created. This is the safest way to ensure referenced tables exist.
+*   I will use the exact definitions from `create_database_schema (reference).md` for tables, views, and functions, only applying the fixes we've already validated (like the `budget_details` unique index and the audit trigger robustness).
+*   The placeholder `CREATE TABLE IF NOT EXISTS` will be removed and replaced with full definitions.
+
+This will be a long file. I need to be extremely careful not to reintroduce prior errors or omit any definitions.
+The main structural change will be moving FK constraints that are added via `ALTER TABLE` to the end. Inline FKs in `CREATE TABLE` are fine if the referenced table is already defined.
+
+Example:
+Original `journal_entries` and `recurring_patterns` section in `schema.sql` was:
+```sql
+CREATE TABLE accounting.journal_entries ( ... recurring_pattern_id INTEGER, ...); -- FK not defined inline yet
+CREATE TABLE accounting.recurring_patterns ( ... template_entry_id INTEGER NOT NULL REFERENCES accounting.journal_entries(id), ...);
+ALTER TABLE accounting.journal_entries
+ADD CONSTRAINT fk_journal_entries_recurring_pattern
+FOREIGN KEY (recurring_pattern_id)
+REFERENCES accounting.recurring_patterns(id);
+```
+Here, `recurring_patterns` references `journal_entries` (inline FK, so `journal_entries` must exist first).
+Then, `journal_entries` is altered to reference `recurring_patterns` (so `recurring_patterns` must exist first).
+This creates a dependency loop for inline + alter.
+
+To solve this, one FK must be `DEFERRABLE` or added later. The script used `DEFERRABLE INITIALLY DEFERRED` for the `ALTER TABLE`. This is usually fine.
+The error `relation "accounting.recurring_patterns" does not exist` when `db_init.py` executes this `ALTER TABLE` means that `asyncpg` (or PostgreSQL through it) is checking for the existence of `accounting.recurring_patterns` at the time the `ALTER TABLE` statement for `journal_entries` is parsed/executed, and at that point, the `CREATE TABLE accounting.recurring_patterns` statement hasn't completed or isn't visible yet in that execution context.
+
+The most robust solution is:
+1. Create all tables without FKs that would cause loops or forward references.
+2. Create tables with simple, non-looping FKs.
+3. Add all remaining complex or potentially looping FKs using `ALTER TABLE` at the very end.
+
+Let's ensure `scripts/schema.sql` follows this. The `recurring_patterns` table refers to `journal_entries(id)` and `journal_entries` refers to `recurring_patterns(id)`. This is a classic circular dependency for FKs.
+The schema uses an `ALTER TABLE` for one side.
+
+```sql
+-- Create accounting.journal_entries (without FK to recurring_patterns initially)
+CREATE TABLE accounting.journal_entries (
+    id SERIAL PRIMARY KEY,
+    -- ... other columns ...
+    recurring_pattern_id INTEGER, -- NO FK constraint here yet
+    -- ...
+);
+
+-- Create accounting.recurring_patterns (with FK to journal_entries)
+CREATE TABLE accounting.recurring_patterns (
+    id SERIAL PRIMARY KEY,
+    -- ... other columns ...
+    template_entry_id INTEGER NOT NULL REFERENCES accounting.journal_entries(id), -- This is fine if journal_entries exists
+    -- ...
+);
+
+-- Now, add the FK from journal_entries to recurring_patterns
+ALTER TABLE accounting.journal_entries
+ADD CONSTRAINT fk_journal_entries_recurring_pattern
+FOREIGN KEY (recurring_pattern_id)
+REFERENCES accounting.recurring_patterns(id) DEFERRABLE INITIALLY DEFERRED; -- Deferrable helps
+```
+This order should work. The error in `db_init.py` implies this order was not respected or there's another issue.
+The `psql` output `ERROR: constraint "fk_journal_entries_recurring_pattern" for relation "journal_entries" already exists` during a re-run means the constraint *was* created in a previous (perhaps successful or partially successful) run.
+
+The issue from `db_init.py`: `relation "accounting.recurring_patterns" does not exist` when trying to add the FK to `journal_entries`.
+This means the `CREATE TABLE accounting.recurring_patterns` was not executed/committed before the `ALTER TABLE accounting.journal_entries` was attempted by `asyncpg`.
+
+This might be an issue with how `asyncpg`'s `conn.execute(multi_statement_sql)` handles transactional boundaries or statement separation compared to `psql -f`. `psql` might process statement by statement more effectively.
+
+If `asyncpg` sends the whole script as one block, and PostgreSQL parses it, `DEFERRABLE INITIALLY DEFERRED` should work.
+But if `asyncpg` somehow splits it or if there's an implicit commit behavior difference, it could fail.
+
+To be absolutely safe, all `ALTER TABLE ... ADD CONSTRAINT FOREIGN KEY` statements should be moved to the very end of the script, after all `CREATE TABLE` statements.
+
+I will regenerate the `scripts/schema.sql` with full table definitions from the reference, ensure all `ALTER TABLE ADD CONSTRAINT FOREIGN KEY` statements are at the end, and apply fixes. I'll also update the `db_init.py` error reporting slightly.
+</think>
+
+This is a very tricky set of errors, pointing to potential issues in the order of DDL statement execution, especially when foreign key constraints are involved, and differences in how `db_init.py` (via `asyncpg`) and `psql` handle multi-statement SQL scripts.
+
+**Primary Error Analysis (`db_init.py`):**
+`Error during database creation/initialization: relation "accounting.recurring_patterns" does not exist SQLSTATE: 42P01`
+This means that an `ALTER TABLE accounting.journal_entries ADD CONSTRAINT ... REFERENCES accounting.recurring_patterns(id)` statement (or similar) was executed *before* the `CREATE TABLE accounting.recurring_patterns` statement was effectively completed and visible in that transaction/session.
+
+**Secondary Errors (from `psql` direct execution on an already modified DB):**
+*   `ERROR: relation "users" already exists`: Caused by `CREATE TABLE` without `IF NOT EXISTS` on a pre-existing table.
+*   `NOTICE: relation "account_types" already exists, skipping`: Caused by `CREATE TABLE IF NOT EXISTS` on a pre-existing table (this is fine).
+*   `ERROR: constraint "..." already exists`: Caused by `ALTER TABLE ... ADD CONSTRAINT` on a pre-existing constraint.
+*   `ERROR: cannot drop columns from view`: When `CREATE OR REPLACE VIEW` tries to change the view structure incompatibly.
+
+**Key Issues and Solutions:**
+
+1.  **DDL Order for Foreign Keys, Especially Circular Dependencies:**
+    *   The tables `accounting.journal_entries` and `accounting.recurring_patterns` have a circular foreign key dependency: `journal_entries.recurring_pattern_id` references `recurring_patterns.id`, and `recurring_patterns.template_entry_id` references `journal_entries.id`.
+    *   To handle this, one of the foreign keys must be added *after* both tables are created, typically using `ALTER TABLE`. The use of `DEFERRABLE INITIALLY DEFERRED` helps, but the tables must exist at the time the `ALTER TABLE` command is parsed.
+    *   **Solution:** Ensure all `CREATE TABLE` statements are executed first. Then, group all `ALTER TABLE ... ADD CONSTRAINT FOREIGN KEY ...` statements at the end of the schema definition script. This ensures all tables are defined before any cross-referencing foreign keys are established.
+
+2.  **Script Idempotency (`CREATE IF NOT EXISTS`, `DROP IF EXISTS`):**
+    *   For `db_init.py --drop-existing`, the database is fresh, so plain `CREATE TABLE` is fine.
+    *   The `psql` errors occur when re-running the script on an existing database.
+    *   **Solution:** For robustness, especially if the script might be run partially or for updates later (though migrations are better for updates), using `IF NOT EXISTS` for `CREATE` statements and `IF EXISTS` for `DROP` statements is good practice. For `ADD CONSTRAINT`, one might need to `DROP CONSTRAINT IF EXISTS` first.
+    *   However, since `db_init.py` with `--drop-existing` is the primary init path, ensuring correct order is more critical than full idempotency for every single statement for re-runs without a drop. The current script already uses `IF NOT EXISTS` for extensions and schemas. I will make `CREATE TABLE` statements plain (without `IF NOT EXISTS`) assuming a clean database from `--drop-existing`. Foreign keys will be added at the end.
+
+3.  **View Definitions (`CREATE OR REPLACE VIEW`):**
+    *   The error `cannot drop columns from view` during `psql` re-run means the view definition changed incompatibly.
+    *   **Solution:** For development, it's often easier to `DROP VIEW IF EXISTS schema.view_name;` before `CREATE VIEW schema.view_name AS ...;`. I will change this to `CREATE OR REPLACE VIEW` which should handle most changes, but significant column changes might still require a `DROP` then `CREATE`. For now, `CREATE OR REPLACE` will be kept. The `--drop-existing` in `db_init.py` makes this less of an issue for initial setup.
+
+4.  **Python Error Handling in `db_init.py`:**
+    *   The message `An unexpected error occurred in main: 'ForeignKeyViolationError' object has no attribute 'details'` is because the generic `except Exception as e:` in `main()` of `db_init.py` tried to access `e.details`, which doesn't exist on all exception types.
+    *   **Solution**: Improve the error reporting in `db_init.py` to print `type(e).__name__` and `str(e)` which are generic.
+
+**Refined Structure for `scripts/schema.sql`:**
+I will now generate the `scripts/schema.sql` ensuring:
+1.  All `CREATE SCHEMA` and `CREATE EXTENSION` are at the beginning.
+2.  All `CREATE TABLE` statements are next, without intermediate `ALTER TABLE ADD CONSTRAINT`.
+3.  All `CREATE INDEX` statements specific to tables (not unique constraints created via `CREATE UNIQUE INDEX`) are after their respective `CREATE TABLE`.
+4.  All `ALTER TABLE ... ADD CONSTRAINT FOREIGN KEY ...` statements are grouped at the end.
+5.  All `CREATE VIEW` statements.
+6.  All `CREATE FUNCTION` statements.
+7.  All trigger creation `DO $$ ... $$` blocks.
+
+This ordering should resolve the "relation does not exist" errors when `asyncpg` executes the script.
+
+**File to be Updated:**
+1.  `scripts/schema.sql` (major reordering and ensuring full definitions)
+2.  `scripts/db_init.py` (minor improvement to error message printing)
+
+I will use the full definitions from the `create_database_schema (reference).md` as the base for table structures, comments, etc., and apply the previously successful fixes (like the `budget_details` unique index and the audit trigger robustness).
+
+This will be a large diff for `scripts/schema.sql` due to the full inclusion of all table definitions.
+
+```python
+# File: scripts/db_init.py
+import asyncio
+import asyncpg # type: ignore
+import argparse
+import getpass
+import os
+import sys
+from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+SCHEMA_SQL_PATH = SCRIPT_DIR / 'schema.sql'
+INITIAL_DATA_SQL_PATH = SCRIPT_DIR / 'initial_data.sql'
+
+async def create_database(args):
+    """Create PostgreSQL database and initialize schema using reference SQL files."""
+    conn_admin = None 
+    db_conn = None 
+    try:
+        conn_params_admin = { 
+            "user": args.user,
+            "password": args.password,
+            "host": args.host,
+            "port": args.port,
+        }
+        conn_admin = await asyncpg.connect(**conn_params_admin, database='postgres') 
+    except Exception as e:
+        print(f"Error connecting to PostgreSQL server (postgres DB): {type(e).__name__} - {str(e)}", file=sys.stderr)
+        return False
+    
+    try:
+        exists = await conn_admin.fetchval(
+            "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)",
+            args.dbname
+        )
+        
+        if exists:
+            if args.drop_existing:
+                print(f"Terminating connections to '{args.dbname}'...")
+                await conn_admin.execute(f"""
+                    SELECT pg_terminate_backend(pid)
+                    FROM pg_stat_activity
+                    WHERE datname = '{args.dbname}' AND pid <> pg_backend_pid();
+                """)
+                print(f"Dropping existing database '{args.dbname}'...")
+                await conn_admin.execute(f"DROP DATABASE IF EXISTS \"{args.dbname}\"") 
+            else:
+                print(f"Database '{args.dbname}' already exists. Use --drop-existing to recreate.")
+                await conn_admin.close()
+                return False 
+        
+        print(f"Creating database '{args.dbname}'...")
+        await conn_admin.execute(f"CREATE DATABASE \"{args.dbname}\"") 
+        
+        await conn_admin.close() 
+        conn_admin = None 
+        
+        conn_params_db = {**conn_params_admin, "database": args.dbname}
+        db_conn = await asyncpg.connect(**conn_params_db) 
+        
+        if not SCHEMA_SQL_PATH.exists():
+            print(f"Error: schema.sql not found at {SCHEMA_SQL_PATH}", file=sys.stderr)
+            return False
+            
+        print(f"Initializing database schema from {SCHEMA_SQL_PATH}...")
+        with open(SCHEMA_SQL_PATH, 'r', encoding='utf-8') as f:
+            schema_sql = f.read()
+        await db_conn.execute(schema_sql)
+        print("Schema execution completed.")
+        
+        if not INITIAL_DATA_SQL_PATH.exists():
+            print(f"Warning: initial_data.sql not found at {INITIAL_DATA_SQL_PATH}. Skipping initial data.", file=sys.stderr)
+        else:
+            print(f"Loading initial data from {INITIAL_DATA_SQL_PATH}...")
+            with open(INITIAL_DATA_SQL_PATH, 'r', encoding='utf-8') as f:
+                data_sql = f.read()
+            await db_conn.execute(data_sql)
+            print("Initial data loading completed.")
+
+        print(f"Setting default search_path for database '{args.dbname}'...")
+        await db_conn.execute(f"""
+            ALTER DATABASE "{args.dbname}" 
+            SET search_path TO core, accounting, business, audit, public;
+        """)
+        print("Default search_path set.")
+        
+        print(f"Database '{args.dbname}' created and initialized successfully.")
+        return True
+    
+    except Exception as e:
+        print(f"Error during database creation/initialization: {type(e).__name__} - {str(e)}", file=sys.stderr)
+        if hasattr(e, 'sqlstate') and e.sqlstate: # type: ignore
+            print(f"  SQLSTATE: {e.sqlstate}", file=sys.stderr) # type: ignore
+        if hasattr(e, 'detail') and e.detail: # type: ignore
+             print(f"  DETAIL: {e.detail}", file=sys.stderr) # type: ignore
+        if hasattr(e, 'query') and e.query: # type: ignore
+            print(f"  Query context: {e.query[:200]}...", file=sys.stderr) # type: ignore
+        return False
+    
+    finally:
+        if conn_admin and not conn_admin.is_closed():
+            await conn_admin.close()
+        if db_conn and not db_conn.is_closed():
+            await db_conn.close()
+
+def parse_args():
+    parser = argparse.ArgumentParser(description='Initialize SG Bookkeeper database from reference SQL files.')
+    parser.add_argument('--host', default=os.getenv('PGHOST', 'localhost'), help='PostgreSQL server host (Env: PGHOST)')
+    parser.add_argument('--port', type=int, default=os.getenv('PGPORT', 5432), help='PostgreSQL server port (Env: PGPORT)')
+    parser.add_argument('--user', default=os.getenv('PGUSER', 'postgres'), help='PostgreSQL username (Env: PGUSER)')
+    parser.add_argument('--password', help='PostgreSQL password (Env: PGPASSWORD, or prompts if empty)')
+    parser.add_argument('--dbname', default=os.getenv('PGDATABASE', 'sg_bookkeeper'), help='Database name (Env: PGDATABASE)')
+    parser.add_argument('--drop-existing', action='store_true', help='Drop database if it already exists')
+    return parser.parse_args()
+
+def main():
+    args = parse_args()
+    
+    if not args.password:
+        pgpassword_env = os.getenv('PGPASSWORD')
+        if pgpassword_env:
+            args.password = pgpassword_env
+        else:
+            try:
+                args.password = getpass.getpass(f"Password for PostgreSQL user '{args.user}' on host '{args.host}': ")
+            except (EOFError, KeyboardInterrupt): 
+                print("\nPassword prompt cancelled or non-interactive environment. Exiting.", file=sys.stderr)
+                sys.exit(1)
+            except Exception as e: 
+                print(f"Could not read password securely: {e}. Try setting PGPASSWORD environment variable or using --password.", file=sys.stderr)
+                sys.exit(1)
+
+    try:
+        success = asyncio.run(create_database(args))
+    except KeyboardInterrupt:
+        print("\nDatabase initialization cancelled by user.", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e: 
+        print(f"An unexpected error occurred in main: {type(e).__name__} - {str(e)}", file=sys.stderr)
+        if hasattr(e, 'sqlstate') and e.sqlstate: # type: ignore
+             print(f"  SQLSTATE: {e.sqlstate}", file=sys.stderr) # type: ignore
+        success = False
+        
+    sys.exit(0 if success else 1)
+
+if __name__ == '__main__':
+    main()
+```
+
+```sql
 -- File: scripts/schema.sql
 -- ============================================================================
 -- SG Bookkeeper - Complete Database Schema - Version 1.0.1 (Reordered FKs)
@@ -767,3 +1099,5 @@ DO $$ DECLARE r RECORD; BEGIN FOR r IN SELECT table_schema, table_name FROM info
 DO $$ DECLARE tables_to_audit TEXT[] := ARRAY['accounting.accounts','accounting.journal_entries','accounting.fiscal_periods','accounting.fiscal_years','business.customers','business.vendors','business.products','business.sales_invoices','business.purchase_invoices','business.payments','accounting.tax_codes','accounting.gst_returns','core.users','core.roles','core.company_settings']; table_fullname TEXT; schema_name TEXT; table_name_var TEXT; BEGIN FOREACH table_fullname IN ARRAY tables_to_audit LOOP SELECT split_part(table_fullname,'.',1) INTO schema_name; SELECT split_part(table_fullname,'.',2) INTO table_name_var; EXECUTE format('DROP TRIGGER IF EXISTS trg_audit_log ON %I.%I; CREATE TRIGGER trg_audit_log AFTER INSERT OR UPDATE OR DELETE ON %I.%I FOR EACH ROW EXECUTE FUNCTION audit.log_data_change_trigger_func();',schema_name,table_name_var,schema_name,table_name_var); END LOOP; END; $$;
 
 -- End of script
+```
+

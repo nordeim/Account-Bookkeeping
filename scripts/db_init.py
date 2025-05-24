@@ -13,22 +13,22 @@ INITIAL_DATA_SQL_PATH = SCRIPT_DIR / 'initial_data.sql'
 
 async def create_database(args):
     """Create PostgreSQL database and initialize schema using reference SQL files."""
-    conn = None 
-    db_conn = None # Connection to the target database
+    conn_admin = None 
+    db_conn = None 
     try:
-        conn_params_admin = { # Parameters for connecting to 'postgres' db
+        conn_params_admin = { 
             "user": args.user,
             "password": args.password,
             "host": args.host,
             "port": args.port,
         }
-        conn = await asyncpg.connect(**conn_params_admin, database='postgres') # type: ignore
+        conn_admin = await asyncpg.connect(**conn_params_admin, database='postgres') 
     except Exception as e:
-        print(f"Error connecting to PostgreSQL server (postgres DB): {e}", file=sys.stderr)
+        print(f"Error connecting to PostgreSQL server (postgres DB): {type(e).__name__} - {str(e)}", file=sys.stderr)
         return False
     
     try:
-        exists = await conn.fetchval(
+        exists = await conn_admin.fetchval(
             "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)",
             args.dbname
         )
@@ -36,33 +36,30 @@ async def create_database(args):
         if exists:
             if args.drop_existing:
                 print(f"Terminating connections to '{args.dbname}'...")
-                # It's safer to run pg_terminate_backend on the 'postgres' db or another admin db
-                # rather than the db being dropped, if possible.
-                await conn.execute(f"""
+                await conn_admin.execute(f"""
                     SELECT pg_terminate_backend(pid)
                     FROM pg_stat_activity
                     WHERE datname = '{args.dbname}' AND pid <> pg_backend_pid();
                 """)
                 print(f"Dropping existing database '{args.dbname}'...")
-                await conn.execute(f"DROP DATABASE IF EXISTS \"{args.dbname}\"") 
+                await conn_admin.execute(f"DROP DATABASE IF EXISTS \"{args.dbname}\"") 
             else:
                 print(f"Database '{args.dbname}' already exists. Use --drop-existing to recreate.")
-                await conn.close()
+                await conn_admin.close()
                 return False 
         
         print(f"Creating database '{args.dbname}'...")
-        await conn.execute(f"CREATE DATABASE \"{args.dbname}\"") 
+        await conn_admin.execute(f"CREATE DATABASE \"{args.dbname}\"") 
         
-        await conn.close() # Close admin connection
-        conn = None # Ensure it's not reused accidentally
+        await conn_admin.close() 
+        conn_admin = None 
         
-        # Connect to the newly created database
         conn_params_db = {**conn_params_admin, "database": args.dbname}
-        db_conn = await asyncpg.connect(**conn_params_db) # type: ignore
+        db_conn = await asyncpg.connect(**conn_params_db) 
         
         if not SCHEMA_SQL_PATH.exists():
             print(f"Error: schema.sql not found at {SCHEMA_SQL_PATH}", file=sys.stderr)
-            return False # db_conn will be closed in finally
+            return False
             
         print(f"Initializing database schema from {SCHEMA_SQL_PATH}...")
         with open(SCHEMA_SQL_PATH, 'r', encoding='utf-8') as f:
@@ -80,11 +77,6 @@ async def create_database(args):
             print("Initial data loading completed.")
 
         print(f"Setting default search_path for database '{args.dbname}'...")
-        # The ALTER DATABASE command should ideally be run by a superuser,
-        # or the database owner. The user running db_init.py (args.user) is assumed to have these rights.
-        # It's better to run this on the specific DB connection (db_conn) if it has enough privileges,
-        # or briefly reconnect as admin user if necessary, though ALTER DATABASE itself is not session-specific.
-        # For simplicity, using db_conn which is connected to args.dbname as args.user.
         await db_conn.execute(f"""
             ALTER DATABASE "{args.dbname}" 
             SET search_path TO core, accounting, business, audit, public;
@@ -95,18 +87,18 @@ async def create_database(args):
         return True
     
     except Exception as e:
-        print(f"Error during database creation/initialization: {e}", file=sys.stderr)
-        # Attempt to print more detailed asyncpg error if possible
-        if isinstance(e, asyncpg.PostgresError):
-            print(f"  SQLSTATE: {e.sqlstate}", file=sys.stderr)
-            print(f"  Details: {e.details}", file=sys.stderr)
-            print(f"  Query: {e.query}", file=sys.stderr) # Might be None for script execution
-            print(f"  Position: {e.position}", file=sys.stderr)
+        print(f"Error during database creation/initialization: {type(e).__name__} - {str(e)}", file=sys.stderr)
+        if hasattr(e, 'sqlstate') and e.sqlstate: # type: ignore
+            print(f"  SQLSTATE: {e.sqlstate}", file=sys.stderr) # type: ignore
+        if hasattr(e, 'detail') and e.detail: # type: ignore
+             print(f"  DETAIL: {e.detail}", file=sys.stderr) # type: ignore
+        if hasattr(e, 'query') and e.query: # type: ignore
+            print(f"  Query context: {e.query[:200]}...", file=sys.stderr) # type: ignore
         return False
     
     finally:
-        if conn and not conn.is_closed():
-            await conn.close()
+        if conn_admin and not conn_admin.is_closed():
+            await conn_admin.close()
         if db_conn and not db_conn.is_closed():
             await db_conn.close()
 
@@ -133,10 +125,9 @@ def main():
             except (EOFError, KeyboardInterrupt): 
                 print("\nPassword prompt cancelled or non-interactive environment. Exiting.", file=sys.stderr)
                 sys.exit(1)
-            except Exception as e: # Catch potential getpass.GetPassWarning if sys.stdin is not a tty
+            except Exception as e: 
                 print(f"Could not read password securely: {e}. Try setting PGPASSWORD environment variable or using --password.", file=sys.stderr)
                 sys.exit(1)
-
 
     try:
         success = asyncio.run(create_database(args))
@@ -144,7 +135,9 @@ def main():
         print("\nDatabase initialization cancelled by user.", file=sys.stderr)
         sys.exit(1)
     except Exception as e: 
-        print(f"An unexpected error occurred in main: {e}", file=sys.stderr)
+        print(f"An unexpected error occurred in main: {type(e).__name__} - {str(e)}", file=sys.stderr)
+        if hasattr(e, 'sqlstate') and e.sqlstate: # type: ignore
+             print(f"  SQLSTATE: {e.sqlstate}", file=sys.stderr) # type: ignore
         success = False
         
     sys.exit(0 if success else 1)

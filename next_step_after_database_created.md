@@ -1,3 +1,66 @@
+**Next Steps:**
+
+1.  Replace your `scripts/initial_data.sql` with the updated version provided above.
+2.  **Re-run the database initialization script** to apply these changes and seed the company settings (and ensure the admin user is set up):
+    ```bash
+    poetry run sg_bookkeeper_db_init --user postgres --password PGAdmin1234 --dbname sg_bookkeeper --drop-existing
+    ```
+    *(Using `--drop-existing` ensures a clean state with the new initial data. If you have important data already, back it up or apply changes manually.)*
+3.  After `db_init.py` completes successfully, grant permissions to `sgbookkeeper_user` again (as the database was dropped and recreated):
+    ```bash
+    sudo -u postgres PGPASSWORD=PGAdmin1234 psql -h localhost -d sg_bookkeeper
+    ```
+    Then run the `GRANT` commands from the previous step.
+
+**Critical Missing Grant Step:**
+The user `sgbookkeeper_user` needs `USAGE` on schemas and `SELECT, INSERT, UPDATE, DELETE` (etc.) on tables.
+`GRANT ALL PRIVILEGES ON DATABASE` gives `CONNECT`, `CREATE` (schemas/temp tables), `TEMPORARY`. It does *not* grant rights to objects within the database unless the user owns them.
+
+So, after `db_init.py` (run by `postgres`) creates everything, these grants are needed for `sgbookkeeper_user`:
+```sql
+-- Run as postgres user
+-- create application user
+CREATE USER sgbookkeeper_user WITH PASSWORD 'SGkeeperPass123';
+-- grant user privileges
+GRANT ALL PRIVILEGES ON DATABASE sg_bookkeeper TO sgbookkeeper_user;
+-- connect to application specific database
+\c sg_bookkeeper
+
+GRANT USAGE ON SCHEMA core, accounting, business, audit TO sgbookkeeper_user;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA core TO sgbookkeeper_user;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA accounting TO sgbookkeeper_user;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA business TO sgbookkeeper_user;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA audit TO sgbookkeeper_user;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA core TO sgbookkeeper_user;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA accounting TO sgbookkeeper_user;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA audit TO sgbookkeeper_user;
+-- For sequences (needed for INSERTs if app uses them directly or via default values)
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA core TO sgbookkeeper_user;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA accounting TO sgbookkeeper_user;
+-- Grant privileges for future tables too
+ALTER DEFAULT PRIVILEGES IN SCHEMA core GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO sgbookkeeper_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA accounting GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO sgbookkeeper_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA business GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO sgbookkeeper_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA audit GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO sgbookkeeper_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA core GRANT USAGE, SELECT ON SEQUENCES TO sgbookkeeper_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA accounting GRANT USAGE, SELECT ON SEQUENCES TO sgbookkeeper_user;
+```
+This is a crucial part of setting up a non-superuser role.
+
+The `db_init.py` script could be enhanced to optionally take a `--app-user` and `--app-password` and then, after schema creation by the admin user, grant these privileges.
+For now, the user needs to run these grants manually as the `postgres` user.
+
+So, the next steps for the user *before* running the application with `sgbookkeeper_user` should be:
+1.  Connect to `sg_bookkeeper` database as `postgres` user.
+2.  Execute the `GRANT` statements listed above.
+
+
+4.  Run the application:
+    ```bash
+    poetry run sg_bookkeeper
+    ```
+
+---
 The user has successfully created a dedicated PostgreSQL user `sgbookkeeper_user` and granted it privileges on the `sg_bookkeeper` database. They've also updated their local `config.ini` file with these new credentials.
 
 The database `sg_bookkeeper` was previously initialized successfully by `db_init.py` using the `postgres` superuser. The tables, views, functions, etc., are already in place.
