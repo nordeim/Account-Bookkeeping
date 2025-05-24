@@ -7,28 +7,19 @@ from PySide6.QtCore import Qt, Slot, QTimer, QMetaObject, Q_ARG, QModelIndex
 from PySide6.QtGui import QIcon, QAction
 from typing import Optional, List, Dict, Any, TYPE_CHECKING
 import json
-from datetime import date
+from datetime import date as python_date # Alias for datetime.date
+from decimal import Decimal # Ensure Decimal is imported
 
 from app.ui.accounting.journal_entry_dialog import JournalEntryDialog
 from app.ui.accounting.journal_entry_table_model import JournalEntryTableModel
 from app.common.enums import JournalTypeEnum 
 from app.main import schedule_task_from_qt
 from app.utils.pydantic_models import JournalEntryData 
-from app.models.accounting.journal_entry import JournalEntry # For type hint in _load_entries
+from app.models.accounting.journal_entry import JournalEntry 
+from app.utils.json_helpers import json_converter, json_date_hook # Import centralized helpers
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore
-
-# Helper for JSON deserialization with date
-def json_date_hook(dct):
-    for k, v in dct.items():
-        if isinstance(v, str):
-            if k == 'date' or k.endswith('_date'): # Common date field names
-                try:
-                    dct[k] = date.fromisoformat(v)
-                except (ValueError, TypeError):
-                    pass 
-    return dct
 
 class JournalEntriesWidget(QWidget):
     def __init__(self, app_core: "ApplicationCore", parent: Optional[QWidget] = None):
@@ -40,23 +31,19 @@ class JournalEntriesWidget(QWidget):
     def _init_ui(self):
         self.main_layout = QVBoxLayout(self)
 
-        # Initialize table and model FIRST
         self.entries_table = QTableView()
         self.entries_table.setAlternatingRowColors(True)
         self.entries_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.entries_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.entries_table.horizontalHeader().setStretchLastSection(True)
-        self.entries_table.doubleClicked.connect(self.on_view_entry) # Or edit for drafts
+        self.entries_table.doubleClicked.connect(self.on_view_entry) 
 
         self.table_model = JournalEntryTableModel()
         self.entries_table.setModel(self.table_model)
-
-        # Now create toolbar, as it connects to entries_table.selectionModel()
-        self._create_toolbar()
-        self.main_layout.addWidget(self.toolbar) # Add toolbar before table visually
-
-        self.main_layout.addWidget(self.entries_table) # Add table to layout
-
+        
+        self._create_toolbar() # Create toolbar after table
+        self.main_layout.addWidget(self.toolbar) 
+        self.main_layout.addWidget(self.entries_table) 
         self.setLayout(self.main_layout)
 
     def _create_toolbar(self):
@@ -99,8 +86,7 @@ class JournalEntriesWidget(QWidget):
         self.refresh_action.triggered.connect(lambda: schedule_task_from_qt(self._load_entries()))
         self.toolbar.addAction(self.refresh_action)
 
-        # Connect after entries_table and its model are fully initialized
-        if self.entries_table.selectionModel():
+        if self.entries_table.selectionModel(): # Ensure model is set
             self.entries_table.selectionModel().selectionChanged.connect(self._update_action_states)
         self._update_action_states() 
 
@@ -126,14 +112,11 @@ class JournalEntriesWidget(QWidget):
 
     async def _load_entries(self):
         if not self.app_core.journal_entry_manager:
-            print("Error: JournalEntryManager not available.") # Should be shown in UI
             QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
                 Q_ARG(QWidget, self), Q_ARG(str, "Error"), 
                 Q_ARG(str,"Journal Entry Manager not available."))
             return
         try:
-            # TODO: Implement get_journal_entries_summary in JournalEntryManager
-            # For now, using get_all from service and manually creating summary
             entries_orm: List[JournalEntry] = await self.app_core.journal_entry_manager.journal_service.get_all() 
             
             entries_data_for_table: List[Dict[str, Any]] = []
@@ -215,7 +198,6 @@ class JournalEntriesWidget(QWidget):
              return
 
         dialog = JournalEntryDialog(self.app_core, self.app_core.current_user.id, journal_entry_id=entry_id, parent=self)
-        # The dialog itself handles read-only state based on existing_journal_entry.is_posted
         dialog.exec()
 
 
