@@ -1,3 +1,76 @@
+<think>
+The application is launching and shutting down cleanly again! This is a very positive outcome, indicating that the recent fixes, especially the import correction in `SettingsWidget` and the robust handling of fiscal year creation and display, are working as intended.
+
+**Current State Assessment:**
+*   Application starts without Python errors.
+*   Basic UI shell is functional.
+*   `SettingsWidget` now includes:
+    *   Display and editing of company settings (data loaded from `initial_data.sql`).
+    *   A section for Fiscal Year Management.
+    *   Ability to add new Fiscal Years via `FiscalYearDialog`.
+    *   Newly added Fiscal Years (and their auto-generated periods) are created in the database.
+    *   The list of Fiscal Years in `SettingsWidget` refreshes after adding a new one.
+*   The core asyncio infrastructure for background tasks and UI updates is in place.
+
+**Next Step from the MVP Plan: Step 2 - Core Journal Entry Functionality**
+
+This is a major and crucial step. We will focus on getting the UI and backend ready for creating and viewing General Journal entries.
+
+**Phase 2.1: UI for Journal Entries (`JournalEntryDialog` and `JournalEntriesWidget`)**
+
+1.  **`app/ui/accounting/journal_entry_dialog.py` (New File, from previous step's plan):**
+    *   This file was already generated in a previous response. I will ensure its current state is suitable or refine it if needed based on the current context. It should allow input of JE header and multiple JELs.
+    *   Key features: Account selection, debit/credit input, tax code selection (optional for now but good to have stubs), balance check.
+
+2.  **`app/ui/accounting/journal_entries_widget.py` (New File - High Priority):**
+    *   **Goal**: Display a list/table of journal entries and allow actions like "New", "Edit Draft", "Post".
+    *   **UI Elements**:
+        *   `QTableView` with a custom model (`JournalEntryTableModel`) to display entries.
+        *   Columns: Entry No., Date, Description, Type, Total Debits/Credits, Status (Draft/Posted).
+        *   Toolbar/Buttons: "New Journal Entry", "Edit Draft Entry", "View Entry" (can reuse dialog in read-only mode), "Post Selected Draft(s)".
+    *   **Logic**:
+        *   Async loading of journal entries using `schedule_task_from_qt`.
+        *   Refreshing the list after new entries are created or statuses change.
+        *   Launching `JournalEntryDialog` for new entries or editing drafts.
+
+3.  **`app/ui/accounting/accounting_widget.py` (Modification):**
+    *   Add a new tab for the `JournalEntriesWidget`.
+
+**Phase 2.2: Backend for Journal Entries (`JournalEntryManager`, `JournalService`)**
+
+1.  **`app/accounting/journal_entry_manager.py` (Enhancements):**
+    *   `create_journal_entry(entry_data: JournalEntryData)`: Robustly save new JE (and JELs) as draft.
+    *   `update_journal_entry(entry_id: int, entry_data: JournalEntryData)` (New method): For saving changes to draft entries.
+    *   `post_journal_entry(entry_id: int, user_id: int)`: Finalize a draft entry.
+    *   `get_journal_entry_for_view(entry_id: int)`: Fetch a JE with lines for display/editing.
+    *   `get_all_journal_entries_summary(filters: Dict)`: Fetch a list of JEs for the `JournalEntriesWidget` table (summary data, not full lines initially for performance).
+
+2.  **`app/services/journal_service.py` (Enhancements):**
+    *   Ensure `save()` handles both new and existing `JournalEntry` objects (including their lines through cascade or explicit logic).
+    *   Add query methods to support filtering by date range, status, etc., for `JournalEntriesWidget`.
+
+I will start by providing the `app/ui/accounting/journal_entries_widget.py` and its associated table model. Then, I will ensure `JournalEntryDialog` is complete and integrate it. Finally, I'll focus on the backend manager and service methods.
+</think>
+
+This is wonderful! The application is now consistently launching and shutting down cleanly, and the foundational UI for settings and fiscal year management is in place. This indicates that the core architecture, database interactions, and asynchronous UI updates are functioning correctly.
+
+We are now ready to proceed with **Step 2 of the MVP plan: Core Journal Entry Functionality**. This is the most critical part of a bookkeeping application.
+
+**Phase 2.1: Implementing the UI for Journal Entries**
+
+This involves:
+1.  Finalizing the `app/ui/accounting/journal_entry_dialog.py` (which was mostly defined in a previous step).
+2.  Creating the new `app/ui/accounting/journal_entries_widget.py` to list journal entries and provide actions.
+3.  Creating a custom table model for the journal entries list.
+4.  Updating `app/ui/accounting/accounting_widget.py` to include a tab for the new `JournalEntriesWidget`.
+
+Let's start by ensuring `app/ui/accounting/journal_entry_dialog.py` is complete and functional, then create the `JournalEntriesWidget` and its model.
+
+---
+**1. Review and Finalize `app/ui/accounting/journal_entry_dialog.py`**
+The version provided in the previous step was quite comprehensive. I'll ensure it's robust and ready for integration. Key aspects: dynamic line addition, account/tax code selection, debit/credit validation, and collecting data into `JournalEntryData`.
+
+```python
 # File: app/ui/accounting/journal_entry_dialog.py
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QFormLayout, QLineEdit, QDateEdit, QComboBox,
@@ -559,3 +632,37 @@ class JournalEntryDialog(QDialog):
 
         return super().open()
 
+```
+
+**Validation of `app/ui/accounting/journal_entry_dialog.py`:**
+*   **Imports**: Added `QStyledItemDelegate`, `QDoubleSpinBox`, `cast`. Ensured `JournalEntry` (ORM model) is imported for loading existing entries. `JournalTypeEnum` is imported.
+*   **`__init__`**: Stores caches for accounts and tax codes. Calls `_load_initial_combo_data` and `_load_existing_journal_entry` (if `journal_entry_id` provided) asynchronously.
+*   **`_init_ui`**:
+    *   Table columns refined: Account, Desc, Debit, Credit, Tax Code, Tax Amt, Del button.
+    *   Set initial number of lines to 2 for new entries.
+*   **`_connect_signals`**: Connects buttons. `itemChanged` on `QTableWidget` is tricky with cell widgets; connecting individual cell widget signals (like `valueChanged` for spinboxes, `currentIndexChanged` for combos) is more reliable for dynamic calculations like totals or tax.
+*   **`_load_initial_combo_data`**: Asynchronously fetches accounts and tax codes to populate dropdowns in table cells. Calls `_update_combos_in_all_lines_slot` via `QMetaObject` to update UI.
+*   **`_load_existing_journal_entry`**: Fetches existing JE, serializes it, and calls `_populate_dialog_from_data_slot` via `QMetaObject`.
+*   **`_serialize_je_for_ui` / `_populate_dialog_from_data_slot`**: Handle conversion between ORM object and UI representation, including disabling fields if JE is posted.
+*   **`_add_new_line`**:
+    *   Creates `QComboBox` for Accounts and Tax Codes, and `QDoubleSpinBox` for Debit/Credit amounts in each new row.
+    *   Connects `valueChanged` for debit/credit spinboxes to ensure only one is non-zero and to trigger total recalculation.
+    *   Connects `currentIndexChanged` for tax code combo to trigger tax recalculation.
+    *   Adds a "Delete" button per line.
+*   **`_populate_combos_for_row`**: Helper to populate dropdowns in a given row, used by `_add_new_line` and `_update_combos_in_all_lines_slot`.
+*   **`_remove_selected_line` / `_remove_specific_line`**: Logic for removing lines.
+*   **`_calculate_totals`**: Updates debit/credit/balance labels.
+*   **`_recalculate_tax_for_line`**: Calculates tax based on selected tax code and amount.
+*   **`_collect_data`**: Gathers data from UI into `JournalEntryData` DTO, performs basic validation.
+*   **`on_save_draft` / `on_save_and_post`**: Collects data, schedules `_perform_save`.
+*   **`_perform_save`**: Calls the appropriate `JournalEntryManager` method. The manager needs an `update_journal_entry` method. Displays results via `QMetaObject`. Emits `journal_entry_saved` signal.
+*   **`open()`**: Resets dialog for new entries.
+
+This is a substantial dialog. The next steps would be to implement `JournalEntriesWidget` and then refine `JournalEntryManager`.
+
+The placeholder for `CurrencyDelegate` can be removed for now if `QDoubleSpinBox` is used directly as cell widget, which simplifies things.
+The `dimension1_id` and `dimension2_id` are simplified to `None` in `_collect_data` as their UI elements are just placeholders.
+Added a basic delete button per line.
+
+---
+Now, for the `JournalEntriesWidget`.
