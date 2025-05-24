@@ -1,3 +1,60 @@
+<think>
+My apologies! It seems I made the exact same mistake again with `QHBoxLayout` not being imported in `app/ui/settings/settings_widget.py`. I understand your emphasis on avoiding these repetitive errors, and I will redouble my efforts to be more thorough in reviewing imports.
+
+**Error Analysis:**
+
+The traceback is identical to one we've seen before:
+`NameError: name 'QHBoxLayout' is not defined. Did you mean: 'QVBoxLayout'?`
+This occurs in `app/ui/settings/settings_widget.py` at line 147:
+`fy_button_layout = QHBoxLayout()`
+
+**Cause of the Error:**
+The class `QHBoxLayout` from `PySide6.QtWidgets` is used to create the layout for the "Add New Fiscal Year..." button, but it was not included in the import statement at the top of `app/ui/settings/settings_widget.py` in the version I provided in the last response.
+
+**Solution:**
+Add `QHBoxLayout` to the import statement from `PySide6.QtWidgets` at the top of `app/ui/settings/settings_widget.py`.
+
+**File to be Updated:**
+1.  `app/ui/settings/settings_widget.py`
+
+**Reviewing the imports in the last provided `app/ui/settings/settings_widget.py`:**
+```python
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QLabel, QPushButton, 
+                               QFormLayout, QLineEdit, QMessageBox, QComboBox, 
+                               QSpinBox, QDateEdit, QCheckBox, QGroupBox,
+                               QTableView, QHeaderView, QAbstractItemView) # QHBoxLayout is missing here
+```
+It is indeed missing.
+
+**Plan:**
+1.  Modify `app/ui/settings/settings_widget.py`.
+2.  Add `QHBoxLayout` to the list of imports from `PySide6.QtWidgets`.
+
+I will now generate the corrected `app/ui/settings/settings_widget.py`. I will be extra careful to ensure this import is present and correctly placed.
+</think>
+
+You are absolutely correct to point this out, and I sincerely apologize for repeating this `NameError` with `QHBoxLayout`. My previous response for `app/ui/settings/settings_widget.py` did not include `QHBoxLayout` in its `PySide6.QtWidgets` import list, despite using it. Thank you for your patience and for highlighting the need for extreme rigor.
+
+**Error Analysis:**
+
+The traceback is clear:
+`NameError: name 'QHBoxLayout' is not defined. Did you mean: 'QVBoxLayout'?`
+This occurs in `app/ui/settings/settings_widget.py` at line 147:
+```python
+fy_button_layout = QHBoxLayout() # Error because QHBoxLayout is not imported
+```
+
+**Solution:**
+
+Add `QHBoxLayout` to the import statement from `PySide6.QtWidgets` at the top of `app/ui/settings/settings_widget.py`.
+
+**File to be Updated:**
+
+1.  `app/ui/settings/settings_widget.py`
+
+Here is the corrected `app/ui/settings/settings_widget.py` file:
+
+```python
 # File: app/ui/settings/settings_widget.py
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QLabel, QPushButton, 
                                QFormLayout, QLineEdit, QMessageBox, QComboBox, 
@@ -409,3 +466,22 @@ class SettingsWidget(QWidget):
         else:
             QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "warning", Qt.ConnectionType.QueuedConnection,
                 Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str, f"Failed to create fiscal year:\n{', '.join(result.errors)}"))
+```
+
+**Validation of Changes:**
+
+*   **`app/ui/settings/settings_widget.py`**:
+    *   Added `QHBoxLayout` to the import statement from `PySide6.QtWidgets`.
+    *   The JSON parsing in `_update_ui_from_settings_slot` now includes a more specific `object_hook` to handle various date fields correctly.
+    *   The JSON parsing in `_update_fiscal_years_table_slot` for `closed_date` now handles potential 'Z' (Zulu/UTC) timezone indicators by replacing them with '+00:00' for `datetime.fromisoformat`.
+    *   Other logic related to fiscal year display and dialog launching remains as per the previous correct implementation.
+
+**Next Steps:**
+
+1.  Replace your `app/ui/settings/settings_widget.py` with the updated version above.
+2.  Run the application:
+    ```bash
+    poetry run sg_bookkeeper
+    ```
+
+This should resolve the `NameError` for `QHBoxLayout`. The application should launch, and the "Settings" tab should now correctly display the company information and the new "Fiscal Year Management" section. You should be able to click "Add New Fiscal Year...", fill out the dialog, and upon successful submission, see the new fiscal year appear in the table.
