@@ -1,8 +1,5 @@
-# File: resources/resources.qrc
-# (Commented QRC structure as provided before)
-"""
-<RCC>
-  <qresource prefix="/">
+<!DOCTYPE RCC><RCC version="1.0">
+<qresource prefix="/">
     <file alias="icons/dashboard.svg">icons/dashboard.svg</file>
     <file alias="icons/accounting.svg">icons/accounting.svg</file>
     <file alias="icons/customers.svg">icons/customers.svg</file>
@@ -18,14 +15,20 @@
     <file alias="icons/preferences.svg">icons/preferences.svg</file>
     <file alias="icons/help.svg">icons/help.svg</file>
     <file alias="icons/about.svg">icons/about.svg</file>
-    <file alias="icons/filter.svg">icons/filter.svg</file>
+    <file alias="icons/filter.svg">icons/filter.svg</file>       <!-- Added -->
     <file alias="icons/expand_all.svg">icons/expand_all.svg</file>
     <file alias="icons/collapse_all.svg">icons/collapse_all.svg</file>
-    <file alias="icons/refresh.svg">icons/refresh.svg</file>
+    <file alias="icons/refresh.svg">icons/refresh.svg</file>     <!-- Added -->
     <file alias="icons/edit.svg">icons/edit.svg</file>
     <file alias="icons/transactions.svg">icons/transactions.svg</file>
     <file alias="icons/deactivate.svg">icons/deactivate.svg</file>
+    <file alias="icons/add.svg">icons/add.svg</file>
+    <file alias="icons/remove.svg">icons/remove.svg</file>
+    <file alias="icons/view.svg">icons/view.svg</file>
+    <file alias="icons/post.svg">icons/post.svg</file>
+    <file alias="icons/reverse.svg">icons/reverse.svg</file>
     <file alias="images/splash.png">images/splash.png</file>
-  </qresource>
+    <!-- Add other icons if they exist and are used -->
+    <!-- e.g. <file alias="images/splash1.png">images/splash1.png</file> if used -->
+</qresource>
 </RCC>
-"""
