@@ -26,3 +26,19 @@ you have done an excellent analysis and assessment! the plan for the next phase 
 ---
 excellent result so far! please proceed with the next step in your plan. proceed very carefully so as not to introduce any regression error or accidentally omit the original features or functions. use the same tested rigorous and meticulous approach. thank you and good luck!
 
+---
+please carefully study the README.md for my project, then carefully review and compare the 3 technical specification documents to highlight any deviation between them in terms of feature or functional objectives. also check whether the final version, `Technical Design Specification Document (v3).md`, is consistent with the objectives stated in `README.md` for the project.
+
+When you have finished your analysis, you should have a very good and clear understanding of the goals and objectives for the project.
+
+---
+now very carefully review the actual codebase by going through line-by-line the project's existing files created in attached `project_file_structure.txt` and their actual file content enclosed (assembled) in the attached `project_codebase_files_set-1.md`, `project_codebase_files_set-2.md`, `project_codebase_files_set-3.md` and `project_codebase_files_set-4.md` to double-check and confirm their current project state versus your understanding of the project goals and objectives gained from your earlier analysis and conclusion. 
+
+---
+excellent work! now, work out a detailed plan with integrated check list to dress any coding and logic errors and to address any functional gaps and inconsistencies. you can use the attached `next_phase_detailed_plan.md` and proposed modification suggestions in `you_will_carefully_review_and_validated_attached_proposed_changes_before_adopting_what_are_necessary.md`as reference input for your own consideration and deliberation. do your own due diligence and leverage your own intelligence and expertise to refine and adapt - do not just copy.
+
+map out in your enhancement execution plan (incorporates checklist) the files to be created (complete and updated replacement or new files) in logical sequence, the goals and purpose of each file to be created, their interfaces with other files, etc. 
+
+---
+you have done an excellent job with the detailed execution plan for the next phase which is to address identified issues and close functional gaps in the current project codebase. now use the same rigorous and meticulous approach to carefully and systematically create complete and updated replacement or new files to complete this plan step by step. make sure to enclose each file created like how the original files shared are enclosed (start with `# <filename with path relative to project root folder>`, follow by ```extension opening tag and ``` closing tag). Make sure to carefully review, double-check and validate each file created using line-by-line "diff" command to confirm it meets its goals and specifications. now proceed to create and modify the relevant files according to your plan systematically and rigorously.
+
