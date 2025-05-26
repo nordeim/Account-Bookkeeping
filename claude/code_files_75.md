@@ -1,3 +1,38 @@
+<think>
+The user has encountered a `NameError: name 'QFormLayout' is not defined` in `app/ui/accounting/journal_entries_widget.py`. This is a straightforward import issue.
+
+**Error Analysis:**
+
+The traceback clearly indicates the problem:
+`NameError: name 'QFormLayout' is not defined. Did you mean: 'QVBoxLayout'?`
+This occurs in `app/ui/accounting/journal_entries_widget.py` at line 39:
+`filter_layout_form = QFormLayout()`
+
+The `QFormLayout` class was used to structure the filter controls, but it was not imported from `PySide6.QtWidgets`.
+
+**Plan to Fix:**
+
+1.  **Identify the missing import:** The class `QFormLayout` needs to be imported from `PySide6.QtWidgets`.
+2.  **Modify `app/ui/accounting/journal_entries_widget.py`:** Add `QFormLayout` to the import statement from `PySide6.QtWidgets`.
+3.  **Verify:** Ensure no other similar import errors exist in the file and that the overall structure remains correct.
+
+**Detailed Action:**
+
+I will generate the complete updated version of `app/ui/accounting/journal_entries_widget.py` with the corrected import. I'll perform a mental line-by-line diff against the version I provided in the last turn to ensure only the necessary import is added and no other features are accidentally changed or omitted.
+</think>
+
+You are absolutely correct! The traceback clearly points to a `NameError` because `QFormLayout` was used without being imported in `app/ui/accounting/journal_entries_widget.py`.
+
+My apologies for this oversight. I will now provide the corrected version of the file.
+
+**Plan to Fix:**
+
+1.  **Modify `app/ui/accounting/journal_entries_widget.py`**: Add `QFormLayout` to the list of imports from `PySide6.QtWidgets`.
+
+---
+**1. Update `app/ui/accounting/journal_entries_widget.py`**
+
+```python
 # app/ui/accounting/journal_entries_widget.py
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableView, QPushButton, 
@@ -346,3 +381,22 @@ class JournalEntriesWidget(QWidget):
             QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "warning", Qt.ConnectionType.QueuedConnection,
                 Q_ARG(QWidget, self), Q_ARG(str, "Reversal Error"), Q_ARG(str, f"Failed to reverse journal entry:\n{', '.join(result.errors)}"))
 
+```
+
+---
+**Mental Diff & Validation for `app/ui/accounting/journal_entries_widget.py`:**
+1.  **Import `QFormLayout`**: This was the direct cause of the `NameError`. It has been added to the imports from `PySide6.QtWidgets`.
+2.  **Filter Layout**: The filter UI (`filter_group_layout` and `filter_layout_form`) is correctly structured using `QHBoxLayout` and `QFormLayout`. The "Apply Filter" and "Clear Filters" buttons are also included.
+3.  **`_clear_filters_and_load` method**: This slot resets filter UI elements to default values and then triggers `_load_entries`.
+4.  **`_load_entries` method**: Correctly retrieves values from all filter UI elements (`start_date_filter_edit`, `end_date_filter_edit`, `entry_no_filter_edit`, `description_filter_edit`, `status_filter_combo`) and passes them to `self.app_core.journal_entry_manager.get_journal_entries_for_listing()`.
+5.  **Table Column Resizing**: Adjusted `setStretchLastSection(False)` and used `ResizeToContents` initially, then explicitly set `Stretch` for the "Description" column (which is visible column index 2 after ID column 0 is hidden). This provides a reasonable default layout.
+6.  **`_update_action_states`**: Added a check `if status is not None:` before comparing `status` to prevent potential errors if a row somehow doesn't return a status.
+7.  **`on_view_entry_toolbar`**: Distinct slot for the toolbar's "View Entry" action to differentiate from double-click if needed, though both call `_show_view_entry_dialog`.
+8.  **Icons**: Fallback paths in `QIcon.fromTheme("standard-name", QIcon(":/icons/fallback.svg"))` are good practice.
+9.  **`QInputDialog` for reversal**: This was part of the last correct version and is maintained.
+10. **Logging**: `self.app_core.logger` is used for logging errors from the manager.
+11. **Initial Load**: Changed the initial load trigger from a direct `schedule_task_from_qt(self._load_entries())` to `self.apply_filter_button.click()`. This ensures the initial load respects the default filter settings.
+
+No other functional logic from the previous correct version of this file appears to have been omitted. The changes are focused on adding the filter UI, connecting it, and ensuring robust interaction with the backend.
+
+This should resolve the `NameError` and make the `JournalEntriesWidget` more functional with filtering capabilities.
