@@ -1,3 +1,105 @@
+<think>
+The application is stable, and the README.md has been updated to reflect the completion of the basic Customer Management module. The user now wants to proceed with a "next step" based on the "Current Focus / Short-term" roadmap I suggested in the updated README.
+
+The suggested short-term roadmap items were:
+1.  **Vendor Management**: Basic UI (List, Add, Edit, Toggle Active) similar to Customer Management.
+2.  **Product/Service Management**: Basic UI for managing products/services.
+3.  **Refine Reporting**: Improve on-screen display (e.g., `QTableView`).
+4.  **User and Role Management UI**: UI in Settings.
+
+**Choosing the Next Feature:**
+
+*   **Vendor Management**: This is the direct counterpart to Customer Management. The patterns (DTOs, Service, Manager, TableModel, Dialog, Widget) are already established with Customers, making Vendor Management a very logical and relatively straightforward next step. It fills a symmetrical gap in core business entity management (AP vs. AR).
+*   **Product/Service Management**: Also crucial for eventual invoicing, but might involve more complex considerations (inventory vs. non-inventory, links to multiple GL accounts for sales/COGS/inventory).
+*   **Refine Reporting**: This is a UI/UX improvement rather than a new core feature set. Important, but perhaps after more data entry modules are in place.
+*   **User and Role Management UI**: Important for administration and security, but other data entity management (like Vendors) might be more central to the "bookkeeping" aspect for an MVP.
+
+**Decision:**
+Implementing **Vendor Management** is the most aligned with the current momentum and established patterns. It directly mirrors the recently completed Customer Management, allowing for efficient reuse of design and code structures.
+
+**Plan for this Turn: Implement Basic Vendor Management Module**
+
+This will follow the exact same phased approach as Customer Management:
+*   **Phase A: Backend for Vendor Management**
+    *   A1. Create Pydantic DTOs for Vendor (`VendorBaseData`, `VendorCreateData`, `VendorUpdateData`, `VendorData`, `VendorSummaryData`).
+    *   A2. Define `IVendorRepository` Interface.
+    *   A3. Implement `VendorService` (in `app/services/business_services.py`).
+    *   A4. Create `VendorManager` (in `app/business_logic/vendor_manager.py`).
+    *   A5. Integrate into `ApplicationCore`.
+*   **Phase B: Frontend UI for Vendor Management**
+    *   B1. Create `VendorTableModel`.
+    *   B2. Create `VendorDialog`.
+    *   B3. Enhance `VendorsWidget` (from stub to functional).
+
+Given the user's directive to proceed step-by-step and provide complete files, I will tackle **Phase A: Backend for Vendor Management** in this turn.
+
+**Detailed Plan & Checklist (Phase A - Vendor Backend):**
+
+**A1. Create Pydantic DTOs for Vendor**
+   *   **Goal:** Define DTOs for vendor data.
+   *   **File to Update:** `app/utils/pydantic_models.py`
+   *   **Checklist & Tasks:**
+        *   [ ] Define `VendorBaseData`: Fields analogous to `CustomerBaseData` but for vendors (e.g., `vendor_code`, `name`, `email`, address, payment terms, `currency_code`, `payables_account_id`, `withholding_tax_applicable`, `withholding_tax_rate`).
+        *   [ ] Define `VendorCreateData(VendorBaseData, UserAuditData)`.
+        *   [ ] Define `VendorUpdateData(VendorBaseData, UserAuditData)` (with `id: int`).
+        *   [ ] Define `VendorData(VendorBaseData)` (with `id` and audit timestamps).
+        *   [ ] Define `VendorSummaryData(AppBaseModel)` (for list views: `id`, `vendor_code`, `name`, `email`, `phone`, `is_active`).
+
+**A2. Define `IVendorRepository` Interface**
+   *   **Goal:** Specify the contract for vendor data access.
+   *   **File to Update:** `app/services/__init__.py`
+   *   **Checklist & Tasks:**
+        *   [ ] Import `Vendor` ORM model and `VendorSummaryData` DTO.
+        *   [ ] Define `IVendorRepository(IRepository[Vendor, int])`.
+        *   [ ] Declare methods: `get_by_code(code: str)`, `get_all_summary(active_only, search_term, page, page_size)`.
+
+**A3. Implement `VendorService`**
+   *   **Goal:** Provide data access logic for `Vendor` entities.
+   *   **File to Update:** `app/services/business_services.py` (add `VendorService` class here).
+   *   **Checklist & Tasks:**
+        *   [ ] Create `VendorService(IVendorRepository)`.
+        *   [ ] Implement `get_by_id()`: Eager load `currency`, `payables_account`.
+        *   [ ] Implement `get_all_summary()`: Similar to `CustomerService.get_all_summary`, returning `List[VendorSummaryData]`.
+        *   [ ] Implement `get_by_code()`.
+        *   [ ] Implement `save(vendor: Vendor)`.
+        *   [ ] Implement `add()`, `update()`, `delete()` (raise `NotImplementedError` for hard delete).
+
+**A4. Create `VendorManager`**
+   *   **Goal:** Encapsulate business logic for vendor management.
+   *   **New File:** `app/business_logic/vendor_manager.py`.
+   *   **Checklist & Tasks:**
+        *   [ ] Create `VendorManager(__init__(self, vendor_service: VendorService, account_service: AccountService, currency_service: CurrencyService, app_core: "ApplicationCore"))`.
+        *   [ ] Implement methods analogous to `CustomerManager`:
+            *   `get_vendor_for_dialog(vendor_id: int)`.
+            *   `get_vendors_for_listing(filters) -> Result[List[VendorSummaryData]]`.
+            *   `create_vendor(dto: VendorCreateData) -> Result[Vendor]`. (Validate code, payables account, currency).
+            *   `update_vendor(vendor_id: int, dto: VendorUpdateData) -> Result[Vendor]`.
+            *   `toggle_vendor_active_status(vendor_id: int, user_id: int) -> Result[Vendor]`.
+
+**A5. Integrate into `app/core/application_core.py` and `app/business_logic/__init__.py`**
+   *   **Goal:** Make `VendorService` and `VendorManager` accessible.
+   *   **File to Update:** `app/core/application_core.py`.
+        *   [ ] Import new classes. Add instance variable placeholders. Instantiate in `startup()`. Expose via properties.
+   *   **File to Update:** `app/business_logic/__init__.py`.
+        *   [ ] Export `VendorManager`.
+   *   **File to Update:** `app/services/__init__.py`.
+        *   [ ] Export `VendorService` (if defined in `business_services.py`, it will be imported from there) and `IVendorRepository`.
+
+This mirrors the Customer backend implementation closely. I will proceed step-by-step, starting with DTOs.
+</think>
+
+Excellent! The application is stable and the Customer Management module's backend and basic UI integration seem to be in good shape.
+
+As per your request to follow the roadmap, implementing **Vendor Management** is indeed the next logical step, as it mirrors the Customer Management functionality and builds upon the patterns we've just established. This will involve creating the backend (DTOs, Service, Manager) and then the frontend (TableModel, Dialog, Widget).
+
+We will start with **Phase A: Backend for Vendor Management**.
+
+---
+**A1. Update `app/utils/pydantic_models.py` with Vendor DTOs**
+
+**Goal:** Define Data Transfer Objects for creating, updating, and representing vendor data, including necessary validations.
+
+```python
 # app/utils/pydantic_models.py
 from pydantic import BaseModel, Field, validator, root_validator, EmailStr # type: ignore
 from typing import List, Optional, Union, Any, Dict 
@@ -266,4 +368,20 @@ class VendorSummaryData(AppBaseModel): # For table listings
     email: Optional[EmailStr] = None
     phone: Optional[str] = None
     is_active: bool
+
+```
+**Validation for `app/utils/pydantic_models.py`:**
+*   **New Vendor DTOs Added**:
+    *   `VendorBaseData`: Contains common fields from the `Vendor` ORM model, with Pydantic `Field` constraints. Includes fields like `withholding_tax_applicable` and `withholding_tax_rate`.
+    *   Added validators for `withholding_tax_rate` (to decimal) and root validators for `check_gst_no_if_registered_vendor` (renamed to avoid conflict with customer's) and `check_wht_rate_if_applicable`.
+    *   `VendorCreateData`, `VendorUpdateData`, `VendorData`, `VendorSummaryData`: Defined analogously to Customer DTOs.
+*   **Existing DTOs**:
+    *   Renamed customer's `check_gst_no_if_registered` root validator to `check_gst_no_if_registered_customer` to avoid potential conflicts if a base class were ever to try and inherit both.
+    *   `CompanySettingData`: Default `date_format` was previously changed to `dd/MM/yyyy`, which is fine.
+*   No other existing DTOs were unintentionally modified.
+
+This file now correctly includes DTOs for Vendor management.
+
+---
+https://drive.google.com/file/d/1-lQNYxO1i_5DT1QqEfMtYybal2mzhUAc/view?usp=sharing, https://drive.google.com/file/d/16gFjJpsNDcAcE0E4TkhL40Ka12eBq0i_/view?usp=sharing, https://drive.google.com/file/d/1Io9vpSP3ST1lRbemAqr0SnAfSLSCmzqI/view?usp=sharing, https://drive.google.com/file/d/1JIsAZQEejE1qm-fGe1L-QpLfOWBWWW-9/view?usp=sharing, https://drive.google.com/file/d/1NGBX2Et-BABCUeL5QJkhX44BBI0MrYA3/view?usp=sharing, https://drive.google.com/file/d/1Oa85u5sAFd9OgiARagGmGnqJlSw0SV8u/view?usp=sharing, https://aistudio.google.com/app/prompts?state=%7B%22ids%22:%5B%221SQTCjVSg9-JUmuGgq5bhvaOTbHhi2gWe%22%5D,%22action%22:%22open%22,%22userId%22:%22103961307342447084491%22,%22resourceKeys%22:%7B%7D%7D&usp=sharing, https://drive.google.com/file/d/1TArp9rSH4Oz6EVarWHaYNBHbdJOkuU1Z/view?usp=sharing, https://drive.google.com/file/d/1Z2KhH8Sd1yHpRUoz6TOU1jLev6icDwkd/view?usp=sharing, https://drive.google.com/file/d/1e9CQtKfd6E1LhSmXliLFwXUFxeGoR35E/view?usp=sharing, https://drive.google.com/file/d/1e9OAGmsj8Z2SAD1oNT2pAwmnm3zBnlGi/view?usp=sharing, https://drive.google.com/file/d/1km1x5NEIFLkBRhpyq7OS0PsXiMoXz1VY/view?usp=sharing, https://drive.google.com/file/d/1rnl0de93Aokl_FDNzUQTEu_C4p5LECWJ/view?usp=sharing, https://drive.google.com/file/d/1s6CXBUuwyh945SzNa2Ti4PUYJpTVTXdt/view?usp=sharing
 

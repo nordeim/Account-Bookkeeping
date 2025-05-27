@@ -1,5 +1,11 @@
-# File: app/ui/vendors/__init__.py
-# (Content as previously generated)
+# app/ui/vendors/__init__.py
 from .vendors_widget import VendorsWidget
+from .vendor_dialog import VendorDialog
+from .vendor_table_model import VendorTableModel
 
-__all__ = ["VendorsWidget"]
+__all__ = [
+    "VendorsWidget",
+    "VendorDialog",
+    "VendorTableModel",
+]
+

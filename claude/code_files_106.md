@@ -1,3 +1,71 @@
+<think>
+The application continues its streak of successful launches and clean shutdowns! This confirms that the creation of `VendorTableModel` and `VendorDialog` (Phase B1 and B2 for Vendor UI) did not introduce any startup errors. The backend for Vendor management is also complete and integrated.
+
+**Current Step: Enhancement Execution Plan: Basic Vendor Management Module - Phase B (Frontend UI)**
+
+We have completed for Vendor Management UI:
+*   B1. Create `VendorTableModel` (Done).
+*   B2. Create `VendorDialog` (Done).
+
+The plan for Vendor Management UI was:
+*   B3. Enhance `VendorsWidget` (from stub to functional). (Next)
+
+So, the immediate next step is **B3: Enhance `VendorsWidget`**. This widget will use the `VendorTableModel` to display a list of vendors and the `VendorDialog` to add/edit them. It will also include actions like "Toggle Active Status", mirroring the functionality of `CustomersWidget`.
+
+**Plan for B3: Enhance `VendorsWidget`**
+   *   **Goal:** Transform the stub `VendorsWidget` into a functional UI for listing, adding, editing, and managing the active status of vendors.
+   *   **File to Update:** `app/ui/vendors/vendors_widget.py`
+   *   **Checklist & Tasks:**
+        *   [ ] **Import necessary classes**: `VendorTableModel`, `VendorDialog`, `VendorSummaryData`, `Vendor` (for type hints), `Q*` widgets, slots, signals, etc.
+        *   [ ] **`__init__`**:
+            *   Store `app_core`.
+            *   Initialize `icon_path_prefix`.
+            *   Call `_init_ui()`.
+            *   Schedule initial `_load_vendors()` using `QTimer.singleShot`.
+        *   [ ] **`_init_ui()`**:
+            *   Create main `QVBoxLayout`.
+            *   Call `_create_toolbar()`.
+            *   Add filter/search UI (similar to `CustomersWidget`: `QLineEdit` for search, `QCheckBox` for "Show Inactive").
+            *   Create `QTableView` (`self.vendors_table`).
+            *   Instantiate `self.table_model = VendorTableModel()`.
+            *   Set model to table: `self.vendors_table.setModel(self.table_model)`.
+            *   Configure table view properties (selection, column hiding for "ID", column resizing, sorting).
+            *   Connect `selectionChanged` signal to `_update_action_states`.
+            *   Connect `doubleClicked` signal to an edit/view slot.
+        *   [ ] **`_create_toolbar()`**:
+            *   Create `QToolBar` with actions: "Add Vendor", "Edit Vendor", "Toggle Active", "Refresh List", using appropriate icons.
+            *   Connect action `triggered` signals to their respective handler slots.
+        *   [ ] **`_update_action_states()` Slot**:
+            *   Enable/disable toolbar actions ("Edit", "Toggle Active") based on table selection.
+        *   [ ] **`_load_vendors()` Async Method**:
+            *   Get filter parameters (search term, active status).
+            *   Call `self.app_core.vendor_manager.get_vendors_for_listing(filters)`.
+            *   Handle `Result` and pass `List[VendorSummaryData]` (as JSON) to `_update_table_model_slot`.
+        *   [ ] **`_update_table_model_slot(json_data_str: str)` Slot**:
+            *   Parse JSON to `List[VendorSummaryData]`.
+            *   Call `self.table_model.update_data()`.
+            *   Call `_update_action_states()`.
+        *   [ ] **Action Handler Slots**:
+            *   `_on_add_vendor()`: Launch `VendorDialog` (no `vendor_id`). Connect `vendor_saved` signal to refresh.
+            *   `_on_edit_vendor()`: Get selected ID, launch `VendorDialog` with `vendor_id`. Connect `vendor_saved`.
+            *   `_on_toggle_active_status()`: Get ID, confirm, call `vendor_manager.toggle_vendor_active_status()`, handle result, refresh.
+            *   `_on_refresh_vendors()` (connected to toolbar refresh and filter triggers): Call `_load_vendors`.
+            *   `_on_view_vendor_double_click(index: QModelIndex)`: Get ID, launch `VendorDialog` (for MVP, can open in edit mode).
+        *   [ ] **Helper `_get_selected_vendor_id()`**: To get ID from selected table row.
+
+This structure is a direct parallel to `CustomersWidget`.
+</think>
+
+This is excellent! The consistent stability of the application after each backend phase for both Customer and Vendor modules is very encouraging.
+
+We are now ready to complete **Phase B: Frontend UI for Vendor Management** by tackling **Step B3: Enhance `VendorsWidget`**. This will transform the current stub into a fully functional UI for managing vendors, mirroring the capabilities of the `CustomersWidget`.
+
+---
+**B3. Update `app/ui/vendors/vendors_widget.py`**
+
+**Goal:** Create a functional UI for managing vendors, including a table view for listing, filter/search capabilities, and actions for adding, editing, and toggling the active status of vendors, all interacting with `VendorManager` via `VendorDialog`.
+
+```python
 # app/ui/vendors/vendors_widget.py
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableView, QPushButton, 
@@ -266,3 +334,54 @@ class VendorsWidget(QWidget):
             self.app_core.logger.error(f"Error handling toggle active status result for vendor: {e}", exc_info=True)
             QMessageBox.critical(self, "Error", f"An unexpected error occurred: {str(e)}")
 
+```
+**Validation for `app/ui/vendors/vendors_widget.py`:**
+*   **Class Name**: Changed from `CustomersWidget` to `VendorsWidget` (this was a copy-paste error in my previous thought process for `CustomersWidget` itself, which I corrected there. Ensuring it's `VendorsWidget` here).
+*   **Imports**: Correctly imports `VendorTableModel`, `VendorDialog`, `VendorSummaryData`, `Vendor`.
+*   **`__init__`**: Initializes `icon_path_prefix` with logging for resource status. Calls `_init_ui` and schedules initial `_load_vendors`.
+*   **`_init_ui`**:
+    *   Sets up layout, toolbar, filter area (`search_edit`, `show_inactive_check`), and `QTableView` (`self.vendors_table`).
+    *   Instantiates `VendorTableModel` and sets it to the table.
+    *   Configures table: hides "ID", makes "Name" column stretch (with robust index finding).
+    *   Connects signals for selection changes and double-click.
+*   **`_create_toolbar`**: Creates actions "Add Vendor", "Edit Vendor", "Toggle Active", "Refresh List" and connects them.
+*   **`_update_action_states`**: Enables/disables "Edit" and "Toggle Active" based on single selection.
+*   **`_load_vendors`**:
+    *   Gets filter parameters.
+    *   Calls `self.app_core.vendor_manager.get_vendors_for_listing()`.
+    *   Uses `dto.model_dump()` before JSON serialization for `CustomerSummaryData`. For `VendorSummaryData`, it should be the same.
+*   **`_update_table_model_slot`**: Parses JSON to `List[VendorSummaryData]` DTOs and updates table model. Handles Pydantic validation errors if DTO conversion fails.
+*   **Action Slots**:
+    *   `_on_add_vendor`: Launches `VendorDialog`.
+    *   `_on_edit_vendor`: Gets ID, launches `VendorDialog`.
+    *   `_on_view_vendor_double_click`: Renamed from `_on_view_customer_double_click` and logic adjusted for vendors. For MVP, it opens the edit dialog.
+    *   `_on_toggle_active_status`: Gets ID, confirms, calls manager.
+*   **Helper `_get_selected_vendor_id()`**: Correctly implemented.
+
+The `VendorsWidget` now mirrors the structure and functionality of `CustomersWidget`, adapted for Vendors.
+
+---
+**Final Steps for this Turn (Conceptual):**
+
+1.  **Update `app/ui/vendors/__init__.py`**: Ensure it exports `VendorsWidget`, `VendorDialog`, `VendorTableModel`.
+2.  **Update `app/ui/main_window.py`**: Ensure `VendorsWidget` is instantiated and added as a tab, similar to `CustomersWidget`.
+
+Since these are straightforward `__init__.py` and `MainWindow` modifications just to make the new widget visible, and `MainWindow` was already adding a `VendorsWidget` stub, I'll provide the `__init__.py` for `app/ui/vendors/` and assume `MainWindow` is correctly set up.
+
+---
+**Update `app/ui/vendors/__init__.py` (New or Update)**
+
+```python
+# app/ui/vendors/__init__.py
+from .vendors_widget import VendorsWidget
+from .vendor_dialog import VendorDialog
+from .vendor_table_model import VendorTableModel
+
+__all__ = [
+    "VendorsWidget",
+    "VendorDialog",
+    "VendorTableModel",
+]
+```
+
+This completes Phase B for Vendor Management. The application should now have a functional basic Vendor module. The next step would be thorough testing of this new module.
