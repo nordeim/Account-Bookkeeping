@@ -1,4 +1,46 @@
-# File: app/services/__init__.py
+<think>
+The application continues to launch and shut down cleanly! This is a great sign. It indicates that adding the Product DTOs to `app/utils/pydantic_models.py` and importing `ProductTypeEnum` was successful and didn't break any existing import chains or cause issues during Pydantic model schema generation at startup.
+
+**Current Step: Enhancement Execution Plan: Basic Product/Service Management Module - Phase A (Backend)**
+
+We have completed for Product/Service Management:
+*   A1. Create Pydantic DTOs for Product (Done).
+
+The plan for Product/Service Management Backend is:
+*   A2. Define `IProductRepository` Interface (Next).
+*   A3. Implement `ProductService` (in `app/services/business_services.py`).
+*   A4. Create `ProductManager` (in `app/business_logic/product_manager.py`).
+*   A5. Integrate into `ApplicationCore`.
+
+So, the immediate next step is **A2: Define `IProductRepository` Interface**. This will be added to `app/services/__init__.py`.
+
+**Plan for A2: Define `IProductRepository` Interface**
+   *   **Goal:** Specify the contract for product/service data access.
+   *   **File to Update:** `app/services/__init__.py`
+   *   **Checklist & Tasks:**
+        *   [ ] Import `Product` ORM model from `app.models.business.product`.
+        *   [ ] Import `ProductSummaryData` DTO from `app.utils.pydantic_models`.
+        *   [ ] Import `ProductTypeEnum` from `app.common.enums`.
+        *   [ ] Define `IProductRepository(IRepository[Product, int])`.
+        *   [ ] Declare methods:
+            *   `get_by_code(self, code: str) -> Optional[Product]`
+            *   `get_all_summary(self, active_only: bool = True, product_type_filter: Optional[ProductTypeEnum] = None, search_term: Optional[str] = None, page: int = 1, page_size: int = 50) -> List[ProductSummaryData]`
+        *   [ ] Add `IProductRepository` to the `__all__` list.
+</think>
+
+This is excellent! The application's continued stability after adding the Product DTOs is very positive.
+
+We are proceeding with **Phase A: Backend for Product/Service Management**.
+Step A1 (Product DTOs) is complete.
+The next step is **A2: Define `IProductRepository` Interface**.
+
+This interface will specify the contract for data access operations related to Products and Services and will be added to `app/services/__init__.py`.
+
+---
+**A2. Update `app/services/__init__.py` to define `IProductRepository`**
+
+```python
+# app/services/__init__.py
 from abc import ABC, abstractmethod
 from typing import List, Optional, Any, Generic, TypeVar, Dict 
 from datetime import date
@@ -35,13 +77,13 @@ from app.models.core.sequence import Sequence
 from app.models.core.configuration import Configuration 
 from app.models.business.customer import Customer
 from app.models.business.vendor import Vendor
-from app.models.business.product import Product
+from app.models.business.product import Product # New Import
 
 # --- DTO Imports (for return types in interfaces) ---
-from app.utils.pydantic_models import CustomerSummaryData, VendorSummaryData, ProductSummaryData
+from app.utils.pydantic_models import CustomerSummaryData, VendorSummaryData, ProductSummaryData # New Import for ProductSummaryData
 
 # --- Enum Imports (for filter types in interfaces) ---
-from app.common.enums import ProductTypeEnum
+from app.common.enums import ProductTypeEnum # New Import
 
 
 # --- Existing Interfaces (condensed for brevity) ---
@@ -155,7 +197,7 @@ class ICustomerRepository(IRepository[Customer, int]): # ...
                               page: int = 1, page_size: int = 50
                              ) -> List[CustomerSummaryData]: pass
 
-class IVendorRepository(IRepository[Vendor, int]): # ... 
+class IVendorRepository(IRepository[Vendor, int]): # ... (as defined previously)
     @abstractmethod
     async def get_by_code(self, code: str) -> Optional[Vendor]: pass
     @abstractmethod
@@ -164,13 +206,15 @@ class IVendorRepository(IRepository[Vendor, int]): # ...
                               page: int = 1, page_size: int = 50
                              ) -> List[VendorSummaryData]: pass
 
+# --- NEW: Product/Service Repository Interface ---
 class IProductRepository(IRepository[Product, int]):
     @abstractmethod
     async def get_by_code(self, code: str) -> Optional[Product]: pass
+    
     @abstractmethod
     async def get_all_summary(self, 
                               active_only: bool = True,
-                              product_type_filter: Optional[ProductTypeEnum] = None,
+                              product_type_filter: Optional[ProductTypeEnum] = None, # Filter by product type
                               search_term: Optional[str] = None,
                               page: int = 1, 
                               page_size: int = 50
@@ -183,7 +227,8 @@ from .fiscal_period_service import FiscalPeriodService
 from .tax_service import TaxCodeService, GSTReturnService 
 from .core_services import SequenceService, ConfigurationService, CompanySettingsService 
 from .accounting_services import AccountTypeService, CurrencyService, ExchangeRateService, FiscalYearService
-from .business_services import CustomerService, VendorService, ProductService # New Import for ProductService
+from .business_services import CustomerService, VendorService
+# ProductService will be in business_services.py, imported later when defined
 
 __all__ = [
     "IRepository",
@@ -191,10 +236,24 @@ __all__ = [
     "ITaxCodeRepository", "ICompanySettingsRepository", "IGSTReturnRepository",
     "IAccountTypeRepository", "ICurrencyRepository", "IExchangeRateRepository",
     "ISequenceRepository", "IConfigurationRepository", 
-    "ICustomerRepository", "IVendorRepository", "IProductRepository", 
+    "ICustomerRepository", "IVendorRepository", "IProductRepository", # Added IProductRepository
     "AccountService", "JournalService", "FiscalPeriodService", "FiscalYearService",
     "TaxCodeService", "GSTReturnService",
     "SequenceService", "ConfigurationService", "CompanySettingsService",
     "AccountTypeService", "CurrencyService", "ExchangeRateService",
-    "CustomerService", "VendorService", "ProductService", # Added ProductService
+    "CustomerService", "VendorService",
+    # ProductService will be added here once defined
 ]
+```
+
+**Validation for `app/services/__init__.py`:**
+*   Added `from app.models.business.product import Product`.
+*   Added `ProductSummaryData` to the import from `app.utils.pydantic_models`.
+*   Added `from app.common.enums import ProductTypeEnum`.
+*   Defined `IProductRepository(IRepository[Product, int])` with the planned methods:
+    *   `get_by_code(self, code: str) -> Optional[Product]`
+    *   `get_all_summary(self, active_only: bool = True, product_type_filter: Optional[ProductTypeEnum] = None, search_term: Optional[str] = None, page: int = 1, page_size: int = 50) -> List[ProductSummaryData]`. Added `product_type_filter`.
+*   Added `IProductRepository` to the `__all__` list.
+*   No existing interfaces or exports were unintentionally modified.
+
+This completes step A2 for Product/Service Management. The next step is A3: Implement `ProductService` in `app/services/business_services.py`.

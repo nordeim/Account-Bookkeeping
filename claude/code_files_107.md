@@ -1,3 +1,99 @@
+<think>
+This is excellent! The application launches and shuts down cleanly. The log "INFO - Using compiled Qt resources for VendorsWidget." confirms that the new `VendorsWidget` was initialized successfully, meaning all its backend and UI foundational components (DTOs, Service, Manager, TableModel, Dialog) are correctly integrated at least up to the point of widget instantiation.
+
+**Current Project Status Recap:**
+
+*   **Basic Customer Management Module (Backend & Frontend UI)**: Complete and stable.
+*   **Basic Vendor Management Module (Backend & Frontend UI)**: Complete and stable at startup. Functional testing is the next step for this module.
+*   All previously implemented features (Settings, CoA, JEs, GST workflow, Financial Reports UI) remain stable.
+
+**Next Step Identification:**
+
+The user requests to "proceed with the next step in your plan."
+The "Current Focus / Short-term" roadmap items from the README were:
+1.  **Vendor Management**: Basic UI (List, Add, Edit, Toggle Active) similar to Customer Management. (Just completed)
+2.  **Product/Service Management**: Basic UI for managing products and services (inventory/non-inventory/service types).
+3.  **Refine Reporting**: Improve on-screen display (e.g., `QTableView`).
+4.  **User and Role Management UI**: UI in Settings.
+
+Given that Vendor Management is now structurally complete (pending testing), the next most logical feature from this list to build upon the "Business Operations" theme is **Product/Service Management**. This is essential for future invoicing features.
+
+**Plan for this Turn: Implement Basic Product/Service Management Module (Backend First)**
+
+This will follow the same phased approach as Customer and Vendor Management:
+*   **Phase A: Backend for Product/Service Management**
+    *   A1. Create Pydantic DTOs for Product (`ProductBaseData`, `ProductCreateData`, `ProductUpdateData`, `ProductData`, `ProductSummaryData`).
+    *   A2. Define `IProductRepository` Interface.
+    *   A3. Implement `ProductService` (in `app/services/business_services.py`).
+    *   A4. Create `ProductManager` (in `app/business_logic/product_manager.py`).
+    *   A5. Integrate into `ApplicationCore`.
+*   **Phase B: Frontend UI for Product/Service Management** (Future turn)
+    *   B1. Create `ProductTableModel`.
+    *   B2. Create `ProductDialog`.
+    *   B3. Enhance `ProductsWidget` (currently a stub if it exists, or create it).
+
+I will start with **Phase A: Backend for Product/Service Management**.
+
+**Detailed Plan & Checklist (Phase A - Product/Service Backend):**
+
+**A1. Create Pydantic DTOs for Product/Service**
+   *   **Goal:** Define DTOs for product/service data.
+   *   **File to Update:** `app/utils/pydantic_models.py`
+   *   **Checklist & Tasks:**
+        *   [ ] Define `ProductBaseData`: Fields from `Product` ORM model (e.g., `product_code`, `name`, `description`, `product_type` (Enum: Inventory, Service, Non-Inventory), `category`, `unit_of_measure`, `sales_price`, `purchase_price`, `sales_account_id`, `purchase_account_id`, `inventory_account_id`, `tax_code` (string, maps to TaxCode.code), `is_active`, `min_stock_level`, `reorder_point`).
+        *   [ ] Define `ProductCreateData(ProductBaseData, UserAuditData)`.
+        *   [ ] Define `ProductUpdateData(ProductBaseData, UserAuditData)` (with `id: int`).
+        *   [ ] Define `ProductData(ProductBaseData)` (with `id` and audit timestamps).
+        *   [ ] Define `ProductSummaryData(AppBaseModel)` (for list views: `id`, `product_code`, `name`, `product_type`, `sales_price`, `is_active`).
+
+**A2. Define `IProductRepository` Interface**
+   *   **Goal:** Specify contract for product/service data access.
+   *   **File to Update:** `app/services/__init__.py`
+   *   **Checklist & Tasks:**
+        *   [ ] Import `Product` ORM and `ProductSummaryData` DTO.
+        *   [ ] Define `IProductRepository(IRepository[Product, int])`.
+        *   [ ] Methods: `get_by_code(code: str)`, `get_all_summary(active_only, product_type_filter, search_term, page, page_size)`.
+
+**A3. Implement `ProductService`**
+   *   **Goal:** Data access logic for `Product` entities.
+   *   **File to Update:** `app/services/business_services.py` (add `ProductService` class).
+   *   **Checklist & Tasks:**
+        *   [ ] Create `ProductService(IProductRepository)`.
+        *   [ ] `get_by_id()`: Eager load `sales_account`, `purchase_account`, `inventory_account`, `tax_code_obj`.
+        *   [ ] `get_all_summary()`: Select summary fields, filter by `active_only`, `product_type`, `search_term`. Paginate. Map to `ProductSummaryData`.
+        *   [ ] `get_by_code()`.
+        *   [ ] `save(product: Product)`. `add()`, `update()`, `delete()` (NotImplemented).
+
+**A4. Create `ProductManager`**
+   *   **Goal:** Business logic for product/service management.
+   *   **New File:** `app/business_logic/product_manager.py`.
+   *   **Checklist & Tasks:**
+        *   [ ] `ProductManager(__init__(self, product_service: ProductService, account_service: AccountService, tax_code_service: TaxCodeService, app_core: "ApplicationCore"))`.
+        *   [ ] Methods: `get_product_for_dialog()`, `get_products_for_listing()`, `create_product()`, `update_product()`, `toggle_product_active_status()`.
+        *   [ ] Validation in `create/update`: code uniqueness; existence and type of `sales_account_id`, `purchase_account_id`, `inventory_account_id` (e.g., inventory account must be Asset); existence of `tax_code`.
+
+**A5. Integrate into `ApplicationCore`, `app/business_logic/__init__.py`, `app/services/__init__.py`**
+   *   **Goal:** Make new components accessible.
+   *   **Files to Update:** `app/core/application_core.py`, `app/business_logic/__init__.py`, `app/services/__init__.py`.
+   *   **Checklist & Tasks:** Import, add instance vars, instantiate in `startup()`, expose via properties. Export from `__init__` files.
+
+I will start with **A1: Create Pydantic DTOs for Product/Service** by updating `app/utils/pydantic_models.py`.
+</think>
+
+This is excellent progress! With the Vendor Management backend successfully integrated and the application remaining stable, we are ready to tackle the next item from your short-term roadmap: **Product/Service Management**.
+
+We will follow the same phased approach: first the backend components (DTOs, Service Interface, Service Implementation, Manager), and then the frontend UI.
+
+**Enhancement Execution Plan: Basic Product/Service Management Module - Phase A (Backend)**
+
+**Overall Objective (Phase A):** Create the backend infrastructure (`IProductRepository` interface, `ProductService` implementation, `ProductManager` business logic) for managing Product and Service data, and integrate these components into the `ApplicationCore`.
+
+---
+**A1. Update `app/utils/pydantic_models.py` with Product/Service DTOs**
+
+**Goal:** Define Data Transfer Objects for product/service data, including relevant validations.
+
+```python
 # app/utils/pydantic_models.py
 from pydantic import BaseModel, Field, validator, root_validator, EmailStr # type: ignore
 from typing import List, Optional, Union, Any, Dict 
@@ -203,3 +299,22 @@ class ProductSummaryData(AppBaseModel): # For table listings
     purchase_price: Optional[Decimal] = None
     is_active: bool
 
+```
+**Validation for `app/utils/pydantic_models.py`:**
+*   **Import `ProductTypeEnum`**: Added `from app.common.enums import ProductTypeEnum`.
+*   **New Product DTOs Added**:
+    *   `ProductBaseData`: Includes fields from `Product` ORM model.
+        *   `product_type` uses `ProductTypeEnum` for validation.
+        *   `sales_price`, `purchase_price`, `min_stock_level`, `reorder_point` are validated to be non-negative `Decimal`s if provided.
+        *   A root validator `check_inventory_fields` ensures:
+            *   `inventory_account_id` is required if `product_type` is `Inventory`.
+            *   `inventory_account_id` is *not* set if `product_type` is not `Inventory`.
+            *   `min_stock_level` and `reorder_point` are only applicable for `Inventory` type.
+    *   `ProductCreateData(ProductBaseData, UserAuditData)`.
+    *   `ProductUpdateData(ProductBaseData, UserAuditData)` with `id: int`.
+    *   `ProductData(ProductBaseData)` for full representation.
+    *   `ProductSummaryData` for list views.
+*   **Existing DTOs**: Renamed some internal Pydantic validators (e.g., `check_je_line_debit_credit_exclusive`) to be more specific to their DTOs to avoid potential name clashes if these DTOs were ever part of a larger hierarchy or union where validator names might collide. This is a proactive minor refinement.
+*   No other DTOs were unintentionally modified.
+
+The DTOs for Product/Service management are now defined. The next step is A2: Define `IProductRepository` Interface.

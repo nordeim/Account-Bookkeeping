@@ -4,21 +4,20 @@ Asyncio event loop <_UnixSelectorEventLoop running=False closed=False debug=Fals
 Global asyncio event loop <_UnixSelectorEventLoop running=True closed=False debug=False> confirmed running in dedicated thread.
 Successfully imported compiled Qt resources (resources_rc.py).
 Using compiled Qt resources.
-2025-05-27 19:17:27,160 - SGBookkeeperAppCore - INFO - ApplicationCore initialized.
-2025-05-27 19:17:27,160 - SGBookkeeperAppCore - INFO - ApplicationCore starting up...
+2025-05-27 19:54:17,149 - SGBookkeeperAppCore - INFO - ApplicationCore initialized.
+2025-05-27 19:54:17,149 - SGBookkeeperAppCore - INFO - ApplicationCore starting up...
 ModuleManager: load_all_modules called (conceptual).
-2025-05-27 19:17:27,325 - SGBookkeeperAppCore - INFO - ApplicationCore startup complete.
-2025-05-27 19:17:27,627 - SGBookkeeperAppCore - INFO - Using compiled Qt resources for JournalEntriesWidget.
-2025-05-27 19:17:27,635 - SGBookkeeperAppCore - INFO - Using compiled Qt resources for CustomersWidget.
-2025-05-27 19:17:27,638 - SGBookkeeperAppCore - INFO - Using compiled Qt resources for VendorsWidget.
+2025-05-27 19:54:17,256 - SGBookkeeperAppCore - INFO - ApplicationCore startup complete.
+2025-05-27 19:54:17,552 - SGBookkeeperAppCore - INFO - Using compiled Qt resources for JournalEntriesWidget.
+2025-05-27 19:54:17,560 - SGBookkeeperAppCore - INFO - Using compiled Qt resources for CustomersWidget.
+2025-05-27 19:54:17,562 - SGBookkeeperAppCore - INFO - Using compiled Qt resources for VendorsWidget.
 Application shutting down (actual_shutdown_sequence)...
 Scheduling ApplicationCore shutdown...
-2025-05-27 19:18:11,277 - SGBookkeeperAppCore - INFO - ApplicationCore shutting down...
-2025-05-27 19:18:11,281 - SGBookkeeperAppCore - INFO - ApplicationCore shutdown complete.
+2025-05-27 19:54:25,710 - SGBookkeeperAppCore - INFO - ApplicationCore shutting down...
+2025-05-27 19:54:25,714 - SGBookkeeperAppCore - INFO - ApplicationCore shutdown complete.
 ApplicationCore shutdown completed.
 Requesting global asyncio event loop to stop...
 Joining asyncio event loop thread...
 Asyncio event loop from dedicated thread has been stopped and closed.
 Asyncio event loop thread joined.
 Application shutdown process finalized.
-
