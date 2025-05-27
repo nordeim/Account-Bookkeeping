@@ -19,6 +19,7 @@ class IRepository(ABC, Generic[T, ID]):
     @abstractmethod
     async def delete(self, id_val: ID) -> bool: pass
 
+# --- ORM Model Imports ---
 from app.models.accounting.account import Account
 from app.models.accounting.journal_entry import JournalEntry
 from app.models.accounting.fiscal_period import FiscalPeriod
@@ -32,9 +33,14 @@ from app.models.accounting.currency import Currency
 from app.models.accounting.exchange_rate import ExchangeRate 
 from app.models.core.sequence import Sequence 
 from app.models.core.configuration import Configuration 
+from app.models.business.customer import Customer
+
+# --- DTO Imports (for return types in interfaces) ---
+from app.utils.pydantic_models import CustomerSummaryData
 
 
-class IAccountRepository(IRepository[Account, int]):
+# --- Existing Interfaces (condensed for brevity) ---
+class IAccountRepository(IRepository[Account, int]): # ... (methods as before)
     @abstractmethod
     async def get_by_code(self, code: str) -> Optional[Account]: pass
     @abstractmethod
@@ -50,8 +56,7 @@ class IAccountRepository(IRepository[Account, int]):
     @abstractmethod
     async def get_accounts_by_tax_treatment(self, tax_treatment_code: str) -> List[Account]: pass
 
-
-class IJournalEntryRepository(IRepository[JournalEntry, int]):
+class IJournalEntryRepository(IRepository[JournalEntry, int]): # ... (methods as before)
     @abstractmethod
     async def get_by_entry_no(self, entry_no: str) -> Optional[JournalEntry]: pass
     @abstractmethod
@@ -68,86 +73,101 @@ class IJournalEntryRepository(IRepository[JournalEntry, int]):
     async def get_recurring_patterns_due(self, as_of_date: date) -> List[RecurringPattern]: pass
     @abstractmethod
     async def save_recurring_pattern(self, pattern: RecurringPattern) -> RecurringPattern: pass
+    @abstractmethod
+    async def get_all_summary(self, start_date_filter: Optional[date] = None, 
+                              end_date_filter: Optional[date] = None, 
+                              status_filter: Optional[str] = None,
+                              entry_no_filter: Optional[str] = None,
+                              description_filter: Optional[str] = None
+                             ) -> List[Dict[str, Any]]: pass
 
-class IFiscalPeriodRepository(IRepository[FiscalPeriod, int]):
+class IFiscalPeriodRepository(IRepository[FiscalPeriod, int]): # ... (methods as before)
     @abstractmethod
     async def get_by_date(self, target_date: date) -> Optional[FiscalPeriod]: pass
     @abstractmethod
     async def get_fiscal_periods_for_year(self, fiscal_year_id: int, period_type: Optional[str] = None) -> List[FiscalPeriod]: pass
 
-# New Interface for FiscalYearService
-class IFiscalYearRepository(IRepository[FiscalYear, int]):
+class IFiscalYearRepository(IRepository[FiscalYear, int]): # ... (methods as before)
     @abstractmethod
     async def get_by_name(self, year_name: str) -> Optional[FiscalYear]: pass
     @abstractmethod
-    async def get_by_date_overlap(self, start_date: date, end_date: date) -> Optional[FiscalYear]: pass
+    async def get_by_date_overlap(self, start_date: date, end_date: date, exclude_id: Optional[int] = None) -> Optional[FiscalYear]: pass
     @abstractmethod
     async def save(self, entity: FiscalYear) -> FiscalYear: pass
 
-
-class ITaxCodeRepository(IRepository[TaxCode, int]):
+class ITaxCodeRepository(IRepository[TaxCode, int]): # ... (methods as before)
     @abstractmethod
     async def get_tax_code(self, code: str) -> Optional[TaxCode]: pass
     @abstractmethod
     async def save(self, entity: TaxCode) -> TaxCode: pass 
 
-class ICompanySettingsRepository(IRepository[CompanySetting, int]): 
+class ICompanySettingsRepository(IRepository[CompanySetting, int]): # ... (methods as before)
     @abstractmethod
     async def get_company_settings(self, settings_id: int = 1) -> Optional[CompanySetting]: pass
     @abstractmethod
     async def save_company_settings(self, settings_obj: CompanySetting) -> CompanySetting: pass
 
-
-class IGSTReturnRepository(IRepository[GSTReturn, int]):
+class IGSTReturnRepository(IRepository[GSTReturn, int]): # ... (methods as before)
     @abstractmethod
     async def get_gst_return(self, return_id: int) -> Optional[GSTReturn]: pass 
     @abstractmethod
     async def save_gst_return(self, gst_return_data: GSTReturn) -> GSTReturn: pass
 
-class IAccountTypeRepository(IRepository[AccountType, int]):
+class IAccountTypeRepository(IRepository[AccountType, int]): # ... (methods as before)
     @abstractmethod
     async def get_by_name(self, name: str) -> Optional[AccountType]: pass
     @abstractmethod
     async def get_by_category(self, category: str) -> List[AccountType]: pass
 
-class ICurrencyRepository(IRepository[Currency, str]): # ID is code (str)
+class ICurrencyRepository(IRepository[Currency, str]): # ... (methods as before)
     @abstractmethod
     async def get_all_active(self) -> List[Currency]: pass
 
-class IExchangeRateRepository(IRepository[ExchangeRate, int]):
+class IExchangeRateRepository(IRepository[ExchangeRate, int]): # ... (methods as before)
     @abstractmethod
     async def get_rate_for_date(self, from_code: str, to_code: str, r_date: date) -> Optional[ExchangeRate]: pass
     @abstractmethod
     async def save(self, entity: ExchangeRate) -> ExchangeRate: pass
 
-class ISequenceRepository(IRepository[Sequence, int]):
+class ISequenceRepository(IRepository[Sequence, int]): # ... (methods as before)
     @abstractmethod
     async def get_sequence_by_name(self, name: str) -> Optional[Sequence]: pass
     @abstractmethod
     async def save_sequence(self, sequence_obj: Sequence) -> Sequence: pass
 
-class IConfigurationRepository(IRepository[Configuration, int]):
+class IConfigurationRepository(IRepository[Configuration, int]): # ... (methods as before)
     @abstractmethod
     async def get_config_by_key(self, key: str) -> Optional[Configuration]: pass
     @abstractmethod
     async def save_config(self, config_obj: Configuration) -> Configuration: pass
 
+class ICustomerRepository(IRepository[Customer, int]):
+    @abstractmethod
+    async def get_by_code(self, code: str) -> Optional[Customer]: pass
+    @abstractmethod
+    async def get_all_summary(self, active_only: bool = True,
+                              search_term: Optional[str] = None,
+                              page: int = 1, page_size: int = 50
+                             ) -> List[CustomerSummaryData]: pass
 
+# --- Service Implementations ---
 from .account_service import AccountService
 from .journal_service import JournalService
 from .fiscal_period_service import FiscalPeriodService
 from .tax_service import TaxCodeService, GSTReturnService 
 from .core_services import SequenceService, ConfigurationService, CompanySettingsService 
-from .accounting_services import AccountTypeService, CurrencyService, ExchangeRateService, FiscalYearService # Added FiscalYearService
+from .accounting_services import AccountTypeService, CurrencyService, ExchangeRateService, FiscalYearService
+from .business_services import CustomerService # New Import
 
 __all__ = [
     "IRepository",
     "IAccountRepository", "IJournalEntryRepository", "IFiscalPeriodRepository", "IFiscalYearRepository",
     "ITaxCodeRepository", "ICompanySettingsRepository", "IGSTReturnRepository",
     "IAccountTypeRepository", "ICurrencyRepository", "IExchangeRateRepository",
-    "ISequenceRepository", "IConfigurationRepository",
+    "ISequenceRepository", "IConfigurationRepository", "ICustomerRepository",
     "AccountService", "JournalService", "FiscalPeriodService", "FiscalYearService",
     "TaxCodeService", "GSTReturnService",
     "SequenceService", "ConfigurationService", "CompanySettingsService",
     "AccountTypeService", "CurrencyService", "ExchangeRateService",
+    "CustomerService", # Added CustomerService
 ]
