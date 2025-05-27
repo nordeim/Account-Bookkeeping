@@ -1,9 +1,9 @@
 # File: app/services/journal_service.py
 from typing import List, Optional, Any, TYPE_CHECKING, Dict
-from datetime import date, datetime
+from datetime import date, datetime, timedelta # Added timedelta
 from decimal import Decimal
 from sqlalchemy import select, func, and_, or_, literal_column, case, text
-from sqlalchemy.orm import aliased, selectinload, joinedload
+from sqlalchemy.orm import aliased, selectinload, joinedload # Added joinedload
 from app.models.accounting.journal_entry import JournalEntry, JournalEntryLine 
 from app.models.accounting.account import Account 
 from app.models.accounting.recurring_pattern import RecurringPattern 
@@ -68,7 +68,7 @@ class JournalService(IJournalEntryRepository):
             stmt = select(
                 JournalEntry.id, JournalEntry.entry_no, JournalEntry.entry_date,
                 JournalEntry.description, JournalEntry.journal_type, JournalEntry.is_posted,
-                func.sum(JournalEntryLine.debit_amount).label("total_debits")
+                func.sum(JournalEntryLine.debit_amount).label("total_debits") # Used for JE list total
             ).join(JournalEntryLine, JournalEntry.id == JournalEntryLine.journal_entry_id, isouter=True)
             
             if conditions:
@@ -82,7 +82,7 @@ class JournalService(IJournalEntryRepository):
             result = await session.execute(stmt)
             
             summaries: List[Dict[str, Any]] = []
-            for row in result.mappings().all(): # Use .mappings() to get dict-like rows
+            for row in result.mappings().all(): 
                 summaries.append({
                     "id": row.id, "entry_no": row.entry_no, "date": row.entry_date, 
                     "description": row.description, "type": row.journal_type,
@@ -110,14 +110,14 @@ class JournalService(IJournalEntryRepository):
         async with self.db_manager.session() as session:
             stmt = select(JournalEntry).options(
                 selectinload(JournalEntry.lines).selectinload(JournalEntryLine.account),
-                selectinload(JournalEntry.lines).selectinload(JournalEntryLine.tax_code_obj) # Crucial for GSTManager
+                selectinload(JournalEntry.lines).selectinload(JournalEntryLine.tax_code_obj) 
             ).where(
                 JournalEntry.is_posted == True,
                 JournalEntry.entry_date >= start_date,
                 JournalEntry.entry_date <= end_date
             ).order_by(JournalEntry.entry_date, JournalEntry.entry_no)
             result = await session.execute(stmt)
-            return list(result.unique().scalars().all()) # Added .unique() for safety with multiple selectinloads on lines
+            return list(result.unique().scalars().all())
 
     async def save(self, journal_entry: JournalEntry) -> JournalEntry:
         async with self.db_manager.session() as session:
@@ -180,6 +180,22 @@ class JournalService(IJournalEntryRepository):
             balance_change = result.scalar_one_or_none()
             return balance_change if balance_change is not None else Decimal(0)
             
+    async def get_posted_lines_for_account_in_range(self, account_id: int, start_date: date, end_date: date) -> List[JournalEntryLine]:
+        """ Fetches posted journal lines for a specific account and date range. """
+        async with self.db_manager.session() as session:
+            stmt = select(JournalEntryLine).options(
+                joinedload(JournalEntryLine.journal_entry) # Eager load parent JE for date, no, desc
+            ).join(JournalEntry, JournalEntryLine.journal_entry_id == JournalEntry.id)\
+            .where(
+                JournalEntryLine.account_id == account_id,
+                JournalEntry.is_posted == True,
+                JournalEntry.entry_date >= start_date,
+                JournalEntry.entry_date <= end_date
+            ).order_by(JournalEntry.entry_date, JournalEntry.entry_no, JournalEntryLine.line_number) # Ensure consistent ordering
+            
+            result = await session.execute(stmt)
+            return list(result.scalars().all()) # .unique() might not be needed if JELine is the primary entity
+
     async def get_recurring_patterns_due(self, as_of_date: date) -> List[RecurringPattern]:
         async with self.db_manager.session() as session:
             stmt = select(RecurringPattern).options(

@@ -14,3 +14,6 @@ The important point is to proceed very carefully so as not to introduce any regr
 ---
 Excellent result so far! Please proceed with the next step in your plan for the implementation of "the basic Customer Management module". If this has been completed, please carefully update the README.md and TDS documents for the project to carefully and accurately detail the current state of the project. Please proceed very carefully so as not to introduce any regression error or accidentally omit the original features or functions. use the same tested rigorous and meticulous approach. thank you and good luck!
 
+---
+Below is "diff" command output comparing the previous version with your latest generated version. Please double-check and validate that the changes are valid and that no other original features or functions are lost (omitted). use the same rigorous and meticulous approach to review the diff output below.
+

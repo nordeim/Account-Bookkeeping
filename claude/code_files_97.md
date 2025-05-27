@@ -1,3 +1,75 @@
+<think>
+The application startup failed with an `ImportError`.
+
+**Error Analysis:**
+
+The traceback clearly shows the problem:
+`ImportError: cannot import name 'AccountData' from 'app.utils.pydantic_models' (/cdrom/project/SG-Bookkeeper/app/utils/pydantic_models.py). Did you mean: 'AccountBaseData'?`
+
+This error occurs in `app/ui/reports/reports_widget.py` at line 18:
+```python
+from app.utils.pydantic_models import GSTReturnData, AccountData 
+```
+
+The file `app/utils/pydantic_models.py` was updated in a previous step when Customer DTOs were added. Let's check the DTOs related to "Account" in that file from my last generation of it:
+```python
+# app/utils/pydantic_models.py (relevant section)
+# --- Account Related DTOs (existing) ---
+class AccountBaseData(AppBaseModel): # ...
+class AccountCreateData(AccountBaseData, UserAuditData): # ...
+class AccountUpdateData(AccountBaseData, UserAuditData): # ...
+
+# --- Fiscal Year Related DTOs (existing) ---
+# ... FiscalPeriodData, FiscalYearData ...
+
+# --- NEW: Customer Related DTOs ---
+# ... CustomerBaseData, CustomerCreateData, CustomerUpdateData, CustomerData, CustomerSummaryData ...
+```
+Indeed, there is no DTO explicitly named `AccountData` defined in `app/utils/pydantic_models.py`. The closest DTOs for representing full account information would be `AccountBaseData` (if only base fields are needed without audit/ID) or `AccountUpdateData` (if ID is needed). The system also implicitly uses the ORM model `app.models.accounting.account.Account` which contains all fields.
+
+The `ReportsWidget` intended to use `AccountData` for type hinting the cache for the General Ledger account selection combo:
+```python
+# In ReportsWidget (previous version)
+# from app.utils.pydantic_models import GSTReturnData, AccountData # Problematic import
+# ...
+# self._gl_accounts_cache: List[Dict[str, Any]] = [] # Cache for GL account combo
+# ...
+# # In _load_gl_accounts_for_combo
+# accounts_orm: List[Account] = await self.app_core.chart_of_accounts_manager.get_accounts_for_selection(active_only=True)
+# self._gl_accounts_cache = [{"id": acc.id, "code": acc.code, "name": acc.name} for acc in accounts_orm]
+```
+The cache `self._gl_accounts_cache` is actually storing `List[Dict[str, Any]]`, not `List[AccountData]`. The type hint `AccountData` for the import was likely a misremembered or intended name that wasn't actually created as a distinct DTO.
+
+**Plan to Fix:**
+
+1.  **Remove Unused Import**: In `app/ui/reports/reports_widget.py`, remove `AccountData` from the import statement:
+    `from app.utils.pydantic_models import GSTReturnData` (Keep `GSTReturnData` as it's used).
+2.  **Verify Cache Type Hint**: The `_gl_accounts_cache` is correctly type-hinted as `List[Dict[str, Any]]`. No change needed there.
+3.  **Verify `pydantic_models.py`**: Double-check that no `AccountData` DTO was intended to be added. Given the existing `AccountBaseData`, `AccountCreateData`, and `AccountUpdateData`, a separate `AccountData` might be redundant unless it served a very specific purpose (e.g., a read-only representation with audit fields). For now, removing the import is the direct fix for the `ImportError`. If a specific `AccountData` DTO is truly needed later, it can be defined.
+
+**Decision:** The simplest and most direct fix is to remove the import of the non-existent `AccountData` DTO. The `_gl_accounts_cache` uses a list of simple dictionaries, so it doesn't strictly require this DTO for its current functionality.
+
+**Detailed Execution Plan:**
+1.  Generate the complete updated version of `app/ui/reports/reports_widget.py` with the corrected import statement.
+2.  Perform a mental "diff" against the previous version I provided to ensure only the import is fixed and no other logic is accidentally altered.
+</think>
+
+You're right on the mark! The traceback clearly shows an `ImportError` because `app/ui/reports/reports_widget.py` is trying to import `AccountData` from `app/utils/pydantic_models.py`, but this specific DTO name does not exist there. The type checker correctly suggests `AccountBaseData` as a possible alternative if a base DTO for accounts was intended.
+
+However, looking at how `_gl_accounts_cache` is used in `ReportsWidget`, it's populated with a list of dictionaries containing `id`, `code`, and `name` for the account selection combo box. It doesn't strictly require a full `AccountData` DTO for this purpose.
+
+**Plan to Fix:**
+
+1.  **Modify `app/ui/reports/reports_widget.py`**:
+    *   Remove `AccountData` from the import statement: `from app.utils.pydantic_models import GSTReturnData, AccountData` will become `from app.utils.pydantic_models import GSTReturnData`.
+    *   The type hint for `self._gl_accounts_cache` is already `List[Dict[str, Any]]`, which is appropriate for how it's being used.
+
+This is a straightforward fix. No other files should need modification for this specific error.
+
+---
+**1. Update `app/ui/reports/reports_widget.py`**
+
+```python
 # app/ui/reports/reports_widget.py
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QDateEdit, QPushButton, QFormLayout, 
@@ -472,3 +544,17 @@ class ReportsWidget(QWidget):
             else: QMessageBox.warning(self, "Export Failed", f"Failed to generate report bytes for {format_type.upper()}.")
         except Exception as e: self.app_core.logger.error(f"Exception handling report export result: {e}", exc_info=True); QMessageBox.critical(self, "Export Error", f"An error occurred during export: {str(e)}")
 
+```
+
+**Validation of `app/ui/reports/reports_widget.py` changes:**
+*   **Line 18 (`from app.utils.pydantic_models import ...`)**: Changed `AccountData` to `GSTReturnData` (as `AccountData` was not defined). This was the fix.
+*   **Other parts of the file**: Compared against the previous version (the one provided by me just before this error).
+    *   The GST F5 tab logic is unchanged.
+    *   The Financial Statements tab logic, including GL account combo, dynamic UI changes, report generation calls, on-screen display formatting (including the new GL format), and export logic, is all preserved from my last correct generation of this file.
+    *   The variable name `acc` was changed to `acc_item` in loops within `_display_financial_report` for BS and TB sections to avoid potential scope collision if `acc` was used outside; this is a minor, safe refactor.
+    *   Added `QCompleter` to imports as it's used for `fs_gl_account_combo`.
+
+**Conclusion:**
+The `ImportError` was due to an incorrect DTO name (`AccountData`) being imported in `app/ui/reports/reports_widget.py`. The fix was to remove this specific DTO from the import statement as it was not actually used by the widget's logic for the GL account combo (which uses a simple list of dicts). The rest of the file's functionality, including the recently added General Ledger reporting UI, has been preserved.
+
+The application should now launch without this `ImportError`.
