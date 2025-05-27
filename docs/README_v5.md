@@ -24,19 +24,19 @@
 
 SG Bookkeeper is a comprehensive, cross-platform desktop application designed to meet the accounting and bookkeeping needs of small to medium-sized businesses in Singapore. Built with Python and leveraging the power of PySide6 for a modern user interface and PostgreSQL for robust data management, it offers professional-grade financial tools tailored to Singapore's regulatory environment.
 
-The application features a double-entry accounting core, GST management, financial reporting, and modules for essential business operations including customer and vendor management. Its goal is to provide an intuitive, powerful, and compliant solution that empowers business owners and accountants.
+The application features a double-entry accounting core, GST management, financial reporting, and modules for essential business operations including customer management. Its goal is to provide an intuitive, powerful, and compliant solution that empowers business owners and accountants.
 
 ### Why SG Bookkeeper?
 
 -   **Singapore-Centric**: Designed with Singapore Financial Reporting Standards (SFRS), GST regulations (including 9% rate), and IRAS compliance considerations at its core.
 -   **Professional Grade**: Implements a full double-entry system, detailed audit trails (via database triggers), and robust data validation using Pydantic DTOs.
--   **User-Friendly Interface**: Aims for an intuitive experience for users who may not be accounting experts, while providing depth for professionals. Core accounting, customer management, vendor management, and reporting UI are functional.
+-   **User-Friendly Interface**: Aims for an intuitive experience for users who may not be accounting experts, while providing depth for professionals. Core accounting, customer management, and reporting UI are functional.
 -   **Open Source & Local First**: Transparent development. Your financial data stays on your local machine or private server, ensuring privacy and control. No subscription fees.
 -   **Modern & Performant**: Utilizes asynchronous operations for a responsive UI and efficient database interactions, with a dedicated asyncio event loop.
 
 ## Key Features
 
-*(Status: Implemented, Partially Implemented, Basic UI Implemented, Foundational (DB/Models ready), Planned)*
+*(Status: Implemented, Partially Implemented, Foundational (DB/Models ready), Planned)*
 
 ### Core Accounting
 -   **Comprehensive Double-Entry Bookkeeping** (Implemented)
@@ -55,12 +55,12 @@ The application features a double-entry accounting core, GST management, financi
 
 ### Business Operations
 -   **Customer Management** (Implemented - List, Add, Edit, Toggle Active status for Customers, with search/filter.)
--   **Vendor Management** (Implemented - List, Add, Edit, Toggle Active status for Vendors, with search/filter.)
+-   **Vendor Management** (Foundational - `business.vendors` table/model exists. UI/Logic planned.)
 -   **Sales Invoicing and Accounts Receivable** (Foundational - `business.sales_invoices` tables/models exist. UI/Logic planned.)
 -   **Purchase Invoicing and Accounts Payable** (Foundational - `business.purchase_invoices` tables/models exist. UI/Logic planned.)
 -   **Payment Processing and Allocation** (Foundational - `business.payments` tables/models exist. UI/Logic planned.)
 -   **Bank Account Management and Reconciliation Tools** (Foundational - `business.bank_accounts` & `bank_transactions` tables/models exist. UI is a stub.)
--   **Product and Service Management** (Backend Implemented - DTOs, Service, Manager integrated. UI Planned.)
+-   **Product and Service Management** (Foundational - `business.products` table/model exists. UI/Logic planned.)
 -   **Basic Inventory Control** (Foundational - `business.inventory_movements` table/model exists. Logic planned.)
 
 ### Reporting & Analytics
@@ -71,18 +71,32 @@ The application features a double-entry accounting core, GST management, financi
 -   **Dashboard with Key Performance Indicators (KPIs)** (Planned - UI is a stub.)
 
 ### System & Security
--   **User Authentication with Role-Based Access Control (RBAC)** (Implemented)
--   **Granular Permissions System** (Foundational)
--   **Comprehensive Audit Trails** (Implemented - Via DB triggers and `app.current_user_id`.)
+-   **User Authentication with Role-Based Access Control (RBAC)** (Implemented - `SecurityManager`, DB tables for users, roles, permissions are functional. Initial admin user seeded.)
+-   **Granular Permissions System** (Foundational - DB tables exist, `SecurityManager.has_permission` implemented. Full UI integration pending.)
+-   **Comprehensive Audit Trails** (Implemented - DB triggers populate `audit.audit_log` and `audit.data_change_history` for key tables. Uses `app.current_user_id` session variable.)
 -   **PostgreSQL Database Backend** (Implemented)
 -   **Data Backup and Restore Utilities** (Planned)
 
 ## Technology Stack
-(Section remains unchanged from previous README version)
-...
+
+-   **Programming Language**: Python 3.9+ (up to 3.12)
+-   **UI Framework**: PySide6 6.9.0+
+-   **Database**: PostgreSQL 14+
+-   **ORM**: SQLAlchemy 2.0+ (Async ORM with `asyncpg`)
+-   **Async DB Driver**: `asyncpg`
+-   **Data Validation (DTOs)**: Pydantic V2
+-   **Password Hashing**: `bcrypt`
+-   **Reporting Libraries**: `reportlab` (PDF), `openpyxl` (Excel)
+-   **Dependency Management**: Poetry
+-   **Date/Time Utilities**: `python-dateutil`
+-   **Email Validation**: `email-validator` (via `pydantic[email]`)
 
 ## Installation
-(Section remains unchanged from previous README version)
+(Installation steps remain unchanged from the previous README version, as they cover the general setup process.)
+
+### Prerequisites
+...
+### Developer Installation Steps
 ...
 
 ## Usage Guide
@@ -90,27 +104,26 @@ The application features a double-entry accounting core, GST management, financi
 The application provides a range of functional modules accessible via tabs:
 
 -   **Accounting Tab**:
-    -   **Chart of Accounts**: View, add, edit, and (de)activate accounts.
-    -   **Journal Entries**: List, filter, create, edit drafts, view, post, and reverse general journal entries.
+    -   **Chart of Accounts**: View the hierarchy, add new accounts, edit existing ones, and manage their active status.
+    -   **Journal Entries**: List existing journal entries with filtering options (by date, status, entry no., description). Create new general journal entries with detailed lines (including tax). Edit draft entries, view any entry, post drafts, and reverse posted entries.
 -   **Customers Tab**:
-    -   View a list of customers with search and active/inactive filter.
-    -   Add new customers and edit existing customer details via a comprehensive dialog.
+    -   View a list of all customers.
+    -   Filter customers by active status or search by code, name, or email.
+    -   Add new customers using a comprehensive dialog.
+    -   Edit existing customer details.
     -   Toggle the active/inactive status of customers.
--   **Vendors Tab**:
-    -   View a list of vendors with search and active/inactive filter.
-    -   Add new vendors and edit existing vendor details via a comprehensive dialog.
-    -   Toggle the active/inactive status of vendors.
 -   **Reports Tab**:
-    -   **GST F5 Preparation**: Prepare GST F5 data, view summary, save as draft, and finalize (creates settlement JE).
-    *   **Financial Statements**: Generate Balance Sheet, P&L, Trial Balance, or General Ledger. View on-screen and export to PDF/Excel.
+    -   **GST F5 Preparation**: Select a period, and the system will aggregate data from posted journal entries to prepare figures for your GST F5 return. You can view this summary, save it as a draft in the system, and then finalize it by providing IRAS submission details (which also creates a settlement journal entry).
+    *   **Financial Statements**: Choose from Balance Sheet, Profit & Loss Statement, Trial Balance, or General Ledger. Specify date parameters (and account for GL). Generate the report to view an HTML summary on-screen. Export any generated report to PDF or Excel.
 -   **Settings Tab**:
-    -   Configure Company Information and manage Fiscal Years (add new, auto-generate periods).
+    -   Configure company-wide information (name, address, UEN, GST details, fiscal year start).
+    -   Manage Fiscal Years: Add new fiscal years and choose to automatically generate their monthly or quarterly accounting periods. View existing fiscal years.
 
-Other modules (Dashboard, Banking, Products & Services UI) are placeholders for future development.
+Other modules (Dashboard, Vendors, Banking) are currently placeholders for future development.
 The default `admin` user (password: `password` - change on first login) has full access.
 
 ## Project Structure
-(Updated to include Vendor and Product backend files)
+(Project structure remains largely the same as the previous README, with Customer Management files now confirmed as actively used.)
 ```
 sg_bookkeeper/
 ├── app/                    # Application source code
@@ -121,32 +134,25 @@ sg_bookkeeper/
 │   ├── models/
 │   ├── services/
 │   │   ├── __init__.py
-│   │   ├── business_services.py   # Contains CustomerService, VendorService, ProductService
-│   │   └── ... (other service files)
+│   │   ├── account_service.py
+│   │   ├── accounting_services.py 
+│   │   ├── business_services.py   # Contains CustomerService
+│   │   ├── core_services.py
+│   │   ├── fiscal_period_service.py
+│   │   ├── journal_service.py
+│   │   └── tax_service.py
 │   ├── accounting/
 │   ├── tax/
-│   ├── business_logic/     # Contains CustomerManager, VendorManager, ProductManager
+│   ├── business_logic/     # Contains CustomerManager
 │   │   ├── __init__.py
-│   │   ├── customer_manager.py
-│   │   ├── vendor_manager.py
-│   │   └── product_manager.py # (NEW)
+│   │   └── customer_manager.py
 │   ├── reporting/
 │   ├── ui/
-│   │   ├── customers/      # Customer specific UI
-│   │   │   ├── __init__.py
-│   │   │   ├── customer_dialog.py 
-│   │   │   ├── customer_table_model.py 
-│   │   │   └── customers_widget.py 
-│   │   ├── vendors/        # Vendor specific UI
-│   │   │   ├── __init__.py
-│   │   │   ├── vendor_dialog.py 
-│   │   │   ├── vendor_table_model.py 
-│   │   │   └── vendors_widget.py 
-│   │   └── products/       # Product specific UI (foundational files created)
+│   │   └── customers/
 │   │       ├── __init__.py
-│   │       ├── product_dialog.py
-│   │       ├── product_table_model.py
-│   │       └── products_widget.py # (Currently a stub or to be created fully)
+│   │       ├── customer_dialog.py 
+│   │       ├── customer_table_model.py 
+│   │       └── customers_widget.py 
 │   └── utils/
 ├── data/
 ├── docs/
@@ -176,7 +182,8 @@ sg_bookkeeper/
 ## Roadmap
 
 ### Current Focus / Short-term
--   **Product/Service Management UI**: Implement basic UI (List, Add, Edit, Toggle Active) for products and services, using the established backend.
+-   **Vendor Management**: Implement basic UI (List, Add, Edit, Toggle Active) similar to Customer Management.
+-   **Product/Service Management**: Implement basic UI for managing products and services (inventory/non-inventory/service types).
 -   **Refine Reporting**: Improve on-screen display of financial reports (e.g., explore `QTableView` for better structure than HTML in `QTextEdit` for some reports).
 -   **User and Role Management UI**: Add UI in Settings for managing users, roles, and permissions.
 

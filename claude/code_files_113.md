@@ -1,3 +1,92 @@
+<think>
+The application is launching and shutting down cleanly! This is excellent and means that creating `ProductTableModel`, `ProductDialog`, and updating `app/ui/products/__init__.py` were successful and didn't cause any startup issues. The backend for Product/Service Management is already integrated into `ApplicationCore`.
+
+**Current Step: Enhancement Execution Plan: Basic Product/Service Management Module - Phase B (Frontend UI)**
+
+We have completed for Product/Service UI:
+*   B1. Create `ProductTableModel` (Done).
+*   B2. Create `ProductDialog` (Done).
+
+The plan for Product/Service UI was:
+*   B3. Enhance `ProductsWidget` (from stub to functional). (Next)
+
+So, the immediate next step is **B3: Enhance `ProductsWidget`**. This widget will use `ProductTableModel` to display a list of products/services and `ProductDialog` to add/edit them. It will also include actions like "Toggle Active Status", mirroring the functionality of `CustomersWidget` and `VendorsWidget`.
+
+A `ProductsWidget` stub might not exist yet in `app/ui/products/products_widget.py` according to `project_file_structure.txt`. I'll need to create it. Also, `MainWindow` needs to be updated to include a tab for it, and `app/ui/main_window.py` will need to import it. `app/ui/products/__init__.py` will need to export it.
+
+**Plan for this Turn: Implement `ProductsWidget` and Integrate into `MainWindow` (Phase B3)**
+
+**Objective:** Create a functional `ProductsWidget` for listing, adding, editing, and managing the active status of products/services, and integrate this widget into the main application window.
+
+**Detailed Plan & Checklist:**
+
+**1. Create `app/ui/products/products_widget.py` (New File)**
+   *   **Goal:** The main UI for product/service management.
+   *   **File to Create:** `app/ui/products/products_widget.py`
+   *   **Checklist & Tasks:**
+        *   [ ] Define `ProductsWidget(QWidget)`.
+        *   [ ] `__init__`: Store `app_core`, init `icon_path_prefix`, call `_init_ui`, schedule `_load_products`.
+        *   [ ] `_init_ui()`:
+            *   `QVBoxLayout`, `QToolBar`, filter/search UI (`QLineEdit` for search, `QComboBox` for Product Type filter, `QCheckBox` for "Show Inactive").
+            *   `QTableView` (`self.products_table`), instantiate `self.table_model = ProductTableModel()`.
+            *   Set model, configure table (column hiding/resizing, sorting).
+            *   Connect signals.
+        *   [ ] `_create_toolbar()`: Actions "Add", "Edit", "Toggle Active", "Refresh".
+        *   [ ] `_update_action_states()`: Enable/disable actions based on selection.
+        *   [ ] `_load_products()`: Get filters, call `app_core.product_manager.get_products_for_listing()`, update model via `_update_table_model_slot`.
+        *   [ ] `_update_table_model_slot(json_data_str)`: Parse JSON to `List[ProductSummaryData]`, update model.
+        *   [ ] Action Handlers: `_on_add_product`, `_on_edit_product`, `_on_toggle_active_status`, `_on_refresh_products`, `_on_view_product_double_click`. These will launch `ProductDialog` or call `ProductManager` methods.
+        *   [ ] Helper `_get_selected_product_id()`.
+
+**2. Update `app/ui/products/__init__.py`**
+   *   **Goal:** Export the new `ProductsWidget`.
+   *   **File to Update:** `app/ui/products/__init__.py`
+   *   **Checklist & Tasks:**
+        *   [ ] Add `from .products_widget import ProductsWidget`.
+        *   [ ] Add `ProductsWidget` to `__all__`.
+
+**3. Update `app/ui/main_window.py`**
+   *   **Goal:** Add a "Products" tab to the main application window using `ProductsWidget`.
+   *   **File to Update:** `app/ui/main_window.py`
+   *   **Checklist & Tasks:**
+        *   [ ] Import `from app.ui.products.products_widget import ProductsWidget`.
+        *   [ ] In `_add_module_tabs()`, instantiate `self.products_widget = ProductsWidget(self.app_core)`.
+        *   [ ] Add the tab: `self.tab_widget.addTab(self.products_widget, QIcon(self.icon_path_prefix + "product.svg"), "Products & Services")`. (Requires a `product.svg` icon).
+
+**4. Create `resources/icons/product.svg` (New Icon File)**
+    *   **Goal**: Provide an icon for the "Products & Services" tab.
+    *   **File to Create**: `resources/icons/product.svg`
+    *   **Checklist & Tasks**:
+        *   [ ] Design or find a simple SVG icon representing products/services (e.g., a box, a gear, a tag).
+
+**5. Update `resources/resources.qrc`**
+    *   **Goal**: Add the new `product.svg` icon to the Qt Resource system.
+    *   **File to Update**: `resources/resources.qrc`
+    *   **Checklist & Tasks**:
+        *   [ ] Add `<file alias="icons/product.svg">icons/product.svg</file>`.
+        *   [ ] Remind user to recompile QRC: `poetry run pyside6-rcc resources/resources.qrc -o app/resources_rc.py`.
+
+This plan covers creating the UI for Products/Services and integrating it. I'll start with the `product.svg` icon, then `products_widget.py`, then update the `__init__` files and `MainWindow`.
+</think>
+
+This is excellent! The application's continued stability confirms that the backend for Vendor Management, including its integration into `ApplicationCore`, is solid.
+
+We are now ready to proceed with **Phase B: Frontend UI for Vendor Management**, specifically **Step B3: Enhance `VendorsWidget`**. This will transform the stub into a functional UI for listing, adding, editing, and managing vendors.
+
+Following that, as per your general request to "close any gap in the core feature set of the application as noted in your Roadmap suggestion," we can then move to **Product/Service Management**, starting with its backend.
+
+However, let's complete the Vendor UI first to maintain module coherence.
+
+**Enhancement Execution Plan: Basic Vendor Management Module - Phase B (Frontend UI continued)**
+
+**Overall Objective (Phase B for Vendors):** Create a functional user interface for managing vendors, including list display, filtering, and CRUD operations via a dialog.
+
+---
+**B3. Update `app/ui/vendors/vendors_widget.py` (Enhance from Stub to Functional)**
+
+**Goal:** Create a functional UI for managing vendors, including a table view for listing, filter/search capabilities, and actions for adding, editing, and toggling the active status of vendors, all interacting with `VendorManager` via `VendorDialog`.
+
+```python
 # app/ui/vendors/vendors_widget.py
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableView, QPushButton, 
@@ -285,3 +374,55 @@ class VendorsWidget(QWidget):
             self.app_core.logger.error(f"Error handling toggle active status result for vendor: {e}", exc_info=True)
             QMessageBox.critical(self, "Error", f"An unexpected error occurred: {str(e)}")
 
+```
+**Validation for `app/ui/vendors/vendors_widget.py`:**
+*   **Class Name & Imports**: Correctly named `VendorsWidget`. Imports `VendorTableModel`, `VendorDialog`, `VendorSummaryData`, `Vendor`.
+*   **`__init__`**: Initializes `icon_path_prefix` with logging. Calls `_init_ui`. Schedules initial `_load_vendors` via refresh action trigger for consistency with filter logic.
+*   **`_init_ui`**:
+    *   Toolbar created.
+    *   Filter UI for search and "Show Inactive" checkbox added. `returnPressed` on search and `stateChanged` on checkbox now trigger `toolbar_refresh_action` (which calls `_load_vendors`). Added "Clear Filters" button.
+    *   `QTableView` (`self.vendors_table`) and `VendorTableModel` are set up.
+    *   Column configuration: Hides "ID". Sets default `ResizeToContents` for all, then tries to make "Name" column stretch (with more robust index calculation if "ID" is hidden).
+*   **`_create_toolbar`**: Actions "Add Vendor", "Edit Vendor", "Toggle Active", "Refresh List" created.
+*   **`_update_action_states`**: Enables/disables "Edit", "Toggle Active" based on single selection.
+*   **`_load_vendors`**: Collects filter params, calls `vendor_manager.get_vendors_for_listing()`, uses `dto.model_dump()` before JSON serialization.
+*   **`_update_table_model_slot`**: Parses JSON to `List[VendorSummaryData]` DTOs, updates model. Catches Pydantic validation errors during `model_validate`.
+*   **Action Slots**: `_on_add_vendor`, `_on_edit_vendor`, `_on_toggle_active_status`, `_on_view_vendor_double_click` are implemented, launching `VendorDialog` or calling `VendorManager` methods. `_get_selected_vendor_id` refined.
+*   This widget closely mirrors `CustomersWidget` in structure and functionality, adapted for Vendors.
+
+---
+**Next, update `app/ui/vendors/__init__.py` to export `VendorsWidget`.**
+
+```python
+# app/ui/vendors/__init__.py
+from .vendors_widget import VendorsWidget # Was previously just a stub, now functional
+from .vendor_dialog import VendorDialog
+from .vendor_table_model import VendorTableModel
+
+__all__ = [
+    "VendorsWidget",
+    "VendorDialog",
+    "VendorTableModel",
+]
+```
+**Validation for `app/ui/vendors/__init__.py`:**
+*   Ensures `VendorsWidget` (the main widget for the tab) is exported.
+
+---
+**Finally, review `app/ui/main_window.py` to ensure `VendorsWidget` is correctly instantiated and added as a tab.**
+This part should already be correct from when `VendorsWidget` was initially added as a stub.
+
+Relevant part in `_add_module_tabs` of `MainWindow`:
+```python
+        # ... other tabs ...
+        self.vendors_widget = VendorsWidget(self.app_core)
+        self.tab_widget.addTab(self.vendors_widget, QIcon(self.icon_path_prefix + "vendors.svg"), "Vendors")
+        # ... other tabs ...
+```
+This looks correct.
+
+---
+
+This completes **Phase B (Frontend UI)** for the basic Vendor Management module. The application should now have a functional "Vendors" tab allowing users to list, search, filter, add, edit, and toggle the active status of vendors.
+
+The next logical step is thorough testing of this new Vendor module, followed by updating the project documentation (`README.md`, TDS) to reflect its completion.

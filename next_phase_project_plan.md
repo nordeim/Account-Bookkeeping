@@ -1,3 +1,10 @@
+**Current Project Status Recap:**
+
+*   **Basic Vendor Management Module (Backend & Frontend UI)**: Complete and stable at startup. Functional testing is the next step for this specific module.
+*   **Basic Customer Management Module (Backend & Frontend UI)**: Complete and stable.
+*   All previously implemented core accounting features (Settings, CoA, JEs, GST workflow, Financial Reports UI) remain stable.
+
+---
 **Confirmation of "Common Features" Completion (relative to recent plans):**
 
 *   **Basic Customer Management Module**:
