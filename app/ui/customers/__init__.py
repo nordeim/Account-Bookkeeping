@@ -1,5 +1,10 @@
-# File: app/ui/customers/__init__.py
-# (Content as previously generated)
+# app/ui/customers/__init__.py
 from .customers_widget import CustomersWidget
+from .customer_dialog import CustomerDialog
+from .customer_table_model import CustomerTableModel
 
-__all__ = ["CustomersWidget"]
+__all__ = [
+    "CustomersWidget",
+    "CustomerDialog",
+    "CustomerTableModel",
+]
