@@ -19,7 +19,8 @@ dist/
 
 # PyInstaller build files (e.g., generated spec files and compiled resource modules)
 *.spec
-app/resources_rc.py
+# poetry run pyside6-rcc resources/resources.qrc -o app/resources_rc.py
+# app/resources_rc.py
 
 # Installer logs
 pip-log.txt

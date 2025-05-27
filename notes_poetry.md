@@ -21,6 +21,8 @@ You have a couple of solid options to determine which version of **PySide6** wil
    ```
    This command displays the version currently installed (if any) alongside the latest version available that matches your specified constraints. It provides a quick overview of both the resolution and what updates might be available.
 
+poetry run pyside6-rcc resources/resources.qrc -o app/resources_rc.py
+
 All these methods rely on Poetry’s dependency resolver to find the latest available version that complies with the constraint `>=6.5.0` for PySide6. In practice, because no upper bound is defined, Poetry will pick the newest version available in PyPI that satisfies any additional compatibility restrictions, such as those related to your Python version (which in your case are 3.9 through 3.12).
 
 https://copilot.microsoft.com/shares/3kzfQD94L6ppvVTsciwoP

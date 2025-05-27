@@ -1,5 +1,45 @@
 **Current Project Status Recap:**
 
+*   **Basic Product/Service Management Module (Backend & Frontend UI)**:
+    *   Phase A (Backend): Complete.
+    *   Phase B (Frontend):
+        *   B1. `ProductTableModel` (Created).
+        *   B2. `ProductDialog` (Created).
+        *   B3. `ProductsWidget` (Enhanced from stub, integrated, and `NameError` fixed).
+    *   The module is now structurally complete and should be testable.
+*   All previously implemented features (Customer/Vendor Management, Settings, CoA, JEs, GST, Financial Reports) remain stable.
+
+**Next Step Identification:**
+
+The user says "please continue," implying we should proceed with the next logical step based on the established plan and roadmap.
+
+The "Current Focus / Short-term" roadmap items from the last `README.md` update were:
+1.  **Product/Service Management UI**: Implement basic UI (List, Add, Edit, Toggle Active) for products and services, using the established backend. *(This is now complete).*
+2.  **Refine Reporting**: Improve on-screen display of financial reports (e.g., explore `QTableView` for better structure than HTML in `QTextEdit` for some reports).
+3.  **User and Role Management UI**: Add UI in Settings for managing users, roles, and permissions.
+
+With Product/Service Management UI basics in place, we have two main directions from the short-term roadmap: improving existing report displays or adding User/Role Management UI.
+
+*   **Refine Reporting (e.g., `QTableView` for reports)**:
+    *   **Pros**: Improves usability of already functional reporting features. `QTableView` can offer sorting, better column alignment, and potentially copying data.
+    *   **Cons**: Can be complex to create a generic `QTableView` structure that adapts well to different report layouts (BS, P&L, TB, GL all have different column needs and hierarchical structures). Might involve creating custom table models for each report type or a very flexible generic one.
+*   **User and Role Management UI**:
+    *   **Pros**: Adds a critical administrative feature. The backend models (`User`, `Role`, `Permission`) and `SecurityManager` logic (like `has_permission`) are already in place, providing a good foundation. This would likely be a new section/tab in the `SettingsWidget`.
+    *   **Cons**: Requires new UI dialogs for User creation/editing (including role assignment) and Role creation/editing (including permission assignment).
+
+**Decision for this Turn:**
+Implementing the **User and Role Management UI** seems like a more impactful next step in terms of adding new "core feature set" capabilities, especially since the backend for it is substantially there. Refining report display is important but more of a UX enhancement.
+
+**Plan for this Turn: Implement Basic User and Role Management UI (in Settings)**
+
+This will be a multi-part UI implementation. For this turn, let's focus on:
+1.  **Listing Users** in the `SettingsWidget`.
+2.  **Dialog for Adding/Editing Users** (basic fields: username, full name, email, active status, password change). Role assignment can be a subsequent step within this dialog or a separate management screen for roles.
+3.  **Backend Manager methods** in `SecurityManager` (or a new `UserManager`) to support these UI operations if existing ones are not sufficient (e.g., list users, update user details).
+
+---
+**Current Project Status Recap:**
+
 *   **Basic Vendor Management Module (Backend & Frontend UI)**: Complete and stable at startup. Functional testing is the next step for this specific module.
 *   **Basic Customer Management Module (Backend & Frontend UI)**: Complete and stable.
 *   All previously implemented core accounting features (Settings, CoA, JEs, GST workflow, Financial Reports UI) remain stable.
