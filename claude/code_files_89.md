@@ -1,3 +1,61 @@
+<think>
+The application is still launching and shutting down cleanly. This is excellent! It means the creation of `app/business_logic/__init__.py` and `app/business_logic/customer_manager.py`, along with the updated `app/services/__init__.py` and `app/services/business_services.py` (with `CustomerService`), did not introduce any import errors or other issues detectable at startup/shutdown.
+
+**Current Step: Enhancement Execution Plan: Basic Customer Management Module - Phase A (Backend)**
+
+We have completed:
+*   A1. Create Pydantic DTOs for Customer (Done)
+*   A2. Define `ICustomerRepository` Interface (Done)
+*   A3. Implement `CustomerService` (Done)
+*   A4. Create `CustomerManager` (Done)
+
+The next and final step for Phase A is **A5: Integrate `CustomerService` and `CustomerManager` into `app/core/application_core.py`**.
+
+**Plan for A5: Integrate into `app/core/application_core.py`**
+   *   **Goal:** Make the new `CustomerService` and `CustomerManager` available through the `ApplicationCore` instance so other parts of the application (especially UI widgets) can access them.
+   *   **File to Update:** `app/core/application_core.py`
+   *   **Checklist & Tasks:**
+        *   [ ] **Import**: Import `CustomerService` from `app.services.business_services` and `CustomerManager` from `app.business_logic.customer_manager`.
+        *   [ ] **Instance Variables**: Add new private instance variable placeholders in `ApplicationCore.__init__`:
+            *   `self._customer_service: Optional[CustomerService] = None`
+            *   `self._customer_manager: Optional[CustomerManager] = None`
+        *   [ ] **Instantiation in `startup()`**: In `ApplicationCore.startup()`, after other services are initialized (especially `AccountService` and `CurrencyService` which are dependencies for `CustomerManager`), instantiate `CustomerService` and then `CustomerManager`, injecting their dependencies.
+            ```python
+            # In ApplicationCore.startup()
+            self._customer_service = CustomerService(self.db_manager, self)
+            self._customer_manager = CustomerManager(
+                customer_service=self.customer_service,
+                account_service=self.account_service, # Assumes self.account_service is already initialized
+                currency_service=self.currency_service, # Assumes self.currency_service (which is self.currency_repo_service) is initialized
+                app_core=self
+            )
+            ```
+        *   [ ] **Properties**: Expose `CustomerService` and `CustomerManager` via public properties:
+            ```python
+            @property
+            def customer_service(self) -> CustomerService:
+                if not self._customer_service: raise RuntimeError("CustomerService not initialized.")
+                return self._customer_service
+
+            @property
+            def customer_manager(self) -> CustomerManager:
+                if not self._customer_manager: raise RuntimeError("CustomerManager not initialized.")
+                return self._customer_manager
+            ```
+
+This step is relatively straightforward and involves boilerplate for integrating new components into the existing `ApplicationCore` structure.
+</think>
+
+Fantastic! The application remains stable, indicating the backend components for Customer Management (`CustomerService` and `CustomerManager`) were correctly created without syntax or fundamental import errors.
+
+Now, we'll proceed with the final step of **Phase A: Backend for Customer Management**, which is **A5: Integrate `CustomerService` and `CustomerManager` into `app/core/application_core.py`**. This will make these new components accessible throughout the application.
+
+---
+**1. Update `app/core/application_core.py`**
+
+**Goal:** Instantiate and provide access to `CustomerService` and `CustomerManager`.
+
+```python
 # app/core/application_core.py
 from typing import Optional, Any
 from app.core.config_manager import ConfigManager
@@ -263,4 +321,20 @@ class ApplicationCore:
     def customer_manager(self) -> CustomerManager: # New Property
         if not self._customer_manager_instance: raise RuntimeError("CustomerManager not initialized.")
         return self._customer_manager_instance
+
+```
+**Validation for `app/core/application_core.py`:**
+*   **Imports**: Added `from app.services.business_services import CustomerService` and `from app.business_logic.customer_manager import CustomerManager`.
+*   **Instance Variables**: Added `_customer_service_instance` and `_customer_manager_instance`.
+*   **`startup()` Method**:
+    *   `self._customer_service_instance` is instantiated.
+    *   `self._customer_manager_instance` is instantiated, correctly injecting `self.customer_service`, `self.account_service`, and `self.currency_service` (which maps to `self.currency_repo_service`).
+    *   The order of initialization is logical (services first, then managers that depend on them).
+*   **Properties**: Added public properties `customer_service` and `customer_manager` for accessing the new instances, with standard initialization checks.
+*   **`py_sequence_generator`**: Passed `app_core_ref=self` to `SequenceGenerator` constructor.
+
+This completes Phase A for the Customer Management backend. The application should still launch cleanly as these are backend additions not yet called by any UI. The next phase (Phase B) would be to build the UI components for Customer Management.
+
+---
+https://drive.google.com/file/d/1-lQNYxO1i_5DT1QqEfMtYybal2mzhUAc/view?usp=sharing, https://drive.google.com/file/d/16gFjJpsNDcAcE0E4TkhL40Ka12eBq0i_/view?usp=sharing, https://drive.google.com/file/d/1Io9vpSP3ST1lRbemAqr0SnAfSLSCmzqI/view?usp=sharing, https://drive.google.com/file/d/1JIsAZQEejE1qm-fGe1L-QpLfOWBWWW-9/view?usp=sharing, https://drive.google.com/file/d/1Oa85u5sAFd9OgiARagGmGnqJlSw0SV8u/view?usp=sharing, https://aistudio.google.com/app/prompts?state=%7B%22ids%22:%5B%221SQTCjVSg9-JUmuGgq5bhvaOTbHhi2gWe%22%5D,%22action%22:%22open%22,%22userId%22:%22103961307342447084491%22,%22resourceKeys%22:%7B%7D%7D&usp=sharing, https://drive.google.com/file/d/1TArp9rSH4Oz6EVarWHaYNBHbdJOkuU1Z/view?usp=sharing, https://drive.google.com/file/d/1Z2KhH8Sd1yHpRUoz6TOU1jLev6icDwkd/view?usp=sharing, https://drive.google.com/file/d/1e9CQtKfd6E1LhSmXliLFwXUFxeGoR35E/view?usp=sharing, https://drive.google.com/file/d/1e9OAGmsj8Z2SAD1oNT2pAwmnm3zBnlGi/view?usp=sharing, https://drive.google.com/file/d/1km1x5NEIFLkBRhpyq7OS0PsXiMoXz1VY/view?usp=sharing, https://drive.google.com/file/d/1rnl0de93Aokl_FDNzUQTEu_C4p5LECWJ/view?usp=sharing, https://drive.google.com/file/d/1s6CXBUuwyh945SzNa2Ti4PUYJpTVTXdt/view?usp=sharing
 

@@ -1,3 +1,88 @@
+<think>
+The application is still launching and shutting down cleanly! This is excellent. It confirms that the creation of `CustomerTableModel` and `CustomerDialog`, along with the backend updates for `CustomerManager` and `CustomerService`, and their integration into `ApplicationCore`, did not introduce any startup/shutdown issues.
+
+**Current Project Status Recap:**
+
+*   **Backend for Customer Management (Phase A)**: Complete.
+*   **Frontend UI Foundation for Customer Management (Phase B - partially done)**:
+    *   B1. `CustomerTableModel` (Created).
+    *   B2. `CustomerDialog` (Created).
+*   All previously implemented features remain stable.
+
+**Next Step Identification:**
+
+The user asks to "proceed with the next step in your plan."
+The overall plan for Customer Management was:
+*   **Phase A: Backend for Customer Management (Completed)**
+*   **Phase B: Frontend UI for Customer Management (Current Focus)**
+    *   B1. Create `CustomerTableModel` (Done).
+    *   B2. Create `CustomerDialog` (Done).
+    *   **B3. Enhance `CustomersWidget` (from stub to functional) (Next logical step)**.
+
+So, the immediate next step is **B3: Enhance `CustomersWidget`**. This widget will use the `CustomerTableModel` to display a list of customers and the `CustomerDialog` to add/edit them. It will also include actions like "Toggle Active Status".
+
+**Plan for this Turn: Implement `CustomersWidget` (Phase B3)**
+
+**Objective:** Transform the stub `CustomersWidget` into a functional UI for listing, adding, editing, and managing the active status of customers.
+
+**Detailed Plan & Checklist:**
+
+**B3. Enhance `app/ui/customers/customers_widget.py`**
+   *   **Goal:** A functional widget for customer management, integrating `CustomerTableModel` and `CustomerDialog`.
+   *   **File to Update:** `app/ui/customers/customers_widget.py`
+   *   **Checklist & Tasks:**
+        *   [ ] **UI Layout**:
+            *   Replace the placeholder `QLabel` with a `QVBoxLayout`.
+            *   Add a `QToolBar` for actions ("Add", "Edit", "Toggle Active", "Refresh").
+            *   Add a `QTableView` (`self.customers_table`).
+            *   (Optional) Add filter/search input fields (`QLineEdit` for search term, `QCheckBox` for "Show Inactive").
+        *   [ ] **Model Setup**:
+            *   Instantiate `self.table_model = CustomerTableModel()`.
+            *   Set `self.customers_table.setModel(self.table_model)`.
+            *   Configure table view properties (selection behavior, column hiding for "ID", column resizing, sorting enabled).
+        *   [ ] **Asynchronous Data Loading (`_load_customers`)**:
+            *   Slot/method to fetch customer data.
+            *   Collect filter parameters (search term, active status).
+            *   Call `self.app_core.customer_manager.get_customers_for_listing(filters)` asynchronously.
+            *   Use `future.add_done_callback` or `QMetaObject.invokeMethod` to pass the `List[CustomerSummaryData]` (as JSON) to `_update_table_model_slot`.
+        *   [ ] **UI Update Slot (`_update_table_model_slot`)**:
+            *   Receives customer summary data (JSON string).
+            *   Parses JSON to `List[CustomerSummaryData]`.
+            *   Calls `self.table_model.update_data()`.
+            *   Calls `_update_action_states()` for toolbar buttons.
+        *   [ ] **Action Handling Slots**:
+            *   `_on_add_customer()`:
+                *   Check for `current_user`.
+                *   Launch `CustomerDialog` (with `customer_id=None`).
+                *   Connect `dialog.customer_saved` signal to `self._load_customers` to refresh table.
+            *   `_on_edit_customer()`:
+                *   Get selected customer ID from table model.
+                *   Launch `CustomerDialog` with the `customer_id`.
+                *   Connect `dialog.customer_saved` signal to `self._load_customers`.
+            *   `_on_toggle_active_status()`:
+                *   Get selected customer ID.
+                *   Confirm action with `QMessageBox`.
+                *   Call `self.app_core.customer_manager.toggle_customer_active_status(customer_id, user_id)` asynchronously.
+                *   Handle result (show message, refresh list).
+            *   `_on_refresh_customers()`: Call `_load_customers`.
+            *   `_on_view_customer_double_click(index: QModelIndex)`: Get customer ID, launch `CustomerDialog` in view-only/edit mode based on permissions or just edit. (For MVP, edit is fine).
+        *   [ ] **Action State Management (`_update_action_states`)**:
+            *   Enable/disable "Edit", "Toggle Active" based on whether a customer is selected in the table.
+        *   [ ] **Initial Load**: Call `_load_customers` on widget initialization (e.g., using `QTimer.singleShot`).
+
+This will complete the basic UI for the Customer module.
+</think>
+
+Excellent! The application remains stable, and the backend components for Customer Management are now integrated into `ApplicationCore`. This means Phase A of the Customer Management module implementation is complete.
+
+We will now proceed with **Phase B: Frontend UI for Customer Management**, focusing on **Step B3: Enhance `CustomersWidget`**. This involves transforming the existing stub file into a functional widget that can list customers, and allows users to add, edit, and manage their active status using the `CustomerTableModel` and `CustomerDialog` we created previously.
+
+---
+**1. Update `app/ui/customers/customers_widget.py`**
+
+**Goal:** Create a functional UI for managing customers, including a table view, action buttons, and interaction with `CustomerManager` via `CustomerDialog`.
+
+```python
 # app/ui/customers/customers_widget.py
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableView, QPushButton, 
@@ -252,3 +337,49 @@ class CustomersWidget(QWidget):
             self.app_core.logger.error(f"Error handling toggle active status result: {e}", exc_info=True)
             QMessageBox.critical(self, "Error", f"An unexpected error occurred: {str(e)}")
 
+```
+**Validation for `app/ui/customers/customers_widget.py`:**
+*   **Imports**: Added `CustomerTableModel`, `CustomerDialog`, `CustomerSummaryData`, `Customer` (for type hint).
+*   **`__init__`**: Initializes `icon_path_prefix` and calls `_init_ui`. Schedules initial `_load_customers`.
+*   **`_init_ui`**:
+    *   Sets up a `QVBoxLayout`.
+    *   Calls `_create_toolbar()`.
+    *   Adds filter UI: `QLineEdit` for search, `QCheckBox` for "Show Inactive". Search `returnPressed` and checkbox `stateChanged` trigger a refresh.
+    *   Creates `QTableView` (`self.customers_table`) and `CustomerTableModel` (`self.table_model`).
+    *   Sets model to table, configures table properties (selection, sorting, hides "ID" column, sets "Name" column to stretch).
+    *   Connects `selectionChanged` to `_update_action_states`.
+*   **`_create_toolbar`**: Adds actions "Add Customer", "Edit Customer", "Toggle Active", "Refresh List", with icons and connects them to slots.
+*   **`_update_action_states`**: Enables/disables toolbar buttons based on table selection.
+*   **`_load_customers`**:
+    *   Collects filter parameters (search term from `search_edit`, active status from `show_inactive_check`).
+    *   Calls `self.app_core.customer_manager.get_customers_for_listing()` with filters.
+    *   Handles `Result` and passes `List[CustomerSummaryData]` (as JSON string) to `_update_table_model_slot`.
+*   **`_update_table_model_slot`**:
+    *   Parses JSON, validates DTOs, and updates `self.table_model`.
+    *   Calls `_update_action_states()`.
+*   **Action Slots (`_on_add_customer`, `_on_edit_customer`, `_on_toggle_active_status`)**:
+    *   Check for `current_user`.
+    *   `_on_add_customer`: Launches `CustomerDialog` with no `customer_id`. Connects `customer_saved` signal to refresh.
+    *   `_on_edit_customer`: Gets selected customer ID, launches `CustomerDialog` with ID. Connects `customer_saved`.
+    *   `_on_view_customer_double_click`: Similar to edit for MVP.
+    *   `_on_toggle_active_status`: Gets ID, confirms, calls manager method, handles result, refreshes.
+*   **Helper `_get_selected_customer_id()`**: For retrieving ID from selected row.
+
+This `CustomersWidget` now provides a functional UI for basic customer management.
+
+---
+**Next Steps:**
+
+1.  **Review `app/ui/customers/__init__.py`**: Ensure it exports `CustomersWidget`, `CustomerDialog`, and `CustomerTableModel`.
+2.  **Review `app/ui/main_window.py`**: Ensure `CustomersWidget` is correctly instantiated and added as a tab.
+3.  **Thorough Testing (Phase B - UI Testing & Phase 4 from overall plan)**: Manually test the entire Customer Management workflow:
+    *   Listing customers (initially empty).
+    *   Adding new customers (with validation).
+    *   Viewing the list update.
+    *   Editing existing customers.
+    *   Toggling active status.
+    *   Searching/filtering.
+    *   Checking data persistence in the database (`business.customers` table).
+    *   Checking audit logs for customer creation/updates.
+
+After these files are updated in your project, the basic Customer Management module should be functional and testable.

@@ -1,3 +1,105 @@
+<think>
+The application is launching and shutting down cleanly! The log message "INFO - Using compiled Qt resources for CustomersWidget" is a new and positive sign, indicating that `CustomersWidget` was initialized, and its `icon_path_prefix` logic (which includes a logger call) executed correctly. This implies that the integration of the basic Customer Management module (backend and frontend UI stubs/foundations) has been successful at the startup level.
+
+**Current Project Status Recap:**
+
+*   **Backend for Customer Management (Phase A)**: Complete.
+*   **Frontend UI Foundation for Customer Management (Phase B - partially done)**:
+    *   B1. `CustomerTableModel` (Created and seems fine).
+    *   B2. `CustomerDialog` (Created and seems fine).
+    *   B3. `CustomersWidget` (Enhanced from stub to include table, toolbar, basic filter UI, and slots for actions. Data loading and actions are connected to the backend manager).
+*   All previously implemented features remain stable.
+
+**The user asks to "proceed with the next step in your plan for the implementation of 'the basic Customer Management module'". If this has been completed, please carefully update the README.md and TDS documents...**
+
+Based on the plan, "Phase B: Frontend UI for Customer Management" involved:
+    *   B1. Create `CustomerTableModel` (Done)
+    *   B2. Create `CustomerDialog` (Done)
+    *   B3. Enhance `CustomersWidget` (from stub to functional) (Done in the previous step)
+
+This means the **initial implementation of the basic Customer Management module is complete.** The UI allows listing, adding, editing, and toggling the active status of customers.
+
+Therefore, the "next step" as per the user's request is to:
+**Update the `README.md` and `Technical Design Specification Document (v4).md` to carefully and accurately detail the current state of the project, including the newly implemented Customer Management module.**
+
+**Plan for this Turn: Documentation Update**
+
+**Objective:** Reflect the newly implemented basic Customer Management functionality in the project's `README.md` and `Technical Design Specification Document (v4).md`.
+
+**Detailed Plan & Checklist:**
+
+**1. Update `README.md`**
+   *   **Goal:** Inform users and potential contributors about the new Customer Management feature.
+   *   **File to Update:** `README.md`
+   *   **Checklist & Tasks:**
+        *   [ ] **Key Features Section**:
+            *   Update the status of "Customer and Vendor Relationship Management (CRM)" or add a specific entry for "Basic Customer Management" and mark it as "Partially Implemented" or "Basic UI Implemented".
+            *   Briefly describe what's available (list, add, edit, toggle active status).
+        *   [ ] **Project Structure Section**:
+            *   Add entries for the new files created for customer management:
+                *   `app/services/business_services.py` (if not already listed generally)
+                *   `app/business_logic/__init__.py`
+                *   `app/business_logic/customer_manager.py`
+                *   `app/ui/customers/customer_table_model.py`
+                *   `app/ui/customers/customer_dialog.py`
+            *   Verify `app/ui/customers/customers_widget.py` is mentioned as updated.
+        *   [ ] **Usage Guide Section** (if it exists or is planned):
+            *   Briefly mention that the "Customers" tab now allows basic customer management.
+        *   [ ] **Roadmap Section**:
+            *   Update the status or progress related to CRM/Customer Management. Indicate that basic functionality is in place and more advanced features (e.g., linking to invoices, detailed transaction history per customer) are future.
+
+**2. Update `Technical Design Specification Document (v4).md` (to become v5)**
+   *   **Goal:** Detail the technical design and implementation of the Customer Management module.
+   *   **File to Update:** `Technical Design Specification Document (v4).md` (will effectively become v5 after these updates)
+   *   **Checklist & Tasks:**
+        *   [ ] **Document Version**: Increment to v5. Update date.
+        *   [ ] **Section 1.2 (Scope)**: Mention that Customer Management (basic CRUD, listing) is now covered.
+        *   [ ] **Section 1.4 (System Overview)**: Briefly note the addition of basic Customer Management.
+        *   [ ] **Section 2.2 (Component Architecture)**:
+            *   **2.2.3 Functional Components (Managers/Services)**: Add `CustomerManager` and `CustomerService` with their responsibilities.
+            *   **2.2.5 User Interface Components**: Detail `CustomersWidget`, `CustomerDialog`, and `CustomerTableModel`.
+        *   [ ] **Section 2.5 (Design Patterns)**:
+            *   If the Customer module implementation highlights any specific pattern usage not already covered, mention it or use it as a concrete example.
+        *   [ ] **Section 3 (Data Architecture)**:
+            *   **3.3 Detailed Schema Definitions**: `business.customers` table is already in `schema.sql`. No change needed here, but ensure it's referenced as being actively used.
+            *   **3.4.1 SQLAlchemy ORM Model Definitions**: `app/models/business/customer.py` already exists. Briefly reference its key attributes if not already done.
+            *   **3.4.2 Data Access Interface**: Update with `ICustomerRepository` details from `app/services/__init__.py`.
+        *   [ ] **Section 4 (Module Specifications)**:
+            *   Add a new major subsection for "Business Operations Modules" (if it doesn't exist) or directly "Customer Management Module".
+            *   **4.X.1 Customer Manager (`app/business_logic/customer_manager.py`)**:
+                *   Detail its responsibilities (validation, orchestration).
+                *   Provide key function signatures/snippets (`create_customer`, `update_customer`, `get_customers_for_listing`, `toggle_customer_active_status`).
+            *   **(Optional) Customer Service (`app/services/business_services.py`)**: Briefly describe its role as the repository for `Customer` if not covered sufficiently under Data Access Layer.
+        *   [ ] **Section 5 (User Interface Implementation)**:
+            *   Add a new subsection for `CustomersWidget`.
+                *   Describe its layout (toolbar, filter, table).
+                *   Explain its data loading (`_load_customers`) and interaction with `CustomerManager`.
+                *   Mention `CustomerTableModel`.
+            *   Add a new subsection for `CustomerDialog`.
+                *   Describe its fields and purpose (Add/Edit).
+                *   Explain how it collects data into DTOs and calls `CustomerManager`.
+        *   [ ] **Section 7 (Database Access Implementation)**:
+            *   **7.2 Repository Implementation**: Add an example for `CustomerService` if it highlights specific patterns or complex queries (e.g., `get_all_summary` with filtering).
+        *   [ ] **Section 9 (Conclusion/Current Status)**: Update to reflect that basic Customer Management is now implemented. List it under "Key Implementation Highlights."
+        *   [ ] **Update relevant DTOs section if changes were made to `pydantic_models.py`** (Customer DTOs were added, so this section in TDS needs to reflect that). This was part of step A1.
+        *   **Throughout**: Ensure consistency in naming and paths.
+
+This is a significant documentation update. I will proceed by generating the updated `README.md` first, then the updated TDS.
+</think>
+
+This is excellent progress! The application is stable, and the log confirms that the new `CustomersWidget` is being initialized and its resources are being recognized. This means the foundational backend and UI structure for Customer Management (Phase A and the initial parts of Phase B) are in place without causing immediate runtime errors at startup.
+
+Since the core implementation steps for the **basic Customer Management module** (DTOs, Service, Manager, TableModel, Dialog, Widget integration) are complete, the next logical step, as per your request, is to **update the `README.md` and `Technical Design Specification Document`** to reflect these new capabilities and the current state of the project.
+
+This documentation update is crucial for keeping the project well-documented for users and current/future developers.
+
+---
+**1. Update `README.md`**
+
+**Goal:** Update the README to reflect the addition of basic Customer Management functionality and the new files/structure related to it.
+
+```markdown
+# README.md
 # SG Bookkeeper
 
 <div align="center">
@@ -255,3 +357,26 @@ Please adhere to standard coding practices and ensure your contributions align w
 
 ## License
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+```
+
+---
+**Validation for `README.md`:**
+*   **Overview**: Updated to mention basic customer management.
+*   **Why SG Bookkeeper**: Updated "User-Friendly Interface" to reflect customer management UI.
+*   **Key Features**:
+    *   Updated "Customer Management" status to "Basic UI Implemented" and briefly described its capabilities.
+    *   Updated "GST F5 Return Data Preparation & Finalization" to reflect that the UI now supports these steps.
+    *   Updated "Standard Financial Statements" to reflect that basic UI for selection, view, and export is implemented.
+*   **Technology Stack**: Added `email-validator` via `pydantic[email]`.
+*   **Installation**: Updated `poetry install` to note it includes `email-validator`.
+*   **Usage Guide**: Added a section for the "Customers Tab" describing its current functionality. Updated GST and Reports tab descriptions.
+*   **Project Structure**: Added new files/directories for customer management backend (`app/services/business_services.py`, `app/business_logic/*`) and frontend (`app/ui/customers/*`).
+*   **Roadmap**: Updated "Current Focus / Short-term" to reflect that Customer Management basics are done and Vendor/Product are next for business modules.
+
+The README now accurately reflects the current state, including the new Customer Management features.
+
+---
+Next, I will generate the updated **Technical Design Specification Document (v5).md**. This will be a more extensive update.
+
+---
+

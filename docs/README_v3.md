@@ -24,38 +24,37 @@
 
 SG Bookkeeper is a comprehensive, cross-platform desktop application designed to meet the accounting and bookkeeping needs of small to medium-sized businesses in Singapore. Built with Python and leveraging the power of PySide6 for a modern user interface and PostgreSQL for robust data management, it offers professional-grade financial tools tailored to Singapore's regulatory environment.
 
-The application features a double-entry accounting core, GST management, financial reporting, and modules for essential business operations including basic customer management. Its goal is to provide an intuitive, powerful, and compliant solution that empowers business owners and accountants.
+The application features a double-entry accounting core, GST management, financial reporting, and modules for essential business operations. Its goal is to provide an intuitive, powerful, and compliant solution that empowers business owners and accountants.
 
 ### Why SG Bookkeeper?
 
 -   **Singapore-Centric**: Designed with Singapore Financial Reporting Standards (SFRS), GST regulations (including 9% rate), and IRAS compliance considerations at its core.
 -   **Professional Grade**: Implements a full double-entry system, detailed audit trails (via database triggers), and robust data validation using Pydantic DTOs.
--   **User-Friendly Interface**: Aims for an intuitive experience for users who may not be accounting experts, while providing depth for professionals. Core accounting and basic customer management UI are functional.
+-   **User-Friendly Interface**: Aims for an intuitive experience for users who may not be accounting experts, while providing depth for professionals. Core accounting UI is functional.
 -   **Open Source & Local First**: Transparent development. Your financial data stays on your local machine or private server, ensuring privacy and control. No subscription fees.
 -   **Modern & Performant**: Utilizes asynchronous operations for a responsive UI and efficient database interactions, with a dedicated asyncio event loop.
 
 ## Key Features
 
-*(Status: Implemented, Partially Implemented, Basic UI Implemented, Foundational (DB/Models ready), Planned)*
+*(Status: Implemented, Partially Implemented, Foundational (DB/Models ready), Planned)*
 
 ### Core Accounting
 -   **Comprehensive Double-Entry Bookkeeping** (Implemented)
 -   **Customizable Hierarchical Chart of Accounts** (Implemented - UI for CRUD, Singapore-specific templates in `data/`)
 -   **General Ledger with detailed transaction history** (Foundational - JEs can be viewed, full GL report planned)
--   **Journal Entry System** (Implemented - UI for General Journal; Sales/Purchases JEs via respective modules are planned)
+-   **Journal Entry System** (Implemented - UI for General Journal, Sales/Purchases JEs via respective modules are planned)
 -   **Multi-Currency Support** (Foundational - `accounting.currencies` & `exchange_rates` tables and models exist, `CurrencyManager` for backend logic. UI integration in transactions pending.)
 -   **Fiscal Year and Period Management** (Implemented - UI in Settings for FY creation and period auto-generation; period closing/reopening logic in manager.)
 -   **Budgeting and Variance Analysis** (Foundational - `accounting.budgets` & `budget_details` tables and models exist. UI/Logic planned.)
 
 ### Singapore Tax Compliance
 -   **GST Tracking and Calculation** (Partially Implemented - `TaxCode` setup for SR, ZR, ES, TX at 9%; `TaxCalculator` exists. `GSTManager` can create `GSTReturn` records. Full JE line item tax application in all transaction UIs is ongoing.)
--   **GST F5 Return Data Preparation & Finalization** (Partially Implemented - `GSTManager` backend for data prep & finalization with JE settlement. Basic UI in Reports tab for prep, view, draft save, and finalize.)
+-   **GST F5 Return Data Preparation** (Partially Implemented - `GSTManager` structure exists. Aggregation logic from JEs is a placeholder. Settlement JE creation is implemented.)
 -   **Income Tax Estimation Aids** (Planned - `IncomeTaxManager` stub exists.)
 -   **Withholding Tax Management** (Foundational - `accounting.withholding_tax_certificates` table/model and `WithholdingTaxManager` stub exist.)
 
 ### Business Operations
--   **Customer Management** (Basic UI Implemented - List, Add, Edit, Toggle Active status for Customers.)
--   **Vendor Management** (Foundational - `business.vendors` table/model exists. UI/Logic planned.)
+-   **Customer and Vendor Relationship Management (CRM)** (Foundational - `business.customers` & `business.vendors` tables/models exist. UI is a stub.)
 -   **Sales Invoicing and Accounts Receivable** (Foundational - `business.sales_invoices` tables/models exist. UI/Logic planned.)
 -   **Purchase Invoicing and Accounts Payable** (Foundational - `business.purchase_invoices` tables/models exist. UI/Logic planned.)
 -   **Payment Processing and Allocation** (Foundational - `business.payments` tables/models exist. UI/Logic planned.)
@@ -64,16 +63,16 @@ The application features a double-entry accounting core, GST management, financi
 -   **Basic Inventory Control** (Foundational - `business.inventory_movements` table/model exists. Logic planned.)
 
 ### Reporting & Analytics
--   **Standard Financial Statements**: Balance Sheet, Profit & Loss, Trial Balance (Implemented - `FinancialStatementGenerator` produces data; `ReportEngine` exports basic PDF/Excel. Basic UI in Reports tab for selection, on-screen view, and export.)
+-   **Standard Financial Statements**: Balance Sheet, Profit & Loss, Trial Balance (Implemented - `FinancialStatementGenerator` produces data; `ReportEngine` exports basic PDF/Excel.)
 -   **Cash Flow Statement** (Planned)
--   **GST Reports** (Partially Implemented - See GST F5 above. Formatted GST reports planned.)
+-   **GST Reports** (Partially Implemented - `FinancialStatementGenerator` can produce data for GST F5. Formatted report planned.)
 -   **Customizable Reporting Engine** (Planned - Current `ReportEngine` is basic.)
 -   **Dashboard with Key Performance Indicators (KPIs)** (Planned - UI is a stub.)
 
 ### System & Security
 -   **User Authentication with Role-Based Access Control (RBAC)** (Implemented - `SecurityManager`, DB tables for users, roles, permissions are functional. Initial admin user seeded.)
 -   **Granular Permissions System** (Foundational - DB tables exist, `SecurityManager.has_permission` implemented. Full UI integration pending.)
--   **Comprehensive Audit Trails** (Implemented - DB triggers populate `audit.audit_log` and `audit.data_change_history` for key tables. Uses `app.current_user_id` session variable.)
+-   **Comprehensive Audit Trails** (Implemented - DB triggers populate `audit.audit_log` and `audit.data_change_history` for key tables. Requires `app.current_user_id` session variable to be set by application.)
 -   **PostgreSQL Database Backend** (Implemented)
 -   **Data Backup and Restore Utilities** (Planned)
 
@@ -89,7 +88,6 @@ The application features a double-entry accounting core, GST management, financi
 -   **Reporting Libraries**: `reportlab` (PDF), `openpyxl` (Excel)
 -   **Dependency Management**: Poetry
 -   **Date/Time Utilities**: `python-dateutil`
--   **Email Validation**: `email-validator` (via `pydantic[email]`)
 
 ## Installation
 
@@ -113,29 +111,93 @@ The application features a double-entry accounting core, GST management, financi
     ```bash
     poetry install
     ```
-    This command creates a virtual environment (typically `.venv` in the project root if one doesn't exist) and installs all dependencies specified in `pyproject.toml`, including `email-validator` via `pydantic[email]`.
+    This command creates a virtual environment (typically `.venv` in the project root if one doesn't exist) and installs all dependencies specified in `pyproject.toml`.
 
-3.  **Prepare PostgreSQL Database User:** (Steps remain the same)
-    *   Connect to your PostgreSQL instance as a superuser (e.g., `postgres`).
-    *   Create a dedicated database user: `CREATE USER sgbookkeeper_user WITH PASSWORD 'YourSecurePassword123!';`
+3.  **Prepare PostgreSQL Database User:**
+    *   Connect to your PostgreSQL instance as a superuser (e.g., `postgres`):
+        ```bash
+        sudo -u postgres psql # Or psql -U postgres on Windows/macOS if postgres user needs password
+        ```
+    *   Create a dedicated database user for the application (replace `YourSecurePassword123!` securely):
+        ```sql
+        CREATE USER sgbookkeeper_user WITH PASSWORD 'YourSecurePassword123!';
+        \q
+        ```
+        *Note: The database itself (`sg_bookkeeper`) will be created by the `db_init.py` script if it doesn't exist.*
 
-4.  **Configure Database Connection (`config.ini`):** (Steps remain the same)
-    *   Locate/Create `config.ini` in platform-specific user config directory.
-    *   Ensure connection details match your PostgreSQL setup.
+4.  **Configure Database Connection (`config.ini`):**
+    *   The application expects `config.ini` in a platform-specific user configuration directory.
+        *   Linux: `~/.config/SGBookkeeper/config.ini`
+        *   macOS: `~/Library/Application Support/SGBookkeeper/config.ini`
+        *   Windows: `C:\Users\<YourUser>\AppData\Roaming\SGBookkeeper\config.ini`
+    *   Create this directory if it doesn't exist.
+    *   Copy the following example content into `config.ini` in that location, adjusting values as necessary:
+        ```ini
+        [Database]
+        username = sgbookkeeper_user
+        password = YourSecurePassword123!
+        host = localhost
+        port = 5432
+        database = sg_bookkeeper
+        echo_sql = False
+        pool_min_size = 2
+        pool_max_size = 10
+        pool_recycle_seconds = 3600
 
-5.  **Initialize the Database Schema and Seed Initial Data:** (Steps remain the same)
+        [Application]
+        theme = light
+        language = en
+        last_opened_company_id = 1 ; Default company settings ID from initial_data.sql
+        ```
+    *   Ensure `username`, `password`, `host`, `port`, and `database` match your PostgreSQL setup and the user created in step 3.
+
+5.  **Initialize the Database Schema and Seed Initial Data:**
+    *   This step requires PostgreSQL administrative privileges to create the database (if not existing) and extensions.
+    *   Run the database initialization script using Poetry. Replace `YOUR_POSTGRES_ADMIN_PASSWORD` with the password for your PostgreSQL admin user (e.g., `postgres`).
     ```bash
     poetry run sg_bookkeeper_db_init --user postgres --password YOUR_POSTGRES_ADMIN_PASSWORD --dbname sg_bookkeeper --drop-existing
     ```
+    *   **`--drop-existing`**: Use this flag with caution. It will delete and recreate the `sg_bookkeeper` database, ensuring a clean setup. Omit it if you want to preserve an existing database (the script might then fail if tables conflict).
+    *   This script executes `scripts/schema.sql` and `scripts/initial_data.sql`.
 
-6.  **Grant Privileges to Application User:** (Steps remain the same)
-    *   Connect as PostgreSQL admin and grant necessary privileges to `sgbookkeeper_user` on all schemas and tables.
+6.  **Grant Privileges to Application User:**
+    *   After the database is initialized by the admin user, connect to the `sg_bookkeeper` database as the PostgreSQL admin user:
+        ```bash
+        sudo -u postgres psql -d sg_bookkeeper # Or psql -U postgres -d sg_bookkeeper
+        ```
+    *   Execute the following `GRANT` commands (replace `sgbookkeeper_user` if you used a different application username):
+        ```sql
+        GRANT USAGE ON SCHEMA core, accounting, business, audit TO sgbookkeeper_user;
+        GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA core TO sgbookkeeper_user;
+        GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA accounting TO sgbookkeeper_user;
+        GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA business TO sgbookkeeper_user;
+        GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA audit TO sgbookkeeper_user;
+        GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA core TO sgbookkeeper_user;
+        GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA accounting TO sgbookkeeper_user;
+        GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA business TO sgbookkeeper_user;
+        GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA audit TO sgbookkeeper_user;
+        GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA core TO sgbookkeeper_user;
+        GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA accounting TO sgbookkeeper_user;
+        GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA audit TO sgbookkeeper_user;
+
+        -- For future tables created by the admin role (e.g., during migrations)
+        ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA core GRANT ALL ON TABLES TO sgbookkeeper_user;
+        ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA accounting GRANT ALL ON TABLES TO sgbookkeeper_user;
+        ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA business GRANT ALL ON TABLES TO sgbookkeeper_user;
+        ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA audit GRANT ALL ON TABLES TO sgbookkeeper_user;
+        ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA core GRANT USAGE, SELECT ON SEQUENCES TO sgbookkeeper_user;
+        ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA accounting GRANT USAGE, SELECT ON SEQUENCES TO sgbookkeeper_user;
+        ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA business GRANT USAGE, SELECT ON SEQUENCES TO sgbookkeeper_user;
+        ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA audit GRANT USAGE, SELECT ON SEQUENCES TO sgbookkeeper_user;
+        \q
+        ```
 
 7.  **Compile Qt Resources (Recommended):**
+    For icons and other Qt resources to be bundled correctly:
     ```bash
     poetry run pyside6-rcc resources/resources.qrc -o app/resources_rc.py
     ```
-    The application now logs whether compiled resources or direct paths are used.
+    The application attempts to load compiled resources first, falling back to direct file paths if `app/resources_rc.py` is not found.
 
 8.  **Run the Application:**
     Ensure your `config.ini` points to the application user (`sgbookkeeper_user`).
@@ -145,24 +207,17 @@ The application features a double-entry accounting core, GST management, financi
 
 ## Usage Guide
 
-The application is under active development. Current functional areas include:
+The application is under active development. Currently, the following areas have functional UI components:
 
 -   **Accounting Tab**:
     -   **Chart of Accounts**: View, add, edit, and (de)activate accounts.
-    -   **Journal Entries**: View list of journal entries with filtering. Create new general journal entries with multiple lines, tax codes. Edit draft entries. Post entries. Reverse posted entries.
--   **Customers Tab**:
-    -   View list of customers with basic search and active/inactive filter.
-    -   Add new customers with detailed information.
-    -   Edit existing customers.
-    -   Toggle active/inactive status of customers.
--   **Reports Tab**:
-    -   **GST F5 Preparation**: Select period, prepare GST F5 data based on posted transactions, view summary, save as draft, and finalize (which creates a settlement JE).
-    *   **Financial Statements**: Select report type (Balance Sheet, P&L, Trial Balance), set date parameters, generate and view an on-screen summary, and export to PDF or Excel.
+    -   **Journal Entries**: View list of journal entries. Create new general journal entries with multiple lines, tax codes. Edit draft entries. Post entries.
 -   **Settings Tab**:
     -   View and edit Company Information.
-    -   Manage Fiscal Years: Add new fiscal years and automatically generate their monthly or quarterly periods. View existing fiscal years.
+    -   Manage Fiscal Years: Add new fiscal years and automatically generate their monthly or quarterly periods.
 
-Other modules like Vendors, full Banking, advanced Product/Inventory Management, and the Dashboard are placeholders for future development. Upon first run (after DB initialization), an `admin` user is created with the password `password`. You will be prompted to change this password for security.
+Other modules like Customers, Vendors, Banking, full Reports, and the Dashboard are placeholders for future development.
+Upon first run (after DB initialization), an `admin` user is created with the password `password`. You will be prompted to change this password.
 
 ## Project Structure
 
@@ -175,38 +230,24 @@ sg_bookkeeper/
 │   ├── common/             # Common utilities, enums
 │   ├── models/             # SQLAlchemy ORM models (organized by schema: core, accounting, etc.)
 │   ├── services/           # Data access services (repositories)
-│   │   ├── __init__.py
-│   │   ├── account_service.py
-│   │   ├── accounting_services.py # For AccountType, Currency, ExchangeRate, FiscalYear services
-│   │   ├── business_services.py   # For CustomerService, VendorService, etc. (NEW)
-│   │   ├── core_services.py
-│   │   ├── fiscal_period_service.py
-│   │   ├── journal_service.py
-│   │   └── tax_service.py
 │   ├── accounting/         # Business logic managers for accounting module
 │   ├── tax/                # Business logic managers for tax module
-│   ├── business_logic/     # Business logic managers for business entities (e.g., CustomerManager) (NEW)
-│   │   ├── __init__.py     # (NEW)
-│   │   └── customer_manager.py # (NEW)
 │   ├── reporting/          # Logic managers for generating reports
 │   ├── ui/                 # PySide6 UI components (organized by module)
-│   │   └── customers/      # Customer specific UI
-│   │       ├── __init__.py
-│   │       ├── customer_dialog.py # (NEW)
-│   │       ├── customer_table_model.py # (NEW)
-│   │       └── customers_widget.py # (Enhanced)
-│   └── utils/              # General utility functions, Pydantic DTOs
-├── data/                   # Default data templates (e.g., CoA templates)
-├── docs/                   # Project documentation
-├── resources/              # UI assets (icons, images)
+│   └── utils/              # General utility functions, Pydantic DTOs, helpers
+├── data/                   # Default data templates (e.g., CoA templates, sample tax codes)
+├── docs/                   # Project documentation (like this README, TDS)
+├── resources/              # UI assets
+│   ├── icons/              # SVG icons
+│   ├── images/             # Splash screen, etc.
 │   └── resources.qrc       # Qt resource collection file
-├── scripts/                # Database initialization scripts
-│   ├── db_init.py
-│   ├── schema.sql
-│   └── initial_data.sql
-├── tests/                  # Automated tests (planned)
+├── scripts/                # Database initialization and utility scripts
+│   ├── db_init.py          # Python script to initialize DB
+│   ├── schema.sql          # Full DDL for database schema
+│   └── initial_data.sql    # SQL for seeding initial/default data
+├── tests/                  # Automated tests (unit, integration, UI - planned)
 ├── .gitignore
-├── pyproject.toml          # Poetry configuration
+├── pyproject.toml          # Poetry configuration for dependencies and project metadata
 ├── poetry.lock
 ├── README.md               # This file
 └── LICENSE
@@ -219,7 +260,7 @@ The application uses a PostgreSQL database with a schema organized into four mai
 -   **Formatting**: Code is formatted using Black. Run `poetry run black .`
 -   **Linting**: Flake8 is used for linting. Run `poetry run flake8 .`
 -   **Type Checking**: MyPy can be used. Run `poetry run mypy app scripts`
--   **Testing**: Pytest is set up. Run tests with `poetry run pytest`. (Test coverage needs improvement).
+-   **Testing**: Pytest is set up. Run tests with `poetry run pytest`. (Test coverage is currently low).
 
 ## Contributing
 Contributions are welcome! Please follow these steps:
@@ -236,22 +277,25 @@ Please adhere to standard coding practices and ensure your contributions align w
 ## Roadmap
 
 ### Current Focus / Short-term
--   **Vendor Management**: Implement basic UI (List, Add, Edit, Toggle Active) similar to Customer Management.
--   **Product/Service Management**: Implement basic UI for managing products and services.
--   **Refine Reporting**: Improve on-screen display of financial reports (e.g., using `QTableView`).
--   **User and Role Management UI**: Add UI in Settings for managing users, roles, and permissions.
+-   Solidify and test core accounting workflows (JE posting, reversals, CoA management).
+-   Enhance `GSTManager` with actual data aggregation for F5 preparation.
+-   Implement basic UI for Customer and Vendor management (CRUD operations).
+-   Begin implementation of Sales Invoicing UI and backend logic.
 
 ### Medium-term
--   Basic Sales and Purchase Invoicing workflows.
--   Bank Account management and basic transaction entry UI in Banking module.
--   Enhance GST F5 report with full data aggregation and export options (e.g., IAF format).
+-   Implement Purchase Invoicing UI and backend logic.
+-   Develop Bank Account management and basic transaction entry UI.
+-   Expand Financial Reporting options (e.g., detailed GL report, Aged Receivables/Payables).
+-   Implement User and Role management UI in Settings.
 
 ### Long-term
 -   Bank Reconciliation features.
--   Advanced reporting and analytics, dashboard KPIs.
--   Inventory Control enhancements.
--   Multi-company support.
--   Cloud synchronization options.
+-   Full GST F5 report generation and IAF (Audit File) export.
+-   Inventory module enhancements.
+-   Dashboard with key financial KPIs.
+-   Advanced reporting and analytics, possibly with custom report building.
+-   Data backup and restore utilities.
+-   Multi-company support (major architectural consideration).
 
 ## License
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
