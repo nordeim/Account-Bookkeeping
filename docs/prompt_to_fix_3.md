@@ -6,3 +6,8 @@ Remember you are a deep-thinking AI agent recognized for and exemplary in modern
 
 You really need to be thorough in your analysis to avoid going into endless loop of the same errors. Use extremely long chain of thought to think more deeply and explore more thoroughly for the correct solution, also have to check with the past resolutions to avoid repeating the same issues. 
 
+---
+excellent result so far! please proceed with the next step in your plan to close any gap in the core feature set of the application as noted in your updated TDS. remember to explore carefully for multiple implementation options before choosing the most optimal and elegant solution to implement the changes. so you have to think deeply and systematically to explore all options and not just choose any option you may think of. also make sure you make a detailed execution plan with an integrated checklist for each step, before proceeding cautiously step by step. after completing each step, always double-check and validate your changes for that step against its checklist before proceeding to the next step. remember to always create a *complete* and updated replacement or new file for the affected files, enclose each complete and updated replacement file within ```py (or ```sql or ```js or or ```ts or ```tsx ```php extension) opening and ``` closing tags. after creating each file, use line by line "diff" command to double-check and validate the created file.
+
+The important point is to proceed very carefully so as not to introduce any regression error or accidentally omit the original features or functions. use the same tested rigorous and meticulous approach. thank you and good luck!
+
