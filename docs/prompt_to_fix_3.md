@@ -17,3 +17,11 @@ Excellent result so far! Please proceed with the next step in your plan for the 
 ---
 Below is "diff" command output comparing the previous version with your latest generated version. Please double-check and validate that the changes are valid and that no other original features or functions are lost (omitted). use the same rigorous and meticulous approach to review the diff output below.
 
+---
+Excellent job! Yes, please proceed according to your plan for the fix. You will carefully generate a complete updated (replacement) version for the relevant file that needs updating. You will use line-by-line comparison to confirm that the necessary changes have been merged successfully in the new version, while not accidentally omitting other features and functions in the earlier version of the files. Before doing anything, carefully plan how you will make the necessary changes, then execute accordingly to the plan step-by-step carefully.
+
+Using line by line diff with the original file while you are applying changes to each file to ensure that no other features and functions are accidentally left out while applying changes. we don't want to introduce regression failure while updating the code. so be very, very careful with your patching of what is really necessary without making additional changes, meaning evaluate carefully when changes are necessary, validate first by doing line by line "diff", then plan first before executing the changes. Do testing and simulation if possible. enclose your complete and updated version of the updated files within the ```python (or ```js or ```sql or ```json) opening and ``` closing tags. After generating each new and complete version of a file, do a thorough review with the original version. Complete the review and validation before giving your summary and conclusion of task completion.
+
+---
+excellent result so far! now use the same rigorous and meticulous approach to update the README.md and TDS to accurately reflect the current state of the project. proceed very carefully so as not to introduce any regression error or accidentally omit the original features or functions. use the same tested rigorous and meticulous approach. thank you and good luck!
+

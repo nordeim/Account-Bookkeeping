@@ -1,5 +1,20 @@
 **Current Project Status Recap:**
 
+*   **Core Architecture**: Stable and functional.
+*   **Database & ORM**: Comprehensive and functional.
+*   **Settings UI**: Company settings and Fiscal Year/Period management are functional.
+*   **Chart of Accounts UI**: Functional.
+*   **Journal Entries UI & Backend**: Substantially complete and functional.
+*   **GST Functionality**: Backend and UI for preparation, draft saving, and finalization (with JE settlement) are implemented.
+*   **Financial Reports UI**: Refactored to use native Qt views (`QTreeView`, `QTableView`) for Balance Sheet, P&L, Trial Balance, and General Ledger. On-screen viewing and export are functional.
+*   **Customer Management Module (Backend & Basic UI)**: Complete and stable.
+*   **Vendor Management Module (Backend & Basic UI)**: Complete and stable.
+*   **Product/Service Management Module (Backend & Basic UI)**: All phases (A: Backend, B: Frontend UI including `ProductsWidget`) are now complete and the application starts successfully with `ProductsWidget` initialized. Functional testing of the Products module is the next step for this module itself.
+*   **Cross-Cutting Concerns**: Addressed (audit context, sequence generation, icon loading, Pydantic dependencies).
+
+---
+**Current Project Status Recap:**
+
 *   **Basic Product/Service Management Module (Backend & Frontend UI)**:
     *   Phase A (Backend): Complete.
     *   Phase B (Frontend):
