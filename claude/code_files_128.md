@@ -1,3 +1,43 @@
+<think>
+The application is still launching and shutting down perfectly! This is a very good sign. It confirms that the addition of Sales Invoice DTOs to `app/utils/pydantic_models.py` (and the import of `InvoiceStatusEnum`) was successful and didn't introduce any issues detectable at startup.
+
+**Current Step: Enhancement Execution Plan: Basic Sales Invoicing - Phase A (Backend - Part 1)**
+
+We have completed for Sales Invoice Backend:
+*   A1. Create Pydantic DTOs for Sales Invoice (Done).
+
+The plan for Sales Invoice Backend (Part 1) was:
+*   A2. Define `ISalesInvoiceRepository` Interface (Next).
+*   A3. Implement `SalesInvoiceService` (in `app/services/business_services.py`).
+
+So, the immediate next step is **A2: Define `ISalesInvoiceRepository` Interface**. This will be added to `app/services/__init__.py`.
+
+**Plan for A2: Define `ISalesInvoiceRepository` Interface**
+   *   **Goal:** Specify the contract for sales invoice data access operations.
+   *   **File to Update:** `app/services/__init__.py`
+   *   **Checklist & Tasks:**
+        *   [ ] Import `SalesInvoice` ORM model from `app.models.business.sales_invoice`.
+        *   [ ] Import `SalesInvoiceSummaryData` DTO from `app.utils.pydantic_models`.
+        *   [ ] Import `InvoiceStatusEnum` from `app.common.enums`.
+        *   [ ] Define `ISalesInvoiceRepository(IRepository[SalesInvoice, int])`.
+        *   [ ] Declare methods:
+            *   `get_by_invoice_no(self, invoice_no: str) -> Optional[SalesInvoice]`
+            *   `get_all_summary(self, customer_id: Optional[int] = None, status: Optional[InvoiceStatusEnum] = None, start_date: Optional[date] = None, end_date: Optional[date] = None, page: int = 1, page_size: int = 50) -> List[SalesInvoiceSummaryData]` (with relevant filters).
+        *   [ ] Add `ISalesInvoiceRepository` to the `__all__` list.
+</think>
+
+This is excellent news! The continued stability of the application after adding the Sales Invoice DTOs is very encouraging.
+
+We are proceeding with **Phase A: Backend for Sales Invoice Creation**.
+Step A1 (Sales Invoice DTOs) is complete.
+The next step is **A2: Define `ISalesInvoiceRepository` Interface**.
+
+This interface will define the contract for data access operations related to Sales Invoices and will be added to `app/services/__init__.py`.
+
+---
+**A2. Update `app/services/__init__.py` to define `ISalesInvoiceRepository`**
+
+```python
 # app/services/__init__.py
 from abc import ABC, abstractmethod
 from typing import List, Optional, Any, Generic, TypeVar, Dict 
@@ -36,13 +76,13 @@ from app.models.core.configuration import Configuration
 from app.models.business.customer import Customer
 from app.models.business.vendor import Vendor
 from app.models.business.product import Product
-from app.models.business.sales_invoice import SalesInvoice
+from app.models.business.sales_invoice import SalesInvoice # New Import
 
 # --- DTO Imports (for return types in interfaces) ---
-from app.utils.pydantic_models import CustomerSummaryData, VendorSummaryData, ProductSummaryData, SalesInvoiceSummaryData
+from app.utils.pydantic_models import CustomerSummaryData, VendorSummaryData, ProductSummaryData, SalesInvoiceSummaryData # New Import for SalesInvoiceSummaryData
 
 # --- Enum Imports (for filter types in interfaces) ---
-from app.common.enums import ProductTypeEnum, InvoiceStatusEnum
+from app.common.enums import ProductTypeEnum, InvoiceStatusEnum # New Import for InvoiceStatusEnum
 
 
 # --- Existing Interfaces (condensed for brevity) ---
@@ -165,7 +205,7 @@ class IVendorRepository(IRepository[Vendor, int]): # ...
                               page: int = 1, page_size: int = 50
                              ) -> List[VendorSummaryData]: pass
 
-class IProductRepository(IRepository[Product, int]): # ... 
+class IProductRepository(IRepository[Product, int]): # ... (as defined previously)
     @abstractmethod
     async def get_by_code(self, code: str) -> Optional[Product]: pass
     @abstractmethod
@@ -177,9 +217,11 @@ class IProductRepository(IRepository[Product, int]): # ...
                               page_size: int = 50
                              ) -> List[ProductSummaryData]: pass
 
+# --- NEW: Sales Invoice Repository Interface ---
 class ISalesInvoiceRepository(IRepository[SalesInvoice, int]):
     @abstractmethod
     async def get_by_invoice_no(self, invoice_no: str) -> Optional[SalesInvoice]: pass
+
     @abstractmethod
     async def get_all_summary(self, 
                               customer_id: Optional[int] = None,
@@ -189,6 +231,7 @@ class ISalesInvoiceRepository(IRepository[SalesInvoice, int]):
                               page: int = 1, 
                               page_size: int = 50
                              ) -> List[SalesInvoiceSummaryData]: pass
+    # save method for create/update will come from IRepository via SalesInvoiceService inheriting it.
 
 # --- Service Implementations ---
 from .account_service import AccountService
@@ -197,7 +240,8 @@ from .fiscal_period_service import FiscalPeriodService
 from .tax_service import TaxCodeService, GSTReturnService 
 from .core_services import SequenceService, ConfigurationService, CompanySettingsService 
 from .accounting_services import AccountTypeService, CurrencyService, ExchangeRateService, FiscalYearService
-from .business_services import CustomerService, VendorService, ProductService, SalesInvoiceService # New Import for SalesInvoiceService
+from .business_services import CustomerService, VendorService, ProductService
+# SalesInvoiceService will be in business_services.py, imported later when defined
 
 __all__ = [
     "IRepository",
@@ -206,11 +250,24 @@ __all__ = [
     "IAccountTypeRepository", "ICurrencyRepository", "IExchangeRateRepository",
     "ISequenceRepository", "IConfigurationRepository", 
     "ICustomerRepository", "IVendorRepository", "IProductRepository",
-    "ISalesInvoiceRepository", 
+    "ISalesInvoiceRepository", # Added ISalesInvoiceRepository
     "AccountService", "JournalService", "FiscalPeriodService", "FiscalYearService",
     "TaxCodeService", "GSTReturnService",
     "SequenceService", "ConfigurationService", "CompanySettingsService",
     "AccountTypeService", "CurrencyService", "ExchangeRateService",
-    "CustomerService", "VendorService", "ProductService", 
-    "SalesInvoiceService", # Added SalesInvoiceService
+    "CustomerService", "VendorService", "ProductService",
+    # SalesInvoiceService will be added here once defined
 ]
+```
+
+**Validation for `app/services/__init__.py`:**
+*   Added `from app.models.business.sales_invoice import SalesInvoice`.
+*   Added `SalesInvoiceSummaryData` to the import from `app.utils.pydantic_models`.
+*   Added `InvoiceStatusEnum` to the import from `app.common.enums`.
+*   Defined `ISalesInvoiceRepository(IRepository[SalesInvoice, int])` with the planned methods:
+    *   `get_by_invoice_no(self, invoice_no: str) -> Optional[SalesInvoice]`
+    *   `get_all_summary(self, customer_id: Optional[int] = None, status: Optional[InvoiceStatusEnum] = None, start_date: Optional[date] = None, end_date: Optional[date] = None, page: int = 1, page_size: int = 50) -> List[SalesInvoiceSummaryData]`. This includes relevant filters for listing sales invoices.
+*   Added `ISalesInvoiceRepository` to the `__all__` list.
+*   No existing interfaces or exports were unintentionally modified.
+
+This completes step A2 for Sales Invoicing. The next step is A3: Implement `SalesInvoiceService` in `app/services/business_services.py`.

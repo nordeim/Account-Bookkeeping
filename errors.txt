@@ -1,21 +1,21 @@
 $ poetry run sg_bookkeeper
 Starting global asyncio event loop thread...
 Asyncio event loop <_UnixSelectorEventLoop running=False closed=False debug=False> started in thread AsyncioLoopThread and set as current.
-Global asyncio event loop <_UnixSelectorEventLoop running=False closed=False debug=False> confirmed running in dedicated thread.
+Global asyncio event loop <_UnixSelectorEventLoop running=True closed=False debug=False> confirmed running in dedicated thread.
 Successfully imported compiled Qt resources (resources_rc.py).
 Using compiled Qt resources.
-2025-05-28 00:17:54,173 - SGBookkeeperAppCore - INFO - ApplicationCore initialized.
-2025-05-28 00:17:54,173 - SGBookkeeperAppCore - INFO - ApplicationCore starting up...
+2025-05-28 10:05:03,675 - SGBookkeeperAppCore - INFO - ApplicationCore initialized.
+2025-05-28 10:05:03,675 - SGBookkeeperAppCore - INFO - ApplicationCore starting up...
 ModuleManager: load_all_modules called (conceptual).
-2025-05-28 00:17:54,280 - SGBookkeeperAppCore - INFO - ApplicationCore startup complete.
-2025-05-28 00:17:54,601 - SGBookkeeperAppCore - INFO - Using compiled Qt resources for JournalEntriesWidget.
-2025-05-28 00:17:54,610 - SGBookkeeperAppCore - INFO - Using compiled Qt resources for CustomersWidget.
-2025-05-28 00:17:54,613 - SGBookkeeperAppCore - INFO - Using compiled Qt resources for VendorsWidget.
-2025-05-28 00:17:54,616 - SGBookkeeperAppCore - INFO - Using compiled Qt resources for ProductsWidget.
+2025-05-28 10:05:03,792 - SGBookkeeperAppCore - INFO - ApplicationCore startup complete.
+2025-05-28 10:05:04,075 - SGBookkeeperAppCore - INFO - Using compiled Qt resources for JournalEntriesWidget.
+2025-05-28 10:05:04,084 - SGBookkeeperAppCore - INFO - Using compiled Qt resources for CustomersWidget.
+2025-05-28 10:05:04,087 - SGBookkeeperAppCore - INFO - Using compiled Qt resources for VendorsWidget.
+2025-05-28 10:05:04,090 - SGBookkeeperAppCore - INFO - Using compiled Qt resources for ProductsWidget.
 Application shutting down (actual_shutdown_sequence)...
 Scheduling ApplicationCore shutdown...
-2025-05-28 00:18:10,582 - SGBookkeeperAppCore - INFO - ApplicationCore shutting down...
-2025-05-28 00:18:10,589 - SGBookkeeperAppCore - INFO - ApplicationCore shutdown complete.
+2025-05-28 10:05:10,442 - SGBookkeeperAppCore - INFO - ApplicationCore shutting down...
+2025-05-28 10:05:10,446 - SGBookkeeperAppCore - INFO - ApplicationCore shutdown complete.
 ApplicationCore shutdown completed.
 Requesting global asyncio event loop to stop...
 Joining asyncio event loop thread...

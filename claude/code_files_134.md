@@ -1,3 +1,70 @@
+<think>
+This is excellent! The application is launching and shutting down cleanly again. This confirms that the `NameError` in `SalesInvoiceManager` (due to missing `date` and `SalesInvoiceSummaryData` imports) and the other refinements in that file have been successfully resolved without introducing new startup issues.
+
+**Current Step: Enhancement Execution Plan: Basic Sales Invoicing - Phase A (Backend)**
+
+We have completed for Sales Invoice Backend:
+*   A1. Create Pydantic DTOs for Sales Invoice (Done).
+*   A2. Define `ISalesInvoiceRepository` Interface (Done).
+*   A3. Implement `SalesInvoiceService` (Done).
+*   A4. Create `SalesInvoiceManager` (Done, including import fixes).
+
+The plan for Sales Invoice Backend was:
+*   A5. Integrate `SalesInvoiceService` and `SalesInvoiceManager` into `ApplicationCore`. (Next)
+
+So, the immediate next step is **A5: Integrate Sales Invoice backend components into `app/core/application_core.py`**.
+
+**Plan for A5: Integrate into `app/core/application_core.py`**
+   *   **Goal:** Make the new `SalesInvoiceService` and `SalesInvoiceManager` available through the `ApplicationCore` instance.
+   *   **File to Update:** `app/core/application_core.py`
+   *   **Checklist & Tasks:**
+        *   [ ] **Import**: Import `SalesInvoiceService` from `app.services.business_services` and `SalesInvoiceManager` from `app.business_logic.sales_invoice_manager`.
+        *   [ ] **Instance Variables**: Add new private instance variable placeholders in `ApplicationCore.__init__`:
+            *   `self._sales_invoice_service_instance: Optional[SalesInvoiceService] = None`
+            *   `self._sales_invoice_manager_instance: Optional[SalesInvoiceManager] = None`
+        *   [ ] **Instantiation in `startup()`**: In `ApplicationCore.startup()`, instantiate `SalesInvoiceService` and then `SalesInvoiceManager`, injecting their dependencies. This should be done after other core and business services (like `CustomerService`, `ProductService`, `TaxCodeService`, `SequenceService`, `TaxCalculator`) are ready.
+            ```python
+            # In ApplicationCore.startup()
+            self._sales_invoice_service_instance = SalesInvoiceService(self.db_manager, self)
+            self._sales_invoice_manager_instance = SalesInvoiceManager(
+                sales_invoice_service=self.sales_invoice_service, # Use property
+                customer_service=self.customer_service,
+                product_service=self.product_service,
+                tax_code_service=self.tax_code_service,
+                tax_calculator=self.tax_calculator, # Assumes self.tax_calculator is initialized
+                sequence_service=self.sequence_service, # Assumes self.sequence_service is initialized
+                app_core=self
+            )
+            ```
+        *   [ ] **Properties**: Expose `SalesInvoiceService` and `SalesInvoiceManager` via public properties:
+            ```python
+            @property
+            def sales_invoice_service(self) -> SalesInvoiceService:
+                if not self._sales_invoice_service_instance: raise RuntimeError("SalesInvoiceService not initialized.")
+                return self._sales_invoice_service_instance
+
+            @property
+            def sales_invoice_manager(self) -> SalesInvoiceManager:
+                if not self._sales_invoice_manager_instance: raise RuntimeError("SalesInvoiceManager not initialized.")
+                return self._sales_invoice_manager_instance
+            ```
+
+This integration follows the established pattern for other services and managers in `ApplicationCore`.
+</think>
+
+This is wonderful news! The application's continued stability after each incremental backend addition is a strong sign of the architecture's soundness and the careful implementation.
+
+We are in the final step of **Phase A: Backend for Basic Sales Invoicing**.
+Steps A1 (DTOs), A2 (Interface), A3 (Service), and A4 (Manager) for Sales Invoices are now complete.
+
+The next and final step for this backend phase is **A5: Integrate `SalesInvoiceService` and `SalesInvoiceManager` into `app/core/application_core.py`**. This will make these new components available globally within the application framework.
+
+---
+**A5. Update `app/core/application_core.py` to Integrate Sales Invoice Components**
+
+**Goal:** Instantiate `SalesInvoiceService` and `SalesInvoiceManager` within `ApplicationCore` and expose them via properties.
+
+```python
 # app/core/application_core.py
 from typing import Optional, Any
 from app.core.config_manager import ConfigManager
@@ -282,3 +349,17 @@ class ApplicationCore:
         if not self._sales_invoice_manager_instance: raise RuntimeError("SalesInvoiceManager not initialized.")
         return self._sales_invoice_manager_instance
 
+```
+
+**Validation for `app/core/application_core.py`:**
+*   **Imports**: Added `from app.business_logic.sales_invoice_manager import SalesInvoiceManager` and `from app.services.business_services import ... SalesInvoiceService`.
+*   **Instance Variables**: Added `_sales_invoice_service_instance` and `_sales_invoice_manager_instance` placeholders.
+*   **`startup()` Method**:
+    *   `self._sales_invoice_service_instance` is instantiated correctly.
+    *   `self._sales_invoice_manager_instance` is instantiated. Dependencies for `SalesInvoiceManager` were: `sales_invoice_service`, `customer_service`, `product_service`, `tax_code_service`, `tax_calculator`, and `sequence_service`. All these services are initialized before `SalesInvoiceManager` and passed correctly using their respective properties.
+*   **Properties**: Added public properties `sales_invoice_service` and `sales_invoice_manager`.
+*   The overall structure and order of instantiations have been maintained.
+
+This completes Phase A (Backend) for the Basic Sales Invoicing module. All necessary backend components are now in place and integrated into `ApplicationCore`. The application should continue to launch cleanly.
+
+The next phase will be **Phase B: Frontend UI for Sales Invoicing**, starting with creating the `SalesInvoiceTableModel` and `SalesInvoiceDialog`.

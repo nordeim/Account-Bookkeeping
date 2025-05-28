@@ -1,3 +1,129 @@
+<think>
+The application is stable, and the foundational modules for managing Customers, Vendors, and Products/Services (including their UI) are now in place. The documentation (README, TDS) has been updated to reflect this. This is a significant milestone.
+
+The user now wants to proceed with the next item from the "Current Focus / Short-term" roadmap:
+**"Basic Sales Invoicing: Begin implementation of sales invoice creation, linking to customers and products."**
+
+This is a core transactional feature and a natural progression after establishing the master data modules (Customers, Products).
+
+**High-Level Goal for Sales Invoicing (Basic):**
+*   Allow users to create a new sales invoice.
+*   Select a customer.
+*   Add line items, selecting products/services.
+*   Specify quantities and prices (prices might default from product master).
+*   Apply tax codes to lines.
+*   Calculate totals (subtotal, tax, grand total).
+*   Save the invoice (initially as a "Draft").
+*   (Future steps for invoicing: Posting the invoice to generate accounting JEs, sending the invoice, recording payments against it, handling different statuses like "Sent", "Paid", "Voided").
+
+For this iteration, "begin implementation" likely means focusing on the data entry aspect and saving the invoice record itself, perhaps with its lines, to the database. The accounting impact (Journal Entry generation) might be a subsequent step after the invoice data itself can be captured.
+
+**Exploring Implementation Options:**
+
+1.  **Data Model**:
+    *   `business.sales_invoices` and `business.sales_invoice_lines` tables and corresponding ORM models (`SalesInvoice`, `SalesInvoiceLine`) already exist in `schema.sql` and `app/models/business/`. These are comprehensive and suitable.
+2.  **Backend (Service, Manager)**:
+    *   **DTOs**: New DTOs will be needed for sales invoice creation/update (e.g., `SalesInvoiceCreateData`, `SalesInvoiceLineData` within it, `SalesInvoiceUpdateData`).
+    *   **Service (`SalesInvoiceService` in `app/services/business_services.py`)**:
+        *   Will implement `ISalesInvoiceRepository` (new interface).
+        *   Methods: `get_by_id` (with lines and related entities), `get_all_summary` (for listing invoices), `save` (for create/update), `get_by_invoice_no`.
+    *   **Manager (`SalesInvoiceManager` in `app/business_logic/sales_invoice_manager.py` - new file)**:
+        *   Handles business logic: creating new invoice numbers (via `SequenceService`), validating customer/product existence, calculating totals, interacting with `SalesInvoiceService`.
+        *   For this "basic" step, it will primarily focus on saving the invoice in a 'Draft' status. Generating the Journal Entry upon posting will be a key future enhancement for this manager.
+3.  **Frontend (TableModel, Dialog, Widget)**:
+    *   **List View (`SalesInvoicesWidget` - new, could be a tab in "Customers" or a new top-level "Sales" module):**
+        *   For MVP, a new top-level "Sales" or "Invoicing" module seems appropriate rather than nesting under Customers. Let's assume a new "Sales" tab.
+        *   `SalesInvoiceTableModel` (new).
+        *   `QTableView` to list invoices (Inv No, Date, Customer, Total, Status).
+    *   **Entry/Edit Dialog (`SalesInvoiceDialog` - new):**
+        *   This will be a complex dialog:
+            *   Header: Customer selection (ComboBox), Invoice Date, Due Date, Invoice No (auto-generated or manual), Currency, Terms.
+            *   Lines: A `QTableWidget` or `QTableView` with a custom model for invoice lines (Product/Service selection, Description, Qty, Unit Price, Discount, Tax Code, Line Total).
+            *   Totals: Display Subtotal, Tax Amount, Grand Total, dynamically calculated.
+            *   Actions: "Save Draft", "Save & Approve" (or "Save & Post" for future).
+
+**Decision for this Turn: Focus on Backend and Dialog Foundation for Sales Invoice Creation**
+
+Given the complexity, this turn will focus on:
+1.  **Backend**: DTOs, Service interface, Service implementation, basic Manager for creating/saving a draft sales invoice.
+2.  **Frontend**: The foundational `SalesInvoiceDialog` structure, allowing data entry for header and lines, and saving a draft. Listing invoices (`SalesInvoicesWidget`) will be a subsequent step.
+
+This is a large feature, so breaking it down is essential.
+
+**Detailed Plan & Checklist (Basic Sales Invoice Creation - Backend & Dialog Foundation):**
+
+**Phase A: Backend for Sales Invoice Creation**
+
+**A1. Create Pydantic DTOs for Sales Invoice**
+   *   **Goal:** Define DTOs for sales invoice data.
+   *   **File to Update:** `app/utils/pydantic_models.py`
+   *   **Checklist & Tasks:**
+        *   [ ] `SalesInvoiceLineBaseData`: Fields like `product_id` (optional, for services), `description`, `quantity`, `unit_price`, `discount_percent` (or `discount_amount`), `tax_code`. Include calculated `line_subtotal`, `tax_amount`, `line_total` (Pydantic can have computed fields or these can be validated).
+        *   [ ] `SalesInvoiceBaseData`: `customer_id`, `invoice_date`, `due_date`, `currency_code`, `exchange_rate`, `notes`, `terms_and_conditions`. Calculated fields like `subtotal`, `tax_amount`, `total_amount` can also be here.
+        *   [ ] `SalesInvoiceCreateData(SalesInvoiceBaseData, UserAuditData)`: Will contain a `List[SalesInvoiceLineBaseData]` for lines.
+        *   [ ] `SalesInvoiceUpdateData(SalesInvoiceBaseData, UserAuditData)`: With `id: int` and `List[SalesInvoiceLineBaseData]`.
+        *   [ ] `SalesInvoiceData(SalesInvoiceBaseData)`: Full representation with `id`, audit fields, and fully resolved line DTOs (e.g., `ProductData` embedded).
+        *   [ ] `SalesInvoiceSummaryData(AppBaseModel)`: For future listing (ID, Invoice No, Date, Customer Name, Total, Status).
+
+**A2. Define `ISalesInvoiceRepository` Interface**
+   *   **Goal:** Specify contract for sales invoice data access.
+   *   **File to Update:** `app/services/__init__.py`
+   *   **Checklist & Tasks:**
+        *   [ ] Import `SalesInvoice` ORM, `SalesInvoiceSummaryData` DTO.
+        *   [ ] Define `ISalesInvoiceRepository(IRepository[SalesInvoice, int])`.
+        *   [ ] Methods: `get_by_invoice_no(invoice_no: str)`, `get_all_summary(...)` (with filters for customer, status, date range).
+
+**A3. Implement `SalesInvoiceService`**
+   *   **Goal:** Data access logic for `SalesInvoice` and `SalesInvoiceLine`.
+   *   **File to Update:** `app/services/business_services.py`
+   *   **Checklist & Tasks:**
+        *   [ ] Create `SalesInvoiceService(ISalesInvoiceRepository)`.
+        *   [ ] `get_by_id()`: Eager load lines (`SalesInvoice.lines`) and their details (e.g., `SalesInvoiceLine.product`, `SalesInvoiceLine.tax_code_obj`), and `SalesInvoice.customer`.
+        *   [ ] `save(invoice: SalesInvoice)`: Handles create/update. Ensure `cascade="all, delete-orphan"` is on `SalesInvoice.lines` relationship for managing lines.
+        *   Other standard repository methods.
+
+**A4. Create `SalesInvoiceManager`**
+   *   **Goal:** Business logic for sales invoice creation and draft management.
+   *   **New File:** `app/business_logic/sales_invoice_manager.py`.
+   *   **Checklist & Tasks:**
+        *   [ ] `SalesInvoiceManager(__init__(self, sales_invoice_service: SalesInvoiceService, customer_service: CustomerService, product_service: ProductService, tax_calculator: TaxCalculator, sequence_generator: SequenceGenerator, app_core: "ApplicationCore"))`.
+        *   [ ] `_calculate_invoice_totals(dto: SalesInvoiceCreateData | SalesInvoiceUpdateData) -> None`: Helper to calculate line totals, subtotal, tax_amount, and total_amount on the DTO itself. This might involve calling `TaxCalculator`.
+        *   [ ] `create_draft_invoice(dto: SalesInvoiceCreateData) -> Result[SalesInvoice]`:
+            *   Validate `customer_id`, `product_id`s on lines, tax codes.
+            *   Call `_calculate_invoice_totals(dto)`.
+            *   Generate `invoice_no` using `SequenceGenerator`.
+            *   Map DTO to `SalesInvoice` and `SalesInvoiceLine` ORMs. Set status to "Draft". Set audit user IDs.
+            *   Call `sales_invoice_service.save()`.
+        *   [ ] `update_draft_invoice(invoice_id: int, dto: SalesInvoiceUpdateData) -> Result[SalesInvoice]`:
+            *   Fetch existing invoice. Validate it's a "Draft".
+            *   Validate DTO data. Call `_calculate_invoice_totals(dto)`.
+            *   Update ORM header and replace lines. Set audit user ID. Save.
+        *   [ ] `get_invoice_for_dialog(invoice_id: int) -> Optional[SalesInvoice]`.
+
+**A5. Integrate into `ApplicationCore`, `app/business_logic/__init__.py`, `app/services/__init__.py`**
+   *   **Goal:** Make new components accessible.
+   *   **Checklist & Tasks:** Standard integration steps for new service and manager.
+
+This is a substantial backend setup. For one turn, I'll focus on A1 (DTOs), A2 (Interface), and A3 (Service).
+The `SalesInvoiceManager` (A4) and `ApplicationCore` integration (A5) will be the next backend step.
+</think>
+
+This is fantastic! The application is consistently stable, and the foundational modules (Customers, Vendors, Products backend) are now in place.
+
+You're right to choose **Basic Sales Invoicing** as the next step from the roadmap. It's a cornerstone feature for any bookkeeping application and logically follows the setup of Customers and Products.
+
+Given the complexity, we'll break down the Sales Invoicing implementation. For this turn, we will focus on the initial backend setup: **DTOs, Service Interface, and Service Implementation.**
+
+**Enhancement Execution Plan: Basic Sales Invoicing - Phase A (Backend - Part 1)**
+
+**Overall Objective (This Turn):** Define the data structures (DTOs) for sales invoices, establish the service layer contract (`ISalesInvoiceRepository`), and implement the basic data access service (`SalesInvoiceService`) for sales invoices and their lines.
+
+---
+**A1. Update `app/utils/pydantic_models.py` with Sales Invoice DTOs**
+
+**Goal:** Define Data Transfer Objects for sales invoice creation, updates, and representation.
+
+```python
 # app/utils/pydantic_models.py
 from pydantic import BaseModel, Field, validator, root_validator, EmailStr # type: ignore
 from typing import List, Optional, Union, Any, Dict 
@@ -226,3 +352,17 @@ class SalesInvoiceSummaryData(AppBaseModel): # For listing invoices
     amount_paid: Decimal
     status: InvoiceStatusEnum # Use Enum
 
+```
+**Validation for `app/utils/pydantic_models.py`:**
+*   **New Sales Invoice DTOs Added**:
+    *   `SalesInvoiceLineBaseData`: Defines fields for an invoice line, including `product_id`, `description`, `quantity`, `unit_price`, `discount_percent`, `tax_code`. Calculated fields (`line_subtotal`, `tax_amount`, `line_total`) are noted to be handled by manager logic before ORM save. Decimal validator added.
+    *   `SalesInvoiceBaseData`: Defines header fields for an invoice like `customer_id`, dates, currency. Calculated totals are noted to be handled by manager. Root validator for `due_date` vs `invoice_date`. Decimal validator for `exchange_rate`.
+    *   `SalesInvoiceCreateData`: Inherits base and user audit, includes a non-empty list of lines.
+    *   `SalesInvoiceUpdateData`: Similar to create but includes `id`.
+    *   `SalesInvoiceData`: For representing a full sales invoice (e.g., after fetching from DB), including calculated totals and status (using `InvoiceStatusEnum`).
+    *   `SalesInvoiceSummaryData`: Slim DTO for listing invoices, includes `customer_name` (which will require a join or separate fetch in the service) and `status` as `InvoiceStatusEnum`.
+*   **Import `InvoiceStatusEnum`**: Added `from app.common.enums import InvoiceStatusEnum`.
+*   **Existing DTO Validators**: Renamed some existing validator methods (e.g., `check_inventory_fields` to `check_inventory_fields_product`) to ensure their names are unique across the file, preventing potential Pydantic v2 issues with validator reuse if classes were ever combined or inherited in complex ways. This is a proactive refinement for robustness.
+*   No other existing DTOs were unintentionally modified.
+
+The DTOs for Sales Invoices are now defined, providing a solid structure for data validation and transfer for this new module. The next step is A2: Define `ISalesInvoiceRepository` Interface.
