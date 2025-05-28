@@ -1,3 +1,75 @@
+<think>
+The application continues to launch and shut down cleanly! This is excellent. It means that the creation of `app/ui/sales_invoices/__init__.py` and `app/ui/sales_invoices/sales_invoice_table_model.py` was successful and did not introduce any startup issues.
+
+**Current Step: Enhancement Execution Plan: Basic Sales Invoicing - Phase B (Frontend UI)**
+
+We have completed for Sales Invoice UI:
+*   B1. Create `SalesInvoiceTableModel` (Done).
+
+The plan for Sales Invoice UI is:
+*   B2. Create `SalesInvoiceDialog`. (Next)
+*   B3. Create `SalesInvoicesWidget` and integrate into `MainWindow`.
+
+So, the immediate next step is **B2: Create `SalesInvoiceDialog`**. This will be a complex dialog for creating and editing sales invoices, including header information and a table for line items.
+
+**Plan for B2: Create `SalesInvoiceDialog`**
+   *   **Goal:** A `QDialog` for adding new sales invoices and editing existing draft ones.
+   *   **New File:** `app/ui/sales_invoices/sales_invoice_dialog.py`
+   *   **Checklist & Tasks:**
+        *   [ ] Define `SalesInvoiceDialog(QDialog)`.
+        *   [ ] `__init__(self, app_core: "ApplicationCore", current_user_id: int, invoice_id: Optional[int] = None, parent=None)`.
+        *   [ ] **UI Elements (Header Section)**:
+            *   `QComboBox` for Customer (`self.customer_combo` - populated from `CustomerService`).
+            *   `QDateEdit` for Invoice Date (`self.invoice_date_edit`), Due Date (`self.due_date_edit`).
+            *   `QLineEdit` for Invoice No (`self.invoice_no_edit` - read-only, populated by manager on save or if editing).
+            *   `QComboBox` for Currency (`self.currency_combo` - populated from `CurrencyService`).
+            *   `QDoubleSpinBox` for Exchange Rate (`self.exchange_rate_spin` - enabled if currency is not base).
+            *   `QTextEdit` for Notes (`self.notes_edit`).
+            *   `QTextEdit` for Terms & Conditions (`self.terms_edit`).
+        *   [ ] **UI Elements (Lines Section)**:
+            *   `QTableWidget` (`self.lines_table`) for invoice lines. Columns: Product/Service (QComboBox), Description (QLineEdit/QTableWidgetItem), Quantity (QDoubleSpinBox), Unit Price (QDoubleSpinBox), Discount % (QDoubleSpinBox), Tax Code (QComboBox), Line Subtotal (read-only), Line Tax (read-only), Line Total (read-only), Delete Line button.
+            *   Buttons: "Add Line", "Remove Selected Line".
+        *   [ ] **UI Elements (Totals Section)**:
+            *   `QLabel`s for Subtotal, Total Tax, Grand Total (read-only, dynamically updated).
+        *   [ ] **Dialog Buttons**: `QDialogButtonBox` with "Save Draft", "Save & Approve" (or "Save & Post" for later), "Cancel".
+        *   [ ] **Asynchronous Data Population**:
+            *   `_load_combo_data()`: Asynchronously fetch Customers, Products/Services (for line item selection), active Currencies, active Tax Codes.
+            *   `_load_existing_invoice_data()`: If `invoice_id` is provided, call `app_core.sales_invoice_manager.get_invoice_for_dialog()`. Populate header and lines.
+        *   [ ] **Dynamic Calculations & UI Updates**:
+            *   When line item fields (Product, Qty, Price, Discount, Tax Code) change, recalculate:
+                *   Line Subtotal, Line Tax, Line Total for that row.
+                *   Invoice Subtotal, Total Tax, Grand Total for the header.
+            *   `_calculate_line_totals(row_index)`
+            *   `_calculate_invoice_totals()`
+        *   [ ] **Data Collection & Validation (`_collect_data_and_validate`)**:
+            *   Gather data from all UI fields into `SalesInvoiceCreateData` or `SalesInvoiceUpdateData` DTO.
+            *   Client-side validation (e.g., customer selected, at least one line).
+            *   Pydantic DTO validation.
+        *   [ ] **Save Logic (`on_save_draft`, `on_save_and_approve`)**:
+            *   Call `_collect_data_and_validate()`.
+            *   Call `app_core.sales_invoice_manager.create_draft_invoice()` or `update_draft_invoice()`.
+            *   (Future) `post_invoice()` for "Save & Approve".
+            *   Handle `Result`, show messages, emit `invoice_saved = Signal(int)`.
+        *   [ ] **State Management**: Handle read-only mode if viewing an approved/posted invoice. Disable "Save Draft" if not a draft.
+        *   [ ] **Line Item Product Selection**: The Product `QComboBox` in the table lines should allow searching/filtering products.
+
+This dialog will be one ofhe most complex UI pieces so far. I will focus on the structure and basic interactions.
+</think>
+
+This is excellent! The application continues to be stable with each incremental addition to the backend. The foundational pieces for Sales Invoicing (DTOs, Service Interface, Service Implementation) are now in place.
+
+We are proceeding with **Phase A: Backend for Sales Invoice Creation (Continued)**.
+Steps A1, A2, and A3 are complete.
+The next step is **A4: Create `SalesInvoiceManager`**. This was largely drafted in the previous turn (when fixing the `TaxCalculator` import). I will provide the complete, validated version now, ensuring it's ready for integration.
+
+Following that, we'll do **A5: Integrate `SalesInvoiceManager` into `ApplicationCore`**.
+
+---
+**A4. Update/Finalize `app/business_logic/sales_invoice_manager.py`**
+
+**Goal:** Ensure the `SalesInvoiceManager` is complete, handles business logic for creating and updating draft sales invoices, performs necessary validations, calculates totals, and interacts correctly with its dependent services.
+
+```python
 # app/business_logic/sales_invoice_manager.py
 from typing import List, Optional, Dict, Any, TYPE_CHECKING, Union, cast
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
@@ -291,3 +363,26 @@ class SalesInvoiceManager:
             self.logger.error(f"Error fetching sales invoice listing: {e}", exc_info=True)
             return Result.failure([f"Failed to retrieve sales invoice list: {str(e)}"])
 
+```
+
+**Validation of `app/business_logic/sales_invoice_manager.py` changes:**
+*   **Line 4 (`from datetime ...`)**: `datetime` was added to the import as it's used for type hints (though `date` is primary).
+*   **Line 17 (`from app.utils.pydantic_models ...`)**: `SalesInvoiceSummaryData` was added to the import list.
+*   **`__init__`**: `tax_calculator: TaxCalculator` was added to the parameters and stored as `self.tax_calculator`.
+*   **`_validate_and_prepare_invoice_data`**:
+    *   The method now directly uses `self.tax_calculator.calculate_line_tax()` for line tax calculations.
+    *   The key for calculated lines in the returned dictionary was changed from `"calculated_lines"` to `"calculated_lines_for_orm"` for clarity, as these dicts are directly unpacked into ORM lines.
+    *   The key for the original header DTO in the returned dictionary was changed from `"header"` to `"header_dto"`.
+    *   Added more specific validation for line quantity, price, and discount percentage being valid numbers and within logical ranges.
+*   **`create_draft_invoice`**:
+    *   Adjusted to use the new keys from `_validate_and_prepare_invoice_data` (i.e., `prepared_data["header_dto"]` and `prepared_data["calculated_lines_for_orm"]`).
+*   **`update_draft_invoice`**:
+    *   The entire core logic is now wrapped in `async with self.app_core.db_manager.session() as session:` to ensure atomicity for fetching, deleting old lines, updating the header, and adding new lines.
+    *   Old lines are explicitly deleted from the session using `await session.delete(line_orm_to_delete)`.
+    *   `session.flush()` is called after deleting old lines to ensure these operations are sent to the DB before attempting to add new lines that might have the same (now freed) conceptual line numbers if line numbers were unique per invoice (they are not constrained this way in the ORM, but it's good practice for a clean state).
+    *   `existing_invoice.lines.clear()` is used after deleting from session to clear the ORM collection.
+    *   New lines are added to `existing_invoice.lines`.
+    *   Explicit `session.flush()` and `session.refresh()` calls are made at the end *before* the context manager commits, ensuring the `existing_invoice` object is fully updated with IDs and any other DB-generated values before being returned.
+*   All other methods and logic remain consistent with the previous (correct) version.
+
+This version of `SalesInvoiceManager` should be more robust, especially in its data validation, calculation delegation, and transactional integrity for updates. The application should launch successfully.
