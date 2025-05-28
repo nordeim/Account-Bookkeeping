@@ -1,3 +1,108 @@
+<think>
+The user has pointed out that my previous response for `scripts/initial_data.sql` was not a *complete replacement file* but rather just the new/changed parts. This is a critical oversight on my part, as the instructions clearly state to "always create a *complete* and updated replacement or new file".
+
+**Error Analysis:**
+
+The `diff` output provided by the user confirms this:
+*   The lines with `---` (original) are much more extensive than the lines with `+++` (my generated version).
+*   My generated version only included the *new* `core.configuration` inserts and the `INSERT ... ON CONFLICT DO NOTHING` for specific accounts, omitting the vast majority of the original `initial_data.sql` content like roles, permissions, system_init_user, company_settings, currencies, account_types, tax_codes, and the admin user setup.
+
+This means I failed to combine the original content with the new additions to produce a self-contained, complete replacement file.
+
+**Plan to Fix:**
+
+1.  **Retrieve the Original Content**: I need to access the full original content of `scripts/initial_data.sql` (which was present in `project_codebase_files_set-5.md`).
+2.  **Identify New Additions**: The new additions from my previous response were:
+    *   The comment about "Version 1.0.2 - Added Configuration Keys for Default Accounts".
+    *   The `INSERT INTO core.configuration ...` block for default system account codes.
+    *   The `INSERT INTO accounting.accounts ... ON CONFLICT DO NOTHING` block for ensuring key GL accounts like `1120`, `2110`, `4100`, `5100` exist.
+3.  **Merge**: Carefully merge these new additions into the full original content.
+    *   The new version comment should replace the old one.
+    *   The `core.configuration` inserts should be placed logically, likely after `core.sequences` or before `accounting.account_types`. A good place would be after `core.sequences` and before any accounting data that might depend on these accounts (like tax codes referencing system accounts).
+    *   The `INSERT ... ON CONFLICT DO NOTHING` for key `accounting.accounts` should be placed after `accounting.account_types` are defined but potentially before other data like tax codes that might reference them, or just before the admin user setup to ensure these accounts are definitely present.
+4.  **Ensure Idempotency and Order**: Double-check that the merged script maintains correct order for dependencies (e.g., `system_init_user` before `company_settings` or other data using `created_by=1`) and that `ON CONFLICT` clauses are used correctly for all relevant inserts to ensure the script can be run multiple times if needed. The original script already did a good job with this.
+5.  **Final Review**: Perform a line-by-line comparison of the newly constructed complete file against the original and the intended additions to ensure nothing is lost and additions are correct.
+
+**Detailed Execution Plan for `scripts/initial_data.sql`:**
+
+1.  Start with the full content of `scripts/initial_data.sql` from `project_codebase_files_set-5.md`.
+2.  Replace the version comment at the top:
+    ```diff
+    --- -- INITIAL DATA (Version 1.0.1 - Corrected Order, Idempotency, GST 9%)
+    +++ -- INITIAL DATA (Version 1.0.2 - Added Configuration Keys for Default Accounts)
+    ```
+3.  Locate the section `--- Insert default document sequences ---`. After this section, insert the new block for `core.configuration`:
+    ```sql
+    -- ... (previous content for sequences) ...
+    ON CONFLICT (sequence_name) DO UPDATE SET
+        prefix = EXCLUDED.prefix, next_value = GREATEST(core.sequences.next_value, EXCLUDED.next_value), 
+        format_template = EXCLUDED.format_template, updated_at = CURRENT_TIMESTAMP;
+
+    -- ----------------------------------------------------------------------------
+    -- Insert default configuration values (NEW SECTION)
+    -- These account codes MUST exist from chart_of_accounts CSV or be system accounts
+    -- ----------------------------------------------------------------------------
+    INSERT INTO core.configuration (config_key, config_value, description, updated_by) VALUES
+    ('SysAcc_DefaultAR', '1120', 'Default Accounts Receivable account code', 1),
+    ('SysAcc_DefaultSalesRevenue', '4100', 'Default Sales Revenue account code', 1),
+    ('SysAcc_DefaultGSTOutput', 'SYS-GST-OUTPUT', 'Default GST Output Tax account code', 1),
+    ('SysAcc_DefaultAP', '2110', 'Default Accounts Payable account code', 1),
+    ('SysAcc_DefaultPurchaseExpense', '5100', 'Default Purchase/COGS account code', 1),
+    ('SysAcc_DefaultGSTInput', 'SYS-GST-INPUT', 'Default GST Input Tax account code', 1)
+    ON CONFLICT (config_key) DO UPDATE SET
+        config_value = EXCLUDED.config_value,
+        description = EXCLUDED.description,
+        updated_by = EXCLUDED.updated_by,
+        updated_at = CURRENT_TIMESTAMP;
+    ```
+4.  After the `--- Insert account types ---` section and before `--- Insert default tax codes related accounts ---`, insert the block for ensuring key GL accounts exist:
+    ```sql
+    -- ... (account_types inserts) ...
+    ON CONFLICT (name) DO UPDATE SET
+        category = EXCLUDED.category, is_debit_balance = EXCLUDED.is_debit_balance, report_type = EXCLUDED.report_type,
+        display_order = EXCLUDED.display_order, description = EXCLUDED.description, updated_at = CURRENT_TIMESTAMP;
+
+    -- Ensure key GL accounts from default CoA exist if not already inserted by CSV import via app
+    -- These are referenced by the core.configuration defaults
+    INSERT INTO accounting.accounts (code, name, account_type, sub_type, created_by, updated_by, is_active, is_control_account) VALUES
+    ('1120', 'Accounts Receivable Control', 'Asset', 'Accounts Receivable', 1, 1, TRUE, TRUE),
+    ('2110', 'Accounts Payable Control', 'Liability', 'Accounts Payable', 1, 1, TRUE, TRUE),
+    ('4100', 'General Sales Revenue', 'Revenue', 'Sales', 1, 1, TRUE, FALSE),
+    ('5100', 'General Cost of Goods Sold', 'Expense', 'Cost of Sales', 1, 1, TRUE, FALSE)
+    ON CONFLICT (code) DO NOTHING; -- Do nothing if they already exist (e.g. from CSV)
+
+    -- ----------------------------------------------------------------------------
+    -- Insert default tax codes related accounts
+    -- ----------------------------------------------------------------------------
+    INSERT INTO accounting.accounts (code, name, account_type, created_by, updated_by, is_active) VALUES
+    ('SYS-GST-OUTPUT', 'System GST Output Tax', 'Liability', 1, 1, TRUE),
+    -- ... (rest of the file)
+    ```
+5.  Ensure the `system_init_user` (ID 1) is created *before* any data that references `created_by=1` or `updated_by=1`, such as `accounting.currencies` and `core.company_settings`. The original script order already respects this.
+6.  The `COMMIT;` statement should remain at the very end.
+
+This systematic approach will ensure that the generated file is a complete replacement.
+</think>
+
+You are absolutely correct to call me out on that. My sincere apologies. I understand the instruction was to provide a *complete updated replacement file*, and my previous response for `scripts/initial_data.sql` was only a delta. That's not acceptable when a full replacement is requested. Thank you for providing the `diff` and giving me a chance to correct it.
+
+I will now generate the **complete and updated** `scripts/initial_data.sql` file, incorporating the new configuration keys and ensuring all original content is preserved and correctly ordered.
+
+**Review of the `diff` output:**
+The diff clearly shows that my previous output for `scripts/initial_data.sql` was missing the majority of the original SQL statements (roles, permissions, users, company settings, currencies, account types, tax codes, admin user, role permissions). My change only added the new `core.configuration` entries and the `INSERT ... ON CONFLICT DO NOTHING` for specific accounts.
+
+**Plan for Corrected `scripts/initial_data.sql`:**
+
+1.  **Start with the full original content** of `scripts/initial_data.sql` (as it was before my partial update attempt, specifically the version from `project_codebase_files_set-5.md`).
+2.  **Update the version comment** at the top to "Version 1.0.2 - Added Configuration Keys for Default Accounts".
+3.  **Insert the new `core.configuration` block** in a logical place. A good spot is after `core.sequences` are defined, as configurations might be considered foundational settings. This ensures `updated_by = 1` (for `system_init_user`) is valid.
+4.  **Insert the block ensuring key GL accounts exist** (`1120`, `2110`, `4100`, `5100`) using `INSERT ... ON CONFLICT DO NOTHING`. This should come after `accounting.account_types` are defined, but before these accounts might be referenced as foreign keys (e.g., by default tax codes or other system settings if any were to). It must also come after `system_init_user` (ID 1) is created for `created_by`/`updated_by` fields.
+5.  **Verify all other sections** (roles, permissions, `system_init_user`, `company_settings`, `currencies`, `account_types`, `tax_codes`, `admin` user setup, `role_permissions`) are present and in their correct logical order to satisfy dependencies (especially foreign keys relying on `user_id = 1`).
+6.  Ensure the final `COMMIT;` statement is present.
+
+Here is the complete and corrected `scripts/initial_data.sql`:
+
+```sql
 -- File: scripts/initial_data.sql
 -- ============================================================================
 -- INITIAL DATA (Version 1.0.2 - Added Configuration Keys for Default Accounts)
@@ -301,3 +406,19 @@ ON CONFLICT (role_id, permission_id) DO NOTHING;
 
 COMMIT; 
 -- End of initial data
+
+```
+
+**Review of Corrected `scripts/initial_data.sql`:**
+
+*   **Completeness**: The generated file now includes all the original sections: roles, permissions, system_init_user, company_settings, currencies, sequences, account_types, tax_codes, admin user, and role_permissions.
+*   **New Additions Placement**:
+    *   The `core.configuration` inserts for default system accounts (`SysAcc_DefaultAR`, etc.) are placed after `core.sequences` and importantly *after* `system_init_user` is created (as `updated_by=1` is used) but *before* these accounts are strictly needed by any subsequent logic in this script (though they are primarily for application logic).
+    *   The `INSERT INTO accounting.accounts ... ON CONFLICT DO NOTHING` block for key GL accounts (1120, 2110, 4100, 5100) is placed after `accounting.account_types` are defined and before `accounting.tax_codes` which might reference some system accounts (though these specific ones are not directly referenced by default tax codes). This placement ensures these accounts exist if not provided by other means (like a CSV import that the application might handle later).
+*   **Version Comment**: The version comment at the top is correctly updated to "Version 1.0.2".
+*   **Dependencies and Order**: The logical order of inserts (e.g., users before user-dependent settings, currencies before company settings that reference base currency) from the original file has been maintained. The new inserts for `core.configuration` use `updated_by = 1`, which relies on `system_init_user` (ID 1) already existing. The inserts for default accounts also use `created_by = 1`, `updated_by = 1`.
+*   **Idempotency**: `ON CONFLICT` clauses are used throughout, which is good for allowing the script to be re-runnable. The new inserts also use `ON CONFLICT`.
+
+**Conclusion of Task Completion:**
+
+The file `scripts/initial_data.sql` has now been correctly updated to be a complete, self-contained replacement file. It includes all original seeding data plus the new configurations for default system accounts required by the `SalesInvoiceManager` posting logic. This should resolve any issues related to missing data from the previous partial update and ensure the database is correctly initialized for testing the sales invoice posting feature.

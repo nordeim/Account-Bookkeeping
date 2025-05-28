@@ -1,3 +1,137 @@
+<think>
+The user has provided a new traceback and error dialog image. The error is:
+`TypeError: SalesInvoiceManager.__init__() got an unexpected keyword argument 'company_settings_service'`
+
+This error occurs during `ApplicationCore.startup()` when `SalesInvoiceManager` is being instantiated.
+
+**Error Analysis:**
+
+This `TypeError` indicates that the `SalesInvoiceManager`'s `__init__` method was called with a keyword argument named `company_settings_service`, but the `__init__` method definition does *not* expect an argument with this name.
+
+Let's review the relevant files again.
+
+1.  **`app/business_logic/sales_invoice_manager.py` (constructor definition - from my *last* successfully validated output):**
+    ```python
+    class SalesInvoiceManager:
+        def __init__(self, 
+                     sales_invoice_service: SalesInvoiceService,
+                     customer_service: CustomerService,
+                     product_service: ProductService,
+                     tax_code_service: TaxCodeService, 
+                     tax_calculator: TaxCalculator, 
+                     sequence_service: SequenceService,
+                     account_service: AccountService, 
+                     configuration_service: ConfigurationService, # EXPECTS configuration_service
+                     app_core: "ApplicationCore"):
+            # ...
+            self.configuration_service = configuration_service # ASSIGNS configuration_service
+            # ...
+    ```
+    The constructor *expects* an argument named `configuration_service`.
+
+2.  **`app/core/application_core.py` (instantiation call - from my *last* successfully validated output):**
+    ```python
+    # In ApplicationCore.startup()
+    self._sales_invoice_manager_instance = SalesInvoiceManager(
+        sales_invoice_service=self.sales_invoice_service,
+        customer_service=self.customer_service,
+        product_service=self.product_service,
+        tax_code_service=self.tax_code_service,
+        tax_calculator=self.tax_calculator, 
+        sequence_service=self.sequence_service, 
+        account_service=self.account_service,                 # This was correctly added
+        company_settings_service=self.company_settings_service, # PASSED company_settings_service
+        app_core=self
+    )
+    ```
+    The instantiation call is passing `company_settings_service` as a keyword argument.
+
+**The Mismatch:**
+The `SalesInvoiceManager` expects `configuration_service`, but `ApplicationCore` is passing `company_settings_service`.
+
+This is likely a remnant of the change I made in the previous step where I intended to switch `SalesInvoiceManager` from using `CompanySettingsService` to `ConfigurationService`. While I updated the `SalesInvoiceManager`'s `__init__` signature and its internal usage to `configuration_service`, I seem to have *inconsistently* updated the *call site* in `ApplicationCore`. In the `ApplicationCore` instantiation, I *added* `company_settings_service` as an argument, instead of *replacing* it or *providing* `configuration_service` under the correct parameter name.
+
+The `diff` in the previous turn showed:
+```diff
+--- app/business_logic/sales_invoice_manager.py-old
++++ app/business_logic/sales_invoice_manager.py
+@@ -20,8 +20,8 @@
+                  tax_code_service: TaxCodeService, 
+                  tax_calculator: TaxCalculator, 
+                  sequence_service: SequenceService,
+-                 account_service: AccountService, # Added
+-                 company_settings_service: CompanySettingsService, # Added
++                 account_service: AccountService, 
++                 configuration_service: ConfigurationService, # Changed from CompanySettingsService
+                  app_core: "ApplicationCore"):
+         # ...
+-        self.company_settings_service = company_settings_service # Added
++        self.configuration_service = configuration_service # Changed
+```
+This diff confirms the `SalesInvoiceManager` *expects* `configuration_service`.
+
+The `ApplicationCore` call was changed in my previous internal thought process to include `company_settings_service=self.company_settings_service`. This was based on the error message *before* this one (`missing 2 required positional arguments: 'account_service' and 'company_settings_service'`). That error occurred because `SalesInvoiceManager`'s `__init__` *at that point in time* still expected `company_settings_service`.
+
+Then, in my *next* step (the one that produced the diff you just provided), I updated `SalesInvoiceManager` to expect `configuration_service` instead of `company_settings_service`. However, I did not update the corresponding call in `ApplicationCore` to pass `configuration_service=self.configuration_service` and remove the `company_settings_service` argument.
+
+**Plan to Fix:**
+
+1.  **Locate File**: `app/core/application_core.py`.
+2.  **Modify Instantiation of `SalesInvoiceManager`**:
+    *   Find the instantiation call for `self._sales_invoice_manager_instance`.
+    *   Change the keyword argument from `company_settings_service=self.company_settings_service` to `configuration_service=self.configuration_service`.
+    *   Ensure that `self.configuration_service` (property for `_configuration_service_instance`) is initialized and available in `ApplicationCore`. It is.
+
+**Detailed Execution Plan:**
+
+1.  **File**: `app/core/application_core.py`
+2.  **In `ApplicationCore.startup()` method**:
+    *   Locate:
+        ```python
+        self._sales_invoice_manager_instance = SalesInvoiceManager(
+            # ... other args ...
+            account_service=self.account_service,
+            company_settings_service=self.company_settings_service, # <<< This is the incorrect argument name
+            app_core=self
+        )
+        ```
+    *   Change to:
+        ```python
+        self._sales_invoice_manager_instance = SalesInvoiceManager(
+            # ... other args ...
+            account_service=self.account_service,
+            configuration_service=self.configuration_service, # <<< Corrected argument name and service
+            app_core=self
+        )
+        ```
+3.  **No other files should need changes for this specific error.**
+4.  **Self-Correction/Double Check**:
+    *   The `TypeError` "got an unexpected keyword argument 'company_settings_service'" is the key.
+    *   The `__init__` of `SalesInvoiceManager` (from last turn) confirms it expects `configuration_service`.
+    *   `ApplicationCore` has a property `self.configuration_service` that points to an initialized `ConfigurationService` instance.
+    *   This change aligns the call site with the method definition.
+
+This error highlights the importance of carefully tracking changes across dependent files, especially when refactoring constructor arguments.
+
+I will now generate the complete updated file for `app/core/application_core.py`.
+</think>
+
+You are absolutely correct, and my apologies for that oversight! I focused on updating the `SalesInvoiceManager` to *use* `ConfigurationService` internally and to *expect* it in its `__init__`, but I failed to update the actual instantiation call in `ApplicationCore` to pass the correct service under the correct new keyword argument name.
+
+The error message `TypeError: SalesInvoiceManager.__init__() got an unexpected keyword argument 'company_settings_service'` confirms this. `ApplicationCore` is still trying to pass `company_settings_service` when `SalesInvoiceManager` now expects `configuration_service`.
+
+**Plan to Fix `TypeError` for `SalesInvoiceManager` Instantiation:**
+
+1.  **Identify the incorrect argument**: `company_settings_service` is being passed.
+2.  **Identify the expected argument**: `configuration_service` is expected by `SalesInvoiceManager.__init__`.
+3.  **Locate the instantiation point**: Inside `ApplicationCore.startup()` in `app/core/application_core.py`.
+4.  **Modify the instantiation call**: Change the keyword argument from `company_settings_service=self.company_settings_service` to `configuration_service=self.configuration_service`.
+
+**Execution:**
+
+I will now provide the complete updated replacement file for `app/core/application_core.py` with the corrected instantiation of `SalesInvoiceManager`.
+
+```python
 # app/core/application_core.py
 from typing import Optional, Any
 from app.core.config_manager import ConfigManager
@@ -294,3 +428,28 @@ class ApplicationCore:
         if not self._sales_invoice_manager_instance: raise RuntimeError("SalesInvoiceManager not initialized.")
         return self._sales_invoice_manager_instance
 
+```
+
+**Review of `app/core/application_core.py` after Fix:**
+
+*   The `TypeError` "got an unexpected keyword argument 'company_settings_service'" occurred because `SalesInvoiceManager`'s `__init__` method was updated in the previous step to expect `configuration_service`, but the instantiation call in `ApplicationCore` was still passing `company_settings_service`.
+*   **Correction Made**: The instantiation call for `SalesInvoiceManager` within the `startup()` method has been changed from:
+    ```python
+    # ...
+    company_settings_service=self.company_settings_service, # Incorrect argument name
+    app_core=self
+    ```
+    to:
+    ```python
+    # ...
+    configuration_service=self.configuration_service, # Correct argument name and service
+    app_core=self
+    ```
+*   **Dependency Order**: `self.configuration_service` (which points to `self._configuration_service_instance`) is initialized *before* `SalesInvoiceManager` is instantiated, so the `ConfigurationService` instance is available.
+*   **No Omission of Features**: This change is a targeted correction to the keyword argument name used during instantiation. All other logic and service/manager initializations in `ApplicationCore` remain unchanged.
+
+**Conclusion of Task Completion:**
+
+The `TypeError` during the instantiation of `SalesInvoiceManager` in `app/core/application_core.py` has been resolved by ensuring the correct keyword argument (`configuration_service`) and the corresponding service instance (`self.configuration_service`) are passed.
+
+The application should now initialize correctly, and the `SalesInvoiceManager` will have access to the `ConfigurationService` as intended, allowing it to fetch default GL account codes for the sales invoice posting logic. The next logical step would be to test the application startup and then proceed with testing the sales invoice posting functionality from the UI.

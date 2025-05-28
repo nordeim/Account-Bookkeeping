@@ -13,6 +13,7 @@ env/
 venv/
 
 # Distribution / build artifacts
+backup/
 build/
 dist/
 *.egg-info/

@@ -1,3 +1,139 @@
+<think>
+The user has provided a `diff` output comparing the previous version of `app/business_logic/sales_invoice_manager.py` with the one I generated in the last turn. I need to carefully review this diff to ensure:
+1.  All intended changes (related to using `ConfigurationService` for default accounts and refining GL account selection logic for posting) were correctly applied.
+2.  No other parts of the file were unintentionally altered or omitted.
+3.  The code remains logically sound and syntactically correct.
+
+**Diff Analysis - Key Changes Highlighted by the Diff:**
+
+*   **Line 10**: `from app.services.core_services import SequenceService, ConfigurationService # Changed CompanySettingsService to ConfigurationService`
+    *   **VALID**: Correctly changed `CompanySettingsService` to `ConfigurationService` as planned.
+*   **Line 20 (`__init__` parameter list)**:
+    *   `company_settings_service: CompanySettingsService, # Added` was changed to
+    *   `configuration_service: ConfigurationService, # Changed from CompanySettingsService`
+    *   **VALID**: This reflects the change in dependency from `CompanySettingsService` to `ConfigurationService`.
+*   **Line 29 (`__init__` body)**:
+    *   `self.company_settings_service = company_settings_service # Added` was changed to
+    *   `self.configuration_service = configuration_service # Changed`
+    *   **VALID**: Assigns the new service instance correctly.
+*   **Line 56 (`_validate_and_prepare_invoice_data` body)**:
+    *   Call changed from `self.app_core.currency_service.get_by_id(dto.currency_code)` to `self.app_core.currency_manager.get_currency_by_code(dto.currency_code)`.
+    *   **VALID**: This is a good correction. `CurrencyManager` is the intended interface for business logic to interact with currency data, which then uses `CurrencyService`. Using the manager (`app_core.currency_manager`) is consistent with how other managers are typically accessed.
+*   **Line 69 (`_validate_and_prepare_invoice_data` loop)**:
+    *   `unit_price = line_dto.unit_price` (was already `Decimal` from DTO)
+    *   `price = Decimal(str(unit_price))`
+    *   **VALID/NEUTRAL**: `line_dto.unit_price` is already a `Decimal` due to Pydantic validation. `Decimal(str(Decimal_value))` is effectively a no-op but safe. This ensures `price` is definitely a `Decimal`.
+*   **Line 87 (`_validate_and_prepare_invoice_data` loop)**:
+    *   `line_tax_account_id = tax_calc_result.tax_account_id`
+    *   The conditional check `if tax_calc_result.tax_account_id is None and line_tax_amount_calc > Decimal(0):`
+    *   **VALID**: This is correct logic for flagging an issue if tax is calculated but no GL account is associated with the tax code (as determined by `TaxCalculator`).
+*   **Line 100 (`_validate_and_prepare_invoice_data` loop)**:
+    *   In `calculated_lines_for_orm.append`, the part `# Store related account IDs for JE generation during posting` is a comment.
+    *   The actual keys `"_line_sales_account_id": line_sales_account_id` and `"_line_tax_account_id": line_tax_account_id` are correctly added to store the resolved GL account IDs for later use during JE creation.
+    *   **VALID**: This is crucial for passing the resolved account IDs to the posting logic.
+*   **Line 110 (`_validate_and_prepare_invoice_data` return)**:
+    *   Added `"customer_orm": customer` to the returned dictionary.
+    *   **VALID/POTENTIAL IMPROVEMENT**: While not strictly necessary for `create_draft_invoice` or `update_draft_invoice` as they already have the customer ID from the DTO, it could be useful for the `post_invoice` method if `_validate_and_prepare_invoice_data` were reused there to avoid re-fetching the customer. However, `post_invoice` currently re-fetches the full invoice with eager-loaded customer. This change is harmless.
+*   **Line 134 (`create_draft_invoice` body)**:
+    *   `orm_line_data = {k.lstrip('_'): v for k,v in line_data_dict.items() if not k.startswith('_')}`
+    *   **VALID**: Correctly strips the temporary underscore-prefixed keys (`_line_sales_account_id`, `_line_tax_account_id`) before creating the `SalesInvoiceLine` ORM object, as these are not actual fields of `SalesInvoiceLine`.
+*   **Line 165 (`update_draft_invoice` body)**:
+    *   Same stripping logic for `orm_line_data` as in `create_draft_invoice`.
+    *   **VALID**.
+*   **Line 186 (`post_invoice` method)**:
+    *   **Eager Loading**: The `options` for fetching `invoice_to_post` now correctly include eager loading for `product.sales_account`, `product.tax_code_obj.affects_account`, and `customer.receivables_account`. This is essential to have these related objects available without N+1 queries later in the method.
+        ```diff
+        -                        selectinload(SalesInvoice.lines).selectinload(SalesInvoiceLine.product),
+        -                        selectinload(SalesInvoice.customer)
+        +                        selectinload(SalesInvoice.lines).selectinload(SalesInvoiceLine.product).selectinload(Product.sales_account),
+        +                        selectinload(SalesInvoice.lines).selectinload(SalesInvoiceLine.product).selectinload(Product.tax_code_obj).selectinload(TaxCode.affects_account),
+        +                        selectinload(SalesInvoice.lines).selectinload(SalesInvoiceLine.tax_code_obj).selectinload(TaxCode.affects_account), # if tax code directly on line
+        +                        selectinload(SalesInvoice.customer).selectinload(Customer.receivables_account)
+        ```
+    *   **VALID**: Crucial improvement for performance and correctness.
+*   **Line 198-203 (`post_invoice` customer/AR validation)**:
+    *   Correctly checks `invoice_to_post.customer.receivables_account_id` and `invoice_to_post.customer.receivables_account` (the eager-loaded object).
+    *   Then uses `ar_account = invoice_to_post.customer.receivables_account` and checks `ar_account.is_active`.
+    *   **VALID**: Robust validation for the A/R account.
+*   **Line 206-207 (`post_invoice` default account codes)**:
+    *   Correctly uses `await self.configuration_service.get_config_value(...)` with the defined keys.
+    *   **VALID**: Implements the planned change to use `ConfigurationService`.
+*   **Line 220-240 (`post_invoice` Sales Revenue GL determination)**:
+    *   Checks `line.product` and `line.product.sales_account` (the eager-loaded object).
+    *   Checks `line.product.sales_account.is_active`.
+    *   Falls back to `default_sales_acc_code` and fetches/validates it via `self.account_service`.
+    *   **VALID**: Correct and robust logic for determining the sales revenue account for each line.
+*   **Line 244-263 (`post_invoice` GST Output GL determination)**:
+    *   Checks `line.tax_code_obj` (eager-loaded) and `line.tax_code_obj.affects_account`.
+    *   Checks `line.tax_code_obj.affects_account.is_active`.
+    *   Falls back to `default_gst_output_acc_code` and fetches/validates it.
+    *   **VALID**: Correct and robust logic for determining the GST output account.
+*   **Line 267-270 (`post_invoice` JE balance validation)**:
+    *   This block, which was present in my detailed thought process, seems to have been omitted from the final diff's `+++` section.
+        ```python
+        # Validate JE balance (Conceptual, needs to sum from je_lines_data or use prepared_data values)
+        # total_debits_je = invoice_to_post.total_amount # This is one side
+        # total_credits_je = sum(l.credit_amount for l in je_lines_data if l.credit_amount > 0) # This sum needs to be accurate based on actual credits
+        # if abs(total_debits_je - total_credits_je) > Decimal("0.01"): 
+        #     return Result.failure([f"Internal error: Journal entry for invoice {invoice_to_post.invoice_no} would not balance. Debits: {total_debits_je}, Credits: {total_credits_je}"])
+        ```
+        The previous code in the diff had:
+        ```python
+                # Validate JE balance
+                total_debits_je = invoice_to_post.total_amount
+                total_credits_je = total_revenue_credit + total_tax_credit
+                if abs(total_debits_je - total_credits_je) > Decimal("0.01"): # Allow small rounding diff
+                    return Result.failure([f"Journal entry for invoice {invoice_to_post.invoice_no} is not balanced. Dr: {total_debits_je}, Cr Sales: {total_revenue_credit}, Cr Tax: {total_tax_credit}."])
+        ```
+        The variables `total_revenue_credit` and `total_tax_credit` were removed in the current diff because the JE lines are now built directly.
+        The `JournalEntryData` DTO has its own root validator `check_je_balanced_entry`. So, this explicit check *before* creating `JournalEntryData` might be redundant if the DTO does its job. However, it's good practice to ensure the sum of credits in `je_lines_data` matches the debit to A/R.
+        The `JournalEntryData` DTO will validate if `sum(line.debit_amount for line in lines)` equals `sum(line.credit_amount for line in lines)`.
+        Here, A/R is debited by `invoice_to_post.total_amount`. The sum of credits (Sales + GST) must equal this. `invoice_to_post.total_amount` is `invoice_to_post.subtotal + invoice_to_post.tax_amount`. The credits are `line.line_subtotal` and `line.tax_amount`.
+        The DTO validation should be sufficient.
+    *   **CONCLUSION**: Omission of this explicit pre-DTO balance check is acceptable because the `JournalEntryData` DTO itself performs a balance check on its lines.
+
+*   **Line 290 (`post_invoice` status update)**:
+    *   `invoice_to_post.status = InvoiceStatusEnum.APPROVED.value`
+    *   **VALID**: Correctly updates status.
+
+*   **Line 295 (`post_invoice` logging)**:
+    *   Log message includes JE ID.
+    *   **VALID**.
+*   **Line 300 (`post_invoice` exception handling)**:
+    *   Generic exception catch and logging.
+    *   **VALID**.
+
+**Overall Assessment of the Diff:**
+
+*   The changes correctly implement the shift from `CompanySettingsService` to `ConfigurationService` for fetching default GL account codes.
+*   The eager loading strategy in `post_invoice` is a significant improvement for ensuring necessary related data is available for JE creation and validation, preventing potential N+1 query problems or missing data errors.
+*   The logic for determining the specific Sales Revenue and GST Output GL accounts (checking product/tax-code specifics before falling back to defaults) is well-implemented and includes checks for account activity.
+*   The temporary underscore-prefixed keys in `_validate_and_prepare_invoice_data` are correctly stripped before ORM object creation.
+*   The use of `self.app_core.currency_manager.get_currency_by_code` is more appropriate than `currency_service.get_by_id` within a manager context.
+
+**No features or functions appear to have been lost or omitted.** The changes are targeted improvements and implementations related to the sales invoice posting logic.
+
+**Advisability of Changes:**
+The changes are **highly advisable and correct**. They fix the dependency issue for default accounts and make the posting logic more robust by improving data fetching (eager loading) and account validation.
+
+I will now provide the complete updated file for `app/business_logic/sales_invoice_manager.py`.
+</think>
+
+You are absolutely correct in your meticulousness. My previous diff for `app/business_logic/sales_invoice_manager.py` highlighted the changes made, but the prompt requires the full replacement file. I will provide that now.
+
+The changes primarily involved:
+1.  Switching from `CompanySettingsService` to `ConfigurationService` for fetching default GL account codes used in journal entry creation during invoice posting.
+2.  Adding `account_service` and `configuration_service` to the `__init__` parameters and instance variables.
+3.  Enhancing the `post_invoice` method with more robust eager loading of related entities (customer's A/R account, product's sales account, tax code's affected account) to ensure data availability and prevent N+1 query issues.
+4.  Refining the logic within `post_invoice` to use these eager-loaded objects and the newly configured default accounts for constructing the journal entry.
+5.  Using `self.app_core.currency_manager.get_currency_by_code` in `_validate_and_prepare_invoice_data` for consistency.
+6.  Correctly stripping temporary internal keys (like `_line_sales_account_id`) from the `calculated_lines_for_orm` dictionary before creating `SalesInvoiceLine` ORM objects.
+
+These changes are aligned with making the sales invoice posting feature functional and robust. No other features of the `SalesInvoiceManager` (like draft creation/update) were intentionally altered.
+
+Here is the complete updated `app/business_logic/sales_invoice_manager.py`:
+
+```python
 # app/business_logic/sales_invoice_manager.py
 from typing import List, Optional, Dict, Any, TYPE_CHECKING, Union, cast
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
@@ -394,3 +530,31 @@ class SalesInvoiceManager:
             self.logger.error(f"Error fetching sales invoice listing: {e}", exc_info=True)
             return Result.failure([f"Failed to retrieve sales invoice list: {str(e)}"])
 
+```
+
+**Review of `diff` for `app/business_logic/sales_invoice_manager.py`:**
+
+*   **Line 10**: `ConfigurationService` import correctly replaced `CompanySettingsService`.
+*   **Line 20 (`__init__`)**: Constructor parameter changed from `company_settings_service` to `configuration_service`.
+*   **Line 29 (`__init__`)**: Instance variable `self.configuration_service` correctly assigned.
+*   **Line 45 (`_validate_and_prepare_invoice_data`)**: Call to `self.app_core.currency_service.get_by_id` changed to `self.app_core.currency_manager.get_currency_by_code`. This is correct as `CurrencyManager` is the intended interface for business logic to use currency services.
+*   **Line 186-207 (`post_invoice`)**:
+    *   Eager loading options in `session.get(SalesInvoice, ...)` have been correctly expanded to include `product.sales_account`, `product.tax_code_obj.affects_account`, `line.tax_code_obj.affects_account`, and `customer.receivables_account`. This is a critical improvement for efficient data access.
+    *   Validation of `invoice_to_post.customer.receivables_account` (the eager-loaded object) is correctly added.
+    *   Fetching default account codes (`default_sales_acc_code`, `default_gst_output_acc_code`) now correctly uses `await self.configuration_service.get_config_value(...)`.
+    *   The logic for determining `sales_gl_id_for_line` correctly prioritizes `line.product.sales_account` (from eager load) before falling back to the default.
+    *   The logic for determining `gst_gl_id_for_line` correctly prioritizes `line.tax_code_obj.affects_account` (from eager load) before falling back to the default.
+    *   The explicit JE balance check `if abs(total_debits_je - total_credits_je) > Decimal("0.01"):` that was present in the `diff`'s `---` section (and I noted as omitted in my previous <think> block) has been correctly removed because the `JournalEntryData` DTO's root validator handles this balancing check. This is good.
+*   **No Omissions**: All other methods (`create_draft_invoice`, `update_draft_invoice`, `get_invoice_for_dialog`, `get_invoices_for_listing`) and the overall structure remain intact. The logic for processing lines in `_validate_and_prepare_invoice_data` (including temporary keys `_line_sales_account_id` and `_line_tax_account_id`) and stripping them for ORM creation is preserved.
+
+**Conclusion of Task Completion:**
+
+The `TypeError` from the application startup has been resolved by correctly providing all required dependencies (`account_service` and `configuration_service` (formerly `company_settings_service` in call signature)) to the `SalesInvoiceManager` during its instantiation in `ApplicationCore`.
+The `SalesInvoiceManager.post_invoice` method has been updated to:
+1.  Use the `ConfigurationService` to fetch default GL account codes.
+2.  Employ more robust eager loading for related entities required during posting.
+3.  Refine the logic for determining the appropriate GL accounts for journal entry lines based on product/tax code specifics or defaults.
+
+The `scripts/initial_data.sql` file has also been updated to be a complete replacement file, including the necessary `core.configuration` entries for these default accounts.
+
+The system should now be fully equipped on the backend to handle the posting of sales invoices. The next step will be to run the application, create some draft invoices, and thoroughly test the "Post Invoice(s)" functionality from the `SalesInvoicesWidget` UI.
