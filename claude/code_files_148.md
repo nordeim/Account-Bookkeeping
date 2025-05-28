@@ -1,12 +1,112 @@
+<think>
+The user has provided a traceback indicating a `NameError: name 'QWidget' is not defined` in `app/ui/sales_invoices/sales_invoice_dialog.py`. This error occurs within the `LineItemNumericDelegate` class, specifically in the type hint for the `parent` parameter of the `createEditor` method.
+
+**Error Analysis:**
+
+The `NameError` means that `QWidget` was used as a type hint without being imported or defined in the scope where `LineItemNumericDelegate` is declared. `QWidget` is a fundamental class from PySide6, and it needs to be imported from `PySide6.QtWidgets`.
+
+**Chain of Imports Leading to the Error:**
+1.  `app/main.py` imports `app.ui.main_window`
+2.  `app/ui/__init__.py` imports `.main_window`
+3.  `app/ui/main_window.py` imports `app.ui.sales_invoices.sales_invoices_widget`
+4.  `app/ui/sales_invoices/__init__.py` imports `.sales_invoice_dialog`
+5.  `app/ui/sales_invoices/sales_invoice_dialog.py` defines `LineItemNumericDelegate` and uses `QWidget` as a type hint without importing it directly within that file, or relying on it being re-exported from a higher-level import.
+
+**Looking at `app/ui/sales_invoices/sales_invoice_dialog.py` (from previous turn's generated code):**
+
+```python
 # app/ui/sales_invoices/sales_invoice_dialog.py
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QFormLayout, QLineEdit, QPushButton, QDialogButtonBox, 
     QMessageBox, QCheckBox, QDateEdit, QComboBox, QSpinBox, QTextEdit, QDoubleSpinBox,
     QTableWidget, QTableWidgetItem, QAbstractItemView, QHeaderView, QCompleter,
     QSizePolicy, QApplication, QStyledItemDelegate, QAbstractSpinBox, QLabel, QFrame,
-    QGridLayout, QWidget 
+    QGridLayout
 )
-from PySide6.QtCore import Qt, QDate, Slot, Signal, QTimer, QMetaObject, Q_ARG, QModelIndex # Added QModelIndex
+from PySide6.QtCore import Qt, QDate, Slot, Signal, QTimer, QMetaObject, Q_ARG
+from PySide6.QtGui import QIcon, QFont, QPalette, QColor
+from typing import Optional, List, Dict, Any, TYPE_CHECKING, cast, Union
+# ... other imports ...
+
+if TYPE_CHECKING:
+    from PySide6.QtGui import QPaintDevice, QAbstractItemModel # QWidget is missing here
+
+class LineItemNumericDelegate(QStyledItemDelegate):
+    # ...
+    def createEditor(self, parent: QWidget, option, index: QModelIndex) -> QWidget: # type: ignore
+        # ...
+```
+
+The issue is clear: `QWidget` is used as a type hint (`parent: QWidget`) but is not directly imported in this file, nor is it included in the `if TYPE_CHECKING:` block from `PySide6.QtWidgets`. While many other `QtWidgets` are imported, `QWidget` itself was missed for direct use or type hinting.
+
+**Plan to Fix:**
+
+1.  **Identify the correct module for `QWidget`**: It's `PySide6.QtWidgets`.
+2.  **Add the import**:
+    *   Option A: Add `QWidget` to the main list of imports from `PySide6.QtWidgets`.
+    *   Option B: If it's only used for type hinting, add it to the `if TYPE_CHECKING:` block: `from PySide6.QtWidgets import QWidget`. This is generally preferred for type hints if the class isn't instantiated directly. Given that `LineItemNumericDelegate`'s `createEditor` method *receives* a `QWidget` as parent, it's a good candidate for a type-hint-only import if not used elsewhere for instantiation. However, `SalesInvoiceDialog` itself inherits `QDialog`, which in turn inherits `QWidget`. The main class already uses many `QtWidgets`, so adding `QWidget` to the main import list is also fine and common.
+3.  **Chosen approach**: Add `QWidget` to the main import list from `PySide6.QtWidgets` for consistency, as many other widgets from this module are already imported there. It also makes it available if it's needed for direct instantiation later.
+
+**Detailed Execution Plan:**
+
+1.  **Locate File**: Open `app/ui/sales_invoices/sales_invoice_dialog.py`.
+2.  **Modify Imports**:
+    *   Find the line:
+        ```python
+        from PySide6.QtWidgets import (
+            QDialog, QVBoxLayout, QFormLayout, QLineEdit, QPushButton, QDialogButtonBox, 
+            QMessageBox, QCheckBox, QDateEdit, QComboBox, QSpinBox, QTextEdit, QDoubleSpinBox,
+            QTableWidget, QTableWidgetItem, QAbstractItemView, QHeaderView, QCompleter,
+            QSizePolicy, QApplication, QStyledItemDelegate, QAbstractSpinBox, QLabel, QFrame,
+            QGridLayout
+        )
+        ```
+    *   Add `QWidget` to this list. The order within the parentheses doesn't strictly matter, but alphabetical is common.
+        ```python
+        from PySide6.QtWidgets import (
+            QDialog, QVBoxLayout, QFormLayout, QLineEdit, QPushButton, QDialogButtonBox, 
+            QMessageBox, QCheckBox, QDateEdit, QComboBox, QSpinBox, QTextEdit, QDoubleSpinBox,
+            QTableWidget, QTableWidgetItem, QAbstractItemView, QHeaderView, QCompleter,
+            QSizePolicy, QApplication, QStyledItemDelegate, QAbstractSpinBox, QLabel, QFrame,
+            QGridLayout, QWidget # Added QWidget here
+        )
+        ```
+3.  **No other changes should be necessary for this specific error.** The error is purely a name resolution issue due to a missing import.
+4.  **Self-Correction/Double Check**:
+    *   The error message `NameError: name 'QWidget' is not defined` directly points to `QWidget` not being in scope.
+    *   Adding the import from `PySide6.QtWidgets` explicitly makes it available.
+    *   Ensure no other part of the file was accidentally modified.
+
+**Confirmation of Past Resolutions:**
+This is a new error related to a recently added/modified class (`LineItemNumericDelegate` within `SalesInvoiceDialog`). It's not a repeat of a previously fixed issue. The pattern of needing to explicitly import PySide6 classes used as type hints (or directly) is common.
+
+I will now generate the complete updated file for `app/ui/sales_invoices/sales_invoice_dialog.py`.
+</think>
+
+You are absolutely right to be thorough! That `NameError` is a straightforward missing import. My apologies for missing that in the previous generation for `SalesInvoiceDialog`.
+
+Here's the plan to fix it:
+
+**Plan to Fix `NameError: name 'QWidget' is not defined`:**
+
+1.  **Identify the missing import**: The class `QWidget` is part of `PySide6.QtWidgets`.
+2.  **Locate the affected file**: `app/ui/sales_invoices/sales_invoice_dialog.py`.
+3.  **Modify the import statement**: Add `QWidget` to the list of classes imported from `PySide6.QtWidgets`.
+
+**Execution:**
+
+I will now generate the complete updated `app/ui/sales_invoices/sales_invoice_dialog.py` with the corrected import.
+
+```python
+# app/ui/sales_invoices/sales_invoice_dialog.py
+from PySide6.QtWidgets import (
+    QDialog, QVBoxLayout, QFormLayout, QLineEdit, QPushButton, QDialogButtonBox, 
+    QMessageBox, QCheckBox, QDateEdit, QComboBox, QSpinBox, QTextEdit, QDoubleSpinBox,
+    QTableWidget, QTableWidgetItem, QAbstractItemView, QHeaderView, QCompleter,
+    QSizePolicy, QApplication, QStyledItemDelegate, QAbstractSpinBox, QLabel, QFrame,
+    QGridLayout, QWidget # Added QWidget here
+)
+from PySide6.QtCore import Qt, QDate, Slot, Signal, QTimer, QMetaObject, Q_ARG
 from PySide6.QtGui import QIcon, QFont, QPalette, QColor
 from typing import Optional, List, Dict, Any, TYPE_CHECKING, cast, Union
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
@@ -630,3 +730,34 @@ class SalesInvoiceDialog(QDialog):
                 except: pass
         self.due_date_edit.setDate(new_date.addDays(terms))
 
+```
+
+**Review of `app/ui/sales_invoices/sales_invoice_dialog.py` after Fix:**
+
+The `NameError` for `QWidget` in `LineItemNumericDelegate.createEditor` was due to `QWidget` not being explicitly imported in the file. The proposed change correctly adds `QWidget` to the import list from `PySide6.QtWidgets`.
+
+*   **Original problematic import block:**
+    ```python
+    from PySide6.QtWidgets import (
+        QDialog, QVBoxLayout, QFormLayout, QLineEdit, QPushButton, QDialogButtonBox, 
+        QMessageBox, QCheckBox, QDateEdit, QComboBox, QSpinBox, QTextEdit, QDoubleSpinBox,
+        QTableWidget, QTableWidgetItem, QAbstractItemView, QHeaderView, QCompleter,
+        QSizePolicy, QApplication, QStyledItemDelegate, QAbstractSpinBox, QLabel, QFrame,
+        QGridLayout # QWidget was missing here
+    )
+    ```
+*   **Corrected import block:**
+    ```python
+    from PySide6.QtWidgets import (
+        QDialog, QVBoxLayout, QFormLayout, QLineEdit, QPushButton, QDialogButtonBox, 
+        QMessageBox, QCheckBox, QDateEdit, QComboBox, QSpinBox, QTextEdit, QDoubleSpinBox,
+        QTableWidget, QTableWidgetItem, QAbstractItemView, QHeaderView, QCompleter,
+        QSizePolicy, QApplication, QStyledItemDelegate, QAbstractSpinBox, QLabel, QFrame,
+        QGridLayout, QWidget # QWidget is now included
+    )
+    ```
+
+This change directly addresses the `NameError`. No other functional code was altered, ensuring that previous features remain intact. The rest of the file's logic, as implemented in Part 1 and Part 2 of the `SalesInvoiceDialog` development, is preserved.
+
+**Conclusion of Task Completion:**
+The `NameError` in `app/ui/sales_invoices/sales_invoice_dialog.py` has been fixed by adding the missing `QWidget` import. The file is now syntactically correct and should allow the application to launch successfully and proceed with testing the Sales Invoice functionality. All other previously implemented features remain untouched.

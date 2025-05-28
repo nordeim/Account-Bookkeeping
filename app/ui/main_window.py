@@ -1,4 +1,4 @@
-# app/ui/main_window.py
+# File: app/ui/main_window.py
 from PySide6.QtWidgets import (
     QMainWindow, QTabWidget, QToolBar, QStatusBar, 
     QVBoxLayout, QWidget, QMessageBox, QLabel 
@@ -10,7 +10,8 @@ from app.ui.dashboard.dashboard_widget import DashboardWidget
 from app.ui.accounting.accounting_widget import AccountingWidget
 from app.ui.customers.customers_widget import CustomersWidget
 from app.ui.vendors.vendors_widget import VendorsWidget
-from app.ui.products.products_widget import ProductsWidget # New Import
+from app.ui.products.products_widget import ProductsWidget
+from app.ui.sales_invoices.sales_invoices_widget import SalesInvoicesWidget # New Import
 from app.ui.banking.banking_widget import BankingWidget
 from app.ui.reports.reports_widget import ReportsWidget
 from app.ui.settings.settings_widget import SettingsWidget
@@ -24,14 +25,11 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"{QCoreApplication.applicationName()} - {QCoreApplication.applicationVersion()}")
         self.setMinimumSize(1024, 768)
         
-        # Determine icon path prefix once
         self.icon_path_prefix = "resources/icons/" 
         try:
             import app.resources_rc 
             self.icon_path_prefix = ":/icons/"
         except ImportError:
-            # This message is better placed in main.py or ApplicationCore for a one-time startup log
-            # print("MainWindow: Compiled Qt resources (resources_rc.py) not found. Using direct file paths.")
             pass
 
         settings = QSettings() 
@@ -70,26 +68,29 @@ class MainWindow(QMainWindow):
         self.toolbar = QToolBar("Main Toolbar")
         self.toolbar.setObjectName("MainToolbar") 
         self.toolbar.setMovable(False)
-        self.toolbar.setIconSize(QSize(24, 24)) # Slightly larger toolbar icons
+        self.toolbar.setIconSize(QSize(24, 24)) 
         self.toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.toolbar) 
     
     def _add_module_tabs(self):
-        # Icon path prefix is now an instance variable self.icon_path_prefix
         self.dashboard_widget = DashboardWidget(self.app_core)
         self.tab_widget.addTab(self.dashboard_widget, QIcon(self.icon_path_prefix + "dashboard.svg"), "Dashboard")
         
         self.accounting_widget = AccountingWidget(self.app_core)
         self.tab_widget.addTab(self.accounting_widget, QIcon(self.icon_path_prefix + "accounting.svg"), "Accounting")
         
+        # New Sales Invoices Tab
+        self.sales_invoices_widget = SalesInvoicesWidget(self.app_core)
+        self.tab_widget.addTab(self.sales_invoices_widget, QIcon(self.icon_path_prefix + "transactions.svg"), "Sales") # Using transactions.svg for now
+
         self.customers_widget = CustomersWidget(self.app_core)
         self.tab_widget.addTab(self.customers_widget, QIcon(self.icon_path_prefix + "customers.svg"), "Customers")
         
         self.vendors_widget = VendorsWidget(self.app_core)
         self.tab_widget.addTab(self.vendors_widget, QIcon(self.icon_path_prefix + "vendors.svg"), "Vendors")
 
-        self.products_widget = ProductsWidget(self.app_core) # New Widget
-        self.tab_widget.addTab(self.products_widget, QIcon(self.icon_path_prefix + "product.svg"), "Products & Services") # New Tab
+        self.products_widget = ProductsWidget(self.app_core) 
+        self.tab_widget.addTab(self.products_widget, QIcon(self.icon_path_prefix + "product.svg"), "Products & Services")
         
         self.banking_widget = BankingWidget(self.app_core)
         self.tab_widget.addTab(self.banking_widget, QIcon(self.icon_path_prefix + "banking.svg"), "Banking")
@@ -101,7 +102,6 @@ class MainWindow(QMainWindow):
         self.tab_widget.addTab(self.settings_widget, QIcon(self.icon_path_prefix + "settings.svg"), "Settings")
     
     def _create_status_bar(self):
-        # ... (no changes from previous version)
         self.status_bar = QStatusBar(); self.setStatusBar(self.status_bar)
         self.status_label = QLabel("Ready"); self.status_bar.addWidget(self.status_label, 1) 
         user_text = "User: Guest"; 
@@ -111,7 +111,6 @@ class MainWindow(QMainWindow):
 
     
     def _create_actions(self):
-        # ... (no changes from previous version, uses self.icon_path_prefix)
         self.new_company_action = QAction(QIcon(self.icon_path_prefix + "new_company.svg"), "New Company...", self); self.new_company_action.setShortcut(QKeySequence(QKeySequence.StandardKey.New)); self.new_company_action.triggered.connect(self.on_new_company)
         self.open_company_action = QAction(QIcon(self.icon_path_prefix + "open_company.svg"), "Open Company...", self); self.open_company_action.setShortcut(QKeySequence(QKeySequence.StandardKey.Open)); self.open_company_action.triggered.connect(self.on_open_company)
         self.backup_action = QAction(QIcon(self.icon_path_prefix + "backup.svg"), "Backup Data...", self); self.backup_action.triggered.connect(self.on_backup)
@@ -122,7 +121,6 @@ class MainWindow(QMainWindow):
         self.about_action = QAction(QIcon(self.icon_path_prefix + "about.svg"), "About " + QCoreApplication.applicationName(), self); self.about_action.triggered.connect(self.on_about)
 
     def _create_menus(self):
-        # ... (no changes from previous version)
         self.file_menu = self.menuBar().addMenu("&File"); self.file_menu.addAction(self.new_company_action); self.file_menu.addAction(self.open_company_action); self.file_menu.addSeparator(); self.file_menu.addAction(self.backup_action); self.file_menu.addAction(self.restore_action); self.file_menu.addSeparator(); self.file_menu.addAction(self.exit_action)
         self.edit_menu = self.menuBar().addMenu("&Edit"); self.edit_menu.addAction(self.preferences_action)
         self.view_menu = self.menuBar().addMenu("&View"); self.tools_menu = self.menuBar().addMenu("&Tools")
@@ -133,14 +131,12 @@ class MainWindow(QMainWindow):
     def on_new_company(self): QMessageBox.information(self, "New Company", "New company wizard not yet implemented.")
     @Slot()
     def on_open_company(self): QMessageBox.information(self, "Open Company", "Open company dialog not yet implemented.")
-    # ... (other slots remain unchanged) ...
     @Slot()
     def on_backup(self): QMessageBox.information(self, "Backup Data", "Backup functionality not yet implemented.")
     @Slot()
     def on_restore(self): QMessageBox.information(self, "Restore Data", "Restore functionality not yet implemented.")
     @Slot()
     def on_preferences(self): 
-        # Example: Navigate to Settings tab, or open a dedicated preferences dialog
         settings_tab_index = -1
         for i in range(self.tab_widget.count()):
             if self.tab_widget.widget(i) == self.settings_widget:
