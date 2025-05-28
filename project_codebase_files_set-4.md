@@ -1,27 +1,776 @@
+# app/models/business/bank_transaction.py
+```py
+# File: app/models/business/bank_transaction.py
+# (Reviewed and confirmed path and fields from previous generation, ensure relationships set)
+from sqlalchemy import Column, Integer, String, Date, Numeric, Text, ForeignKey, CheckConstraint, Boolean
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.sql import func
+from app.models.base import Base, TimestampMixin
+from app.models.business.bank_account import BankAccount
+from app.models.core.user import User
+from app.models.accounting.journal_entry import JournalEntry
+import datetime
+from decimal import Decimal
+from typing import Optional
+
+class BankTransaction(Base, TimestampMixin):
+    __tablename__ = 'bank_transactions'
+    __table_args__ = (
+        CheckConstraint("transaction_type IN ('Deposit', 'Withdrawal', 'Transfer', 'Interest', 'Fee', 'Adjustment')", name='ck_bank_transactions_type'),
+        {'schema': 'business'}
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    bank_account_id: Mapped[int] = mapped_column(Integer, ForeignKey('business.bank_accounts.id'), nullable=False)
+    transaction_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    value_date: Mapped[Optional[datetime.date]] = mapped_column(Date, nullable=True)
+    transaction_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    description: Mapped[str] = mapped_column(String(200), nullable=False)
+    reference: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(15,2), nullable=False)
+    is_reconciled: Mapped[bool] = mapped_column(Boolean, default=False)
+    reconciled_date: Mapped[Optional[datetime.date]] = mapped_column(Date, nullable=True)
+    statement_date: Mapped[Optional[datetime.date]] = mapped_column(Date, nullable=True)
+    statement_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    journal_entry_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('accounting.journal_entries.id'), nullable=True)
+
+    created_by_user_id: Mapped[int] = mapped_column("created_by", Integer, ForeignKey('core.users.id'), nullable=False)
+    updated_by_user_id: Mapped[int] = mapped_column("updated_by", Integer, ForeignKey('core.users.id'), nullable=False)
+    
+    bank_account: Mapped["BankAccount"] = relationship("BankAccount", back_populates="bank_transactions")
+    journal_entry: Mapped[Optional["JournalEntry"]] = relationship("JournalEntry") # Simplified
+    created_by_user: Mapped["User"] = relationship("User", foreign_keys=[created_by_user_id])
+    updated_by_user: Mapped["User"] = relationship("User", foreign_keys=[updated_by_user_id])
+
+```
+
+# app/models/accounting/__init__.py
+```py
+# File: app/models/accounting/__init__.py
+# New __init__.py for accounting models if moved to subdirectories
+from .account_type import AccountType
+from .currency import Currency
+from .exchange_rate import ExchangeRate
+from .account import Account
+from .fiscal_year import FiscalYear
+from .fiscal_period import FiscalPeriod
+from .journal_entry import JournalEntry, JournalEntryLine
+from .recurring_pattern import RecurringPattern
+from .dimension import Dimension
+from .budget import Budget, BudgetDetail
+from .tax_code import TaxCode
+from .gst_return import GSTReturn
+from .withholding_tax_certificate import WithholdingTaxCertificate
+
+__all__ = [
+    "AccountType", "Currency", "ExchangeRate", "Account",
+    "FiscalYear", "FiscalPeriod", "JournalEntry", "JournalEntryLine",
+    "RecurringPattern", "Dimension", "Budget", "BudgetDetail",
+    "TaxCode", "GSTReturn", "WithholdingTaxCertificate",
+]
+
+```
+
+# app/models/accounting/withholding_tax_certificate.py
+```py
+# File: app/models/accounting/withholding_tax_certificate.py
+# (Content previously generated, but now placed in this path)
+from sqlalchemy import Column, Integer, String, Date, Numeric, Text, ForeignKey, CheckConstraint
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.sql import func
+from app.models.base import Base, TimestampMixin, UserAuditMixin
+from app.models.business.vendor import Vendor 
+import datetime
+from decimal import Decimal
+from typing import Optional
+
+class WithholdingTaxCertificate(Base, TimestampMixin, UserAuditMixin):
+    __tablename__ = 'withholding_tax_certificates'
+    __table_args__ = (
+        CheckConstraint("status IN ('Draft', 'Issued', 'Voided')", name='ck_wht_certs_status'),
+        {'schema': 'accounting'}
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    certificate_no: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)
+    vendor_id: Mapped[int] = mapped_column(Integer, ForeignKey('business.vendors.id'), nullable=False)
+    tax_type: Mapped[str] = mapped_column(String(50), nullable=False) 
+    tax_rate: Mapped[Decimal] = mapped_column(Numeric(5,2), nullable=False)
+    payment_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    amount_before_tax: Mapped[Decimal] = mapped_column(Numeric(15,2), nullable=False)
+    tax_amount: Mapped[Decimal] = mapped_column(Numeric(15,2), nullable=False)
+    payment_reference: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default='Draft', nullable=False)
+    issue_date: Mapped[Optional[datetime.date]] = mapped_column(Date, nullable=True)
+    journal_entry_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('accounting.journal_entries.id'), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    created_by: Mapped[int] = mapped_column(Integer, ForeignKey('core.users.id'), nullable=False)
+    updated_by: Mapped[int] = mapped_column(Integer, ForeignKey('core.users.id'), nullable=False)
+
+    vendor: Mapped["Vendor"] = relationship() 
+
+```
+
+# app/models/accounting/account.py
+```py
+# File: app/models/accounting/account.py
+# (Moved from app/models/account.py and fields updated - completing relationships)
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, Text, DateTime, CheckConstraint, Date, Numeric
+from sqlalchemy.orm import relationship, Mapped, mapped_column
+from sqlalchemy.sql import func
+from typing import List, Optional 
+import datetime
+from decimal import Decimal
+
+from app.models.base import Base, TimestampMixin 
+from app.models.core.user import User 
+
+# Forward string declarations for relationships
+# These will be resolved by SQLAlchemy based on the string hints.
+# "JournalEntryLine", "BudgetDetail", "TaxCode", "Customer", "Vendor", 
+# "Product", "BankAccount"
+
+class Account(Base, TimestampMixin):
+    __tablename__ = 'accounts'
+    __table_args__ = (
+         CheckConstraint("account_type IN ('Asset', 'Liability', 'Equity', 'Revenue', 'Expense')", name='ck_accounts_account_type_category'),
+        {'schema': 'accounting'}
+    )
+    
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True, index=True)
+    code: Mapped[str] = mapped_column(String(20), unique=True, nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    account_type: Mapped[str] = mapped_column(String(20), nullable=False) 
+    sub_type: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    tax_treatment: Mapped[Optional[str]] = mapped_column(String(20), nullable=True) 
+    gst_applicable: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    parent_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('accounting.accounts.id'), nullable=True)
+    
+    report_group: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    is_control_account: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_bank_account: Mapped[bool] = mapped_column(Boolean, default=False)
+    opening_balance: Mapped[Decimal] = mapped_column(Numeric(15,2), default=Decimal(0))
+    opening_balance_date: Mapped[Optional[datetime.date]] = mapped_column(Date, nullable=True)
+
+    created_by_user_id: Mapped[int] = mapped_column("created_by", Integer, ForeignKey('core.users.id'), nullable=False)
+    updated_by_user_id: Mapped[int] = mapped_column("updated_by", Integer, ForeignKey('core.users.id'), nullable=False)
+        
+    # Self-referential relationship for parent/children
+    parent: Mapped[Optional["Account"]] = relationship("Account", remote_side=[id], back_populates="children", foreign_keys=[parent_id])
+    children: Mapped[List["Account"]] = relationship("Account", back_populates="parent")
+    
+    # Relationships to User for audit trails
+    created_by_user: Mapped["User"] = relationship("User", foreign_keys=[created_by_user_id])
+    updated_by_user: Mapped["User"] = relationship("User", foreign_keys=[updated_by_user_id])
+
+    # Relationships defined by other models via back_populates
+    journal_lines: Mapped[List["JournalEntryLine"]] = relationship(back_populates="account") # type: ignore
+    budget_details: Mapped[List["BudgetDetail"]] = relationship(back_populates="account") # type: ignore
+    
+    # For TaxCode.affects_account_id
+    tax_code_applications: Mapped[List["TaxCode"]] = relationship(back_populates="affects_account") # type: ignore
+    
+    # For Customer.receivables_account_id
+    customer_receivables_links: Mapped[List["Customer"]] = relationship(back_populates="receivables_account") # type: ignore
+    
+    # For Vendor.payables_account_id
+    vendor_payables_links: Mapped[List["Vendor"]] = relationship(back_populates="payables_account") # type: ignore
+    
+    # For Product fields (sales_account_id, purchase_account_id, inventory_account_id)
+    product_sales_links: Mapped[List["Product"]] = relationship(foreign_keys="Product.sales_account_id", back_populates="sales_account") # type: ignore
+    product_purchase_links: Mapped[List["Product"]] = relationship(foreign_keys="Product.purchase_account_id", back_populates="purchase_account") # type: ignore
+    product_inventory_links: Mapped[List["Product"]] = relationship(foreign_keys="Product.inventory_account_id", back_populates="inventory_account") # type: ignore
+
+    # For BankAccount.gl_account_id
+    bank_account_links: Mapped[List["BankAccount"]] = relationship(back_populates="gl_account") # type: ignore
+
+
+    def to_dict(self): # Kept from previous version, might be useful
+        return {
+            'id': self.id,
+            'code': self.code,
+            'name': self.name,
+            'account_type': self.account_type,
+            'sub_type': self.sub_type,
+            'parent_id': self.parent_id,
+            'is_active': self.is_active,
+            'description': self.description,
+            'report_group': self.report_group,
+            'is_control_account': self.is_control_account,
+            'is_bank_account': self.is_bank_account,
+            'opening_balance': self.opening_balance,
+            'opening_balance_date': self.opening_balance_date,
+        }
+
+```
+
+# app/models/accounting/gst_return.py
+```py
+# File: app/models/accounting/gst_return.py
+# (Moved from app/models/gst_return.py and updated)
+from sqlalchemy import Column, Integer, String, Date, Numeric, DateTime, CheckConstraint, ForeignKey, Text
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.sql import func
+from typing import Optional
+import datetime
+from decimal import Decimal
+
+from app.models.base import Base, TimestampMixin
+from app.models.core.user import User
+from app.models.accounting.journal_entry import JournalEntry
+
+class GSTReturn(Base, TimestampMixin):
+    __tablename__ = 'gst_returns'
+    __table_args__ = (
+        CheckConstraint("status IN ('Draft', 'Submitted', 'Amended')", name='ck_gst_returns_status'),
+        {'schema': 'accounting'}
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True, index=True)
+    return_period: Mapped[str] = mapped_column(String(20), unique=True, nullable=False) 
+    start_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    end_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    filing_due_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    standard_rated_supplies: Mapped[Decimal] = mapped_column(Numeric(15,2), default=Decimal(0))
+    zero_rated_supplies: Mapped[Decimal] = mapped_column(Numeric(15,2), default=Decimal(0))
+    exempt_supplies: Mapped[Decimal] = mapped_column(Numeric(15,2), default=Decimal(0))
+    total_supplies: Mapped[Decimal] = mapped_column(Numeric(15,2), default=Decimal(0))
+    taxable_purchases: Mapped[Decimal] = mapped_column(Numeric(15,2), default=Decimal(0))
+    output_tax: Mapped[Decimal] = mapped_column(Numeric(15,2), default=Decimal(0))
+    input_tax: Mapped[Decimal] = mapped_column(Numeric(15,2), default=Decimal(0))
+    tax_adjustments: Mapped[Decimal] = mapped_column(Numeric(15,2), default=Decimal(0))
+    tax_payable: Mapped[Decimal] = mapped_column(Numeric(15,2), default=Decimal(0))
+    status: Mapped[str] = mapped_column(String(20), default='Draft')
+    submission_date: Mapped[Optional[datetime.date]] = mapped_column(Date, nullable=True)
+    submission_reference: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    journal_entry_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('accounting.journal_entries.id'), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    created_by_user_id: Mapped[int] = mapped_column("created_by", Integer, ForeignKey('core.users.id'), nullable=False)
+    updated_by_user_id: Mapped[int] = mapped_column("updated_by", Integer, ForeignKey('core.users.id'), nullable=False)
+
+    journal_entry: Mapped[Optional["JournalEntry"]] = relationship("JournalEntry") # No back_populates needed for one-to-one/opt-one
+    created_by_user: Mapped["User"] = relationship("User", foreign_keys=[created_by_user_id])
+    updated_by_user: Mapped["User"] = relationship("User", foreign_keys=[updated_by_user_id])
+
+```
+
+# app/models/accounting/budget.py
+```py
+# File: app/models/accounting/budget.py
+# (Moved from app/models/budget.py and updated)
+from sqlalchemy import Column, Integer, String, Boolean, Numeric, Text, DateTime, ForeignKey, UniqueConstraint, CheckConstraint
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.sql import func
+from app.models.base import Base, TimestampMixin
+from app.models.accounting.account import Account 
+from app.models.accounting.fiscal_year import FiscalYear
+from app.models.accounting.fiscal_period import FiscalPeriod 
+from app.models.accounting.dimension import Dimension 
+from app.models.core.user import User
+from typing import List, Optional 
+from decimal import Decimal 
+
+class Budget(Base, TimestampMixin): 
+    __tablename__ = 'budgets'
+    __table_args__ = {'schema': 'accounting'}
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, index=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    fiscal_year_id: Mapped[int] = mapped_column(Integer, ForeignKey('accounting.fiscal_years.id'), nullable=False) 
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    
+    created_by_user_id: Mapped[int] = mapped_column("created_by", Integer, ForeignKey('core.users.id'), nullable=False)
+    updated_by_user_id: Mapped[int] = mapped_column("updated_by", Integer, ForeignKey('core.users.id'), nullable=False)
+
+    fiscal_year_obj: Mapped["FiscalYear"] = relationship("FiscalYear", back_populates="budgets")
+    details: Mapped[List["BudgetDetail"]] = relationship("BudgetDetail", back_populates="budget", cascade="all, delete-orphan")
+    created_by_user: Mapped["User"] = relationship("User", foreign_keys=[created_by_user_id])
+    updated_by_user: Mapped["User"] = relationship("User", foreign_keys=[updated_by_user_id])
+
+class BudgetDetail(Base, TimestampMixin): 
+    __tablename__ = 'budget_details'
+    __table_args__ = (
+        # Reference schema has COALESCE(dimension1_id, 0), COALESCE(dimension2_id, 0) in UNIQUE.
+        # This means NULLs are treated as 0 for uniqueness.
+        # This is harder to model directly in SQLAlchemy UniqueConstraint if DB doesn't support function-based indexes for it directly.
+        # For PostgreSQL, function-based unique indexes are possible.
+        # For now, simple UniqueConstraint. DB schema will have the COALESCE logic.
+        UniqueConstraint('budget_id', 'account_id', 'fiscal_period_id', 'dimension1_id', 'dimension2_id', name='uq_budget_details_key_dims_nullable'),
+        {'schema': 'accounting'}
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, index=True)
+    budget_id: Mapped[int] = mapped_column(Integer, ForeignKey('accounting.budgets.id', ondelete="CASCADE"), nullable=False)
+    account_id: Mapped[int] = mapped_column(Integer, ForeignKey('accounting.accounts.id'), nullable=False)
+    fiscal_period_id: Mapped[int] = mapped_column(Integer, ForeignKey('accounting.fiscal_periods.id'), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    
+    dimension1_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('accounting.dimensions.id'), nullable=True)
+    dimension2_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('accounting.dimensions.id'), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    created_by_user_id: Mapped[int] = mapped_column("created_by", Integer, ForeignKey('core.users.id'), nullable=False)
+    updated_by_user_id: Mapped[int] = mapped_column("updated_by", Integer, ForeignKey('core.users.id'), nullable=False)
+
+    budget: Mapped["Budget"] = relationship("Budget", back_populates="details")
+    account: Mapped["Account"] = relationship("Account", back_populates="budget_details")
+    fiscal_period: Mapped["FiscalPeriod"] = relationship("FiscalPeriod", back_populates="budget_details")
+    dimension1: Mapped[Optional["Dimension"]] = relationship("Dimension", foreign_keys=[dimension1_id])
+    dimension2: Mapped[Optional["Dimension"]] = relationship("Dimension", foreign_keys=[dimension2_id])
+    created_by_user: Mapped["User"] = relationship("User", foreign_keys=[created_by_user_id])
+    updated_by_user: Mapped["User"] = relationship("User", foreign_keys=[updated_by_user_id])
+
+# Add back-populates to Account and FiscalPeriod
+Account.budget_details = relationship("BudgetDetail", back_populates="account") # type: ignore
+FiscalPeriod.budget_details = relationship("BudgetDetail", back_populates="fiscal_period") # type: ignore
+
+```
+
+# app/models/accounting/exchange_rate.py
+```py
+# File: app/models/accounting/exchange_rate.py
+# (Moved from app/models/exchange_rate.py and fields updated)
+from sqlalchemy import Column, Integer, String, Date, Numeric, DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.sql import func
+from app.models.base import Base, TimestampMixin
+from app.models.accounting.currency import Currency 
+from app.models.core.user import User 
+import datetime 
+from decimal import Decimal 
+from typing import Optional
+
+class ExchangeRate(Base, TimestampMixin):
+    __tablename__ = 'exchange_rates'
+    __table_args__ = (
+        UniqueConstraint('from_currency', 'to_currency', 'rate_date', name='uq_exchange_rates_pair_date'), 
+        {'schema': 'accounting'}
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, index=True)
+    from_currency_code: Mapped[str] = mapped_column("from_currency", String(3), ForeignKey('accounting.currencies.code'), nullable=False)
+    to_currency_code: Mapped[str] = mapped_column("to_currency", String(3), ForeignKey('accounting.currencies.code'), nullable=False)
+    rate_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    exchange_rate_value: Mapped[Decimal] = mapped_column("exchange_rate", Numeric(15, 6), nullable=False) # Renamed attribute
+    
+    created_by_user_id: Mapped[Optional[int]] = mapped_column("created_by", Integer, ForeignKey('core.users.id'), nullable=True)
+    updated_by_user_id: Mapped[Optional[int]] = mapped_column("updated_by", Integer, ForeignKey('core.users.id'), nullable=True)
+
+    from_currency_obj: Mapped["Currency"] = relationship("Currency", foreign_keys=[from_currency_code]) 
+    to_currency_obj: Mapped["Currency"] = relationship("Currency", foreign_keys=[to_currency_code]) 
+    created_by_user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[created_by_user_id])
+    updated_by_user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[updated_by_user_id])
+
+```
+
+# app/models/accounting/journal_entry.py
+```py
+# File: app/models/accounting/journal_entry.py
+# (Moved from app/models/journal_entry.py and updated)
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, Numeric, Text, DateTime, Date, CheckConstraint
+from sqlalchemy.orm import relationship, Mapped, mapped_column, validates
+from sqlalchemy.sql import func
+from typing import List, Optional
+import datetime
+from decimal import Decimal
+
+from app.models.base import Base, TimestampMixin
+from app.models.accounting.account import Account
+from app.models.accounting.fiscal_period import FiscalPeriod
+from app.models.core.user import User
+from app.models.accounting.currency import Currency
+from app.models.accounting.tax_code import TaxCode
+from app.models.accounting.dimension import Dimension
+# from app.models.accounting.recurring_pattern import RecurringPattern # Forward reference with string
+
+class JournalEntry(Base, TimestampMixin):
+    __tablename__ = 'journal_entries'
+    __table_args__ = {'schema': 'accounting'}
+    
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True, index=True)
+    entry_no: Mapped[str] = mapped_column(String(20), unique=True, nullable=False, index=True)
+    journal_type: Mapped[str] = mapped_column(String(20), nullable=False) 
+    entry_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    fiscal_period_id: Mapped[int] = mapped_column(Integer, ForeignKey('accounting.fiscal_periods.id'), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    reference: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    is_recurring: Mapped[bool] = mapped_column(Boolean, default=False)
+    recurring_pattern_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('accounting.recurring_patterns.id'), nullable=True)
+    is_posted: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_reversed: Mapped[bool] = mapped_column(Boolean, default=False)
+    reversing_entry_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('accounting.journal_entries.id', use_alter=True, name='fk_je_reversing_entry_id'), nullable=True)
+    
+    source_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    source_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    created_by_user_id: Mapped[int] = mapped_column("created_by", Integer, ForeignKey('core.users.id'), nullable=False)
+    updated_by_user_id: Mapped[int] = mapped_column("updated_by", Integer, ForeignKey('core.users.id'), nullable=False)
+    
+    fiscal_period: Mapped["FiscalPeriod"] = relationship("FiscalPeriod", back_populates="journal_entries")
+    lines: Mapped[List["JournalEntryLine"]] = relationship("JournalEntryLine", back_populates="journal_entry", cascade="all, delete-orphan")
+    generated_from_pattern: Mapped[Optional["RecurringPattern"]] = relationship("RecurringPattern", foreign_keys=[recurring_pattern_id], back_populates="generated_journal_entries") # type: ignore
+    
+    reversing_entry: Mapped[Optional["JournalEntry"]] = relationship("JournalEntry", remote_side=[id], foreign_keys=[reversing_entry_id], uselist=False, post_update=True) # type: ignore
+    template_for_patterns: Mapped[List["RecurringPattern"]] = relationship("RecurringPattern", foreign_keys="RecurringPattern.template_entry_id", back_populates="template_journal_entry") # type: ignore
+
+
+    created_by_user: Mapped["User"] = relationship("User", foreign_keys=[created_by_user_id])
+    updated_by_user: Mapped["User"] = relationship("User", foreign_keys=[updated_by_user_id])
+
+class JournalEntryLine(Base, TimestampMixin): 
+    __tablename__ = 'journal_entry_lines'
+    __table_args__ = (
+        CheckConstraint(
+            " (debit_amount > 0 AND credit_amount = 0) OR "
+            " (credit_amount > 0 AND debit_amount = 0) OR "
+            " (debit_amount = 0 AND credit_amount = 0) ", 
+            name='jel_check_debit_credit'
+        ),
+        {'schema': 'accounting'}
+    )
+    
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True, index=True)
+    journal_entry_id: Mapped[int] = mapped_column(Integer, ForeignKey('accounting.journal_entries.id', ondelete="CASCADE"), nullable=False)
+    line_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    account_id: Mapped[int] = mapped_column(Integer, ForeignKey('accounting.accounts.id'), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    debit_amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), default=Decimal(0))
+    credit_amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), default=Decimal(0))
+    currency_code: Mapped[str] = mapped_column(String(3), ForeignKey('accounting.currencies.code'), default='SGD')
+    exchange_rate: Mapped[Decimal] = mapped_column(Numeric(15, 6), default=Decimal(1))
+    tax_code: Mapped[Optional[str]] = mapped_column(String(20), ForeignKey('accounting.tax_codes.code'), nullable=True)
+    tax_amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), default=Decimal(0))
+    dimension1_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('accounting.dimensions.id'), nullable=True) 
+    dimension2_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('accounting.dimensions.id'), nullable=True) 
+        
+    journal_entry: Mapped["JournalEntry"] = relationship("JournalEntry", back_populates="lines")
+    account: Mapped["Account"] = relationship("Account", back_populates="journal_lines")
+    currency: Mapped["Currency"] = relationship("Currency", foreign_keys=[currency_code])
+    tax_code_obj: Mapped[Optional["TaxCode"]] = relationship("TaxCode", foreign_keys=[tax_code])
+    dimension1: Mapped[Optional["Dimension"]] = relationship("Dimension", foreign_keys=[dimension1_id])
+    dimension2: Mapped[Optional["Dimension"]] = relationship("Dimension", foreign_keys=[dimension2_id])
+    
+    @validates('debit_amount', 'credit_amount')
+    def validate_amounts(self, key, value):
+        value_decimal = Decimal(str(value)) 
+        if key == 'debit_amount' and value_decimal > Decimal(0):
+            self.credit_amount = Decimal(0)
+        elif key == 'credit_amount' and value_decimal > Decimal(0):
+            self.debit_amount = Decimal(0)
+        return value_decimal
+
+# Update Account relationships for journal_lines
+Account.journal_lines = relationship("JournalEntryLine", back_populates="account") # type: ignore
+
+```
+
+# app/models/accounting/fiscal_year.py
+```py
+# File: app/models/accounting/fiscal_year.py
+# (Previously generated as app/models/fiscal_year.py, reviewed and confirmed)
+from sqlalchemy import Column, Integer, String, Date, Boolean, DateTime, ForeignKey, CheckConstraint
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.dialects.postgresql import DATERANGE # For GIST constraint if modeled in SQLAlchemy
+# from sqlalchemy.sql.functions import GenericFunction # For functions like `daterange`
+# from sqlalchemy.sql import literal_column
+from app.models.base import Base, TimestampMixin # UserAuditMixin handled directly
+from app.models.core.user import User
+import datetime
+from typing import List, Optional
+
+class FiscalYear(Base, TimestampMixin):
+    __tablename__ = 'fiscal_years'
+    __table_args__ = (
+        CheckConstraint('start_date <= end_date', name='fy_date_range_check'),
+        # The EXCLUDE USING gist (daterange(start_date, end_date, '[]') WITH &&)
+        # is a database-level constraint. SQLAlchemy doesn't model EXCLUDE directly in Core/ORM easily.
+        # It's enforced by the DB schema from schema.sql.
+        {'schema': 'accounting'}
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    year_name: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)
+    start_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    end_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    is_closed: Mapped[bool] = mapped_column(Boolean, default=False)
+    closed_date: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    closed_by_user_id: Mapped[Optional[int]] = mapped_column("closed_by", Integer, ForeignKey('core.users.id'), nullable=True)
+
+    created_by_user_id: Mapped[int] = mapped_column("created_by",Integer, ForeignKey('core.users.id'), nullable=False)
+    updated_by_user_id: Mapped[int] = mapped_column("updated_by",Integer, ForeignKey('core.users.id'), nullable=False)
+
+    # Relationships
+    closed_by_user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[closed_by_user_id])
+    created_by_user: Mapped["User"] = relationship("User", foreign_keys=[created_by_user_id])
+    updated_by_user: Mapped["User"] = relationship("User", foreign_keys=[updated_by_user_id])
+    
+    fiscal_periods: Mapped[List["FiscalPeriod"]] = relationship("FiscalPeriod", back_populates="fiscal_year") # type: ignore
+    budgets: Mapped[List["Budget"]] = relationship("Budget", back_populates="fiscal_year_obj") # type: ignore
+
+```
+
+# app/models/accounting/fiscal_period.py
+```py
+# File: app/models/accounting/fiscal_period.py
+# (Moved from app/models/fiscal_period.py and updated)
+from sqlalchemy import Column, Integer, String, Date, Boolean, DateTime, UniqueConstraint, CheckConstraint, ForeignKey
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.sql import func
+import datetime
+
+from app.models.base import Base, TimestampMixin
+from app.models.accounting.fiscal_year import FiscalYear 
+from app.models.core.user import User
+from typing import Optional, List
+
+class FiscalPeriod(Base, TimestampMixin):
+    __tablename__ = 'fiscal_periods'
+    __table_args__ = (
+        UniqueConstraint('fiscal_year_id', 'period_type', 'period_number', name='fp_unique_period_dates'),
+        CheckConstraint('start_date <= end_date', name='fp_date_range_check'),
+        CheckConstraint("period_type IN ('Month', 'Quarter', 'Year')", name='ck_fp_period_type'),
+        CheckConstraint("status IN ('Open', 'Closed', 'Archived')", name='ck_fp_status'),
+        {'schema': 'accounting'}
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True, index=True)
+    fiscal_year_id: Mapped[int] = mapped_column(Integer, ForeignKey('accounting.fiscal_years.id'), nullable=False)
+    name: Mapped[str] = mapped_column(String(50), nullable=False)
+    start_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    end_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    period_type: Mapped[str] = mapped_column(String(10), nullable=False) 
+    status: Mapped[str] = mapped_column(String(10), nullable=False, default='Open')
+    period_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_adjustment: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    created_by_user_id: Mapped[int] = mapped_column("created_by", Integer, ForeignKey('core.users.id'), nullable=False)
+    updated_by_user_id: Mapped[int] = mapped_column("updated_by", Integer, ForeignKey('core.users.id'), nullable=False)
+
+    fiscal_year: Mapped["FiscalYear"] = relationship("FiscalYear", back_populates="fiscal_periods")
+    created_by_user: Mapped["User"] = relationship("User", foreign_keys=[created_by_user_id])
+    updated_by_user: Mapped["User"] = relationship("User", foreign_keys=[updated_by_user_id])
+    
+    journal_entries: Mapped[List["JournalEntry"]] = relationship(back_populates="fiscal_period") # type: ignore
+    budget_details: Mapped[List["BudgetDetail"]] = relationship(back_populates="fiscal_period") # type: ignore
+
+```
+
+# app/models/accounting/tax_code.py
+```py
+# File: app/models/accounting/tax_code.py
+# (Moved from app/models/tax_code.py and updated)
+from sqlalchemy import Column, Integer, String, Boolean, Numeric, DateTime, ForeignKey, CheckConstraint
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.sql import func
+from typing import Optional, List # Added List
+from decimal import Decimal
+
+from app.models.base import Base, TimestampMixin
+from app.models.accounting.account import Account
+from app.models.core.user import User
+
+class TaxCode(Base, TimestampMixin):
+    __tablename__ = 'tax_codes'
+    __table_args__ = (
+        CheckConstraint("tax_type IN ('GST', 'Income Tax', 'Withholding Tax')", name='ck_tax_codes_tax_type'),
+        {'schema': 'accounting'}
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True, index=True)
+    code: Mapped[str] = mapped_column(String(20), unique=True, nullable=False, index=True)
+    description: Mapped[str] = mapped_column(String(100), nullable=False)
+    tax_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    rate: Mapped[Decimal] = mapped_column(Numeric(5,2), nullable=False) 
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    affects_account_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('accounting.accounts.id'), nullable=True)
+
+    created_by_user_id: Mapped[int] = mapped_column("created_by", Integer, ForeignKey('core.users.id'), nullable=False)
+    updated_by_user_id: Mapped[int] = mapped_column("updated_by", Integer, ForeignKey('core.users.id'), nullable=False)
+
+    affects_account: Mapped[Optional["Account"]] = relationship("Account", back_populates="tax_code_applications", foreign_keys=[affects_account_id])
+    created_by_user: Mapped["User"] = relationship("User", foreign_keys=[created_by_user_id])
+    updated_by_user: Mapped["User"] = relationship("User", foreign_keys=[updated_by_user_id])
+
+    # Relationship defined by other models via back_populates:
+    # journal_entry_lines: Mapped[List["JournalEntryLine"]]
+    # product_default_tax_codes: Mapped[List["Product"]]
+
+# Add to Account model:
+Account.tax_code_applications = relationship("TaxCode", back_populates="affects_account", foreign_keys=[TaxCode.affects_account_id]) # type: ignore
+
+```
+
+# app/models/accounting/dimension.py
+```py
+# File: app/models/accounting/dimension.py
+# New model for accounting.dimensions
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, ForeignKey, UniqueConstraint
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.sql import func
+from app.models.base import Base, TimestampMixin, UserAuditMixin
+# from app.models.core.user import User # For FKs
+from typing import List, Optional
+
+class Dimension(Base, TimestampMixin, UserAuditMixin):
+    __tablename__ = 'dimensions'
+    __table_args__ = (
+        UniqueConstraint('dimension_type', 'code', name='uq_dimensions_type_code'),
+        {'schema': 'accounting'} 
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    dimension_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    code: Mapped[str] = mapped_column(String(20), nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    parent_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('accounting.dimensions.id'), nullable=True)
+
+    created_by: Mapped[int] = mapped_column(Integer, ForeignKey('core.users.id'), nullable=False)
+    updated_by: Mapped[int] = mapped_column(Integer, ForeignKey('core.users.id'), nullable=False)
+    
+    parent: Mapped[Optional["Dimension"]] = relationship("Dimension", remote_side=[id], back_populates="children", foreign_keys=[parent_id])
+    children: Mapped[List["Dimension"]] = relationship("Dimension", back_populates="parent")
+
+```
+
+# app/models/accounting/account_type.py
+```py
+# File: app/models/accounting/account_type.py
+# (Moved from app/models/account_type.py and fields updated)
+from sqlalchemy import Column, Integer, String, Boolean, CheckConstraint, DateTime
+from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.sql import func
+from app.models.base import Base, TimestampMixin 
+from typing import Optional
+
+class AccountType(Base, TimestampMixin): 
+    __tablename__ = 'account_types'
+    __table_args__ = (
+        CheckConstraint("category IN ('Asset', 'Liability', 'Equity', 'Revenue', 'Expense')", name='ck_account_types_category'),
+        {'schema': 'accounting'}
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, index=True)
+    name: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
+    category: Mapped[str] = mapped_column(String(20), nullable=False) 
+    is_debit_balance: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    report_type: Mapped[str] = mapped_column(String(30), nullable=False) 
+    display_order: Mapped[int] = mapped_column(Integer, nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+
+```
+
+# app/models/accounting/recurring_pattern.py
+```py
+# File: app/models/accounting/recurring_pattern.py
+# (Moved from app/models/recurring_pattern.py and updated)
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, Text, DateTime, Date, CheckConstraint
+from sqlalchemy.orm import relationship, Mapped, mapped_column
+from sqlalchemy.sql import func
+from typing import Optional, List # Added List
+import datetime
+
+from app.models.base import Base, TimestampMixin
+from app.models.accounting.journal_entry import JournalEntry # For relationship type hint
+from app.models.core.user import User
+
+class RecurringPattern(Base, TimestampMixin):
+    __tablename__ = 'recurring_patterns'
+    __table_args__ = (
+        CheckConstraint("frequency IN ('Daily', 'Weekly', 'Monthly', 'Quarterly', 'Yearly')", name='ck_recurring_patterns_frequency'),
+        CheckConstraint("day_of_month BETWEEN 1 AND 31", name='ck_recurring_patterns_day_of_month'),
+        CheckConstraint("day_of_week BETWEEN 0 AND 6", name='ck_recurring_patterns_day_of_week'),
+        {'schema': 'accounting'}
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    template_entry_id: Mapped[int] = mapped_column(Integer, ForeignKey('accounting.journal_entries.id'), nullable=False)
+    
+    frequency: Mapped[str] = mapped_column(String(20), nullable=False)
+    interval_value: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    start_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    end_date: Mapped[Optional[datetime.date]] = mapped_column(Date, nullable=True)
+    
+    day_of_month: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    day_of_week: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    
+    last_generated_date: Mapped[Optional[datetime.date]] = mapped_column(Date, nullable=True)
+    next_generation_date: Mapped[Optional[datetime.date]] = mapped_column(Date, nullable=True)
+    
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    
+    created_by_user_id: Mapped[int] = mapped_column("created_by", Integer, ForeignKey('core.users.id'), nullable=False)
+    updated_by_user_id: Mapped[int] = mapped_column("updated_by", Integer, ForeignKey('core.users.id'), nullable=False)
+
+    template_journal_entry: Mapped["JournalEntry"] = relationship("JournalEntry", foreign_keys=[template_entry_id], back_populates="template_for_patterns")
+    generated_journal_entries: Mapped[List["JournalEntry"]] = relationship("JournalEntry", foreign_keys="JournalEntry.recurring_pattern_id", back_populates="generated_from_pattern")
+    created_by_user: Mapped["User"] = relationship("User", foreign_keys=[created_by_user_id])
+    updated_by_user: Mapped["User"] = relationship("User", foreign_keys=[updated_by_user_id])
+
+```
+
+# app/models/accounting/currency.py
+```py
+# File: app/models/accounting/currency.py
+# (Moved from app/models/currency.py and fields updated)
+from sqlalchemy import Column, String, Boolean, Integer, DateTime, ForeignKey
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.sql import func
+from app.models.base import Base, TimestampMixin
+from app.models.core.user import User 
+from typing import Optional
+
+class Currency(Base, TimestampMixin):
+    __tablename__ = 'currencies'
+    __table_args__ = {'schema': 'accounting'}
+
+    code: Mapped[str] = mapped_column(String(3), primary_key=True) 
+    name: Mapped[str] = mapped_column(String(50), nullable=False)
+    symbol: Mapped[str] = mapped_column(String(10), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    decimal_places: Mapped[int] = mapped_column(Integer, default=2)
+    format_string: Mapped[str] = mapped_column(String(20), default='#,##0.00') 
+
+    created_by_user_id: Mapped[Optional[int]] = mapped_column("created_by", Integer, ForeignKey('core.users.id'), nullable=True)
+    updated_by_user_id: Mapped[Optional[int]] = mapped_column("updated_by", Integer, ForeignKey('core.users.id'), nullable=True)
+
+    created_by_user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[created_by_user_id])
+    updated_by_user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[updated_by_user_id])
+
+```
+
 # app/reporting/financial_statement_generator.py
 ```py
 # File: app/reporting/financial_statement_generator.py
-# (Content as previously generated and verified)
 from typing import List, Dict, Any, Optional
-from datetime import date
+from datetime import date, timedelta # Added timedelta
 from decimal import Decimal
 
 from app.services.account_service import AccountService
 from app.services.journal_service import JournalService
 from app.services.fiscal_period_service import FiscalPeriodService
-from app.services.tax_service import TaxCodeService
-from app.services.core_services import CompanySettingsService 
+from app.services.tax_service import TaxCodeService # Keep for GST F5 method
+from app.services.core_services import CompanySettingsService # Keep for GST F5 method
 from app.services.accounting_services import AccountTypeService
 from app.models.accounting.account import Account 
 from app.models.accounting.fiscal_year import FiscalYear
 from app.models.accounting.account_type import AccountType 
-
+from app.models.accounting.journal_entry import JournalEntryLine # New import
 
 class FinancialStatementGenerator:
     def __init__(self, 
                  account_service: AccountService, 
                  journal_service: JournalService, 
-                 fiscal_period_service: FiscalPeriodService,
+                 fiscal_period_service: FiscalPeriodService, # Keep even if not used by GL directly, may be used by other reports
                  account_type_service: AccountTypeService, 
                  tax_code_service: Optional[TaxCodeService] = None, 
                  company_settings_service: Optional[CompanySettingsService] = None
@@ -38,252 +787,188 @@ class FinancialStatementGenerator:
     async def _get_account_type_map(self) -> Dict[str, AccountType]:
         if self._account_type_map_cache is None:
              ats = await self.account_type_service.get_all()
-             # Assuming AccountType.category is the primary key like 'Asset', 'Liability'
-             # And Account.account_type stores this category string.
-             self._account_type_map_cache = {at.category: at for at in ats} 
+             self._account_type_map_cache = {at.category: at for at in ats} # Assuming at.category is the key 'Asset', 'Liability' etc.
         return self._account_type_map_cache
 
     async def _calculate_account_balances_for_report(self, accounts: List[Account], as_of_date: date) -> List[Dict[str, Any]]:
+        # ... (existing method, no changes needed for this step)
         result_list = []
         acc_type_map = await self._get_account_type_map()
         for account in accounts:
             balance_value = await self.journal_service.get_account_balance(account.id, as_of_date)
             display_balance = balance_value 
-            
             acc_detail = acc_type_map.get(account.account_type)
             is_debit_nature = acc_detail.is_debit_balance if acc_detail else (account.account_type in ['Asset', 'Expense'])
-
-            if not is_debit_nature: 
-                display_balance = -balance_value 
-
-            result_list.append({
-                'id': account.id, 'code': account.code, 'name': account.name,
-                'balance': display_balance 
-            })
+            if not is_debit_nature: display_balance = -balance_value 
+            result_list.append({'id': account.id, 'code': account.code, 'name': account.name, 'balance': display_balance})
         return result_list
 
     async def _calculate_account_period_activity_for_report(self, accounts: List[Account], start_date: date, end_date: date) -> List[Dict[str, Any]]:
+        # ... (existing method, no changes needed for this step)
         result_list = []
+        acc_type_map = await self._get_account_type_map() # Ensure map is loaded
         for account in accounts:
             activity_value = await self.journal_service.get_account_balance_for_period(account.id, start_date, end_date)
             display_activity = activity_value
-            if account.account_type in ['Revenue']: 
-                display_activity = -activity_value
-            result_list.append({
-                'id': account.id, 'code': account.code, 'name': account.name,
-                'balance': display_activity 
-            })
+            acc_detail = acc_type_map.get(account.account_type)
+            is_debit_nature = acc_detail.is_debit_balance if acc_detail else (account.account_type in ['Asset', 'Expense'])
+            # For P&L: Revenue (credit nature) activity is usually shown positive if it increases profit.
+            # Expense (debit nature) activity is usually shown positive.
+            # Our get_account_balance_for_period returns net change (Debit-Credit).
+            # Revenue: Credit > Debit => negative result => show positive.
+            # Expense: Debit > Credit => positive result => show positive.
+            if not is_debit_nature: # Revenue, Liability, Equity
+                display_activity = -activity_value # Invert for typical P&L presentation of revenue
+            
+            result_list.append({'id': account.id, 'code': account.code, 'name': account.name, 'balance': display_activity})
         return result_list
 
     async def generate_balance_sheet(self, as_of_date: date, comparative_date: Optional[date] = None, include_zero_balances: bool = False) -> Dict[str, Any]:
+        # ... (existing method, no changes needed for this step)
         accounts = await self.account_service.get_all_active()
-        
         assets_orm = [a for a in accounts if a.account_type == 'Asset']
         liabilities_orm = [a for a in accounts if a.account_type == 'Liability']
         equity_orm = [a for a in accounts if a.account_type == 'Equity']
-        
         asset_accounts = await self._calculate_account_balances_for_report(assets_orm, as_of_date)
         liability_accounts = await self._calculate_account_balances_for_report(liabilities_orm, as_of_date)
         equity_accounts = await self._calculate_account_balances_for_report(equity_orm, as_of_date)
-        
         comp_asset_accs, comp_liab_accs, comp_equity_accs = None, None, None
         if comparative_date:
             comp_asset_accs = await self._calculate_account_balances_for_report(assets_orm, comparative_date)
             comp_liab_accs = await self._calculate_account_balances_for_report(liabilities_orm, comparative_date)
             comp_equity_accs = await self._calculate_account_balances_for_report(equity_orm, comparative_date)
-
         if not include_zero_balances:
-            asset_accounts = [a for a in asset_accounts if a['balance'] != Decimal(0)]
-            liability_accounts = [a for a in liability_accounts if a['balance'] != Decimal(0)]
-            equity_accounts = [a for a in equity_accounts if a['balance'] != Decimal(0)]
+            asset_accounts = [a for a in asset_accounts if a['balance'] != Decimal(0)]; liability_accounts = [a for a in liability_accounts if a['balance'] != Decimal(0)]; equity_accounts = [a for a in equity_accounts if a['balance'] != Decimal(0)]
             if comparative_date:
-                comp_asset_accs = [a for a in comp_asset_accs if a['balance'] != Decimal(0)] if comp_asset_accs else None
-                comp_liab_accs = [a for a in comp_liab_accs if a['balance'] != Decimal(0)] if comp_liab_accs else None
-                comp_equity_accs = [a for a in comp_equity_accs if a['balance'] != Decimal(0)] if comp_equity_accs else None
-
-        total_assets = sum(a['balance'] for a in asset_accounts)
-        total_liabilities = sum(a['balance'] for a in liability_accounts)
-        total_equity = sum(a['balance'] for a in equity_accounts)
-        
-        comp_total_assets = sum(a['balance'] for a in comp_asset_accs) if comp_asset_accs else None
-        comp_total_liabilities = sum(a['balance'] for a in comp_liab_accs) if comp_liab_accs else None
-        comp_total_equity = sum(a['balance'] for a in comp_equity_accs) if comp_equity_accs else None
-
-        return {
-            'title': 'Balance Sheet', 'report_date_description': f"As of {as_of_date.strftime('%d %b %Y')}",
-            'as_of_date': as_of_date, 'comparative_date': comparative_date,
-            'assets': {'accounts': asset_accounts, 'total': total_assets, 'comparative_accounts': comp_asset_accs, 'comparative_total': comp_total_assets},
-            'liabilities': {'accounts': liability_accounts, 'total': total_liabilities, 'comparative_accounts': comp_liab_accs, 'comparative_total': comp_total_liabilities},
-            'equity': {'accounts': equity_accounts, 'total': total_equity, 'comparative_accounts': comp_equity_accs, 'comparative_total': comp_total_equity},
-            'total_liabilities_equity': total_liabilities + total_equity,
-            'comparative_total_liabilities_equity': (comp_total_liabilities + comp_total_equity) if comparative_date and comp_total_liabilities is not None and comp_total_equity is not None else None,
-            'is_balanced': abs(total_assets - (total_liabilities + total_equity)) < Decimal("0.01")
-        }
+                comp_asset_accs = [a for a in comp_asset_accs if a['balance'] != Decimal(0)] if comp_asset_accs else None; comp_liab_accs = [a for a in comp_liab_accs if a['balance'] != Decimal(0)] if comp_liab_accs else None; comp_equity_accs = [a for a in comp_equity_accs if a['balance'] != Decimal(0)] if comp_equity_accs else None
+        total_assets = sum(a['balance'] for a in asset_accounts); total_liabilities = sum(a['balance'] for a in liability_accounts); total_equity = sum(a['balance'] for a in equity_accounts)
+        comp_total_assets = sum(a['balance'] for a in comp_asset_accs) if comp_asset_accs else None; comp_total_liabilities = sum(a['balance'] for a in comp_liab_accs) if comp_liab_accs else None; comp_total_equity = sum(a['balance'] for a in comp_equity_accs) if comp_equity_accs else None
+        return {'title': 'Balance Sheet', 'report_date_description': f"As of {as_of_date.strftime('%d %b %Y')}",'as_of_date': as_of_date, 'comparative_date': comparative_date,'assets': {'accounts': asset_accounts, 'total': total_assets, 'comparative_accounts': comp_asset_accs, 'comparative_total': comp_total_assets},'liabilities': {'accounts': liability_accounts, 'total': total_liabilities, 'comparative_accounts': comp_liab_accs, 'comparative_total': comp_total_liabilities},'equity': {'accounts': equity_accounts, 'total': total_equity, 'comparative_accounts': comp_equity_accs, 'comparative_total': comp_total_equity},'total_liabilities_equity': total_liabilities + total_equity,'comparative_total_liabilities_equity': (comp_total_liabilities + comp_total_equity) if comparative_date and comp_total_liabilities is not None and comp_total_equity is not None else None,'is_balanced': abs(total_assets - (total_liabilities + total_equity)) < Decimal("0.01")}
 
     async def generate_profit_loss(self, start_date: date, end_date: date, comparative_start: Optional[date] = None, comparative_end: Optional[date] = None) -> Dict[str, Any]:
+        # ... (existing method, no changes needed for this step, but ensure _calculate_account_period_activity_for_report is correct)
         accounts = await self.account_service.get_all_active()
-        
         revenues_orm = [a for a in accounts if a.account_type == 'Revenue']
         expenses_orm = [a for a in accounts if a.account_type == 'Expense'] 
-        
         revenue_accounts = await self._calculate_account_period_activity_for_report(revenues_orm, start_date, end_date)
         expense_accounts = await self._calculate_account_period_activity_for_report(expenses_orm, start_date, end_date)
-        
         comp_rev_accs, comp_exp_accs = None, None
         if comparative_start and comparative_end:
             comp_rev_accs = await self._calculate_account_period_activity_for_report(revenues_orm, comparative_start, comparative_end)
             comp_exp_accs = await self._calculate_account_period_activity_for_report(expenses_orm, comparative_start, comparative_end)
-
-        total_revenue = sum(a['balance'] for a in revenue_accounts)
-        total_expenses = sum(a['balance'] for a in expense_accounts) 
+        total_revenue = sum(a['balance'] for a in revenue_accounts); total_expenses = sum(a['balance'] for a in expense_accounts) 
         net_profit = total_revenue - total_expenses
-        
-        comp_total_revenue = sum(a['balance'] for a in comp_rev_accs) if comp_rev_accs else None
-        comp_total_expenses = sum(a['balance'] for a in comp_exp_accs) if comp_exp_accs else None
+        comp_total_revenue = sum(a['balance'] for a in comp_rev_accs) if comp_rev_accs else None; comp_total_expenses = sum(a['balance'] for a in comp_exp_accs) if comp_exp_accs else None
         comp_net_profit = (comp_total_revenue - comp_total_expenses) if comp_total_revenue is not None and comp_total_expenses is not None else None
-
-        return {
-            'title': 'Profit & Loss Statement', 
-            'report_date_description': f"For the period {start_date.strftime('%d %b %Y')} to {end_date.strftime('%d %b %Y')}",
-            'start_date': start_date, 'end_date': end_date, 
-            'comparative_start': comparative_start, 'comparative_end': comparative_end,
-            'revenue': {'accounts': revenue_accounts, 'total': total_revenue, 'comparative_accounts': comp_rev_accs, 'comparative_total': comp_total_revenue},
-            'expenses': {'accounts': expense_accounts, 'total': total_expenses, 'comparative_accounts': comp_exp_accs, 'comparative_total': comp_total_expenses},
-            'net_profit': net_profit, 'comparative_net_profit': comp_net_profit
-        }
+        return {'title': 'Profit & Loss Statement', 'report_date_description': f"For the period {start_date.strftime('%d %b %Y')} to {end_date.strftime('%d %b %Y')}",'start_date': start_date, 'end_date': end_date, 'comparative_start': comparative_start, 'comparative_end': comparative_end,'revenue': {'accounts': revenue_accounts, 'total': total_revenue, 'comparative_accounts': comp_rev_accs, 'comparative_total': comp_total_revenue},'expenses': {'accounts': expense_accounts, 'total': total_expenses, 'comparative_accounts': comp_exp_accs, 'comparative_total': comp_total_expenses},'net_profit': net_profit, 'comparative_net_profit': comp_net_profit}
 
     async def generate_trial_balance(self, as_of_date: date) -> Dict[str, Any]:
-        accounts = await self.account_service.get_all_active()
-        debit_accounts_list, credit_accounts_list = [], [] 
-        total_debits_val, total_credits_val = Decimal(0), Decimal(0) 
-
+        # ... (existing method, no changes needed for this step)
+        accounts = await self.account_service.get_all_active(); debit_accounts_list, credit_accounts_list = [], []; total_debits_val, total_credits_val = Decimal(0), Decimal(0) 
         acc_type_map = await self._get_account_type_map()
-
         for account in accounts:
             raw_balance = await self.journal_service.get_account_balance(account.id, as_of_date)
             if abs(raw_balance) < Decimal("0.01"): continue
-
             account_data = {'id': account.id, 'code': account.code, 'name': account.name, 'balance': abs(raw_balance)}
-            
-            acc_detail = acc_type_map.get(account.account_type)
-            is_debit_nature = acc_detail.is_debit_balance if acc_detail else (account.account_type in ['Asset', 'Expense'])
-
+            acc_detail = acc_type_map.get(account.account_type); is_debit_nature = acc_detail.is_debit_balance if acc_detail else (account.account_type in ['Asset', 'Expense'])
             if is_debit_nature: 
-                if raw_balance >= Decimal(0): 
-                    debit_accounts_list.append(account_data)
-                    total_debits_val += raw_balance
-                else: 
-                    account_data['balance'] = abs(raw_balance) 
-                    credit_accounts_list.append(account_data)
-                    total_credits_val += abs(raw_balance)
+                if raw_balance >= Decimal(0): debit_accounts_list.append(account_data); total_debits_val += raw_balance
+                else: account_data['balance'] = abs(raw_balance); credit_accounts_list.append(account_data); total_credits_val += abs(raw_balance)
             else: 
-                if raw_balance <= Decimal(0): 
-                    credit_accounts_list.append(account_data)
-                    total_credits_val += abs(raw_balance)
-                else: 
-                    account_data['balance'] = raw_balance 
-                    debit_accounts_list.append(account_data)
-                    total_debits_val += raw_balance
-        
-        debit_accounts_list.sort(key=lambda a: a['code'])
-        credit_accounts_list.sort(key=lambda a: a['code'])
-        
-        return {
-            'title': 'Trial Balance', 'report_date_description': f"As of {as_of_date.strftime('%d %b %Y')}",
-            'as_of_date': as_of_date,
-            'debit_accounts': debit_accounts_list, 'credit_accounts': credit_accounts_list,
-            'total_debits': total_debits_val, 'total_credits': total_credits_val,
-            'is_balanced': abs(total_debits_val - total_credits_val) < Decimal("0.01")
-        }
+                if raw_balance <= Decimal(0): credit_accounts_list.append(account_data); total_credits_val += abs(raw_balance)
+                else: account_data['balance'] = raw_balance; debit_accounts_list.append(account_data); total_debits_val += raw_balance
+        debit_accounts_list.sort(key=lambda a: a['code']); credit_accounts_list.sort(key=lambda a: a['code'])
+        return {'title': 'Trial Balance', 'report_date_description': f"As of {as_of_date.strftime('%d %b %Y')}",'as_of_date': as_of_date,'debit_accounts': debit_accounts_list, 'credit_accounts': credit_accounts_list,'total_debits': total_debits_val, 'total_credits': total_credits_val,'is_balanced': abs(total_debits_val - total_credits_val) < Decimal("0.01")}
 
     async def generate_income_tax_computation(self, year_int_value: int) -> Dict[str, Any]: 
-        fiscal_year_obj: Optional[FiscalYear] = await self.fiscal_period_service.get_fiscal_year(year_int_value)
-        if not fiscal_year_obj:
-            raise ValueError(f"Fiscal year definition for {year_int_value} not found.")
-
+        # ... (existing method, no changes needed for this step)
+        fiscal_year_obj: Optional[FiscalYear] = await self.fiscal_period_service.get_fiscal_year(year_int_value) # This method needs review in FiscalPeriodService
+        if not fiscal_year_obj: raise ValueError(f"Fiscal year definition for {year_int_value} not found.")
         start_date, end_date = fiscal_year_obj.start_date, fiscal_year_obj.end_date
-        pl_data = await self.generate_profit_loss(start_date, end_date)
-        net_profit = pl_data['net_profit']
-        
-        adjustments = []
-        tax_effect = Decimal(0)
-        
+        pl_data = await self.generate_profit_loss(start_date, end_date); net_profit = pl_data['net_profit']
+        adjustments = []; tax_effect = Decimal(0)
         tax_adj_accounts = await self.account_service.get_accounts_by_tax_treatment('Tax Adjustment')
-
         for account in tax_adj_accounts:
             activity = await self.journal_service.get_account_balance_for_period(account.id, start_date, end_date)
             if abs(activity) < Decimal("0.01"): continue
-            
             adj_is_addition = activity > Decimal(0) if account.account_type == 'Expense' else activity < Decimal(0)
-            
-            adjustments.append({
-                'id': account.id, 'code': account.code, 'name': account.name, 
-                'amount': activity, 'is_addition': adj_is_addition
-            })
+            adjustments.append({'id': account.id, 'code': account.code, 'name': account.name, 'amount': activity, 'is_addition': adj_is_addition})
             tax_effect += activity 
-            
         taxable_income = net_profit + tax_effect
-        
-        return {
-            'title': f'Income Tax Computation for Year of Assessment {year_int_value + 1}', 
-            'report_date_description': f"For Financial Year Ended {fiscal_year_obj.end_date.strftime('%d %b %Y')}",
-            'year': year_int_value, 'fiscal_year_start': start_date, 'fiscal_year_end': end_date,
-            'net_profit': net_profit, 'adjustments': adjustments, 
-            'tax_effect': tax_effect, 'taxable_income': taxable_income
-        }
+        return {'title': f'Income Tax Computation for Year of Assessment {year_int_value + 1}', 'report_date_description': f"For Financial Year Ended {fiscal_year_obj.end_date.strftime('%d %b %Y')}",'year': year_int_value, 'fiscal_year_start': start_date, 'fiscal_year_end': end_date,'net_profit': net_profit, 'adjustments': adjustments, 'tax_effect': tax_effect, 'taxable_income': taxable_income}
 
     async def generate_gst_f5(self, start_date: date, end_date: date) -> Dict[str, Any]:
-        if not self.company_settings_service or not self.tax_code_service:
-            raise RuntimeError("TaxCodeService and CompanySettingsService are required for GST F5.")
-
-        company = await self.company_settings_service.get_company_settings()
-        if not company:
-             raise ValueError("Company settings not found.")
-
-        report_data: Dict[str, Any] = {
-            'title': f"GST F5 Return for period {start_date.strftime('%d %b %Y')} to {end_date.strftime('%d %b %Y')}",
-            'company_name': company.company_name,
-            'gst_registration_no': company.gst_registration_no,
-            'period_start': start_date, 'period_end': end_date,
-            'standard_rated_supplies': Decimal(0), 'zero_rated_supplies': Decimal(0),
-            'exempt_supplies': Decimal(0), 'total_supplies': Decimal(0),
-            'taxable_purchases': Decimal(0), 'output_tax': Decimal(0),
-            'input_tax': Decimal(0), 'tax_adjustments': Decimal(0), 'tax_payable': Decimal(0)
-        }
-        
+        # ... (existing method, no changes needed for this step)
+        if not self.company_settings_service or not self.tax_code_service: raise RuntimeError("TaxCodeService and CompanySettingsService are required for GST F5.")
+        company = await self.company_settings_service.get_company_settings();
+        if not company: raise ValueError("Company settings not found.")
+        report_data: Dict[str, Any] = {'title': f"GST F5 Return for period {start_date.strftime('%d %b %Y')} to {end_date.strftime('%d %b %Y')}",'company_name': company.company_name,'gst_registration_no': company.gst_registration_no,'period_start': start_date, 'period_end': end_date,'standard_rated_supplies': Decimal(0), 'zero_rated_supplies': Decimal(0),'exempt_supplies': Decimal(0), 'total_supplies': Decimal(0),'taxable_purchases': Decimal(0), 'output_tax': Decimal(0),'input_tax': Decimal(0), 'tax_adjustments': Decimal(0), 'tax_payable': Decimal(0)}
         entries = await self.journal_service.get_posted_entries_by_date_range(start_date, end_date)
-        
         for entry in entries:
             for line in entry.lines: 
                 if not line.tax_code or not line.account: continue
-                
                 tax_code_info = await self.tax_code_service.get_tax_code(line.tax_code)
                 if not tax_code_info or tax_code_info.tax_type != 'GST': continue
-                
-                line_net_amount = (line.debit_amount or line.credit_amount) 
-                tax_on_line = line.tax_amount
-
+                line_net_amount = (line.debit_amount if line.debit_amount > Decimal(0) else line.credit_amount) # Assumes one is zero
+                tax_on_line = line.tax_amount if line.tax_amount is not None else Decimal(0)
                 if line.account.account_type == 'Revenue':
-                    if tax_code_info.code == 'SR':
-                        report_data['standard_rated_supplies'] += line_net_amount
-                        report_data['output_tax'] += tax_on_line
-                    elif tax_code_info.code == 'ZR':
-                        report_data['zero_rated_supplies'] += line_net_amount
-                    elif tax_code_info.code == 'ES':
-                        report_data['exempt_supplies'] += line_net_amount
+                    if tax_code_info.code == 'SR': report_data['standard_rated_supplies'] += line_net_amount; report_data['output_tax'] += tax_on_line
+                    elif tax_code_info.code == 'ZR': report_data['zero_rated_supplies'] += line_net_amount
+                    elif tax_code_info.code == 'ES': report_data['exempt_supplies'] += line_net_amount
                 elif line.account.account_type in ['Expense', 'Asset']:
-                    if tax_code_info.code == 'TX': 
-                        report_data['taxable_purchases'] += line_net_amount
-                        report_data['input_tax'] += tax_on_line
-        
-        report_data['total_supplies'] = (
-            report_data['standard_rated_supplies'] + 
-            report_data['zero_rated_supplies'] + 
-            report_data['exempt_supplies']
-        )
+                    if tax_code_info.code == 'TX': report_data['taxable_purchases'] += line_net_amount; report_data['input_tax'] += tax_on_line
+                    elif tax_code_info.code == 'BL': report_data['taxable_purchases'] += line_net_amount # Tax on BL is not claimed
+        report_data['total_supplies'] = (report_data['standard_rated_supplies'] + report_data['zero_rated_supplies'] + report_data['exempt_supplies'])
         report_data['tax_payable'] = report_data['output_tax'] - report_data['input_tax'] + report_data['tax_adjustments']
-        
         return report_data
+
+    # --- NEW Method for General Ledger ---
+    async def generate_general_ledger(self, account_id: int, start_date: date, end_date: date) -> Dict[str, Any]:
+        account_orm = await self.account_service.get_by_id(account_id)
+        if not account_orm:
+            raise ValueError(f"Account with ID {account_id} not found.")
+
+        # Opening balance is balance as of (start_date - 1 day)
+        ob_date = start_date - timedelta(days=1)
+        opening_balance = await self.journal_service.get_account_balance(account_id, ob_date)
+
+        # Fetch transactions for the period
+        lines: List[JournalEntryLine] = await self.journal_service.get_posted_lines_for_account_in_range(
+            account_id, start_date, end_date
+        )
+
+        transactions_data = []
+        current_balance = opening_balance
+        for line in lines:
+            if not line.journal_entry: # Should not happen with joinedload
+                continue 
+            
+            movement = line.debit_amount - line.credit_amount
+            current_balance += movement
+            
+            transactions_data.append({
+                "date": line.journal_entry.entry_date,
+                "entry_no": line.journal_entry.entry_no,
+                "je_description": line.journal_entry.description or "",
+                "line_description": line.description or "",
+                "debit": line.debit_amount,
+                "credit": line.credit_amount,
+                "balance": current_balance
+            })
+        
+        closing_balance = current_balance
+
+        return {
+            "title": "General Ledger",
+            "report_date_description": f"For Account: {account_orm.code} - {account_orm.name} from {start_date.strftime('%d %b %Y')} to {end_date.strftime('%d %b %Y')}",
+            "account_code": account_orm.code,
+            "account_name": account_orm.name,
+            "start_date": start_date,
+            "end_date": end_date,
+            "opening_balance": opening_balance,
+            "transactions": transactions_data,
+            "closing_balance": closing_balance
+        }
 
 ```
 
@@ -586,1148 +1271,826 @@ class TaxReportGenerator:
 
 ```
 
-# app/accounting/__init__.py
+# app/business_logic/vendor_manager.py
 ```py
-# File: app/accounting/__init__.py
-# (Content as previously generated, verified)
-from .chart_of_accounts_manager import ChartOfAccountsManager
-from .journal_entry_manager import JournalEntryManager
-from .fiscal_period_manager import FiscalPeriodManager
-from .currency_manager import CurrencyManager
+# app/business_logic/vendor_manager.py
+from typing import List, Optional, Dict, Any, TYPE_CHECKING
+from decimal import Decimal
+
+from app.models.business.vendor import Vendor
+from app.services.business_services import VendorService
+from app.services.account_service import AccountService # Corrected import
+from app.services.accounting_services import CurrencyService # Correct import
+from app.utils.result import Result
+from app.utils.pydantic_models import VendorCreateData, VendorUpdateData, VendorSummaryData
+
+if TYPE_CHECKING:
+    from app.core.application_core import ApplicationCore
+
+class VendorManager:
+    def __init__(self, 
+                 vendor_service: VendorService, 
+                 account_service: AccountService, 
+                 currency_service: CurrencyService, 
+                 app_core: "ApplicationCore"):
+        self.vendor_service = vendor_service
+        self.account_service = account_service
+        self.currency_service = currency_service
+        self.app_core = app_core
+        self.logger = app_core.logger 
+
+    async def get_vendor_for_dialog(self, vendor_id: int) -> Optional[Vendor]:
+        """ Fetches a full vendor ORM object for dialog population. """
+        try:
+            return await self.vendor_service.get_by_id(vendor_id)
+        except Exception as e:
+            self.logger.error(f"Error fetching vendor ID {vendor_id} for dialog: {e}", exc_info=True)
+            return None
+
+    async def get_vendors_for_listing(self, 
+                                       active_only: bool = True,
+                                       search_term: Optional[str] = None,
+                                       page: int = 1,
+                                       page_size: int = 50
+                                      ) -> Result[List[VendorSummaryData]]:
+        """ Fetches a list of vendor summaries for table display. """
+        try:
+            summaries: List[VendorSummaryData] = await self.vendor_service.get_all_summary(
+                active_only=active_only,
+                search_term=search_term,
+                page=page,
+                page_size=page_size
+            )
+            return Result.success(summaries)
+        except Exception as e:
+            self.logger.error(f"Error fetching vendor listing: {e}", exc_info=True)
+            return Result.failure([f"Failed to retrieve vendor list: {str(e)}"])
+
+    async def _validate_vendor_data(self, dto: VendorCreateData | VendorUpdateData, existing_vendor_id: Optional[int] = None) -> List[str]:
+        """ Common validation logic for creating and updating vendors. """
+        errors: List[str] = []
+
+        if dto.vendor_code:
+            existing_by_code = await self.vendor_service.get_by_code(dto.vendor_code)
+            if existing_by_code and (existing_vendor_id is None or existing_by_code.id != existing_vendor_id):
+                errors.append(f"Vendor code '{dto.vendor_code}' already exists.")
+        else: 
+            errors.append("Vendor code is required.") 
+            
+        if dto.name is None or not dto.name.strip(): 
+            errors.append("Vendor name is required.")
+
+        if dto.payables_account_id is not None:
+            acc = await self.account_service.get_by_id(dto.payables_account_id)
+            if not acc:
+                errors.append(f"Payables account ID '{dto.payables_account_id}' not found.")
+            elif acc.account_type != 'Liability': 
+                errors.append(f"Account '{acc.code} - {acc.name}' is not a Liability account and cannot be used as payables account.")
+            elif not acc.is_active:
+                 errors.append(f"Payables account '{acc.code} - {acc.name}' is not active.")
+
+        if dto.currency_code:
+            curr = await self.currency_service.get_by_id(dto.currency_code) 
+            if not curr:
+                errors.append(f"Currency code '{dto.currency_code}' not found.")
+            elif not curr.is_active:
+                 errors.append(f"Currency '{dto.currency_code}' is not active.")
+        else: 
+             errors.append("Currency code is required.")
+        return errors
+
+    async def create_vendor(self, dto: VendorCreateData) -> Result[Vendor]:
+        validation_errors = await self._validate_vendor_data(dto)
+        if validation_errors:
+            return Result.failure(validation_errors)
+
+        try:
+            vendor_orm = Vendor(
+                vendor_code=dto.vendor_code, name=dto.name, legal_name=dto.legal_name,
+                uen_no=dto.uen_no, gst_registered=dto.gst_registered, gst_no=dto.gst_no,
+                withholding_tax_applicable=dto.withholding_tax_applicable,
+                withholding_tax_rate=dto.withholding_tax_rate,
+                contact_person=dto.contact_person, email=str(dto.email) if dto.email else None, phone=dto.phone,
+                address_line1=dto.address_line1, address_line2=dto.address_line2,
+                postal_code=dto.postal_code, city=dto.city, country=dto.country,
+                payment_terms=dto.payment_terms, currency_code=dto.currency_code, 
+                is_active=dto.is_active, vendor_since=dto.vendor_since, notes=dto.notes,
+                bank_account_name=dto.bank_account_name, bank_account_number=dto.bank_account_number,
+                bank_name=dto.bank_name, bank_branch=dto.bank_branch, bank_swift_code=dto.bank_swift_code,
+                payables_account_id=dto.payables_account_id,
+                created_by_user_id=dto.user_id,
+                updated_by_user_id=dto.user_id
+            )
+            saved_vendor = await self.vendor_service.save(vendor_orm)
+            return Result.success(saved_vendor)
+        except Exception as e:
+            self.logger.error(f"Error creating vendor '{dto.vendor_code}': {e}", exc_info=True)
+            return Result.failure([f"An unexpected error occurred while creating the vendor: {str(e)}"])
+
+    async def update_vendor(self, vendor_id: int, dto: VendorUpdateData) -> Result[Vendor]:
+        existing_vendor = await self.vendor_service.get_by_id(vendor_id)
+        if not existing_vendor:
+            return Result.failure([f"Vendor with ID {vendor_id} not found."])
+
+        validation_errors = await self._validate_vendor_data(dto, existing_vendor_id=vendor_id)
+        if validation_errors:
+            return Result.failure(validation_errors)
+
+        try:
+            update_data_dict = dto.model_dump(exclude={'id', 'user_id'}, exclude_unset=True)
+            for key, value in update_data_dict.items():
+                if hasattr(existing_vendor, key):
+                    if key == 'email' and value is not None: 
+                        setattr(existing_vendor, key, str(value))
+                    else:
+                        setattr(existing_vendor, key, value)
+            
+            existing_vendor.updated_by_user_id = dto.user_id
+            
+            updated_vendor = await self.vendor_service.save(existing_vendor)
+            return Result.success(updated_vendor)
+        except Exception as e:
+            self.logger.error(f"Error updating vendor ID {vendor_id}: {e}", exc_info=True)
+            return Result.failure([f"An unexpected error occurred while updating the vendor: {str(e)}"])
+
+    async def toggle_vendor_active_status(self, vendor_id: int, user_id: int) -> Result[Vendor]:
+        vendor = await self.vendor_service.get_by_id(vendor_id)
+        if not vendor:
+            return Result.failure([f"Vendor with ID {vendor_id} not found."])
+        
+        vendor_name_for_log = vendor.name 
+        
+        vendor.is_active = not vendor.is_active
+        vendor.updated_by_user_id = user_id
+
+        try:
+            updated_vendor = await self.vendor_service.save(vendor)
+            action = "activated" if updated_vendor.is_active else "deactivated"
+            self.logger.info(f"Vendor '{vendor_name_for_log}' (ID: {vendor_id}) {action} by user ID {user_id}.")
+            return Result.success(updated_vendor)
+        except Exception as e:
+            self.logger.error(f"Error toggling active status for vendor ID {vendor_id}: {e}", exc_info=True)
+            return Result.failure([f"Failed to toggle active status for vendor: {str(e)}"])
+
+
+```
+
+# app/business_logic/__init__.py
+```py
+# app/business_logic/__init__.py
+from .customer_manager import CustomerManager
+from .vendor_manager import VendorManager
+from .product_manager import ProductManager
+from .sales_invoice_manager import SalesInvoiceManager # New import
 
 __all__ = [
-    "ChartOfAccountsManager",
-    "JournalEntryManager",
-    "FiscalPeriodManager",
-    "CurrencyManager",
+    "CustomerManager",
+    "VendorManager",
+    "ProductManager",
+    "SalesInvoiceManager", # Added to __all__
 ]
 
+
 ```
 
-# app/accounting/journal_entry_manager.py
+# app/business_logic/sales_invoice_manager.py
 ```py
-# File: app/accounting/journal_entry_manager.py
-# Updated for new JournalEntry/Line fields and RecurringPattern model
-from typing import List, Optional, Any, TYPE_CHECKING
-from decimal import Decimal
-from datetime import date, datetime, timedelta
-from dateutil.relativedelta import relativedelta # type: ignore
+# app/business_logic/sales_invoice_manager.py
+from typing import List, Optional, Dict, Any, TYPE_CHECKING, Union, cast
+from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
+from datetime import date, datetime 
 
-from app.models import JournalEntry, JournalEntryLine, RecurringPattern, FiscalPeriod, Account
-from app.services.journal_service import JournalService
-from app.services.account_service import AccountService
-from app.services.fiscal_period_service import FiscalPeriodService
-from app.utils.sequence_generator import SequenceGenerator 
+from app.models.business.sales_invoice import SalesInvoice, SalesInvoiceLine
+from app.models.business.customer import Customer
+from app.models.business.product import Product
+from app.models.accounting.tax_code import TaxCode
+
+from app.services.business_services import SalesInvoiceService, CustomerService, ProductService
+from app.services.core_services import SequenceService
+from app.services.tax_service import TaxCodeService 
+
 from app.utils.result import Result
-from app.utils.pydantic_models import JournalEntryData, JournalEntryLineData 
-# from app.core.application_core import ApplicationCore # Removed direct import
+from app.utils.pydantic_models import (
+    SalesInvoiceCreateData, SalesInvoiceUpdateData, SalesInvoiceLineBaseData,
+    SalesInvoiceSummaryData, TaxCalculationResultData # Added TaxCalculationResultData
+)
+from app.tax.tax_calculator import TaxCalculator 
+from app.common.enums import InvoiceStatusEnum, ProductTypeEnum
 
 if TYPE_CHECKING:
-    from app.core.application_core import ApplicationCore # For type hinting
+    from app.core.application_core import ApplicationCore
 
-class JournalEntryManager:
+class SalesInvoiceManager:
     def __init__(self, 
-                 journal_service: JournalService, 
-                 account_service: AccountService, 
-                 fiscal_period_service: FiscalPeriodService, 
-                 sequence_generator: SequenceGenerator, 
+                 sales_invoice_service: SalesInvoiceService,
+                 customer_service: CustomerService,
+                 product_service: ProductService,
+                 tax_code_service: TaxCodeService, 
+                 tax_calculator: TaxCalculator, 
+                 sequence_service: SequenceService, 
                  app_core: "ApplicationCore"):
-        self.journal_service = journal_service
-        self.account_service = account_service
-        self.fiscal_period_service = fiscal_period_service
-        self.sequence_generator = sequence_generator 
+        self.sales_invoice_service = sales_invoice_service
+        self.customer_service = customer_service
+        self.product_service = product_service
+        self.tax_code_service = tax_code_service
+        self.tax_calculator = tax_calculator 
+        self.sequence_service = sequence_service
         self.app_core = app_core
+        self.logger = app_core.logger
 
-    async def create_journal_entry(self, entry_data: JournalEntryData) -> Result[JournalEntry]:
-        # Validation for balanced entry is in Pydantic model JournalEntryData
+    async def _validate_and_prepare_invoice_data(
+        self, 
+        dto: Union[SalesInvoiceCreateData, SalesInvoiceUpdateData],
+        is_update: bool = False # Not actively used yet, but good for context
+    ) -> Result[Dict[str, Any]]:
+        """
+        Validates DTO, fetches related entities, calculates line and header totals.
+        Returns a dictionary of validated and calculated data for ORM mapping, or errors.
+        """
+        errors: List[str] = []
         
-        fiscal_period = await self.fiscal_period_service.get_by_date(entry_data.entry_date)
-        if not fiscal_period: 
-            return Result.failure([f"No open fiscal period found for the entry date {entry_data.entry_date}."])
-        
-        entry_no_str = await self.sequence_generator.next_sequence("journal_entry", prefix="JE-")
-        current_user_id = entry_data.user_id
+        customer = await self.customer_service.get_by_id(dto.customer_id)
+        if not customer:
+            errors.append(f"Customer with ID {dto.customer_id} not found.")
+        elif not customer.is_active:
+            errors.append(f"Customer '{customer.name}' (ID: {dto.customer_id}) is not active.")
 
-        journal_entry_orm = JournalEntry(
-            entry_no=entry_no_str,
-            journal_type=entry_data.journal_type,
-            entry_date=entry_data.entry_date,
-            fiscal_period_id=fiscal_period.id,
-            description=entry_data.description,
-            reference=entry_data.reference,
-            is_recurring=entry_data.is_recurring, 
-            recurring_pattern_id=entry_data.recurring_pattern_id, 
-            source_type=entry_data.source_type,
-            source_id=entry_data.source_id,
-            created_by_user_id=current_user_id, # Corrected field name
-            updated_by_user_id=current_user_id  # Corrected field name
-        )
-        
-        for i, line_dto in enumerate(entry_data.lines, 1):
-            account = await self.account_service.get_by_id(line_dto.account_id)
-            if not account or not account.is_active:
-                return Result.failure([f"Invalid or inactive account ID {line_dto.account_id} on line {i}."])
-            
-            line_orm = JournalEntryLine(
-                line_number=i,
-                account_id=line_dto.account_id,
-                description=line_dto.description,
-                debit_amount=line_dto.debit_amount,
-                credit_amount=line_dto.credit_amount,
-                currency_code=line_dto.currency_code, 
-                exchange_rate=line_dto.exchange_rate,
-                tax_code=line_dto.tax_code, 
-                tax_amount=line_dto.tax_amount,
-                dimension1_id=line_dto.dimension1_id, 
-                dimension2_id=line_dto.dimension2_id  
-            )
-            journal_entry_orm.lines.append(line_orm)
-        
-        try:
-            saved_entry = await self.journal_service.save(journal_entry_orm)
-            return Result.success(saved_entry)
-        except Exception as e:
-            return Result.failure([f"Failed to save journal entry: {str(e)}"])
-
-    async def post_journal_entry(self, entry_id: int, user_id: int) -> Result[JournalEntry]:
-        entry = await self.journal_service.get_by_id(entry_id)
-        if not entry:
-            return Result.failure([f"Journal entry ID {entry_id} not found."])
-        
-        if entry.is_posted:
-            return Result.failure([f"Journal entry '{entry.entry_no}' is already posted."])
-        
-        fiscal_period = await self.fiscal_period_service.get_by_id(entry.fiscal_period_id)
-        if not fiscal_period or fiscal_period.status != 'Open': 
-            return Result.failure([f"Cannot post to a non-open fiscal period. Current status: {fiscal_period.status if fiscal_period else 'Unknown' }."])
-        
-        entry.is_posted = True
-        entry.updated_by_user_id = user_id # Corrected field name
-        
-        try:
-            updated_entry_orm = await self.journal_service.save(entry) 
-            return Result.success(updated_entry_orm)
-        except Exception as e:
-            return Result.failure([f"Failed to post journal entry: {str(e)}"])
-
-    async def reverse_journal_entry(self, entry_id: int, reversal_date: date, description: Optional[str], user_id: int) -> Result[JournalEntry]:
-        original_entry = await self.journal_service.get_by_id(entry_id) 
-        if not original_entry:
-            return Result.failure([f"Journal entry ID {entry_id} not found for reversal."])
-        
-        if not original_entry.is_posted:
-            return Result.failure(["Only posted entries can be reversed."])
-        
-        if original_entry.is_reversed or original_entry.reversing_entry_id is not None:
-            return Result.failure([f"Entry '{original_entry.entry_no}' is already reversed or marked as having a reversing entry."])
-
-        reversal_fiscal_period = await self.fiscal_period_service.get_by_date(reversal_date)
-        if not reversal_fiscal_period:
-            return Result.failure([f"No open fiscal period found for reversal date {reversal_date}."])
-
-        reversal_entry_no = await self.sequence_generator.next_sequence("journal_entry", prefix="RJE-")
-        
-        reversal_lines_data = []
-        for orig_line in original_entry.lines:
-            reversal_lines_data.append(JournalEntryLineData(
-                account_id=orig_line.account_id,
-                description=f"Reversal: {orig_line.description or ''}",
-                debit_amount=orig_line.credit_amount, 
-                credit_amount=orig_line.debit_amount, 
-                currency_code=orig_line.currency_code,
-                exchange_rate=orig_line.exchange_rate,
-                tax_code=orig_line.tax_code, 
-                tax_amount=-orig_line.tax_amount, 
-                dimension1_id=orig_line.dimension1_id,
-                dimension2_id=orig_line.dimension2_id
-            ))
-        
-        reversal_entry_data = JournalEntryData(
-            journal_type=original_entry.journal_type,
-            entry_date=reversal_date,
-            description=description or f"Reversal of entry {original_entry.entry_no}",
-            reference=f"REV:{original_entry.entry_no}",
-            user_id=user_id,
-            lines=reversal_lines_data,
-            source_type="JournalEntryReversal",
-            source_id=original_entry.id 
-        )
-        
-        create_reversal_result = await self.create_journal_entry(reversal_entry_data)
-        if not create_reversal_result.is_success:
-            return create_reversal_result 
-        
-        saved_reversal_entry = create_reversal_result.value
-        assert saved_reversal_entry is not None 
-
-        original_entry.is_reversed = True
-        original_entry.reversing_entry_id = saved_reversal_entry.id
-        original_entry.updated_by_user_id = user_id # Corrected field name
-        
-        try:
-            await self.journal_service.save(original_entry)
-            return Result.success(saved_reversal_entry) 
-        except Exception as e:
-            return Result.failure([f"Failed to finalize reversal: {str(e)}"])
+        # Basic currency validation (assuming currency service is available via app_core for more robust check)
+        if not dto.currency_code or len(dto.currency_code) != 3:
+            errors.append(f"Invalid currency code: '{dto.currency_code}'.")
+        # else:
+        #    currency = await self.app_core.currency_service.get_by_id(dto.currency_code)
+        #    if not currency or not currency.is_active:
+        #        errors.append(f"Currency '{dto.currency_code}' is invalid or not active.")
 
 
-    def _calculate_next_generation_date(self, last_date: date, frequency: str, interval: int, day_of_month: Optional[int] = None, day_of_week: Optional[int] = None) -> date:
-        next_date = last_date
-        if frequency == 'Monthly':
-            next_date = last_date + relativedelta(months=interval)
-            if day_of_month:
-                # Try to set to specific day, handle month ends carefully
-                try:
-                    next_date = next_date.replace(day=day_of_month)
-                except ValueError: # Day is out of range for month (e.g. Feb 30)
-                    # Go to last day of that month
-                    next_date = next_date + relativedelta(day=31) # this will clamp to last day
-        elif frequency == 'Yearly':
-            next_date = last_date + relativedelta(years=interval)
-            if day_of_month: # And if month is specified (e.g. via template JE's date's month)
-                 try:
-                    next_date = next_date.replace(day=day_of_month, month=last_date.month)
-                 except ValueError:
-                    next_date = next_date.replace(month=last_date.month) + relativedelta(day=31)
+        calculated_lines_for_orm: List[Dict[str, Any]] = []
+        invoice_subtotal_calc = Decimal(0)
+        invoice_total_tax_calc = Decimal(0)
 
-        elif frequency == 'Weekly':
-            next_date = last_date + relativedelta(weeks=interval)
-            if day_of_week is not None: # 0=Monday, 6=Sunday for relativedelta, but schema is 0=Sunday
-                # Adjust day_of_week from schema (0=Sun) to dateutil (0=Mon) if needed.
-                # For simplicity, assuming day_of_week aligns or is handled by direct addition.
-                # This part needs more careful mapping if day_of_week from schema has different convention.
-                # relativedelta(weekday=MO(+interval)) where MO is a constant.
-                 pass # Complex, for now just interval based
-        elif frequency == 'Daily':
-            next_date = last_date + relativedelta(days=interval)
-        elif frequency == 'Quarterly':
-            next_date = last_date + relativedelta(months=interval * 3)
-            if day_of_month:
-                 try:
-                    next_date = next_date.replace(day=day_of_month)
-                 except ValueError:
-                    next_date = next_date + relativedelta(day=31)
-        else:
-            raise NotImplementedError(f"Frequency '{frequency}' not yet supported for next date calculation.")
-        return next_date
-
-
-    async def generate_recurring_entries(self, as_of_date: date, user_id: int) -> List[Result[JournalEntry]]:
-        patterns_due: List[RecurringPattern] = await self.journal_service.get_recurring_patterns_due(as_of_date)
+        if not dto.lines:
+            errors.append("Sales invoice must have at least one line item.")
         
-        generated_results: List[Result[JournalEntry]] = []
-        for pattern in patterns_due:
-            if not pattern.next_generation_date: # Should not happen if get_recurring_patterns_due is correct
-                print(f"Warning: Pattern '{pattern.name}' has no next_generation_date, skipping.")
-                continue
+        for i, line_dto in enumerate(dto.lines):
+            line_errors_current_line: List[str] = []
+            product: Optional[Product] = None
+            line_description = line_dto.description
+            unit_price = line_dto.unit_price
 
-            entry_date_for_new_je = pattern.next_generation_date
-
-            template_entry = await self.journal_service.get_by_id(pattern.template_entry_id) 
-            if not template_entry:
-                generated_results.append(Result.failure([f"Template JE ID {pattern.template_entry_id} for pattern '{pattern.name}' not found."]))
-                continue
-            
-            new_je_lines_data = [
-                JournalEntryLineData(
-                    account_id=line.account_id, description=line.description,
-                    debit_amount=line.debit_amount, credit_amount=line.credit_amount,
-                    currency_code=line.currency_code, exchange_rate=line.exchange_rate,
-                    tax_code=line.tax_code, tax_amount=line.tax_amount,
-                    dimension1_id=line.dimension1_id, dimension2_id=line.dimension2_id
-                ) for line in template_entry.lines
-            ]
-            
-            new_je_data = JournalEntryData(
-                journal_type=template_entry.journal_type,
-                entry_date=entry_date_for_new_je,
-                description=f"{pattern.description or template_entry.description or ''} (Recurring - {pattern.name})",
-                reference=template_entry.reference,
-                user_id=user_id, 
-                lines=new_je_lines_data,
-                recurring_pattern_id=pattern.id, 
-                source_type="RecurringPattern",
-                source_id=pattern.id
-            )
-            
-            create_result = await self.create_journal_entry(new_je_data)
-            generated_results.append(create_result)
-            
-            if create_result.is_success:
-                pattern.last_generated_date = entry_date_for_new_je
-                try:
-                    pattern.next_generation_date = self._calculate_next_generation_date(
-                        pattern.last_generated_date, pattern.frequency, pattern.interval_value,
-                        pattern.day_of_month, pattern.day_of_week
-                    )
-                    if pattern.end_date and pattern.next_generation_date > pattern.end_date:
-                        pattern.is_active = False 
-                except NotImplementedError:
-                    pattern.is_active = False 
-                    print(f"Warning: Next generation date calculation not implemented for pattern {pattern.name}, deactivating.")
+            if line_dto.product_id:
+                product = await self.product_service.get_by_id(line_dto.product_id)
+                if not product:
+                    line_errors_current_line.append(f"Product ID {line_dto.product_id} not found on line {i+1}.")
+                elif not product.is_active:
+                    line_errors_current_line.append(f"Product '{product.name}' is not active on line {i+1}.")
                 
-                pattern.updated_by_user_id = user_id # Corrected field name
-                await self.journal_service.save_recurring_pattern(pattern)
-        
-        return generated_results
-
-```
-
-# app/accounting/currency_manager.py
-```py
-# File: app/accounting/currency_manager.py
-# (Content as previously generated, verified - needs TYPE_CHECKING for ApplicationCore)
-# from app.core.application_core import ApplicationCore # Removed direct import
-from app.services.accounting_services import CurrencyService, ExchangeRateService 
-from typing import Optional, List, Any, TYPE_CHECKING
-from datetime import date
-from decimal import Decimal
-from app.models.accounting.currency import Currency 
-from app.models.accounting.exchange_rate import ExchangeRate
-from app.utils.result import Result
-
-if TYPE_CHECKING:
-    from app.core.application_core import ApplicationCore # For type hinting
-
-class CurrencyManager:
-    def __init__(self, app_core: "ApplicationCore"): 
-        self.app_core = app_core
-        # Assuming these service properties exist on app_core and are correctly typed there
-        self.currency_service: CurrencyService = app_core.currency_repo_service # type: ignore 
-        self.exchange_rate_service: ExchangeRateService = app_core.exchange_rate_service # type: ignore
-    
-    async def get_active_currencies(self) -> List[Currency]:
-        return await self.currency_service.get_all_active()
-
-    async def get_exchange_rate(self, from_currency_code: str, to_currency_code: str, rate_date: date) -> Optional[Decimal]:
-        rate_obj = await self.exchange_rate_service.get_rate_for_date(from_currency_code, to_currency_code, rate_date)
-        return rate_obj.exchange_rate_value if rate_obj else None
-
-    async def update_exchange_rate(self, from_code:str, to_code:str, r_date:date, rate:Decimal, user_id:int) -> Result[ExchangeRate]:
-        existing_rate = await self.exchange_rate_service.get_rate_for_date(from_code, to_code, r_date)
-        orm_object: ExchangeRate
-        if existing_rate:
-            existing_rate.exchange_rate_value = rate
-            existing_rate.updated_by_user_id = user_id
-            orm_object = existing_rate
-        else:
-            orm_object = ExchangeRate(
-                from_currency_code=from_code, to_currency_code=to_code, rate_date=r_date,
-                exchange_rate_value=rate, 
-                created_by_user_id=user_id, updated_by_user_id=user_id 
-            )
-        
-        saved_obj = await self.exchange_rate_service.save(orm_object)
-        return Result.success(saved_obj)
-
-    async def get_all_currencies(self) -> List[Currency]:
-        return await self.currency_service.get_all()
-
-    async def get_currency_by_code(self, code: str) -> Optional[Currency]:
-        return await self.currency_service.get_by_id(code)
-
-```
-
-# app/accounting/chart_of_accounts_manager.py
-```py
-# File: app/accounting/chart_of_accounts_manager.py
-# (Content previously updated to use AccountCreateData/UpdateData, ensure consistency)
-# Key: Uses AccountService. User ID comes from DTO which inherits UserAuditData.
-from typing import List, Optional, Dict, Any, TYPE_CHECKING
-from app.models.accounting.account import Account 
-from app.services.account_service import AccountService 
-from app.utils.result import Result
-from app.utils.pydantic_models import AccountCreateData, AccountUpdateData, AccountValidator
-# from app.core.application_core import ApplicationCore # Removed direct import
-from decimal import Decimal
-from datetime import date # Added for type hint in deactivate_account
-
-if TYPE_CHECKING:
-    from app.core.application_core import ApplicationCore # For type hinting
-
-class ChartOfAccountsManager:
-    def __init__(self, account_service: AccountService, app_core: "ApplicationCore"):
-        self.account_service = account_service
-        self.account_validator = AccountValidator() 
-        self.app_core = app_core 
-
-    async def create_account(self, account_data: AccountCreateData) -> Result[Account]:
-        validation_result = self.account_validator.validate_create(account_data)
-        if not validation_result.is_valid:
-            return Result.failure(validation_result.errors)
-        
-        existing = await self.account_service.get_by_code(account_data.code)
-        if existing:
-            return Result.failure([f"Account code '{account_data.code}' already exists."])
-        
-        current_user_id = account_data.user_id
-
-        account = Account(
-            code=account_data.code, name=account_data.name,
-            account_type=account_data.account_type, sub_type=account_data.sub_type,
-            tax_treatment=account_data.tax_treatment, gst_applicable=account_data.gst_applicable,
-            description=account_data.description, parent_id=account_data.parent_id,
-            report_group=account_data.report_group, is_control_account=account_data.is_control_account,
-            is_bank_account=account_data.is_bank_account, opening_balance=account_data.opening_balance,
-            opening_balance_date=account_data.opening_balance_date, is_active=account_data.is_active,
-            created_by_user_id=current_user_id, 
-            updated_by_user_id=current_user_id 
-        )
-        
-        try:
-            saved_account = await self.account_service.save(account)
-            return Result.success(saved_account)
-        except Exception as e:
-            return Result.failure([f"Failed to save account: {str(e)}"])
-    
-    async def update_account(self, account_data: AccountUpdateData) -> Result[Account]:
-        existing_account = await self.account_service.get_by_id(account_data.id)
-        if not existing_account:
-            return Result.failure([f"Account with ID {account_data.id} not found."])
-        
-        validation_result = self.account_validator.validate_update(account_data)
-        if not validation_result.is_valid:
-            return Result.failure(validation_result.errors)
-        
-        if account_data.code != existing_account.code:
-            code_exists = await self.account_service.get_by_code(account_data.code)
-            if code_exists and code_exists.id != existing_account.id:
-                return Result.failure([f"Account code '{account_data.code}' already exists."])
-        
-        current_user_id = account_data.user_id
-
-        existing_account.code = account_data.code; existing_account.name = account_data.name
-        existing_account.account_type = account_data.account_type; existing_account.sub_type = account_data.sub_type
-        existing_account.tax_treatment = account_data.tax_treatment; existing_account.gst_applicable = account_data.gst_applicable
-        existing_account.description = account_data.description; existing_account.parent_id = account_data.parent_id
-        existing_account.report_group = account_data.report_group; existing_account.is_control_account = account_data.is_control_account
-        existing_account.is_bank_account = account_data.is_bank_account; existing_account.opening_balance = account_data.opening_balance
-        existing_account.opening_balance_date = account_data.opening_balance_date; existing_account.is_active = account_data.is_active
-        existing_account.updated_by_user_id = current_user_id
-        
-        try:
-            updated_account = await self.account_service.save(existing_account)
-            return Result.success(updated_account)
-        except Exception as e:
-            return Result.failure([f"Failed to update account: {str(e)}"])
+                if product: # If product found, use its details if line DTO is missing them
+                    if not line_description: line_description = product.name
+                    if (unit_price is None or unit_price == Decimal(0)) and product.sales_price is not None:
+                        unit_price = product.sales_price
             
-    async def deactivate_account(self, account_id: int, user_id: int) -> Result[Account]:
-        account = await self.account_service.get_by_id(account_id)
-        if not account:
-            return Result.failure([f"Account with ID {account_id} not found."])
-        
-        if not account.is_active:
-             return Result.failure([f"Account '{account.code}' is already inactive."])
+            if not line_description: # Description is mandatory
+                line_errors_current_line.append(f"Description is required on line {i+1}.")
 
-        if not hasattr(self.app_core, 'journal_service'): 
-            return Result.failure(["Journal service not available for balance check."])
+            if unit_price is None: # Price is mandatory
+                line_errors_current_line.append(f"Unit price is required on line {i+1}.")
+                unit_price = Decimal(0) # Avoid None for calculations
 
-        total_current_balance = await self.app_core.journal_service.get_account_balance(account_id, date.today()) 
+            # Ensure quantity, unit_price, discount_percent are valid Decimals
+            try:
+                qty = Decimal(str(line_dto.quantity))
+                price = Decimal(str(unit_price))
+                discount_pct = Decimal(str(line_dto.discount_percent))
+                if qty <= 0: line_errors_current_line.append(f"Quantity must be positive on line {i+1}.")
+                if price < 0: line_errors_current_line.append(f"Unit price cannot be negative on line {i+1}.")
+                if not (0 <= discount_pct <= 100): line_errors_current_line.append(f"Discount percent must be between 0 and 100 on line {i+1}.")
+            except InvalidOperation:
+                line_errors_current_line.append(f"Invalid numeric value for quantity, price, or discount on line {i+1}.")
+                # Skip further calculation for this line if numbers are bad
+                errors.extend(line_errors_current_line)
+                continue
 
-        if total_current_balance != Decimal(0):
-            return Result.failure([f"Cannot deactivate account '{account.code}' as it has a non-zero balance ({total_current_balance:.2f})."])
-
-        account.is_active = False
-        account.updated_by_user_id = user_id 
-        
-        try:
-            updated_account = await self.account_service.save(account)
-            return Result.success(updated_account)
-        except Exception as e:
-            return Result.failure([f"Failed to deactivate account: {str(e)}"])
-
-    async def get_account_tree(self, active_only: bool = True) -> List[Dict[str, Any]]:
-        try:
-            tree = await self.account_service.get_account_tree(active_only=active_only)
-            return tree 
-        except Exception as e:
-            print(f"Error getting account tree: {e}") 
-            return []
-
-    async def get_accounts_for_selection(self, account_type: Optional[str] = None, active_only: bool = True) -> List[Account]:
-        if account_type:
-            return await self.account_service.get_by_type(account_type, active_only=active_only)
-        elif active_only:
-            return await self.account_service.get_all_active()
-        else:
-            # Assuming get_all() exists on account_service, if not, this path needs adjustment
-            if hasattr(self.account_service, 'get_all'):
-                 return await self.account_service.get_all()
-            else: # Fallback to active if get_all not present for some reason
-                 return await self.account_service.get_all_active()
-
-```
-
-# app/accounting/fiscal_period_manager.py
-```py
-# File: app/accounting/fiscal_period_manager.py
-from typing import List, Optional, TYPE_CHECKING # Removed Any, will use specific type
-from datetime import date, datetime, timedelta
-from dateutil.relativedelta import relativedelta # type: ignore
-
-from sqlalchemy import select # Added for explicit select usage
-
-from app.models.accounting.fiscal_year import FiscalYear 
-from app.models.accounting.fiscal_period import FiscalPeriod
-from app.utils.result import Result
-from app.utils.pydantic_models import FiscalYearCreateData 
-from app.services.fiscal_period_service import FiscalPeriodService
-from app.services.accounting_services import FiscalYearService 
-
-if TYPE_CHECKING:
-    from app.core.application_core import ApplicationCore 
-    from sqlalchemy.ext.asyncio import AsyncSession # For session type hint
-
-class FiscalPeriodManager:
-    def __init__(self, app_core: "ApplicationCore"):
-        self.app_core = app_core
-        self.fiscal_period_service: FiscalPeriodService = app_core.fiscal_period_service 
-        self.fiscal_year_service: FiscalYearService = app_core.fiscal_year_service 
-        
-    async def create_fiscal_year_and_periods(self, fy_data: FiscalYearCreateData) -> Result[FiscalYear]:
-        if fy_data.start_date >= fy_data.end_date:
-            return Result.failure(["Fiscal year start date must be before end date."])
-
-        existing_by_name = await self.fiscal_year_service.get_by_name(fy_data.year_name)
-        if existing_by_name:
-            return Result.failure([f"A fiscal year with the name '{fy_data.year_name}' already exists."])
-
-        overlapping_fy = await self.fiscal_year_service.get_by_date_overlap(fy_data.start_date, fy_data.end_date)
-        if overlapping_fy:
-            return Result.failure([f"The proposed date range overlaps with existing fiscal year '{overlapping_fy.year_name}' ({overlapping_fy.start_date} - {overlapping_fy.end_date})."])
-
-        async with self.app_core.db_manager.session() as session: # type: ignore # session is AsyncSession here
-            fy = FiscalYear(
-                year_name=fy_data.year_name, 
-                start_date=fy_data.start_date, 
-                end_date=fy_data.end_date, 
-                created_by_user_id=fy_data.user_id, 
-                updated_by_user_id=fy_data.user_id,
-                is_closed=False 
-            )
-            session.add(fy)
-            await session.flush() 
-            await session.refresh(fy) 
-
-            if fy_data.auto_generate_periods and fy_data.auto_generate_periods in ["Month", "Quarter"]:
-                # Pass the existing session to the internal method
-                period_generation_result = await self._generate_periods_for_year_internal(
-                    fy, fy_data.auto_generate_periods, fy_data.user_id, session # Pass session
+            discount_amount = (qty * price * (discount_pct / Decimal(100))).quantize(Decimal("0.0001"), ROUND_HALF_UP)
+            line_subtotal_before_tax = (qty * price) - discount_amount
+            
+            line_tax_amount_calc = Decimal(0)
+            if line_dto.tax_code:
+                # Note: TaxCalculator is stateful with tax_code_service.
+                # The manager should pass necessary primitive values or simple DTOs if TaxCalculator is truly generic.
+                # Or, TaxCalculator can be instantiated per call if needed.
+                # Current TaxCalculator takes tax_code_service in init.
+                tax_calc_result: TaxCalculationResultData = await self.tax_calculator.calculate_line_tax(
+                    amount=line_subtotal_before_tax,
+                    tax_code_str=line_dto.tax_code,
+                    transaction_type="SalesInvoiceLine" 
                 )
-                if not period_generation_result.is_success:
-                    # No need to explicitly rollback here, 'async with session' handles it on exception.
-                    # If period_generation_result itself raises an exception that's caught outside,
-                    # the session context manager will rollback.
-                    # If it returns a failure Result, we need to raise an exception to trigger rollback
-                    # or handle it such that the fiscal year is not considered fully created.
-                    # For now, let's assume if period generation fails, we raise to rollback.
-                    # This means _generate_periods_for_year_internal should raise on critical failure.
-                    # Or, the manager can decide to keep the FY and return warnings.
-                    # Let's make it so that failure to generate periods makes the whole operation fail.
-                    raise Exception(f"Failed to generate periods for '{fy.year_name}': {', '.join(period_generation_result.errors)}")
+                line_tax_amount_calc = tax_calc_result.tax_amount
+                # Check if tax_code was valid via TaxCalculator's result or directly
+                if tax_calc_result.tax_account_id is None and line_tax_amount_calc > Decimal(0):
+                    # This implies an issue, possibly tax code not found by calculator's service
+                    tc_check = await self.tax_code_service.get_tax_code(line_dto.tax_code)
+                    if not tc_check or not tc_check.is_active:
+                        line_errors_current_line.append(f"Tax code '{line_dto.tax_code}' used on line {i+1} is invalid or inactive.")
             
-            # If we reach here, commit will happen automatically when 'async with session' exits.
-            return Result.success(fy)
-        
-        # This return Result.failure is less likely to be hit due to `async with` handling exceptions
-        return Result.failure(["An unexpected error occurred outside the transaction for fiscal year creation."])
-
-
-    async def _generate_periods_for_year_internal(self, fiscal_year: FiscalYear, period_type: str, user_id: int, session: "AsyncSession") -> Result[List[FiscalPeriod]]:
-        if not fiscal_year or not fiscal_year.id:
-            # This should raise an exception to trigger rollback in the calling method
-            raise ValueError("Valid FiscalYear object with an ID must be provided for period generation.")
-        
-        stmt_existing = select(FiscalPeriod).where(
-            FiscalPeriod.fiscal_year_id == fiscal_year.id,
-            FiscalPeriod.period_type == period_type
-        )
-        existing_periods_result = await session.execute(stmt_existing)
-        if existing_periods_result.scalars().first():
-             raise ValueError(f"{period_type} periods already exist for fiscal year '{fiscal_year.year_name}'.")
-
-
-        periods: List[FiscalPeriod] = []
-        current_start_date = fiscal_year.start_date
-        fy_end_date = fiscal_year.end_date
-        period_number = 1
-
-        while current_start_date <= fy_end_date:
-            current_end_date: date
-            period_name: str
-
-            if period_type == "Month":
-                current_end_date = current_start_date + relativedelta(months=1) - relativedelta(days=1)
-                if current_end_date > fy_end_date: current_end_date = fy_end_date
-                period_name = f"{current_start_date.strftime('%B %Y')}"
+            invoice_subtotal_calc += line_subtotal_before_tax
+            invoice_total_tax_calc += line_tax_amount_calc
             
-            elif period_type == "Quarter":
-                month_end_of_third_month = current_start_date + relativedelta(months=2, day=1) + relativedelta(months=1) - relativedelta(days=1)
-                current_end_date = month_end_of_third_month
-                if current_end_date > fy_end_date: current_end_date = fy_end_date
-                period_name = f"Q{period_number} {fiscal_year.year_name}"
-            else: 
-                raise ValueError(f"Invalid period type '{period_type}' during generation.")
-
-            fp = FiscalPeriod(
-                fiscal_year_id=fiscal_year.id, name=period_name,
-                start_date=current_start_date, end_date=current_end_date,
-                period_type=period_type, status="Open", period_number=period_number,
-                is_adjustment=False,
-                created_by_user_id=user_id, updated_by_user_id=user_id
-            )
-            session.add(fp) 
-            periods.append(fp)
-
-            if current_end_date >= fy_end_date: break 
-            current_start_date = current_end_date + relativedelta(days=1)
-            period_number += 1
-        
-        await session.flush() # Flush within the session passed by the caller
-        for p in periods: 
-            await session.refresh(p)
+            if line_errors_current_line:
+                errors.extend(line_errors_current_line)
             
-        return Result.success(periods)
+            # This dictionary is for creating SalesInvoiceLine ORM objects
+            calculated_lines_for_orm.append({
+                "product_id": line_dto.product_id, "description": description,
+                "quantity": qty, "unit_price": price,
+                "discount_percent": discount_pct,
+                "discount_amount": discount_amount.quantize(Decimal("0.01"), ROUND_HALF_UP), 
+                "line_subtotal": line_subtotal_before_tax.quantize(Decimal("0.01"), ROUND_HALF_UP), 
+                "tax_code": line_dto.tax_code, "tax_amount": line_tax_amount_calc, 
+                "line_total": (line_subtotal_before_tax + line_tax_amount_calc).quantize(Decimal("0.01"), ROUND_HALF_UP),
+                "dimension1_id": line_dto.dimension1_id, "dimension2_id": line_dto.dimension2_id,
+            })
 
-    async def close_period(self, fiscal_period_id: int, user_id: int) -> Result[FiscalPeriod]:
-        period = await self.fiscal_period_service.get_by_id(fiscal_period_id)
-        if not period: return Result.failure([f"Fiscal period ID {fiscal_period_id} not found."])
-        if period.status == 'Closed': return Result.failure(["Period is already closed."])
-        if period.status == 'Archived': return Result.failure(["Cannot close an archived period."])
+        if errors:
+            return Result.failure(errors)
+
+        invoice_grand_total = invoice_subtotal_calc + invoice_total_tax_calc
+
+        return Result.success({
+            "header_dto": dto, "calculated_lines_for_orm": calculated_lines_for_orm,
+            "invoice_subtotal": invoice_subtotal_calc.quantize(Decimal("0.01"), ROUND_HALF_UP),
+            "invoice_total_tax": invoice_total_tax_calc.quantize(Decimal("0.01"), ROUND_HALF_UP),
+            "invoice_grand_total": invoice_grand_total.quantize(Decimal("0.01"), ROUND_HALF_UP),
+        })
+
+    async def create_draft_invoice(self, dto: SalesInvoiceCreateData) -> Result[SalesInvoice]:
+        preparation_result = await self._validate_and_prepare_invoice_data(dto)
+        if not preparation_result.is_success:
+            return Result.failure(preparation_result.errors)
         
-        period.status = 'Closed'
-        period.updated_by_user_id = user_id
-        # The service's update method will handle the commit with its own session
-        updated_period = await self.fiscal_period_service.update(period) 
-        return Result.success(updated_period)
+        prepared_data = preparation_result.value; assert prepared_data is not None 
+        header_dto = cast(SalesInvoiceCreateData, prepared_data["header_dto"])
 
-    async def reopen_period(self, fiscal_period_id: int, user_id: int) -> Result[FiscalPeriod]:
-        period = await self.fiscal_period_service.get_by_id(fiscal_period_id)
-        if not period: return Result.failure([f"Fiscal period ID {fiscal_period_id} not found."])
-        if period.status == 'Open': return Result.failure(["Period is already open."])
-        if period.status == 'Archived': return Result.failure(["Cannot reopen an archived period."])
-        
-        fiscal_year = await self.fiscal_year_service.get_by_id(period.fiscal_year_id)
-        if fiscal_year and fiscal_year.is_closed:
-            return Result.failure(["Cannot reopen period as its fiscal year is closed."])
-
-        period.status = 'Open'
-        period.updated_by_user_id = user_id
-        updated_period = await self.fiscal_period_service.update(period)
-        return Result.success(updated_period)
-
-    async def get_current_fiscal_period(self, target_date: Optional[date] = None) -> Optional[FiscalPeriod]:
-        if target_date is None:
-            target_date = date.today()
-        return await self.fiscal_period_service.get_by_date(target_date)
-
-    async def get_all_fiscal_years(self) -> List[FiscalYear]:
-        return await self.fiscal_year_service.get_all()
-
-    async def get_fiscal_year_by_id(self, fy_id: int) -> Optional[FiscalYear]:
-        return await self.fiscal_year_service.get_by_id(fy_id)
-
-    async def get_periods_for_fiscal_year(self, fiscal_year_id: int) -> List[FiscalPeriod]:
-        return await self.fiscal_period_service.get_fiscal_periods_for_year(fiscal_year_id)
-
-    async def close_fiscal_year(self, fiscal_year_id: int, user_id: int) -> Result[FiscalYear]:
-        fy = await self.fiscal_year_service.get_by_id(fiscal_year_id)
-        if not fy:
-            return Result.failure([f"Fiscal Year ID {fiscal_year_id} not found."])
-        if fy.is_closed:
-            return Result.failure([f"Fiscal Year '{fy.year_name}' is already closed."])
-
-        periods = await self.fiscal_period_service.get_fiscal_periods_for_year(fiscal_year_id)
-        open_periods = [p for p in periods if p.status == 'Open']
-        if open_periods:
-            return Result.failure([f"Cannot close fiscal year '{fy.year_name}'. Following periods are still open: {[p.name for p in open_periods]}"])
-        
-        print(f"Performing year-end closing entries for FY '{fy.year_name}' (conceptual)...")
-
-        fy.is_closed = True
-        fy.closed_date = datetime.utcnow() 
-        fy.closed_by_user_id = user_id
-        fy.updated_by_user_id = user_id 
-        
         try:
-            updated_fy = await self.fiscal_year_service.save(fy)
-            return Result.success(updated_fy)
+            invoice_no_val = await self.app_core.db_manager.execute_scalar( 
+                 "SELECT core.get_next_sequence_value($1);", "sales_invoice"
+            )
+            if not invoice_no_val or not isinstance(invoice_no_val, str):
+                 self.logger.error(f"Failed to generate invoice number from DB or unexpected return type: {invoice_no_val}")
+                 return Result.failure(["Failed to generate invoice number."])
+            invoice_no = invoice_no_val
+
+            invoice_orm = SalesInvoice(
+                invoice_no=invoice_no, customer_id=header_dto.customer_id,
+                invoice_date=header_dto.invoice_date, due_date=header_dto.due_date,
+                currency_code=header_dto.currency_code, exchange_rate=header_dto.exchange_rate,
+                notes=header_dto.notes, terms_and_conditions=header_dto.terms_and_conditions,
+                subtotal=prepared_data["invoice_subtotal"], tax_amount=prepared_data["invoice_total_tax"],
+                total_amount=prepared_data["invoice_grand_total"], amount_paid=Decimal(0), 
+                status=InvoiceStatusEnum.DRAFT.value,
+                created_by_user_id=header_dto.user_id, updated_by_user_id=header_dto.user_id
+            )
+            for i, line_data_dict in enumerate(prepared_data["calculated_lines_for_orm"]):
+                invoice_orm.lines.append(SalesInvoiceLine(line_number=i + 1, **line_data_dict))
+            
+            saved_invoice = await self.sales_invoice_service.save(invoice_orm)
+            return Result.success(saved_invoice)
         except Exception as e:
-            return Result.failure([f"Error closing fiscal year: {str(e)}"])
+            self.logger.error(f"Error creating draft sales invoice: {e}", exc_info=True)
+            return Result.failure([f"An unexpected error occurred creating sales invoice: {str(e)}"])
+
+    async def update_draft_invoice(self, invoice_id: int, dto: SalesInvoiceUpdateData) -> Result[SalesInvoice]:
+        # This method should handle the entire unit of work transactionally.
+        async with self.app_core.db_manager.session() as session: 
+            existing_invoice = await session.get(SalesInvoice, invoice_id, options=[selectinload(SalesInvoice.lines)])
+            if not existing_invoice: return Result.failure([f"Sales Invoice ID {invoice_id} not found."])
+            if existing_invoice.status != InvoiceStatusEnum.DRAFT.value: return Result.failure([f"Only draft invoices can be updated. Current status: {existing_invoice.status}"])
+
+            # Validations involving DB reads (customer, product, tax_code) should ideally happen
+            # before or within the same transaction, but _validate_and_prepare_invoice_data
+            # currently uses service calls which open their own sessions. This is a potential area for refinement
+            # if strict atomicity for these reads is needed alongside the update. For now, this is acceptable.
+            preparation_result = await self._validate_and_prepare_invoice_data(dto, is_update=True)
+            if not preparation_result.is_success: return Result.failure(preparation_result.errors)
+
+            prepared_data = preparation_result.value; assert prepared_data is not None 
+            header_dto = cast(SalesInvoiceUpdateData, prepared_data["header_dto"])
+
+            try:
+                existing_invoice.customer_id = header_dto.customer_id; existing_invoice.invoice_date = header_dto.invoice_date
+                existing_invoice.due_date = header_dto.due_date; existing_invoice.currency_code = header_dto.currency_code
+                existing_invoice.exchange_rate = header_dto.exchange_rate; existing_invoice.notes = header_dto.notes
+                existing_invoice.terms_and_conditions = header_dto.terms_and_conditions
+                existing_invoice.subtotal = prepared_data["invoice_subtotal"]; existing_invoice.tax_amount = prepared_data["invoice_total_tax"]
+                existing_invoice.total_amount = prepared_data["invoice_grand_total"]
+                existing_invoice.updated_by_user_id = header_dto.user_id
+                
+                # Efficiently replace lines: delete old, add new
+                for line_orm_to_delete in list(existing_invoice.lines): await session.delete(line_orm_to_delete)
+                await session.flush() # Process deletions
+                # existing_invoice.lines.clear() # Not needed if explicitly deleting
+
+                new_lines_orm: List[SalesInvoiceLine] = []
+                for i, line_data_dict in enumerate(prepared_data["calculated_lines_for_orm"]):
+                    new_lines_orm.append(SalesInvoiceLine(line_number=i + 1, **line_data_dict))
+                existing_invoice.lines = new_lines_orm # Assign new list, SQLAlchemy handles relationships
+                
+                # session.add(existing_invoice) is not strictly necessary if existing_invoice is already managed by this session
+                # and modified. But it's harmless.
+                
+                # Commit is handled by the 'async with session:' block upon exiting successfully.
+                # Refreshing after commit is usually done if the object is used immediately after.
+                # The service.save() handles its own transaction, so we make this manager method transactional.
+                await session.flush()
+                await session.refresh(existing_invoice)
+                if existing_invoice.lines:
+                    await session.refresh(existing_invoice, attribute_names=['lines'])
+                    # for line in existing_invoice.lines: await session.refresh(line) # Not strictly needed if lines are fully populated
+
+                return Result.success(existing_invoice)
+            except Exception as e:
+                self.logger.error(f"Error updating draft sales invoice ID {invoice_id}: {e}", exc_info=True)
+                # Rollback handled by session context manager
+                return Result.failure([f"An unexpected error occurred while updating sales invoice: {str(e)}"])
+
+
+    async def get_invoice_for_dialog(self, invoice_id: int) -> Optional[SalesInvoice]:
+        try:
+            return await self.sales_invoice_service.get_by_id(invoice_id)
+        except Exception as e:
+            self.logger.error(f"Error fetching invoice ID {invoice_id} for dialog: {e}", exc_info=True)
+            return None
+
+    async def post_invoice(self, invoice_id: int, user_id: int) -> Result[SalesInvoice]:
+        # ... (Placeholder logic from previous version) ...
+        self.logger.info(f"Attempting to post Sales Invoice ID {invoice_id} by User ID {user_id}.")
+        _invoice = await self.sales_invoice_service.get_by_id(invoice_id)
+        if not _invoice: return Result.failure([f"Invoice ID {invoice_id} not found."])
+        if _invoice.status != InvoiceStatusEnum.DRAFT.value: return Result.failure([f"Only Draft invoices can be posted. Current status: {_invoice.status}"])
+        return Result.failure(["Posting logic (including Journal Entry creation) not yet implemented."])
+
+
+    async def get_invoices_for_listing(self, 
+                                      customer_id: Optional[int] = None,
+                                      status: Optional[InvoiceStatusEnum] = None, 
+                                      start_date: Optional[date] = None, 
+                                      end_date: Optional[date] = None,
+                                      page: int = 1, 
+                                      page_size: int = 50
+                                      ) -> Result[List[SalesInvoiceSummaryData]]:
+        try:
+            summaries = await self.sales_invoice_service.get_all_summary(
+                customer_id=customer_id, status=status,
+                start_date=start_date, end_date=end_date,
+                page=page, page_size=page_size
+            )
+            return Result.success(summaries)
+        except Exception as e:
+            self.logger.error(f"Error fetching sales invoice listing: {e}", exc_info=True)
+            return Result.failure([f"Failed to retrieve sales invoice list: {str(e)}"])
+
 
 ```
 
-# app/common/enums.py
+# app/business_logic/product_manager.py
 ```py
-# File: app/common/enums.py
-# (Content as previously generated and verified)
-from enum import Enum
+# app/business_logic/product_manager.py
+from typing import List, Optional, Dict, Any, TYPE_CHECKING
+from decimal import Decimal
 
-class AccountCategory(Enum): 
-    ASSET = "Asset"
-    LIABILITY = "Liability"
-    EQUITY = "Equity"
-    REVENUE = "Revenue"
-    EXPENSE = "Expense"
+from app.models.business.product import Product
+from app.services.business_services import ProductService
+from app.services.account_service import AccountService
+from app.services.tax_service import TaxCodeService # For validating tax_code
+from app.utils.result import Result
+from app.utils.pydantic_models import ProductCreateData, ProductUpdateData, ProductSummaryData
+from app.common.enums import ProductTypeEnum # For product_type comparison
 
-class AccountTypeEnum(Enum): 
-    ASSET = "Asset"
-    LIABILITY = "Liability"
-    EQUITY = "Equity"
-    REVENUE = "Revenue"
-    EXPENSE = "Expense"
+if TYPE_CHECKING:
+    from app.core.application_core import ApplicationCore
 
+class ProductManager:
+    def __init__(self, 
+                 product_service: ProductService, 
+                 account_service: AccountService, 
+                 tax_code_service: TaxCodeService,
+                 app_core: "ApplicationCore"):
+        self.product_service = product_service
+        self.account_service = account_service
+        self.tax_code_service = tax_code_service
+        self.app_core = app_core
+        self.logger = app_core.logger 
 
-class JournalTypeEnum(Enum): 
-    GENERAL = "General" 
-    SALES = "Sales"
-    PURCHASE = "Purchase"
-    CASH_RECEIPT = "Cash Receipt" 
-    CASH_DISBURSEMENT = "Cash Disbursement" 
-    PAYROLL = "Payroll"
-    OPENING_BALANCE = "Opening Balance"
-    ADJUSTMENT = "Adjustment"
+    async def get_product_for_dialog(self, product_id: int) -> Optional[Product]:
+        """ Fetches a full product/service ORM object for dialog population. """
+        try:
+            return await self.product_service.get_by_id(product_id)
+        except Exception as e:
+            self.logger.error(f"Error fetching product ID {product_id} for dialog: {e}", exc_info=True)
+            return None
 
-class FiscalPeriodTypeEnum(Enum): 
-    MONTH = "Month"
-    QUARTER = "Quarter"
-    YEAR = "Year" 
+    async def get_products_for_listing(self, 
+                                       active_only: bool = True,
+                                       product_type_filter: Optional[ProductTypeEnum] = None,
+                                       search_term: Optional[str] = None,
+                                       page: int = 1,
+                                       page_size: int = 50
+                                      ) -> Result[List[ProductSummaryData]]:
+        """ Fetches a list of product/service summaries for table display. """
+        try:
+            summaries: List[ProductSummaryData] = await self.product_service.get_all_summary(
+                active_only=active_only,
+                product_type_filter=product_type_filter,
+                search_term=search_term,
+                page=page,
+                page_size=page_size
+            )
+            return Result.success(summaries)
+        except Exception as e:
+            self.logger.error(f"Error fetching product listing: {e}", exc_info=True)
+            return Result.failure([f"Failed to retrieve product list: {str(e)}"])
 
-class FiscalPeriodStatusEnum(Enum): 
-    OPEN = "Open"
-    CLOSED = "Closed"
-    ARCHIVED = "Archived"
+    async def _validate_product_data(self, dto: ProductCreateData | ProductUpdateData, existing_product_id: Optional[int] = None) -> List[str]:
+        """ Common validation logic for creating and updating products/services. """
+        errors: List[str] = []
 
-class TaxTypeEnum(Enum): 
-    GST = "GST"
-    INCOME_TAX = "Income Tax"
-    WITHHOLDING_TAX = "Withholding Tax"
+        # Validate product_code uniqueness
+        if dto.product_code:
+            existing_by_code = await self.product_service.get_by_code(dto.product_code)
+            if existing_by_code and (existing_product_id is None or existing_by_code.id != existing_product_id):
+                errors.append(f"Product code '{dto.product_code}' already exists.")
+        else:
+             errors.append("Product code is required.") # Pydantic should catch this with min_length
 
-class ProductTypeEnum(Enum): 
-    INVENTORY = "Inventory"
-    SERVICE = "Service"
-    NON_INVENTORY = "Non-Inventory"
+        if not dto.name or not dto.name.strip():
+            errors.append("Product name is required.") # Pydantic should catch this
 
-class GSTReturnStatusEnum(Enum): 
-    DRAFT = "Draft"
-    SUBMITTED = "Submitted"
-    AMENDED = "Amended"
+        # Validate GL Accounts
+        account_ids_to_check = {
+            "Sales Account": (dto.sales_account_id, ['Revenue']),
+            "Purchase Account": (dto.purchase_account_id, ['Expense', 'Asset']), # COGS or Asset for purchases
+        }
+        if dto.product_type == ProductTypeEnum.INVENTORY:
+            account_ids_to_check["Inventory Account"] = (dto.inventory_account_id, ['Asset'])
+        
+        for acc_label, (acc_id, valid_types) in account_ids_to_check.items():
+            if acc_id is not None:
+                acc = await self.account_service.get_by_id(acc_id)
+                if not acc:
+                    errors.append(f"{acc_label} ID '{acc_id}' not found.")
+                elif not acc.is_active:
+                    errors.append(f"{acc_label} '{acc.code} - {acc.name}' is not active.")
+                elif acc.account_type not in valid_types:
+                    errors.append(f"{acc_label} '{acc.code} - {acc.name}' is not a valid type (Expected: {', '.join(valid_types)}).")
 
-class InventoryMovementTypeEnum(Enum): 
-    PURCHASE = "Purchase"
-    SALE = "Sale"
-    ADJUSTMENT = "Adjustment"
-    TRANSFER = "Transfer"
-    RETURN = "Return"
-    OPENING = "Opening"
+        # Validate Tax Code (string code)
+        if dto.tax_code is not None:
+            tax_code_obj = await self.tax_code_service.get_tax_code(dto.tax_code)
+            if not tax_code_obj:
+                errors.append(f"Tax code '{dto.tax_code}' not found.")
+            elif not tax_code_obj.is_active:
+                errors.append(f"Tax code '{dto.tax_code}' is not active.")
 
-class InvoiceStatusEnum(Enum): 
-    DRAFT = "Draft"
-    APPROVED = "Approved"
-    SENT = "Sent" 
-    PARTIALLY_PAID = "Partially Paid"
-    PAID = "Paid"
-    OVERDUE = "Overdue"
-    VOIDED = "Voided"
-    DISPUTED = "Disputed" 
+        # Pydantic DTO root_validator already checks inventory_account_id and stock levels based on product_type
+        return errors
 
-class BankTransactionTypeEnum(Enum): 
-    DEPOSIT = "Deposit"
-    WITHDRAWAL = "Withdrawal"
-    TRANSFER = "Transfer"
-    INTEREST = "Interest"
-    FEE = "Fee"
-    ADJUSTMENT = "Adjustment"
+    async def create_product(self, dto: ProductCreateData) -> Result[Product]:
+        validation_errors = await self._validate_product_data(dto)
+        if validation_errors:
+            return Result.failure(validation_errors)
 
-class PaymentTypeEnum(Enum): 
-    CUSTOMER_PAYMENT = "Customer Payment"
-    VENDOR_PAYMENT = "Vendor Payment"
-    REFUND = "Refund"
-    CREDIT_NOTE_APPLICATION = "Credit Note" 
-    OTHER = "Other"
+        try:
+            product_orm = Product(
+                product_code=dto.product_code, name=dto.name, description=dto.description,
+                product_type=dto.product_type.value, # Store enum value
+                category=dto.category, unit_of_measure=dto.unit_of_measure, barcode=dto.barcode,
+                sales_price=dto.sales_price, purchase_price=dto.purchase_price,
+                sales_account_id=dto.sales_account_id, purchase_account_id=dto.purchase_account_id,
+                inventory_account_id=dto.inventory_account_id,
+                tax_code=dto.tax_code, is_active=dto.is_active,
+                min_stock_level=dto.min_stock_level, reorder_point=dto.reorder_point,
+                created_by_user_id=dto.user_id,
+                updated_by_user_id=dto.user_id
+            )
+            saved_product = await self.product_service.save(product_orm)
+            return Result.success(saved_product)
+        except Exception as e:
+            self.logger.error(f"Error creating product '{dto.product_code}': {e}", exc_info=True)
+            return Result.failure([f"An unexpected error occurred while creating the product/service: {str(e)}"])
 
-class PaymentMethodEnum(Enum): 
-    CASH = "Cash"
-    CHECK = "Check"
-    BANK_TRANSFER = "Bank Transfer"
-    CREDIT_CARD = "Credit Card"
-    GIRO = "GIRO"
-    PAYNOW = "PayNow"
-    OTHER = "Other"
+    async def update_product(self, product_id: int, dto: ProductUpdateData) -> Result[Product]:
+        existing_product = await self.product_service.get_by_id(product_id)
+        if not existing_product:
+            return Result.failure([f"Product/Service with ID {product_id} not found."])
 
-class PaymentEntityTypeEnum(Enum): 
-    CUSTOMER = "Customer"
-    VENDOR = "Vendor"
-    OTHER = "Other"
+        validation_errors = await self._validate_product_data(dto, existing_product_id=product_id)
+        if validation_errors:
+            return Result.failure(validation_errors)
 
-class PaymentStatusEnum(Enum): 
-    DRAFT = "Draft"
-    APPROVED = "Approved"
-    COMPLETED = "Completed" 
-    VOIDED = "Voided"
-    RETURNED = "Returned" 
+        try:
+            # Use model_dump to get only provided fields for update
+            update_data_dict = dto.model_dump(exclude={'id', 'user_id'}, exclude_unset=True)
+            for key, value in update_data_dict.items():
+                if hasattr(existing_product, key):
+                    if key == "product_type" and isinstance(value, ProductTypeEnum): # Handle enum
+                        setattr(existing_product, key, value.value)
+                    else:
+                        setattr(existing_product, key, value)
+            
+            existing_product.updated_by_user_id = dto.user_id
+            
+            updated_product = await self.product_service.save(existing_product)
+            return Result.success(updated_product)
+        except Exception as e:
+            self.logger.error(f"Error updating product ID {product_id}: {e}", exc_info=True)
+            return Result.failure([f"An unexpected error occurred while updating the product/service: {str(e)}"])
 
-class PaymentAllocationDocTypeEnum(Enum): 
-    SALES_INVOICE = "Sales Invoice"
-    PURCHASE_INVOICE = "Purchase Invoice"
-    CREDIT_NOTE = "Credit Note"
-    DEBIT_NOTE = "Debit Note"
-    OTHER = "Other"
+    async def toggle_product_active_status(self, product_id: int, user_id: int) -> Result[Product]:
+        product = await self.product_service.get_by_id(product_id)
+        if not product:
+            return Result.failure([f"Product/Service with ID {product_id} not found."])
+        
+        # Future validation: check if product is used in open sales/purchase orders, or has stock.
+        # For now, simple toggle.
+        
+        product_name_for_log = product.name # Capture before potential changes for logging
+        
+        product.is_active = not product.is_active
+        product.updated_by_user_id = user_id
 
-class WHCertificateStatusEnum(Enum): 
-    DRAFT = "Draft"
-    ISSUED = "Issued"
-    VOIDED = "Voided"
+        try:
+            updated_product = await self.product_service.save(product)
+            action = "activated" if updated_product.is_active else "deactivated"
+            self.logger.info(f"Product/Service '{product_name_for_log}' (ID: {product_id}) {action} by user ID {user_id}.")
+            return Result.success(updated_product)
+        except Exception as e:
+            self.logger.error(f"Error toggling active status for product ID {product_id}: {e}", exc_info=True)
+            return Result.failure([f"Failed to toggle active status for product/service: {str(e)}"])
 
-class DataChangeTypeEnum(Enum): 
-    INSERT = "Insert"
-    UPDATE = "Update"
-    DELETE = "Delete"
-
-class RecurringFrequencyEnum(Enum): 
-    DAILY = "Daily"
-    WEEKLY = "Weekly"
-    MONTHLY = "Monthly"
-    QUARTERLY = "Quarterly"
-    YEARLY = "Yearly"
-
-```
-
-# resources/icons/banking.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M4 10h3v7H4v-7zm6.5 0h3v7h-3v-7zM2 19h20v3H2v-3zm15-9h3v7h-3v-7zm-5-9L2 6v2h20V6L12 1z"/></svg>
-
-```
-
-# resources/icons/vendors.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M16.5 12c1.38 0 2.5-1.12 2.5-2.5S17.88 7 16.5 7C15.12 7 14 8.12 14 9.5s1.12 2.5 2.5 2.5zM9 11c1.66 0 2.99-1.34 2.99-3S10.66 5 9 5C7.34 5 6 6.34 6 8s1.34 3 3 3zm7.5 3c-1.83 0-5.5.92-5.5 2.75V19h11v-2.25c0-1.83-3.67-2.75-5.5-2.75zM9 13c-2.33 0-7 1.17-7 3.5V19h7v-2.5c0-.85.33-2.34 2.37-3.47C10.5 13.1 9.66 13 9 13z"/></svg>
-
-```
-
-# resources/icons/deactivate.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
-  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm3.59-13L12 10.59 8.41 7 7 8.41 10.59 12 7 15.59 8.41 17 12 13.41 15.59 17 17 15.59 13.41 12 17 8.41z"/>
-</svg>
-
-```
-
-# resources/icons/post.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>
-
-```
-
-# resources/icons/collapse_all.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
-  <path d="M12 18.17L8.83 15l-1.41 1.41L12 21l4.59-4.59L15.17 15 12 18.17zm0-12.34L15.17 9l1.41-1.41L12 3 7.41 7.59 8.83 9 12 5.83zM19 11h-2v2h2v-2zm-12 0H5v2h2v-2z"/>
-  <path d="M0 0h24v24H0z" fill="none"/>
-</svg>
-
-```
-
-# resources/icons/restore.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.25 2.52.77-1.28-3.52-2.09V8H12z"/></svg>
-
-```
-
-# resources/icons/refresh.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
-  <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
-</svg>
 
 ```
 
-# resources/icons/exit.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M10.09 15.59L11.5 17l5-5-5-5-1.41 1.41L12.67 11H3v2h9.67l-2.58 2.59zM19 3H5c-1.11 0-2 .9-2 2v4h2V5h14v14H5v-4H3v4c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/></svg>
+# app/business_logic/customer_manager.py
+```py
+# app/business_logic/customer_manager.py
+from typing import List, Optional, Dict, Any, TYPE_CHECKING
+from decimal import Decimal
 
-```
+from app.models.business.customer import Customer
+from app.services.business_services import CustomerService
+from app.services.account_service import AccountService # Corrected import
+from app.services.accounting_services import CurrencyService # Correct import
+from app.utils.result import Result
+from app.utils.pydantic_models import CustomerCreateData, CustomerUpdateData, CustomerSummaryData
 
-# resources/icons/about.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-5h2v-2h-2v2zm0-4h2V7h-2v4z"/></svg>
+if TYPE_CHECKING:
+    from app.core.application_core import ApplicationCore
 
-```
+class CustomerManager:
+    def __init__(self, 
+                 customer_service: CustomerService, 
+                 account_service: AccountService, 
+                 currency_service: CurrencyService, 
+                 app_core: "ApplicationCore"):
+        self.customer_service = customer_service
+        self.account_service = account_service
+        self.currency_service = currency_service
+        self.app_core = app_core
+        self.logger = app_core.logger
 
-# resources/icons/settings.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.08-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.08.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"/></svg>
+    async def get_customer_for_dialog(self, customer_id: int) -> Optional[Customer]:
+        """ Fetches a full customer ORM object for dialog population. """
+        try:
+            return await self.customer_service.get_by_id(customer_id)
+        except Exception as e:
+            self.logger.error(f"Error fetching customer ID {customer_id} for dialog: {e}", exc_info=True)
+            return None
 
-```
+    async def get_customers_for_listing(self, 
+                                       active_only: bool = True,
+                                       search_term: Optional[str] = None,
+                                       page: int = 1,
+                                       page_size: int = 50
+                                      ) -> Result[List[CustomerSummaryData]]:
+        """ Fetches a list of customer summaries for table display. """
+        try:
+            # Pydantic DTOs are now directly returned by the service
+            summaries: List[CustomerSummaryData] = await self.customer_service.get_all_summary(
+                active_only=active_only,
+                search_term=search_term,
+                page=page,
+                page_size=page_size
+            )
+            return Result.success(summaries)
+        except Exception as e:
+            self.logger.error(f"Error fetching customer listing: {e}", exc_info=True)
+            return Result.failure([f"Failed to retrieve customer list: {str(e)}"])
 
-# resources/icons/accounting.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M4 10h16v2H4v-2zm0 4h16v2H4v-2zm0-8h16v2H4V6zm0 12h10v2H4v-2zM16 18h4v2h-4v-2z"/></svg>
+    async def _validate_customer_data(self, dto: CustomerCreateData | CustomerUpdateData, existing_customer_id: Optional[int] = None) -> List[str]:
+        errors: List[str] = []
 
-```
+        if dto.customer_code:
+            existing_by_code = await self.customer_service.get_by_code(dto.customer_code)
+            if existing_by_code and (existing_customer_id is None or existing_by_code.id != existing_customer_id):
+                errors.append(f"Customer code '{dto.customer_code}' already exists.")
+        else: # Should be caught by Pydantic if min_length=1
+            errors.append("Customer code is required.") 
+            
+        if dto.name is None or not dto.name.strip(): # Should be caught by Pydantic if min_length=1
+            errors.append("Customer name is required.")
 
-# resources/icons/reports.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
+        if dto.receivables_account_id is not None:
+            acc = await self.account_service.get_by_id(dto.receivables_account_id)
+            if not acc:
+                errors.append(f"Receivables account ID '{dto.receivables_account_id}' not found.")
+            elif acc.account_type != 'Asset': 
+                errors.append(f"Account '{acc.code} - {acc.name}' is not an Asset account and cannot be used as receivables account.")
+            elif not acc.is_active:
+                 errors.append(f"Receivables account '{acc.code} - {acc.name}' is not active.")
+            # Ideally, also check if it's specifically marked as an Accounts Receivable control account via a flag or sub_type
 
-```
+        if dto.currency_code:
+            curr = await self.currency_service.get_by_id(dto.currency_code) 
+            if not curr:
+                errors.append(f"Currency code '{dto.currency_code}' not found.")
+            elif not curr.is_active:
+                 errors.append(f"Currency '{dto.currency_code}' is not active.")
+        else: # Should be caught by Pydantic if required
+             errors.append("Currency code is required.")
 
-# resources/icons/new_company.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11h-4v4h-2v-4H7v-2h4V7h2v4h4v2z"/></svg>
 
-```
+        # Pydantic DTO's own root_validator handles gst_no if gst_registered
+        # No need to repeat here unless more complex cross-field logic is added.
+        return errors
 
-# resources/icons/remove.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M19 13H5v-2h14v2z"/></svg>
+    async def create_customer(self, dto: CustomerCreateData) -> Result[Customer]:
+        validation_errors = await self._validate_customer_data(dto)
+        if validation_errors:
+            return Result.failure(validation_errors)
 
-```
+        try:
+            customer_orm = Customer(
+                customer_code=dto.customer_code, name=dto.name, legal_name=dto.legal_name,
+                uen_no=dto.uen_no, gst_registered=dto.gst_registered, gst_no=dto.gst_no,
+                contact_person=dto.contact_person, email=str(dto.email) if dto.email else None, phone=dto.phone,
+                address_line1=dto.address_line1, address_line2=dto.address_line2,
+                postal_code=dto.postal_code, city=dto.city, country=dto.country,
+                credit_terms=dto.credit_terms, credit_limit=dto.credit_limit,
+                currency_code=dto.currency_code, is_active=dto.is_active,
+                customer_since=dto.customer_since, notes=dto.notes,
+                receivables_account_id=dto.receivables_account_id,
+                created_by_user_id=dto.user_id,
+                updated_by_user_id=dto.user_id
+            )
+            saved_customer = await self.customer_service.save(customer_orm)
+            return Result.success(saved_customer)
+        except Exception as e:
+            self.logger.error(f"Error creating customer '{dto.customer_code}': {e}", exc_info=True)
+            return Result.failure([f"An unexpected error occurred while creating the customer: {str(e)}"])
 
-# resources/icons/preferences.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.08-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.08.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"/></svg>
+    async def update_customer(self, customer_id: int, dto: CustomerUpdateData) -> Result[Customer]:
+        existing_customer = await self.customer_service.get_by_id(customer_id)
+        if not existing_customer:
+            return Result.failure([f"Customer with ID {customer_id} not found."])
 
-```
+        validation_errors = await self._validate_customer_data(dto, existing_customer_id=customer_id)
+        if validation_errors:
+            return Result.failure(validation_errors)
 
-# resources/icons/transactions.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
-  <path d="M20 6h-4V4c0-1.11-.89-2-2-2h-4c-1.11 0-2 .89-2 2v2H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2zm-6 0h-4V4h4v2zM4 18V8h2v10H4zm4 0V8h8v10H8zm12 0h-2V8h2v10z"/>
-  <path d="M0 0h24v24H0V0z" fill="none"/>
-</svg>
+        try:
+            # Update fields from DTO
+            update_data_dict = dto.model_dump(exclude={'id', 'user_id'}, exclude_unset=True)
+            for key, value in update_data_dict.items():
+                if hasattr(existing_customer, key):
+                    # Special handling for EmailStr which might be an object
+                    if key == 'email' and value is not None:
+                        setattr(existing_customer, key, str(value))
+                    else:
+                        setattr(existing_customer, key, value)
+            
+            existing_customer.updated_by_user_id = dto.user_id
+            
+            updated_customer = await self.customer_service.save(existing_customer)
+            return Result.success(updated_customer)
+        except Exception as e:
+            self.logger.error(f"Error updating customer ID {customer_id}: {e}", exc_info=True)
+            return Result.failure([f"An unexpected error occurred while updating the customer: {str(e)}"])
 
-```
+    async def toggle_customer_active_status(self, customer_id: int, user_id: int) -> Result[Customer]:
+        customer = await self.customer_service.get_by_id(customer_id)
+        if not customer:
+            return Result.failure([f"Customer with ID {customer_id} not found."])
+        
+        customer.is_active = not customer.is_active
+        customer.updated_by_user_id = user_id
 
-# resources/icons/customers.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
-
-```
-
-# resources/icons/backup.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/></svg>
-
-```
-
-# resources/icons/filter.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
-  <path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z"/>
-</svg>
-
-```
-
-# resources/icons/help.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/></svg>
-
-```
-
-# resources/icons/view.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
-
-```
-
-# resources/icons/add.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
-
-```
-
-# resources/icons/reverse.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C20.36 11.36 16.79 8 12.5 8z"/></svg>
-
-```
-
-# resources/icons/expand_all.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
-  <path d="M12 5.83L15.17 9l1.41-1.41L12 3 7.41 7.59 8.83 9 12 5.83zm0 12.34L8.83 15l-1.41 1.41L12 21l4.59-4.59L15.17 15 12 18.17zM5 13h2v-2H5v2zm12 0h2v-2h-2v2z"/>
-  <path d="M0 0h24v24H0z" fill="none"/>
-</svg>
-
-```
-
-# resources/icons/open_company.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V6h5.17l2 2H20v10z"/></svg>
-
-```
-
-# resources/icons/edit.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
-  <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
-</svg>
-
-```
-
-# resources/icons/dashboard.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect>
-</svg>
-
-```
-
-# resources/resources.qrc
-```qrc
-# File: resources/resources.qrc
-# (Commented QRC structure as provided before)
-"""
-<RCC>
-  <qresource prefix="/">
-    <file alias="icons/dashboard.svg">icons/dashboard.svg</file>
-    <file alias="icons/accounting.svg">icons/accounting.svg</file>
-    <file alias="icons/customers.svg">icons/customers.svg</file>
-    <file alias="icons/vendors.svg">icons/vendors.svg</file>
-    <file alias="icons/banking.svg">icons/banking.svg</file>
-    <file alias="icons/reports.svg">icons/reports.svg</file>
-    <file alias="icons/settings.svg">icons/settings.svg</file>
-    <file alias="icons/new_company.svg">icons/new_company.svg</file>
-    <file alias="icons/open_company.svg">icons/open_company.svg</file>
-    <file alias="icons/backup.svg">icons/backup.svg</file>
-    <file alias="icons/restore.svg">icons/restore.svg</file>
-    <file alias="icons/exit.svg">icons/exit.svg</file>
-    <file alias="icons/preferences.svg">icons/preferences.svg</file>
-    <file alias="icons/help.svg">icons/help.svg</file>
-    <file alias="icons/about.svg">icons/about.svg</file>
-    <file alias="icons/filter.svg">icons/filter.svg</file>
-    <file alias="icons/expand_all.svg">icons/expand_all.svg</file>
-    <file alias="icons/collapse_all.svg">icons/collapse_all.svg</file>
-    <file alias="icons/refresh.svg">icons/refresh.svg</file>
-    <file alias="icons/edit.svg">icons/edit.svg</file>
-    <file alias="icons/transactions.svg">icons/transactions.svg</file>
-    <file alias="icons/deactivate.svg">icons/deactivate.svg</file>
-    <file alias="images/splash.png">images/splash.png</file>
-  </qresource>
-</RCC>
-"""
-
-```
-
-# data/report_templates/balance_sheet_default.json
-```json
-# File: data/report_templates/balance_sheet_default.json
-# (Content as provided before - example structure)
-"""
-{
-  "report_name": "Balance Sheet",
-  "sections": [
-    {
-      "title": "Assets",
-      "account_type": "Asset",
-      "sub_sections": [
-        {"title": "Current Assets", "account_sub_type_pattern": "Current Asset.*|Accounts Receivable|Cash.*"},
-        {"title": "Non-Current Assets", "account_sub_type_pattern": "Fixed Asset.*|Non-Current Asset.*"}
-      ]
-    },
-    {
-      "title": "Liabilities",
-      "account_type": "Liability",
-      "sub_sections": [
-        {"title": "Current Liabilities", "account_sub_type_pattern": "Current Liability.*|Accounts Payable|GST Payable"},
-        {"title": "Non-Current Liabilities", "account_sub_type_pattern": "Non-Current Liability.*|Loan.*"}
-      ]
-    },
-    {
-      "title": "Equity",
-      "account_type": "Equity"
-    }
-  ],
-  "options": {
-    "show_zero_balance": false,
-    "comparative_periods": 1
-  }
-}
-"""
-
-```
-
-# data/tax_codes/sg_gst_codes_2023.csv
-```csv
-# File: data/tax_codes/sg_gst_codes_2023.csv
-# (Content as provided before, verified against initial_data.sql SYS-GST-* accounts)
-"""Code,Description,TaxType,Rate,IsActive,AffectsAccountCode
-SR,Standard-Rated Supplies,GST,7.00,TRUE,SYS-GST-OUTPUT
-ZR,Zero-Rated Supplies,GST,0.00,TRUE,
-ES,Exempt Supplies,GST,0.00,TRUE,
-TX,Taxable Purchases (Standard-Rated),GST,7.00,TRUE,SYS-GST-INPUT
-BL,Blocked Input Tax (e.g. Club Subscriptions),GST,7.00,TRUE,
-OP,Out-of-Scope Supplies,GST,0.00,TRUE,
-"""
-
-```
-
-# data/chart_of_accounts/general_template.csv
-```csv
-# File: data/chart_of_accounts/general_template.csv
-# (Content as provided before, verified with new Account fields)
-"""Code,Name,AccountType,SubType,TaxTreatment,GSTApplicable,ParentCode,ReportGroup,IsControlAccount,IsBankAccount,OpeningBalance,OpeningBalanceDate
-1000,ASSETS,Asset,,,,,,,,0.00,
-1100,Current Assets,Asset,,,,1000,CURRENT_ASSETS,FALSE,FALSE,0.00,
-1110,Cash and Bank,Asset,Current Asset,,,1100,CASH_BANK,FALSE,TRUE,0.00,
-1111,Main Bank Account SGD,Asset,Cash and Cash Equivalents,Non-Taxable,FALSE,1110,CASH_BANK,FALSE,TRUE,1000.00,2023-01-01
-1112,Petty Cash,Asset,Cash and Cash Equivalents,Non-Taxable,FALSE,1110,CASH_BANK,FALSE,FALSE,100.00,2023-01-01
-1120,Accounts Receivable,Asset,Accounts Receivable,,,1100,ACCOUNTS_RECEIVABLE,TRUE,FALSE,500.00,2023-01-01
-1130,Inventory,Asset,Inventory,,,1100,INVENTORY,TRUE,FALSE,0.00,
-1200,Non-Current Assets,Asset,,,,1000,NON_CURRENT_ASSETS,FALSE,FALSE,0.00,
-1210,Property, Plant & Equipment,Asset,Fixed Assets,,,1200,PPE,FALSE,FALSE,0.00,
-1211,Office Equipment,Asset,Fixed Assets,,,1210,PPE,FALSE,FALSE,5000.00,2023-01-01
-1212,Accumulated Depreciation - Office Equipment,Asset,Fixed Assets,,,1210,PPE_ACCUM_DEPR,FALSE,FALSE,-500.00,2023-01-01
-2000,LIABILITIES,Liability,,,,,,,,0.00,
-2100,Current Liabilities,Liability,,,,2000,CURRENT_LIABILITIES,FALSE,FALSE,0.00,
-2110,Accounts Payable,Liability,Accounts Payable,,,2100,ACCOUNTS_PAYABLE,TRUE,FALSE,0.00,
-2120,GST Payable,Liability,GST Payable,Taxable,TRUE,2100,TAX_LIABILITIES,FALSE,FALSE,0.00,
-2200,Non-Current Liabilities,Liability,,,,2000,NON_CURRENT_LIABILITIES,FALSE,FALSE,0.00,
-2210,Bank Loan (Long Term),Liability,Long-term Liability,,,2200,LOANS_PAYABLE,FALSE,FALSE,0.00,
-3000,EQUITY,Equity,,,,,,,,0.00,
-3100,Owner's Capital,Equity,Owner''s Equity,,,3000,OWNERS_EQUITY,FALSE,FALSE,0.00,
-3200,Retained Earnings,Equity,Retained Earnings,,,3000,RETAINED_EARNINGS,FALSE,FALSE,0.00,SYS-RETAINED-EARNINGS
-4000,REVENUE,Revenue,,,,,,,,0.00,
-4100,Sales Revenue,Revenue,Sales,Taxable,TRUE,4000,OPERATING_REVENUE,FALSE,FALSE,0.00,
-4200,Service Revenue,Revenue,Services,Taxable,TRUE,4000,OPERATING_REVENUE,FALSE,FALSE,0.00,
-5000,COST OF SALES,Expense,,,,,,,,0.00,
-5100,Cost of Goods Sold,Expense,Cost of Sales,Taxable,TRUE,5000,COST_OF_SALES,FALSE,FALSE,0.00,
-6000,OPERATING EXPENSES,Expense,,,,,,,,0.00,
-6100,Salaries & Wages,Expense,Operating Expenses,Non-Taxable,FALSE,6000,SALARIES,FALSE,FALSE,0.00,
-6110,Rent Expense,Expense,Operating Expenses,Taxable,TRUE,6000,RENT,FALSE,FALSE,0.00,
-6120,Utilities Expense,Expense,Operating Expenses,Taxable,TRUE,6000,UTILITIES,FALSE,FALSE,0.00,
-7000,OTHER INCOME,Revenue,,,,,,,,0.00,
-7100,Interest Income,Revenue,Other Income,Taxable,FALSE,7000,INTEREST_INCOME,FALSE,FALSE,0.00,
-8000,OTHER EXPENSES,Expense,,,,,,,,0.00,
-8100,Bank Charges,Expense,Other Expenses,Non-Taxable,FALSE,8000,BANK_CHARGES,FALSE,FALSE,0.00,
-"""
-
-```
-
-# data/chart_of_accounts/retail_template.csv
-```csv
-# File: data/chart_of_accounts/retail_template.csv
-# (Content as provided before, verified with new Account fields)
-"""Code,Name,AccountType,SubType,TaxTreatment,GSTApplicable,ParentCode,ReportGroup,IsControlAccount,IsBankAccount,OpeningBalance,OpeningBalanceDate
-1135,Inventory - Retail Goods,Asset,Inventory,Non-Taxable,FALSE,1130,INVENTORY_RETAIL,TRUE,FALSE,5000.00,2023-01-01
-4110,Sales Returns & Allowances,Revenue,Sales Adjustments,Taxable,TRUE,4000,REVENUE_ADJUSTMENTS,FALSE,FALSE,0.00,
-4120,Sales Discounts,Revenue,Sales Adjustments,Taxable,TRUE,4000,REVENUE_ADJUSTMENTS,FALSE,FALSE,0.00,
-5110,Purchase Returns & Allowances,Expense,Cost of Sales Adjustments,Taxable,TRUE,5100,COGS_ADJUSTMENTS,FALSE,FALSE,0.00,
-5120,Purchase Discounts,Expense,Cost of Sales Adjustments,Taxable,TRUE,5100,COGS_ADJUSTMENTS,FALSE,FALSE,0.00,
-6200,Shop Supplies Expense,Expense,Operating Expenses,Taxable,TRUE,6000,SHOP_SUPPLIES,FALSE,FALSE,0.00,
-"""
-
-```
-
-# /home/pete/.config/SGBookkeeper/config.ini
-```ini
-[Database]
-username = sgbookkeeper_user
-password = SGkeeperPass123
-host = localhost
-port = 5432
-database = sg_bookkeeper
-echo_sql = False
+        try:
+            updated_customer = await self.customer_service.save(customer)
+            action = "activated" if updated_customer.is_active else "deactivated"
+            self.logger.info(f"Customer '{updated_customer.name}' (ID: {customer_id}) {action} by user ID {user_id}.")
+            return Result.success(updated_customer)
+        except Exception as e:
+            self.logger.error(f"Error toggling active status for customer ID {customer_id}: {e}", exc_info=True)
+            return Result.failure([f"Failed to toggle active status for customer: {str(e)}"])
 
 ```
 

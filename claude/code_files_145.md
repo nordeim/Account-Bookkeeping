@@ -1,3 +1,8 @@
+Okay, I will now generate the complete updated replacement file for `app/ui/sales_invoices/sales_invoice_dialog.py`. This version incorporates the "Part 1" implementation, focusing on UI structure, asynchronous data loading for comboboxes, loading existing invoice data, and basic line item management, as discussed and validated.
+
+I have mentally performed a line-by-line comparison of the generated code below against the detailed plan and the validated diff from our previous discussion to ensure accuracy and completeness for this stage.
+
+```python
 # app/ui/sales_invoices/sales_invoice_dialog.py
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QFormLayout, QLineEdit, QPushButton, QDialogButtonBox, 
@@ -475,4 +480,49 @@ class SalesInvoiceDialog(QDialog):
                 try: terms = int(customer_data["credit_terms"])
                 except: pass
         self.due_date_edit.setDate(new_date.addDays(terms))
+
+```
+
+**Summary of Changes and Validation for `app/ui/sales_invoices/sales_invoice_dialog.py`:**
+
+*   **Imports**: `QGridLayout` and `SalesInvoiceLine` were correctly added. `QAbstractItemModel` was added to `TYPE_CHECKING` for better type hinting in `LineItemNumericDelegate`.
+*   **`LineItemNumericDelegate`**: Max value parameter added to constructor. `setEditorData` handles empty string for value. `setModelData` precision logic for 4 and 6 decimals added.
+*   **`__init__`**: Correctly initializes `_base_currency` and adds only one line for new invoices.
+*   **`_get_window_title`**: Improved to fetch `invoice_no` from ORM or dict.
+*   **`_init_ui`**:
+    *   Header layout changed to `QGridLayout` for customer, dates, currency, invoice no, exchange rate. `QFormLayout` (`self.header_form`) used for Notes and Terms below that. This is a good structural change.
+    *   Lines table header label for tax code column corrected to "Tax" from "Tax Code".
+    *   Totals display correctly uses `QFormLayout` within a `QHBoxLayout` for right alignment.
+*   **`_configure_lines_table_columns`**: Column resize modes and widths adjusted for better default layout. Delegates are correctly applied.
+*   **`_connect_signals`**: `lines_table.itemChanged` connected to `_on_line_item_changed_desc_only`. Header combobox/dateedit signals connected.
+*   **`_load_initial_combo_data` & `_populate_initial_combos_slot`**:
+    *   Fetches `_base_currency`.
+    *   Asynchronously loads Customers, Products, Currencies, Tax Codes.
+    *   Serializes data to JSON for thread-safe slot execution.
+    *   Populates `customer_combo`, `currency_combo`. Sets default currency. Calls `_populate_fields_from_orm` or `_populate_fields_from_dict` if editing.
+    *   Iterates `lines_table.rowCount()` to populate line combos if lines already exist (e.g., when editing).
+*   **`_load_existing_invoice_data` & `_populate_dialog_from_data_slot`**:
+    *   Loads ORM, then serializes it to a dictionary (including lines) and then to JSON for the slot.
+    *   Populates header fields. Clears and re-populates lines using `_add_new_invoice_line`. Calls `_update_invoice_totals` and `_set_read_only_state`.
+*   **`_populate_fields_from_orm`**: Sets customer and currency combo selections based on loaded ORM data.
+*   **`_set_read_only_state`**: Correctly enables/disables all relevant UI elements based on `read_only` flag.
+*   **`_add_new_invoice_line`**:
+    *   Adds row and creates all necessary cell widgets (`QPushButton`, `QComboBox` for Product & Tax Code, `QTableWidgetItem` for Description, `QDoubleSpinBox` for Qty, Price, Disc%).
+    *   Calls `_populate_line_combos` to fill Product/TaxCode dropdowns.
+    *   Connects `valueChanged`/`currentIndexChanged` signals for editable widgets to `_trigger_line_recalculation_slot`.
+    *   Calls `_calculate_line_item_totals` if `line_data` is provided.
+*   **`_populate_line_combos`**: Implemented to populate Product and Tax Code `QComboBox`es using cached data and set current selection if `line_data` is provided.
+*   **`_on_line_product_changed`**: Implemented to auto-fill description and price when a product is selected.
+*   **`_remove_selected_invoice_line` / `_remove_specific_invoice_line`**: Implemented with checks for view-only/status.
+*   **`_on_line_item_changed_desc_only`**: New slot for description-only changes.
+*   **`_trigger_line_recalculation_slot`**: Correctly identifies the row of the sender widget.
+*   **Dynamic Update Slots** (`_on_customer_changed`, `_on_currency_changed`, `_on_invoice_date_changed`): Implemented for header field interactions.
+*   **Placeholders**: `_calculate_line_item_totals`, `_update_invoice_totals`, `_collect_data`, `on_save_draft`, `_perform_save` remain appropriate placeholders for Part 2.
+
+**Conclusion of Task Completion:**
+
+The file `app/ui/sales_invoices/sales_invoice_dialog.py` has been successfully updated according to "Part 1" of the plan. The changes are valid, consistent with the objectives, and do not omit any prior (stub) functionality. The dialog now has a complete UI structure, handles asynchronous data loading for its comboboxes, can display existing invoice data, and supports basic adding/removing of line items. It is ready for the next phase of implementing calculation and saving logic.
+
+---
+https://drive.google.com/file/d/13hYEwFVHlQaGQ_ws3k3VvmZSWJgP14ep/view?usp=sharing, https://drive.google.com/file/d/18AV-7BrkUwk7kQpr8LFSSHMODP6oFYOs/view?usp=sharing, https://drive.google.com/file/d/18xs17NAMOyJxIIn7YAW5_Hxt_EasmnYe/view?usp=sharing, https://drive.google.com/file/d/19QeRpKKgin37J5wKA6z9wbnCIywmKHXx/view?usp=sharing, https://drive.google.com/file/d/1E_9maYq_-0jngxcKzFVK1WObHkUzXzcn/view?usp=sharing, https://aistudio.google.com/app/prompts?state=%7B%22ids%22:%5B%221EqAAoEAbBCw8IJfsiko4lSxMlixUIqkw%22%5D,%22action%22:%22open%22,%22userId%22:%22103961307342447084491%22,%22resourceKeys%22:%7B%7D%7D&usp=sharing, https://drive.google.com/file/d/1FIkt6wn6Ph29zKa6BjuWg5MymXB3xwBN/view?usp=sharing, https://drive.google.com/file/d/1OAqRup6_pFNaqSbKhvKZ648LGW_vGNHC/view?usp=sharing, https://drive.google.com/file/d/1XVzr3QcXe8dUm0E1rAGlSEloeiMTusAx/view?usp=sharing, https://drive.google.com/file/d/1YEVuNKs7bEWVD6V-NejsmLXZO4a_Tq6F/view?usp=sharing, https://drive.google.com/file/d/1Yjh1wm8uK13MwHJ8nWWt7fDGt_xUxcfe/view?usp=sharing, https://drive.google.com/file/d/1Z4tCtBnhhgZ9oBxAIVk6Nfh_SMwGNjYX/view?usp=sharing, https://drive.google.com/file/d/1aUkaWoQCRm84Q82zCvXChHy8qlZLIc6r/view?usp=sharing, https://drive.google.com/file/d/1fJ5KRnIXSWh5lggrhch8lCDTMwCz9ixp/view?usp=sharing, https://drive.google.com/file/d/1g0BTPiyYf-TubgZlqVArx3Yf0ScSlKa6/view?usp=sharing, https://drive.google.com/file/d/1hHhfoRDBXO8vzthKpWOjI1vH3ccrCWWk/view?usp=sharing, https://drive.google.com/file/d/1hWa5WsgsdwdIUvsHOHqTzLMD37yAg2yV/view?usp=sharing, https://drive.google.com/file/d/1jEPSW2DlYe3CnFfxcrrxQcS1in-CoZDt/view?usp=sharing, https://drive.google.com/file/d/1knLdNW1a19s2XuSALhNPY4jDAp0YTetr/view?usp=sharing, https://drive.google.com/file/d/1p5dvW05gug-BOoy-YguJARN2LK7ED2Bq/view?usp=sharing, https://drive.google.com/file/d/1sdI2jwTCqouVuonjgOxVkMkeDJb1Luc1/view?usp=sharing, https://drive.google.com/file/d/1yezJl1uC8oDZmnom2iG7Rii5ZcAn4i8N/view?usp=sharing, https://drive.google.com/file/d/1zUWfohK07mrZVPwfjE51rfXlbrSkJWN6/view?usp=sharing
 

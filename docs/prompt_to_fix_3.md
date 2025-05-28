@@ -25,3 +25,14 @@ Using line by line diff with the original file while you are applying changes to
 ---
 excellent result so far! now use the same rigorous and meticulous approach to update the README.md and TDS to accurately reflect the current state of the project. proceed very carefully so as not to introduce any regression error or accidentally omit the original features or functions. use the same tested rigorous and meticulous approach. thank you and good luck!
 
+---
+please carefully study the README.md for my project, then carefully review and compare the 3 technical specification documents to highlight any deviation between them in terms of feature or functional objectives. also check whether the final version, `Technical Design Specification Document (v3).md`, is consistent with the objectives stated in `README.md` for the project.
+
+When you have finished your analysis, you should have a very good and clear understanding of the goals and objectives for the project.
+
+---
+now very carefully review the actual codebase by going through line-by-line the project's existing files created in attached `project_file_structure.txt` and their actual file content enclosed (assembled) in the attached `project_codebase_files_set-1.md`, `project_codebase_files_set-2.md`, `project_codebase_files_set-3.md`, `project_codebase_files_set-4.md` and `project_codebase_files_set-5.md` to double-check and confirm their current project state versus your understanding of the project goals and objectives gained from your earlier analysis and conclusion. 
+
+---
+please help me create a complete updated replacement file for `README.md` and `Technical_Design_Specification_Document.md` that includes the current state as the codebase you just reviewed. I want to delete the old revisions of the respective file because it is a pain to cross reference each and every time. your complete updated replacement file for each should consolidate all the information in the older revisions plus the additional status update based on the current (reviewed) codebase. meaning your updated complete replacement file for each should be self contained with all the information, including the current state.
+

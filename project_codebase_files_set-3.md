@@ -1,3 +1,952 @@
+# app/core/config_manager.py
+```py
+# File: app/core/config_manager.py
+# (Content as previously generated and verified)
+import os
+import sys 
+import configparser
+from types import SimpleNamespace
+from pathlib import Path
+
+class ConfigManager:
+    def __init__(self, config_file_name: str = "config.ini", app_name: str = "SGBookkeeper"):
+        if os.name == 'nt': 
+            self.config_dir = Path(os.getenv('APPDATA', Path.home() / 'AppData' / 'Roaming')) / app_name
+        elif sys.platform == 'darwin': 
+            self.config_dir = Path.home() / 'Library' / 'Application Support' / app_name
+        else: 
+            self.config_dir = Path(os.getenv('XDG_CONFIG_HOME', Path.home() / '.config')) / app_name
+        
+        self.config_file_path = self.config_dir / config_file_name
+        os.makedirs(self.config_dir, exist_ok=True)
+
+        self.parser = configparser.ConfigParser()
+        self._load_config()
+
+    def _load_config(self):
+        if not self.config_file_path.exists():
+            self._create_default_config()
+        self.parser.read(self.config_file_path)
+
+    def _create_default_config(self):
+        self.parser['Database'] = {
+            'username': 'postgres',
+            'password': '', 
+            'host': 'localhost',
+            'port': '5432',
+            'database': 'sg_bookkeeper',
+            'echo_sql': 'False',
+            'pool_min_size': '2',
+            'pool_max_size': '10',
+            'pool_recycle_seconds': '3600'
+        }
+        self.parser['Application'] = {
+            'theme': 'light',
+            'language': 'en',
+            'last_opened_company_id': '' 
+        }
+        with open(self.config_file_path, 'w') as f:
+            self.parser.write(f)
+
+    def get_database_config(self):
+        db_config = self.parser['Database']
+        return SimpleNamespace(
+            username=db_config.get('username', 'postgres'),
+            password=db_config.get('password', ''), 
+            host=db_config.get('host', 'localhost'),
+            port=db_config.getint('port', 5432),
+            database=db_config.get('database', 'sg_bookkeeper'),
+            echo_sql=db_config.getboolean('echo_sql', False),
+            pool_min_size=db_config.getint('pool_min_size', 2),
+            pool_max_size=db_config.getint('pool_max_size', 10),
+            pool_recycle_seconds=db_config.getint('pool_recycle_seconds', 3600)
+        )
+
+    def get_app_config(self):
+        app_config = self.parser['Application']
+        return SimpleNamespace(
+            theme=app_config.get('theme', 'light'),
+            language=app_config.get('language', 'en'),
+            last_opened_company_id=app_config.get('last_opened_company_id', '')
+        )
+
+    def get_setting(self, section: str, key: str, fallback=None):
+        try:
+            return self.parser.get(section, key)
+        except (configparser.NoSectionError, configparser.NoOptionError):
+            return fallback
+
+
+    def set_setting(self, section: str, key: str, value: str):
+        if not self.parser.has_section(section):
+            self.parser.add_section(section)
+        self.parser.set(section, key, str(value))
+        with open(self.config_file_path, 'w') as f:
+            self.parser.write(f)
+
+```
+
+# app/core/security_manager.py
+```py
+# File: app/core/security_manager.py
+# (Content as previously generated and verified)
+import bcrypt
+from typing import Optional, List 
+from app.models.core.user import User, Role 
+from sqlalchemy import select 
+from sqlalchemy.orm import selectinload 
+from app.core.database_manager import DatabaseManager 
+import datetime 
+
+class SecurityManager:
+    def __init__(self, db_manager: DatabaseManager): 
+        self.db_manager = db_manager
+        self.current_user: Optional[User] = None
+
+    def hash_password(self, password: str) -> str:
+        salt = bcrypt.gensalt()
+        hashed_password = bcrypt.hashpw(password.encode('utf-8'), salt)
+        return hashed_password.decode('utf-8') 
+
+    def verify_password(self, plain_password: str, hashed_password: str) -> bool:
+        try:
+            return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
+        except ValueError: 
+            return False
+
+    async def authenticate_user(self, username: str, password: str) -> Optional[User]:
+        async with self.db_manager.session() as session:
+            stmt = select(User).options(
+                selectinload(User.roles).selectinload(Role.permissions) 
+            ).where(User.username == username)
+            result = await session.execute(stmt)
+            user = result.scalars().first()
+            
+            if user and user.is_active:
+                if self.verify_password(password, user.password_hash):
+                    self.current_user = user
+                    user.last_login = datetime.datetime.now(datetime.timezone.utc) 
+                    user.failed_login_attempts = 0
+                    # Session context manager handles commit
+                    return user
+                else: 
+                    user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
+                    user.last_login_attempt = datetime.datetime.now(datetime.timezone.utc)
+                    if user.failed_login_attempts >= 5: 
+                        user.is_active = False 
+                        print(f"User {username} account locked due to too many failed login attempts.")
+            elif user and not user.is_active:
+                print(f"User {username} account is inactive.")
+                user.last_login_attempt = datetime.datetime.now(datetime.timezone.utc)
+        self.current_user = None 
+        return None
+
+    def logout_user(self):
+        self.current_user = None
+
+    def get_current_user(self) -> Optional[User]:
+        return self.current_user
+
+    def has_permission(self, required_permission_code: str) -> bool: 
+        if not self.current_user or not self.current_user.is_active:
+            return False
+        if not self.current_user.roles:
+             return False 
+        for role in self.current_user.roles:
+            if not role.permissions: continue
+            for perm in role.permissions:
+                if perm.code == required_permission_code:
+                    return True
+        return False
+
+    async def create_user(self, username:str, password:str, email:Optional[str]=None, full_name:Optional[str]=None, role_names:Optional[List[str]]=None, is_active:bool=True) -> User:
+        async with self.db_manager.session() as session:
+            stmt_exist = select(User).where(User.username == username)
+            if (await session.execute(stmt_exist)).scalars().first():
+                raise ValueError(f"Username '{username}' already exists.")
+            if email:
+                stmt_email_exist = select(User).where(User.email == email)
+                if (await session.execute(stmt_email_exist)).scalars().first():
+                    raise ValueError(f"Email '{email}' already registered.")
+
+            hashed_password = self.hash_password(password)
+            new_user = User(
+                username=username, password_hash=hashed_password, email=email,
+                full_name=full_name, is_active=is_active,
+            )
+            if role_names:
+                roles_q = await session.execute(select(Role).where(Role.name.in_(role_names))) # type: ignore
+                db_roles = roles_q.scalars().all()
+                if len(db_roles) != len(role_names):
+                    found_role_names = {r.name for r in db_roles}
+                    missing_roles = [r_name for r_name in role_names if r_name not in found_role_names]
+                    print(f"Warning: Roles not found: {missing_roles}")
+                new_user.roles.extend(db_roles) 
+            
+            session.add(new_user)
+            await session.flush()
+            await session.refresh(new_user)
+            return new_user
+
+```
+
+# app/core/__init__.py
+```py
+# File: app/core/__init__.py
+# (Content as previously generated, verified)
+from .application_core import ApplicationCore
+from .config_manager import ConfigManager
+from .database_manager import DatabaseManager
+from .module_manager import ModuleManager
+from .security_manager import SecurityManager
+
+__all__ = [
+    "ApplicationCore",
+    "ConfigManager",
+    "DatabaseManager",
+    "ModuleManager",
+    "SecurityManager",
+]
+
+```
+
+# app/core/database_manager.py
+```py
+# File: app/core/database_manager.py
+import asyncio
+from contextlib import asynccontextmanager
+from typing import Optional, AsyncGenerator, TYPE_CHECKING, Any 
+import logging # Import standard logging
+
+import asyncpg 
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy import text 
+
+from app.core.config_manager import ConfigManager
+
+if TYPE_CHECKING:
+    from app.core.application_core import ApplicationCore 
+
+class DatabaseManager:
+    def __init__(self, config_manager: ConfigManager, app_core: Optional["ApplicationCore"] = None):
+        self.config = config_manager.get_database_config()
+        self.app_core = app_core 
+        self.engine: Optional[Any] = None 
+        self.session_factory: Optional[async_sessionmaker[AsyncSession]] = None
+        self.pool: Optional[asyncpg.Pool] = None
+        self.logger: Optional[logging.Logger] = None # Initialize logger attribute
+
+    async def initialize(self):
+        if self.engine: 
+            return
+        
+        # Set up logger if not already done by app_core injecting it
+        if self.app_core and hasattr(self.app_core, 'logger'):
+            self.logger = self.app_core.logger
+        elif not self.logger: # Basic fallback logger if app_core didn't set one
+            self.logger = logging.getLogger("DatabaseManager")
+            if not self.logger.handlers:
+                handler = logging.StreamHandler()
+                formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+                handler.setFormatter(formatter)
+                self.logger.addHandler(handler)
+                self.logger.setLevel(logging.INFO)
+
+
+        connection_string = (
+            f"postgresql+asyncpg://{self.config.username}:{self.config.password}@"
+            f"{self.config.host}:{self.config.port}/{self.config.database}"
+        )
+        
+        self.engine = create_async_engine(
+            connection_string,
+            echo=self.config.echo_sql,
+            pool_size=self.config.pool_min_size,
+            max_overflow=self.config.pool_max_size - self.config.pool_min_size,
+            pool_recycle=self.config.pool_recycle_seconds
+        )
+        
+        self.session_factory = async_sessionmaker(
+            self.engine, 
+            expire_on_commit=False,
+            class_=AsyncSession
+        )
+        
+        await self._create_pool()
+    
+    async def _create_pool(self):
+        try:
+            self.pool = await asyncpg.create_pool(
+                user=self.config.username,
+                password=self.config.password,
+                host=self.config.host,
+                port=self.config.port,
+                database=self.config.database,
+                min_size=self.config.pool_min_size,
+                max_size=self.config.pool_max_size
+            )
+        except Exception as e:
+            if self.logger: self.logger.error(f"Failed to create asyncpg pool: {e}", exc_info=True)
+            else: print(f"Failed to create asyncpg pool: {e}")
+            self.pool = None 
+
+    @asynccontextmanager
+    async def session(self) -> AsyncGenerator[AsyncSession, None]: 
+        if not self.session_factory:
+            # This log might happen before logger is fully set if initialize isn't called first.
+            log_msg = "DatabaseManager not initialized. Call initialize() first."
+            if self.logger: self.logger.error(log_msg)
+            else: print(f"ERROR: {log_msg}")
+            raise RuntimeError(log_msg)
+            
+        session: AsyncSession = self.session_factory()
+        try:
+            if self.app_core and self.app_core.current_user:
+                user_id_str = str(self.app_core.current_user.id)
+                await session.execute(text(f"SET LOCAL app.current_user_id = '{user_id_str}';"))
+            # If no app_core.current_user, we DO NOT set app.current_user_id.
+            # The audit trigger's fallback logic (EXCEPTION WHEN OTHERS -> v_user_id := NULL; IF v_user_id IS NULL THEN NEW.id for users table)
+            # will handle attributing self-updates to core.users or logging NULL for other system actions.
+            
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await session.close()
+    
+    @asynccontextmanager
+    async def connection(self) -> AsyncGenerator[asyncpg.Connection, None]: 
+        if not self.pool:
+            if not self.engine: 
+                 raise RuntimeError("DatabaseManager not initialized. Call initialize() first.")
+            await self._create_pool() 
+            if not self.pool: 
+                raise RuntimeError("Failed to acquire asyncpg pool.")
+            
+        async with self.pool.acquire() as connection:
+            if self.app_core and self.app_core.current_user:
+                user_id_str = str(self.app_core.current_user.id)
+                await connection.execute(f"SET LOCAL app.current_user_id = '{user_id_str}';") # type: ignore
+            # Again, do not set if no current_user, let trigger handle it.
+            yield connection # type: ignore 
+    
+    async def execute_query(self, query, *args):
+        async with self.connection() as conn:
+            return await conn.fetch(query, *args)
+    
+    async def execute_scalar(self, query, *args):
+        async with self.connection() as conn:
+            return await conn.fetchval(query, *args)
+    
+    async def execute_transaction(self, callback): 
+        async with self.connection() as conn:
+            async with conn.transaction(): # type: ignore 
+                return await callback(conn)
+    
+    async def close_connections(self):
+        if self.pool:
+            await self.pool.close()
+            self.pool = None 
+        
+        if self.engine:
+            await self.engine.dispose() # type: ignore
+            self.engine = None
+
+```
+
+# app/core/module_manager.py
+```py
+# File: app/core/module_manager.py
+# (Content as previously generated, verified)
+from typing import Dict, Any
+# from app.core.application_core import ApplicationCore # Forward declaration
+
+class ModuleManager:
+    def __init__(self, app_core: "ApplicationCore"): 
+        self.app_core = app_core
+        self.modules: Dict[str, Any] = {}
+        
+    def load_module(self, module_name: str, module_class: type, *args, **kwargs):
+        if module_name not in self.modules:
+            self.modules[module_name] = module_class(self.app_core, *args, **kwargs)
+        return self.modules[module_name]
+
+    def get_module(self, module_name: str) -> Any:
+        module_instance = self.modules.get(module_name)
+        if not module_instance:
+            print(f"Warning: Module '{module_name}' accessed before loading or not registered.")
+        return module_instance
+
+    def load_all_modules(self):
+        print("ModuleManager: load_all_modules called (conceptual).")
+
+```
+
+# app/core/application_core.py
+```py
+# app/core/application_core.py
+from typing import Optional, Any
+from app.core.config_manager import ConfigManager
+from app.core.database_manager import DatabaseManager 
+from app.core.security_manager import SecurityManager
+from app.core.module_manager import ModuleManager
+
+# Accounting Managers
+from app.accounting.chart_of_accounts_manager import ChartOfAccountsManager
+from app.accounting.journal_entry_manager import JournalEntryManager
+from app.accounting.fiscal_period_manager import FiscalPeriodManager
+from app.accounting.currency_manager import CurrencyManager
+
+# Business Logic Managers
+from app.business_logic.customer_manager import CustomerManager 
+from app.business_logic.vendor_manager import VendorManager 
+from app.business_logic.product_manager import ProductManager
+from app.business_logic.sales_invoice_manager import SalesInvoiceManager # New Import
+
+# Services
+from app.services.account_service import AccountService
+from app.services.journal_service import JournalService
+from app.services.fiscal_period_service import FiscalPeriodService
+from app.services.core_services import SequenceService, CompanySettingsService, ConfigurationService
+from app.services.tax_service import TaxCodeService, GSTReturnService 
+from app.services.accounting_services import AccountTypeService, CurrencyService as CurrencyRepoService, ExchangeRateService, FiscalYearService
+from app.services.business_services import CustomerService, VendorService, ProductService, SalesInvoiceService # New Import for SalesInvoiceService
+
+# Utilities
+from app.utils.sequence_generator import SequenceGenerator # Still used by JE Manager
+
+# Tax and Reporting
+from app.tax.gst_manager import GSTManager
+from app.tax.tax_calculator import TaxCalculator
+from app.reporting.financial_statement_generator import FinancialStatementGenerator
+from app.reporting.report_engine import ReportEngine
+import logging 
+
+class ApplicationCore:
+    def __init__(self, config_manager: ConfigManager, db_manager: DatabaseManager):
+        self.config_manager = config_manager
+        self.db_manager = db_manager
+        self.db_manager.app_core = self 
+        
+        self.logger = logging.getLogger("SGBookkeeperAppCore")
+        if not self.logger.handlers:
+            handler = logging.StreamHandler(); formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            handler.setFormatter(formatter); self.logger.addHandler(handler); self.logger.setLevel(logging.INFO) 
+        if not hasattr(self.db_manager, 'logger') or self.db_manager.logger is None: self.db_manager.logger = self.logger
+
+        self.security_manager = SecurityManager(self.db_manager)
+        self.module_manager = ModuleManager(self)
+
+        # --- Service Instance Placeholders ---
+        self._account_service_instance: Optional[AccountService] = None
+        self._journal_service_instance: Optional[JournalService] = None
+        # ... (other existing service placeholders)
+        self._customer_service_instance: Optional[CustomerService] = None
+        self._vendor_service_instance: Optional[VendorService] = None
+        self._product_service_instance: Optional[ProductService] = None
+        self._sales_invoice_service_instance: Optional[SalesInvoiceService] = None # New Placeholder
+
+        # --- Manager Instance Placeholders ---
+        self._coa_manager_instance: Optional[ChartOfAccountsManager] = None
+        self._je_manager_instance: Optional[JournalEntryManager] = None
+        # ... (other existing manager placeholders)
+        self._customer_manager_instance: Optional[CustomerManager] = None
+        self._vendor_manager_instance: Optional[VendorManager] = None
+        self._product_manager_instance: Optional[ProductManager] = None
+        self._sales_invoice_manager_instance: Optional[SalesInvoiceManager] = None # New Placeholder
+
+        self.logger.info("ApplicationCore initialized.")
+
+    async def startup(self):
+        self.logger.info("ApplicationCore starting up...")
+        await self.db_manager.initialize() 
+        
+        # Initialize Core Services
+        self._sequence_service_instance = SequenceService(self.db_manager)
+        self._company_settings_service_instance = CompanySettingsService(self.db_manager, self)
+        self._configuration_service_instance = ConfigurationService(self.db_manager)
+
+        # Initialize Accounting Services
+        self._account_service_instance = AccountService(self.db_manager, self)
+        self._journal_service_instance = JournalService(self.db_manager, self)
+        self._fiscal_period_service_instance = FiscalPeriodService(self.db_manager)
+        self._fiscal_year_service_instance = FiscalYearService(self.db_manager, self)
+        self._account_type_service_instance = AccountTypeService(self.db_manager, self) 
+        self._currency_repo_service_instance = CurrencyRepoService(self.db_manager, self)
+        self._exchange_rate_service_instance = ExchangeRateService(self.db_manager, self)
+        
+        # Initialize Tax Services
+        self._tax_code_service_instance = TaxCodeService(self.db_manager, self)
+        self._gst_return_service_instance = GSTReturnService(self.db_manager, self)
+        
+        # Initialize Business Services
+        self._customer_service_instance = CustomerService(self.db_manager, self)
+        self._vendor_service_instance = VendorService(self.db_manager, self) 
+        self._product_service_instance = ProductService(self.db_manager, self)
+        self._sales_invoice_service_instance = SalesInvoiceService(self.db_manager, self) # New Instantiation
+
+        # Initialize Managers (dependencies should be initialized services)
+        # SequenceGenerator is used by JournalEntryManager.
+        # SalesInvoiceManager will use SequenceService directly for DB function call.
+        py_sequence_generator = SequenceGenerator(self.sequence_service, app_core_ref=self) 
+
+        self._coa_manager_instance = ChartOfAccountsManager(self.account_service, self)
+        self._je_manager_instance = JournalEntryManager(
+            self.journal_service, self.account_service, 
+            self.fiscal_period_service, py_sequence_generator, self # py_sequence_generator used here
+        )
+        self._fp_manager_instance = FiscalPeriodManager(self) 
+        self._currency_manager_instance = CurrencyManager(self) 
+        self._tax_calculator_instance = TaxCalculator(self.tax_code_service) # TaxCalculator needs TaxCodeService
+        self._gst_manager_instance = GSTManager(
+            self.tax_code_service, self.journal_service, self.company_settings_service,
+            self.gst_return_service, self.account_service, self.fiscal_period_service,
+            py_sequence_generator, self # py_sequence_generator if GST settlement JE needs it
+        )
+        self._financial_statement_generator_instance = FinancialStatementGenerator(
+            self.account_service, self.journal_service, self.fiscal_period_service,
+            self.account_type_service, self.tax_code_service, self.company_settings_service
+        )
+        self._report_engine_instance = ReportEngine(self)
+
+        self._customer_manager_instance = CustomerManager(
+            customer_service=self.customer_service, account_service=self.account_service,
+            currency_service=self.currency_service, app_core=self
+        )
+        self._vendor_manager_instance = VendorManager( 
+            vendor_service=self.vendor_service, account_service=self.account_service,
+            currency_service=self.currency_service, app_core=self
+        )
+        self._product_manager_instance = ProductManager( 
+            product_service=self.product_service, account_service=self.account_service,
+            tax_code_service=self.tax_code_service, app_core=self
+        )
+        self._sales_invoice_manager_instance = SalesInvoiceManager( # New Instantiation
+            sales_invoice_service=self.sales_invoice_service,
+            customer_service=self.customer_service,
+            product_service=self.product_service,
+            tax_code_service=self.tax_code_service,
+            tax_calculator=self.tax_calculator, # Pass initialized TaxCalculator
+            sequence_service=self.sequence_service, # Pass initialized SequenceService
+            app_core=self
+        )
+        
+        self.module_manager.load_all_modules() 
+        self.logger.info("ApplicationCore startup complete.")
+
+    async def shutdown(self): # ... (no changes)
+        self.logger.info("ApplicationCore shutting down...")
+        await self.db_manager.close_connections()
+        self.logger.info("ApplicationCore shutdown complete.")
+
+    @property
+    def current_user(self): # ... (no changes)
+        return self.security_manager.get_current_user()
+
+    # --- Service Properties ---
+    # ... (other existing service properties) ...
+    @property
+    def account_service(self) -> AccountService: # ...
+        if not self._account_service_instance: raise RuntimeError("AccountService not initialized.")
+        return self._account_service_instance
+    @property
+    def journal_service(self) -> JournalService: # ...
+        if not self._journal_service_instance: raise RuntimeError("JournalService not initialized.")
+        return self._journal_service_instance
+    @property
+    def fiscal_period_service(self) -> FiscalPeriodService: # ...
+        if not self._fiscal_period_service_instance: raise RuntimeError("FiscalPeriodService not initialized.")
+        return self._fiscal_period_service_instance
+    @property
+    def fiscal_year_service(self) -> FiscalYearService: # ...
+        if not self._fiscal_year_service_instance: raise RuntimeError("FiscalYearService not initialized.")
+        return self._fiscal_year_service_instance
+    @property
+    def sequence_service(self) -> SequenceService: # ...
+        if not self._sequence_service_instance: raise RuntimeError("SequenceService not initialized.")
+        return self._sequence_service_instance
+    @property
+    def company_settings_service(self) -> CompanySettingsService: # ...
+        if not self._company_settings_service_instance: raise RuntimeError("CompanySettingsService not initialized.")
+        return self._company_settings_service_instance
+    @property
+    def tax_code_service(self) -> TaxCodeService: # ...
+        if not self._tax_code_service_instance: raise RuntimeError("TaxCodeService not initialized.")
+        return self._tax_code_service_instance
+    @property
+    def gst_return_service(self) -> GSTReturnService: # ...
+        if not self._gst_return_service_instance: raise RuntimeError("GSTReturnService not initialized.")
+        return self._gst_return_service_instance
+    @property
+    def account_type_service(self) -> AccountTypeService:  # ...
+        if not self._account_type_service_instance: raise RuntimeError("AccountTypeService not initialized.")
+        return self._account_type_service_instance 
+    @property
+    def currency_repo_service(self) -> CurrencyRepoService: # ...
+        if not self._currency_repo_service_instance: raise RuntimeError("CurrencyRepoService not initialized.")
+        return self._currency_repo_service_instance 
+    @property
+    def currency_service(self) -> CurrencyRepoService: # ...
+        if not self._currency_repo_service_instance: raise RuntimeError("CurrencyService (CurrencyRepoService) not initialized.")
+        return self._currency_repo_service_instance
+    @property
+    def exchange_rate_service(self) -> ExchangeRateService: # ...
+        if not self._exchange_rate_service_instance: raise RuntimeError("ExchangeRateService not initialized.")
+        return self._exchange_rate_service_instance 
+    @property
+    def configuration_service(self) -> ConfigurationService: # ...
+        if not self._configuration_service_instance: raise RuntimeError("ConfigurationService not initialized.")
+        return self._configuration_service_instance
+    @property
+    def customer_service(self) -> CustomerService: # ...
+        if not self._customer_service_instance: raise RuntimeError("CustomerService not initialized.")
+        return self._customer_service_instance
+    @property
+    def vendor_service(self) -> VendorService: # ...
+        if not self._vendor_service_instance: raise RuntimeError("VendorService not initialized.")
+        return self._vendor_service_instance
+    @property
+    def product_service(self) -> ProductService: # ...
+        if not self._product_service_instance: raise RuntimeError("ProductService not initialized.")
+        return self._product_service_instance
+    @property
+    def sales_invoice_service(self) -> SalesInvoiceService: # New Property
+        if not self._sales_invoice_service_instance: raise RuntimeError("SalesInvoiceService not initialized.")
+        return self._sales_invoice_service_instance
+
+    # --- Manager Properties ---
+    # ... (other existing manager properties) ...
+    @property
+    def chart_of_accounts_manager(self) -> ChartOfAccountsManager: # ...
+        if not self._coa_manager_instance: raise RuntimeError("ChartOfAccountsManager not initialized.")
+        return self._coa_manager_instance
+    @property
+    def accounting_service(self) -> ChartOfAccountsManager: # ...
+        return self.chart_of_accounts_manager
+    @property
+    def journal_entry_manager(self) -> JournalEntryManager: # ...
+        if not self._je_manager_instance: raise RuntimeError("JournalEntryManager not initialized.")
+        return self._je_manager_instance
+    @property
+    def fiscal_period_manager(self) -> FiscalPeriodManager: # ...
+        if not self._fp_manager_instance: raise RuntimeError("FiscalPeriodManager not initialized.")
+        return self._fp_manager_instance
+    @property
+    def currency_manager(self) -> CurrencyManager: # ...
+        if not self._currency_manager_instance: raise RuntimeError("CurrencyManager not initialized.")
+        return self._currency_manager_instance
+    @property
+    def gst_manager(self) -> GSTManager: # ...
+        if not self._gst_manager_instance: raise RuntimeError("GSTManager not initialized.")
+        return self._gst_manager_instance
+    @property
+    def tax_calculator(self) -> TaxCalculator: # ...
+        if not self._tax_calculator_instance: raise RuntimeError("TaxCalculator not initialized.")
+        return self._tax_calculator_instance
+    @property
+    def financial_statement_generator(self) -> FinancialStatementGenerator: # ...
+        if not self._financial_statement_generator_instance: raise RuntimeError("FinancialStatementGenerator not initialized.")
+        return self._financial_statement_generator_instance
+    @property
+    def report_engine(self) -> ReportEngine: # ...
+        if not self._report_engine_instance: raise RuntimeError("ReportEngine not initialized.")
+        return self._report_engine_instance
+    @property
+    def customer_manager(self) -> CustomerManager: # ...
+        if not self._customer_manager_instance: raise RuntimeError("CustomerManager not initialized.")
+        return self._customer_manager_instance
+    @property
+    def vendor_manager(self) -> VendorManager: # ...
+        if not self._vendor_manager_instance: raise RuntimeError("VendorManager not initialized.")
+        return self._vendor_manager_instance
+    @property
+    def product_manager(self) -> ProductManager: # ...
+        if not self._product_manager_instance: raise RuntimeError("ProductManager not initialized.")
+        return self._product_manager_instance
+    @property
+    def sales_invoice_manager(self) -> SalesInvoiceManager: # New Property
+        if not self._sales_invoice_manager_instance: raise RuntimeError("SalesInvoiceManager not initialized.")
+        return self._sales_invoice_manager_instance
+
+
+```
+
+# app/models/__init__.py
+```py
+# File: app/models/__init__.py
+# (Content as previously generated and verified, reflecting subdirectory model structure)
+from .base import Base, TimestampMixin, UserAuditMixin
+
+# Core schema models
+from .core.user import User, Role, Permission # Removed UserRole, RolePermission
+from .core.company_setting import CompanySetting
+from .core.configuration import Configuration
+from .core.sequence import Sequence
+
+# Accounting schema models
+from .accounting.account_type import AccountType
+from .accounting.currency import Currency 
+from .accounting.exchange_rate import ExchangeRate 
+from .accounting.account import Account 
+from .accounting.fiscal_year import FiscalYear
+from .accounting.fiscal_period import FiscalPeriod 
+from .accounting.journal_entry import JournalEntry, JournalEntryLine 
+from .accounting.recurring_pattern import RecurringPattern
+from .accounting.dimension import Dimension 
+from .accounting.budget import Budget, BudgetDetail 
+from .accounting.tax_code import TaxCode 
+from .accounting.gst_return import GSTReturn 
+from .accounting.withholding_tax_certificate import WithholdingTaxCertificate
+
+# Business schema models
+from .business.customer import Customer
+from .business.vendor import Vendor
+from .business.product import Product
+from .business.inventory_movement import InventoryMovement
+from .business.sales_invoice import SalesInvoice, SalesInvoiceLine
+from .business.purchase_invoice import PurchaseInvoice, PurchaseInvoiceLine
+from .business.bank_account import BankAccount
+from .business.bank_transaction import BankTransaction
+from .business.payment import Payment, PaymentAllocation
+
+# Audit schema models
+from .audit.audit_log import AuditLog
+from .audit.data_change_history import DataChangeHistory
+
+__all__ = [
+    "Base", "TimestampMixin", "UserAuditMixin",
+    # Core
+    "User", "Role", "Permission", # Removed UserRole, RolePermission
+    "CompanySetting", "Configuration", "Sequence",
+    # Accounting
+    "AccountType", "Currency", "ExchangeRate", "Account",
+    "FiscalYear", "FiscalPeriod", "JournalEntry", "JournalEntryLine",
+    "RecurringPattern", "Dimension", "Budget", "BudgetDetail",
+    "TaxCode", "GSTReturn", "WithholdingTaxCertificate",
+    # Business
+    "Customer", "Vendor", "Product", "InventoryMovement",
+    "SalesInvoice", "SalesInvoiceLine", "PurchaseInvoice", "PurchaseInvoiceLine",
+    "BankAccount", "BankTransaction", "Payment", "PaymentAllocation",
+    # Audit
+    "AuditLog", "DataChangeHistory",
+]
+
+```
+
+# app/models/base.py
+```py
+# File: app/models/base.py
+# (Content previously generated, no changes needed)
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.sql import func
+from sqlalchemy import DateTime, Integer, ForeignKey # Ensure Integer, ForeignKey are imported
+from typing import Optional
+import datetime
+
+Base = declarative_base()
+
+class TimestampMixin:
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), default=func.now(), server_default=func.now())
+    updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), default=func.now(), server_default=func.now(), onupdate=func.now())
+
+class UserAuditMixin:
+    # Explicitly add ForeignKey references here as UserAuditMixin is generic.
+    # The target table 'core.users' is known.
+    created_by: Mapped[int] = mapped_column(Integer, ForeignKey('core.users.id'), nullable=False)
+    updated_by: Mapped[int] = mapped_column(Integer, ForeignKey('core.users.id'), nullable=False)
+
+```
+
+# app/models/core/__init__.py
+```py
+# File: app/models/core/__init__.py
+# (Content previously generated)
+from .configuration import Configuration
+from .sequence import Sequence
+
+__all__ = ["Configuration", "Sequence"]
+
+```
+
+# app/models/core/configuration.py
+```py
+# File: app/models/core/configuration.py
+# New model for core.configuration table
+from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, ForeignKey
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.sql import func
+from app.models.base import Base, TimestampMixin
+# from app.models.user import User # For FK relationship
+import datetime
+from typing import Optional
+
+class Configuration(Base, TimestampMixin):
+    __tablename__ = 'configuration'
+    __table_args__ = {'schema': 'core'}
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    config_key: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
+    config_value: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    description: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    is_encrypted: Mapped[bool] = mapped_column(Boolean, default=False)
+    updated_by: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('core.users.id'), nullable=True)
+
+    # updated_by_user: Mapped[Optional["User"]] = relationship("User") # If User accessible
+
+```
+
+# app/models/core/company_setting.py
+```py
+# File: app/models/core/company_setting.py
+# (Moved from app/models/company_setting.py and fields updated)
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, LargeBinary, ForeignKey, CheckConstraint
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.sql import func
+from app.models.base import Base, TimestampMixin
+from app.models.core.user import User # For FK relationship type hint
+import datetime
+from typing import Optional
+
+class CompanySetting(Base, TimestampMixin):
+    __tablename__ = 'company_settings'
+    __table_args__ = (
+        CheckConstraint("fiscal_year_start_month BETWEEN 1 AND 12", name='ck_cs_fy_month'),
+        CheckConstraint("fiscal_year_start_day BETWEEN 1 AND 31", name='ck_cs_fy_day'),
+        {'schema': 'core'}
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, index=True)
+    company_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    legal_name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True) 
+    uen_no: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    gst_registration_no: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    gst_registered: Mapped[bool] = mapped_column(Boolean, default=False)
+    address_line1: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    address_line2: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    postal_code: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    city: Mapped[str] = mapped_column(String(50), default='Singapore') 
+    country: Mapped[str] = mapped_column(String(50), default='Singapore') 
+    contact_person: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    phone: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    email: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    website: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    logo: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
+    fiscal_year_start_month: Mapped[int] = mapped_column(Integer, default=1) 
+    fiscal_year_start_day: Mapped[int] = mapped_column(Integer, default=1) 
+    base_currency: Mapped[str] = mapped_column(String(3), default='SGD') 
+    tax_id_label: Mapped[str] = mapped_column(String(50), default='UEN') 
+    date_format: Mapped[str] = mapped_column(String(20), default='yyyy-MM-dd') 
+    
+    updated_by_user_id: Mapped[Optional[int]] = mapped_column("updated_by", Integer, ForeignKey('core.users.id'), nullable=True) 
+
+    updated_by_user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[updated_by_user_id])
+
+```
+
+# app/models/core/sequence.py
+```py
+# File: app/models/core/sequence.py
+# New model for core.sequences table
+from sqlalchemy import Column, Integer, String, DateTime, Boolean
+from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.sql import func
+from app.models.base import Base, TimestampMixin # Only TimestampMixin, no UserAuditMixin for this
+from typing import Optional
+
+class Sequence(Base, TimestampMixin):
+    __tablename__ = 'sequences'
+    __table_args__ = {'schema': 'core'}
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    sequence_name: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
+    prefix: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    suffix: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    next_value: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    increment_by: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    min_value: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    max_value: Mapped[int] = mapped_column(Integer, default=2147483647, nullable=False) # Max int4
+    cycle: Mapped[bool] = mapped_column(Boolean, default=False)
+    format_template: Mapped[str] = mapped_column(String(50), default='{PREFIX}{VALUE}{SUFFIX}')
+
+```
+
+# app/models/core/user.py
+```py
+# File: app/models/core/user.py
+# (Moved from app/models/user.py and fields updated)
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, Table
+from sqlalchemy.orm import relationship, Mapped, mapped_column
+from sqlalchemy.sql import func
+from app.models.base import Base, TimestampMixin 
+import datetime 
+from typing import List, Optional 
+
+# Junction tables defined here using Base.metadata
+user_roles_table = Table(
+    'user_roles', Base.metadata,
+    Column('user_id', Integer, ForeignKey('core.users.id', ondelete="CASCADE"), primary_key=True),
+    Column('role_id', Integer, ForeignKey('core.roles.id', ondelete="CASCADE"), primary_key=True),
+    Column('created_at', DateTime(timezone=True), server_default=func.now()),
+    schema='core'
+)
+
+role_permissions_table = Table(
+    'role_permissions', Base.metadata,
+    Column('role_id', Integer, ForeignKey('core.roles.id', ondelete="CASCADE"), primary_key=True),
+    Column('permission_id', Integer, ForeignKey('core.permissions.id', ondelete="CASCADE"), primary_key=True),
+    Column('created_at', DateTime(timezone=True), server_default=func.now()),
+    schema='core'
+)
+
+class User(Base, TimestampMixin):
+    __tablename__ = 'users'
+    __table_args__ = {'schema': 'core'}
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, index=True)
+    username: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    email: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, unique=True, index=True)
+    full_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    
+    failed_login_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    last_login_attempt: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_login: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    require_password_change: Mapped[bool] = mapped_column(Boolean, default=False)
+    
+    roles: Mapped[List["Role"]] = relationship("Role", secondary=user_roles_table, back_populates="users")
+
+class Role(Base, TimestampMixin):
+    __tablename__ = 'roles'
+    __table_args__ = {'schema': 'core'}
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, index=True)
+    name: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
+    description: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+
+    users: Mapped[List["User"]] = relationship("User", secondary=user_roles_table, back_populates="roles")
+    permissions: Mapped[List["Permission"]] = relationship("Permission", secondary=role_permissions_table, back_populates="roles")
+
+class Permission(Base): 
+    __tablename__ = 'permissions'
+    __table_args__ = {'schema': 'core'}
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, index=True)
+    code: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True) 
+    description: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    module: Mapped[str] = mapped_column(String(50), nullable=False) 
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now()) # Only created_at
+
+    roles: Mapped[List["Role"]] = relationship("Role", secondary=role_permissions_table, back_populates="permissions")
+
+# Removed UserRole class definition
+# Removed RolePermission class definition
+
+```
+
 # app/models/audit/__init__.py
 ```py
 # File: app/models/audit/__init__.py
@@ -592,756 +1541,6 @@ class SalesInvoiceLine(Base, TimestampMixin):
 # Add back_populates to Customer and Product:
 Customer.sales_invoices = relationship("SalesInvoice", back_populates="customer") # type: ignore
 Product.sales_invoice_lines = relationship("SalesInvoiceLine", back_populates="product") # type: ignore
-
-```
-
-# app/models/business/bank_transaction.py
-```py
-# File: app/models/business/bank_transaction.py
-# (Reviewed and confirmed path and fields from previous generation, ensure relationships set)
-from sqlalchemy import Column, Integer, String, Date, Numeric, Text, ForeignKey, CheckConstraint, Boolean
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.sql import func
-from app.models.base import Base, TimestampMixin
-from app.models.business.bank_account import BankAccount
-from app.models.core.user import User
-from app.models.accounting.journal_entry import JournalEntry
-import datetime
-from decimal import Decimal
-from typing import Optional
-
-class BankTransaction(Base, TimestampMixin):
-    __tablename__ = 'bank_transactions'
-    __table_args__ = (
-        CheckConstraint("transaction_type IN ('Deposit', 'Withdrawal', 'Transfer', 'Interest', 'Fee', 'Adjustment')", name='ck_bank_transactions_type'),
-        {'schema': 'business'}
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    bank_account_id: Mapped[int] = mapped_column(Integer, ForeignKey('business.bank_accounts.id'), nullable=False)
-    transaction_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
-    value_date: Mapped[Optional[datetime.date]] = mapped_column(Date, nullable=True)
-    transaction_type: Mapped[str] = mapped_column(String(20), nullable=False)
-    description: Mapped[str] = mapped_column(String(200), nullable=False)
-    reference: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    amount: Mapped[Decimal] = mapped_column(Numeric(15,2), nullable=False)
-    is_reconciled: Mapped[bool] = mapped_column(Boolean, default=False)
-    reconciled_date: Mapped[Optional[datetime.date]] = mapped_column(Date, nullable=True)
-    statement_date: Mapped[Optional[datetime.date]] = mapped_column(Date, nullable=True)
-    statement_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    journal_entry_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('accounting.journal_entries.id'), nullable=True)
-
-    created_by_user_id: Mapped[int] = mapped_column("created_by", Integer, ForeignKey('core.users.id'), nullable=False)
-    updated_by_user_id: Mapped[int] = mapped_column("updated_by", Integer, ForeignKey('core.users.id'), nullable=False)
-    
-    bank_account: Mapped["BankAccount"] = relationship("BankAccount", back_populates="bank_transactions")
-    journal_entry: Mapped[Optional["JournalEntry"]] = relationship("JournalEntry") # Simplified
-    created_by_user: Mapped["User"] = relationship("User", foreign_keys=[created_by_user_id])
-    updated_by_user: Mapped["User"] = relationship("User", foreign_keys=[updated_by_user_id])
-
-```
-
-# app/models/accounting/__init__.py
-```py
-# File: app/models/accounting/__init__.py
-# New __init__.py for accounting models if moved to subdirectories
-from .account_type import AccountType
-from .currency import Currency
-from .exchange_rate import ExchangeRate
-from .account import Account
-from .fiscal_year import FiscalYear
-from .fiscal_period import FiscalPeriod
-from .journal_entry import JournalEntry, JournalEntryLine
-from .recurring_pattern import RecurringPattern
-from .dimension import Dimension
-from .budget import Budget, BudgetDetail
-from .tax_code import TaxCode
-from .gst_return import GSTReturn
-from .withholding_tax_certificate import WithholdingTaxCertificate
-
-__all__ = [
-    "AccountType", "Currency", "ExchangeRate", "Account",
-    "FiscalYear", "FiscalPeriod", "JournalEntry", "JournalEntryLine",
-    "RecurringPattern", "Dimension", "Budget", "BudgetDetail",
-    "TaxCode", "GSTReturn", "WithholdingTaxCertificate",
-]
-
-```
-
-# app/models/accounting/withholding_tax_certificate.py
-```py
-# File: app/models/accounting/withholding_tax_certificate.py
-# (Content previously generated, but now placed in this path)
-from sqlalchemy import Column, Integer, String, Date, Numeric, Text, ForeignKey, CheckConstraint
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.sql import func
-from app.models.base import Base, TimestampMixin, UserAuditMixin
-from app.models.business.vendor import Vendor 
-import datetime
-from decimal import Decimal
-from typing import Optional
-
-class WithholdingTaxCertificate(Base, TimestampMixin, UserAuditMixin):
-    __tablename__ = 'withholding_tax_certificates'
-    __table_args__ = (
-        CheckConstraint("status IN ('Draft', 'Issued', 'Voided')", name='ck_wht_certs_status'),
-        {'schema': 'accounting'}
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    certificate_no: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)
-    vendor_id: Mapped[int] = mapped_column(Integer, ForeignKey('business.vendors.id'), nullable=False)
-    tax_type: Mapped[str] = mapped_column(String(50), nullable=False) 
-    tax_rate: Mapped[Decimal] = mapped_column(Numeric(5,2), nullable=False)
-    payment_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
-    amount_before_tax: Mapped[Decimal] = mapped_column(Numeric(15,2), nullable=False)
-    tax_amount: Mapped[Decimal] = mapped_column(Numeric(15,2), nullable=False)
-    payment_reference: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    status: Mapped[str] = mapped_column(String(20), default='Draft', nullable=False)
-    issue_date: Mapped[Optional[datetime.date]] = mapped_column(Date, nullable=True)
-    journal_entry_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('accounting.journal_entries.id'), nullable=True)
-    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-
-    created_by: Mapped[int] = mapped_column(Integer, ForeignKey('core.users.id'), nullable=False)
-    updated_by: Mapped[int] = mapped_column(Integer, ForeignKey('core.users.id'), nullable=False)
-
-    vendor: Mapped["Vendor"] = relationship() 
-
-```
-
-# app/models/accounting/account.py
-```py
-# File: app/models/accounting/account.py
-# (Moved from app/models/account.py and fields updated - completing relationships)
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, Text, DateTime, CheckConstraint, Date, Numeric
-from sqlalchemy.orm import relationship, Mapped, mapped_column
-from sqlalchemy.sql import func
-from typing import List, Optional 
-import datetime
-from decimal import Decimal
-
-from app.models.base import Base, TimestampMixin 
-from app.models.core.user import User 
-
-# Forward string declarations for relationships
-# These will be resolved by SQLAlchemy based on the string hints.
-# "JournalEntryLine", "BudgetDetail", "TaxCode", "Customer", "Vendor", 
-# "Product", "BankAccount"
-
-class Account(Base, TimestampMixin):
-    __tablename__ = 'accounts'
-    __table_args__ = (
-         CheckConstraint("account_type IN ('Asset', 'Liability', 'Equity', 'Revenue', 'Expense')", name='ck_accounts_account_type_category'),
-        {'schema': 'accounting'}
-    )
-    
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True, index=True)
-    code: Mapped[str] = mapped_column(String(20), unique=True, nullable=False, index=True)
-    name: Mapped[str] = mapped_column(String(100), nullable=False)
-    account_type: Mapped[str] = mapped_column(String(20), nullable=False) 
-    sub_type: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
-    tax_treatment: Mapped[Optional[str]] = mapped_column(String(20), nullable=True) 
-    gst_applicable: Mapped[bool] = mapped_column(Boolean, default=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    parent_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('accounting.accounts.id'), nullable=True)
-    
-    report_group: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    is_control_account: Mapped[bool] = mapped_column(Boolean, default=False)
-    is_bank_account: Mapped[bool] = mapped_column(Boolean, default=False)
-    opening_balance: Mapped[Decimal] = mapped_column(Numeric(15,2), default=Decimal(0))
-    opening_balance_date: Mapped[Optional[datetime.date]] = mapped_column(Date, nullable=True)
-
-    created_by_user_id: Mapped[int] = mapped_column("created_by", Integer, ForeignKey('core.users.id'), nullable=False)
-    updated_by_user_id: Mapped[int] = mapped_column("updated_by", Integer, ForeignKey('core.users.id'), nullable=False)
-        
-    # Self-referential relationship for parent/children
-    parent: Mapped[Optional["Account"]] = relationship("Account", remote_side=[id], back_populates="children", foreign_keys=[parent_id])
-    children: Mapped[List["Account"]] = relationship("Account", back_populates="parent")
-    
-    # Relationships to User for audit trails
-    created_by_user: Mapped["User"] = relationship("User", foreign_keys=[created_by_user_id])
-    updated_by_user: Mapped["User"] = relationship("User", foreign_keys=[updated_by_user_id])
-
-    # Relationships defined by other models via back_populates
-    journal_lines: Mapped[List["JournalEntryLine"]] = relationship(back_populates="account") # type: ignore
-    budget_details: Mapped[List["BudgetDetail"]] = relationship(back_populates="account") # type: ignore
-    
-    # For TaxCode.affects_account_id
-    tax_code_applications: Mapped[List["TaxCode"]] = relationship(back_populates="affects_account") # type: ignore
-    
-    # For Customer.receivables_account_id
-    customer_receivables_links: Mapped[List["Customer"]] = relationship(back_populates="receivables_account") # type: ignore
-    
-    # For Vendor.payables_account_id
-    vendor_payables_links: Mapped[List["Vendor"]] = relationship(back_populates="payables_account") # type: ignore
-    
-    # For Product fields (sales_account_id, purchase_account_id, inventory_account_id)
-    product_sales_links: Mapped[List["Product"]] = relationship(foreign_keys="Product.sales_account_id", back_populates="sales_account") # type: ignore
-    product_purchase_links: Mapped[List["Product"]] = relationship(foreign_keys="Product.purchase_account_id", back_populates="purchase_account") # type: ignore
-    product_inventory_links: Mapped[List["Product"]] = relationship(foreign_keys="Product.inventory_account_id", back_populates="inventory_account") # type: ignore
-
-    # For BankAccount.gl_account_id
-    bank_account_links: Mapped[List["BankAccount"]] = relationship(back_populates="gl_account") # type: ignore
-
-
-    def to_dict(self): # Kept from previous version, might be useful
-        return {
-            'id': self.id,
-            'code': self.code,
-            'name': self.name,
-            'account_type': self.account_type,
-            'sub_type': self.sub_type,
-            'parent_id': self.parent_id,
-            'is_active': self.is_active,
-            'description': self.description,
-            'report_group': self.report_group,
-            'is_control_account': self.is_control_account,
-            'is_bank_account': self.is_bank_account,
-            'opening_balance': self.opening_balance,
-            'opening_balance_date': self.opening_balance_date,
-        }
-
-```
-
-# app/models/accounting/gst_return.py
-```py
-# File: app/models/accounting/gst_return.py
-# (Moved from app/models/gst_return.py and updated)
-from sqlalchemy import Column, Integer, String, Date, Numeric, DateTime, CheckConstraint, ForeignKey, Text
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.sql import func
-from typing import Optional
-import datetime
-from decimal import Decimal
-
-from app.models.base import Base, TimestampMixin
-from app.models.core.user import User
-from app.models.accounting.journal_entry import JournalEntry
-
-class GSTReturn(Base, TimestampMixin):
-    __tablename__ = 'gst_returns'
-    __table_args__ = (
-        CheckConstraint("status IN ('Draft', 'Submitted', 'Amended')", name='ck_gst_returns_status'),
-        {'schema': 'accounting'}
-    )
-
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True, index=True)
-    return_period: Mapped[str] = mapped_column(String(20), unique=True, nullable=False) 
-    start_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
-    end_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
-    filing_due_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
-    standard_rated_supplies: Mapped[Decimal] = mapped_column(Numeric(15,2), default=Decimal(0))
-    zero_rated_supplies: Mapped[Decimal] = mapped_column(Numeric(15,2), default=Decimal(0))
-    exempt_supplies: Mapped[Decimal] = mapped_column(Numeric(15,2), default=Decimal(0))
-    total_supplies: Mapped[Decimal] = mapped_column(Numeric(15,2), default=Decimal(0))
-    taxable_purchases: Mapped[Decimal] = mapped_column(Numeric(15,2), default=Decimal(0))
-    output_tax: Mapped[Decimal] = mapped_column(Numeric(15,2), default=Decimal(0))
-    input_tax: Mapped[Decimal] = mapped_column(Numeric(15,2), default=Decimal(0))
-    tax_adjustments: Mapped[Decimal] = mapped_column(Numeric(15,2), default=Decimal(0))
-    tax_payable: Mapped[Decimal] = mapped_column(Numeric(15,2), default=Decimal(0))
-    status: Mapped[str] = mapped_column(String(20), default='Draft')
-    submission_date: Mapped[Optional[datetime.date]] = mapped_column(Date, nullable=True)
-    submission_reference: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    journal_entry_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('accounting.journal_entries.id'), nullable=True)
-    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-
-    created_by_user_id: Mapped[int] = mapped_column("created_by", Integer, ForeignKey('core.users.id'), nullable=False)
-    updated_by_user_id: Mapped[int] = mapped_column("updated_by", Integer, ForeignKey('core.users.id'), nullable=False)
-
-    journal_entry: Mapped[Optional["JournalEntry"]] = relationship("JournalEntry") # No back_populates needed for one-to-one/opt-one
-    created_by_user: Mapped["User"] = relationship("User", foreign_keys=[created_by_user_id])
-    updated_by_user: Mapped["User"] = relationship("User", foreign_keys=[updated_by_user_id])
-
-```
-
-# app/models/accounting/budget.py
-```py
-# File: app/models/accounting/budget.py
-# (Moved from app/models/budget.py and updated)
-from sqlalchemy import Column, Integer, String, Boolean, Numeric, Text, DateTime, ForeignKey, UniqueConstraint, CheckConstraint
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.sql import func
-from app.models.base import Base, TimestampMixin
-from app.models.accounting.account import Account 
-from app.models.accounting.fiscal_year import FiscalYear
-from app.models.accounting.fiscal_period import FiscalPeriod 
-from app.models.accounting.dimension import Dimension 
-from app.models.core.user import User
-from typing import List, Optional 
-from decimal import Decimal 
-
-class Budget(Base, TimestampMixin): 
-    __tablename__ = 'budgets'
-    __table_args__ = {'schema': 'accounting'}
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, index=True)
-    name: Mapped[str] = mapped_column(String(100), nullable=False)
-    fiscal_year_id: Mapped[int] = mapped_column(Integer, ForeignKey('accounting.fiscal_years.id'), nullable=False) 
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    
-    created_by_user_id: Mapped[int] = mapped_column("created_by", Integer, ForeignKey('core.users.id'), nullable=False)
-    updated_by_user_id: Mapped[int] = mapped_column("updated_by", Integer, ForeignKey('core.users.id'), nullable=False)
-
-    fiscal_year_obj: Mapped["FiscalYear"] = relationship("FiscalYear", back_populates="budgets")
-    details: Mapped[List["BudgetDetail"]] = relationship("BudgetDetail", back_populates="budget", cascade="all, delete-orphan")
-    created_by_user: Mapped["User"] = relationship("User", foreign_keys=[created_by_user_id])
-    updated_by_user: Mapped["User"] = relationship("User", foreign_keys=[updated_by_user_id])
-
-class BudgetDetail(Base, TimestampMixin): 
-    __tablename__ = 'budget_details'
-    __table_args__ = (
-        # Reference schema has COALESCE(dimension1_id, 0), COALESCE(dimension2_id, 0) in UNIQUE.
-        # This means NULLs are treated as 0 for uniqueness.
-        # This is harder to model directly in SQLAlchemy UniqueConstraint if DB doesn't support function-based indexes for it directly.
-        # For PostgreSQL, function-based unique indexes are possible.
-        # For now, simple UniqueConstraint. DB schema will have the COALESCE logic.
-        UniqueConstraint('budget_id', 'account_id', 'fiscal_period_id', 'dimension1_id', 'dimension2_id', name='uq_budget_details_key_dims_nullable'),
-        {'schema': 'accounting'}
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, index=True)
-    budget_id: Mapped[int] = mapped_column(Integer, ForeignKey('accounting.budgets.id', ondelete="CASCADE"), nullable=False)
-    account_id: Mapped[int] = mapped_column(Integer, ForeignKey('accounting.accounts.id'), nullable=False)
-    fiscal_period_id: Mapped[int] = mapped_column(Integer, ForeignKey('accounting.fiscal_periods.id'), nullable=False)
-    amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
-    
-    dimension1_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('accounting.dimensions.id'), nullable=True)
-    dimension2_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('accounting.dimensions.id'), nullable=True)
-    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-
-    created_by_user_id: Mapped[int] = mapped_column("created_by", Integer, ForeignKey('core.users.id'), nullable=False)
-    updated_by_user_id: Mapped[int] = mapped_column("updated_by", Integer, ForeignKey('core.users.id'), nullable=False)
-
-    budget: Mapped["Budget"] = relationship("Budget", back_populates="details")
-    account: Mapped["Account"] = relationship("Account", back_populates="budget_details")
-    fiscal_period: Mapped["FiscalPeriod"] = relationship("FiscalPeriod", back_populates="budget_details")
-    dimension1: Mapped[Optional["Dimension"]] = relationship("Dimension", foreign_keys=[dimension1_id])
-    dimension2: Mapped[Optional["Dimension"]] = relationship("Dimension", foreign_keys=[dimension2_id])
-    created_by_user: Mapped["User"] = relationship("User", foreign_keys=[created_by_user_id])
-    updated_by_user: Mapped["User"] = relationship("User", foreign_keys=[updated_by_user_id])
-
-# Add back-populates to Account and FiscalPeriod
-Account.budget_details = relationship("BudgetDetail", back_populates="account") # type: ignore
-FiscalPeriod.budget_details = relationship("BudgetDetail", back_populates="fiscal_period") # type: ignore
-
-```
-
-# app/models/accounting/exchange_rate.py
-```py
-# File: app/models/accounting/exchange_rate.py
-# (Moved from app/models/exchange_rate.py and fields updated)
-from sqlalchemy import Column, Integer, String, Date, Numeric, DateTime, ForeignKey, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.sql import func
-from app.models.base import Base, TimestampMixin
-from app.models.accounting.currency import Currency 
-from app.models.core.user import User 
-import datetime 
-from decimal import Decimal 
-from typing import Optional
-
-class ExchangeRate(Base, TimestampMixin):
-    __tablename__ = 'exchange_rates'
-    __table_args__ = (
-        UniqueConstraint('from_currency', 'to_currency', 'rate_date', name='uq_exchange_rates_pair_date'), 
-        {'schema': 'accounting'}
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, index=True)
-    from_currency_code: Mapped[str] = mapped_column("from_currency", String(3), ForeignKey('accounting.currencies.code'), nullable=False)
-    to_currency_code: Mapped[str] = mapped_column("to_currency", String(3), ForeignKey('accounting.currencies.code'), nullable=False)
-    rate_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
-    exchange_rate_value: Mapped[Decimal] = mapped_column("exchange_rate", Numeric(15, 6), nullable=False) # Renamed attribute
-    
-    created_by_user_id: Mapped[Optional[int]] = mapped_column("created_by", Integer, ForeignKey('core.users.id'), nullable=True)
-    updated_by_user_id: Mapped[Optional[int]] = mapped_column("updated_by", Integer, ForeignKey('core.users.id'), nullable=True)
-
-    from_currency_obj: Mapped["Currency"] = relationship("Currency", foreign_keys=[from_currency_code]) 
-    to_currency_obj: Mapped["Currency"] = relationship("Currency", foreign_keys=[to_currency_code]) 
-    created_by_user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[created_by_user_id])
-    updated_by_user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[updated_by_user_id])
-
-```
-
-# app/models/accounting/journal_entry.py
-```py
-# File: app/models/accounting/journal_entry.py
-# (Moved from app/models/journal_entry.py and updated)
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, Numeric, Text, DateTime, Date, CheckConstraint
-from sqlalchemy.orm import relationship, Mapped, mapped_column, validates
-from sqlalchemy.sql import func
-from typing import List, Optional
-import datetime
-from decimal import Decimal
-
-from app.models.base import Base, TimestampMixin
-from app.models.accounting.account import Account
-from app.models.accounting.fiscal_period import FiscalPeriod
-from app.models.core.user import User
-from app.models.accounting.currency import Currency
-from app.models.accounting.tax_code import TaxCode
-from app.models.accounting.dimension import Dimension
-# from app.models.accounting.recurring_pattern import RecurringPattern # Forward reference with string
-
-class JournalEntry(Base, TimestampMixin):
-    __tablename__ = 'journal_entries'
-    __table_args__ = {'schema': 'accounting'}
-    
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True, index=True)
-    entry_no: Mapped[str] = mapped_column(String(20), unique=True, nullable=False, index=True)
-    journal_type: Mapped[str] = mapped_column(String(20), nullable=False) 
-    entry_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
-    fiscal_period_id: Mapped[int] = mapped_column(Integer, ForeignKey('accounting.fiscal_periods.id'), nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-    reference: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    is_recurring: Mapped[bool] = mapped_column(Boolean, default=False)
-    recurring_pattern_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('accounting.recurring_patterns.id'), nullable=True)
-    is_posted: Mapped[bool] = mapped_column(Boolean, default=False)
-    is_reversed: Mapped[bool] = mapped_column(Boolean, default=False)
-    reversing_entry_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('accounting.journal_entries.id', use_alter=True, name='fk_je_reversing_entry_id'), nullable=True)
-    
-    source_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    source_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-
-    created_by_user_id: Mapped[int] = mapped_column("created_by", Integer, ForeignKey('core.users.id'), nullable=False)
-    updated_by_user_id: Mapped[int] = mapped_column("updated_by", Integer, ForeignKey('core.users.id'), nullable=False)
-    
-    fiscal_period: Mapped["FiscalPeriod"] = relationship("FiscalPeriod", back_populates="journal_entries")
-    lines: Mapped[List["JournalEntryLine"]] = relationship("JournalEntryLine", back_populates="journal_entry", cascade="all, delete-orphan")
-    generated_from_pattern: Mapped[Optional["RecurringPattern"]] = relationship("RecurringPattern", foreign_keys=[recurring_pattern_id], back_populates="generated_journal_entries") # type: ignore
-    
-    reversing_entry: Mapped[Optional["JournalEntry"]] = relationship("JournalEntry", remote_side=[id], foreign_keys=[reversing_entry_id], uselist=False, post_update=True) # type: ignore
-    template_for_patterns: Mapped[List["RecurringPattern"]] = relationship("RecurringPattern", foreign_keys="RecurringPattern.template_entry_id", back_populates="template_journal_entry") # type: ignore
-
-
-    created_by_user: Mapped["User"] = relationship("User", foreign_keys=[created_by_user_id])
-    updated_by_user: Mapped["User"] = relationship("User", foreign_keys=[updated_by_user_id])
-
-class JournalEntryLine(Base, TimestampMixin): 
-    __tablename__ = 'journal_entry_lines'
-    __table_args__ = (
-        CheckConstraint(
-            " (debit_amount > 0 AND credit_amount = 0) OR "
-            " (credit_amount > 0 AND debit_amount = 0) OR "
-            " (debit_amount = 0 AND credit_amount = 0) ", 
-            name='jel_check_debit_credit'
-        ),
-        {'schema': 'accounting'}
-    )
-    
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True, index=True)
-    journal_entry_id: Mapped[int] = mapped_column(Integer, ForeignKey('accounting.journal_entries.id', ondelete="CASCADE"), nullable=False)
-    line_number: Mapped[int] = mapped_column(Integer, nullable=False)
-    account_id: Mapped[int] = mapped_column(Integer, ForeignKey('accounting.accounts.id'), nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
-    debit_amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), default=Decimal(0))
-    credit_amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), default=Decimal(0))
-    currency_code: Mapped[str] = mapped_column(String(3), ForeignKey('accounting.currencies.code'), default='SGD')
-    exchange_rate: Mapped[Decimal] = mapped_column(Numeric(15, 6), default=Decimal(1))
-    tax_code: Mapped[Optional[str]] = mapped_column(String(20), ForeignKey('accounting.tax_codes.code'), nullable=True)
-    tax_amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), default=Decimal(0))
-    dimension1_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('accounting.dimensions.id'), nullable=True) 
-    dimension2_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('accounting.dimensions.id'), nullable=True) 
-        
-    journal_entry: Mapped["JournalEntry"] = relationship("JournalEntry", back_populates="lines")
-    account: Mapped["Account"] = relationship("Account", back_populates="journal_lines")
-    currency: Mapped["Currency"] = relationship("Currency", foreign_keys=[currency_code])
-    tax_code_obj: Mapped[Optional["TaxCode"]] = relationship("TaxCode", foreign_keys=[tax_code])
-    dimension1: Mapped[Optional["Dimension"]] = relationship("Dimension", foreign_keys=[dimension1_id])
-    dimension2: Mapped[Optional["Dimension"]] = relationship("Dimension", foreign_keys=[dimension2_id])
-    
-    @validates('debit_amount', 'credit_amount')
-    def validate_amounts(self, key, value):
-        value_decimal = Decimal(str(value)) 
-        if key == 'debit_amount' and value_decimal > Decimal(0):
-            self.credit_amount = Decimal(0)
-        elif key == 'credit_amount' and value_decimal > Decimal(0):
-            self.debit_amount = Decimal(0)
-        return value_decimal
-
-# Update Account relationships for journal_lines
-Account.journal_lines = relationship("JournalEntryLine", back_populates="account") # type: ignore
-
-```
-
-# app/models/accounting/fiscal_year.py
-```py
-# File: app/models/accounting/fiscal_year.py
-# (Previously generated as app/models/fiscal_year.py, reviewed and confirmed)
-from sqlalchemy import Column, Integer, String, Date, Boolean, DateTime, ForeignKey, CheckConstraint
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.dialects.postgresql import DATERANGE # For GIST constraint if modeled in SQLAlchemy
-# from sqlalchemy.sql.functions import GenericFunction # For functions like `daterange`
-# from sqlalchemy.sql import literal_column
-from app.models.base import Base, TimestampMixin # UserAuditMixin handled directly
-from app.models.core.user import User
-import datetime
-from typing import List, Optional
-
-class FiscalYear(Base, TimestampMixin):
-    __tablename__ = 'fiscal_years'
-    __table_args__ = (
-        CheckConstraint('start_date <= end_date', name='fy_date_range_check'),
-        # The EXCLUDE USING gist (daterange(start_date, end_date, '[]') WITH &&)
-        # is a database-level constraint. SQLAlchemy doesn't model EXCLUDE directly in Core/ORM easily.
-        # It's enforced by the DB schema from schema.sql.
-        {'schema': 'accounting'}
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    year_name: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)
-    start_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
-    end_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
-    is_closed: Mapped[bool] = mapped_column(Boolean, default=False)
-    closed_date: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    closed_by_user_id: Mapped[Optional[int]] = mapped_column("closed_by", Integer, ForeignKey('core.users.id'), nullable=True)
-
-    created_by_user_id: Mapped[int] = mapped_column("created_by",Integer, ForeignKey('core.users.id'), nullable=False)
-    updated_by_user_id: Mapped[int] = mapped_column("updated_by",Integer, ForeignKey('core.users.id'), nullable=False)
-
-    # Relationships
-    closed_by_user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[closed_by_user_id])
-    created_by_user: Mapped["User"] = relationship("User", foreign_keys=[created_by_user_id])
-    updated_by_user: Mapped["User"] = relationship("User", foreign_keys=[updated_by_user_id])
-    
-    fiscal_periods: Mapped[List["FiscalPeriod"]] = relationship("FiscalPeriod", back_populates="fiscal_year") # type: ignore
-    budgets: Mapped[List["Budget"]] = relationship("Budget", back_populates="fiscal_year_obj") # type: ignore
-
-```
-
-# app/models/accounting/fiscal_period.py
-```py
-# File: app/models/accounting/fiscal_period.py
-# (Moved from app/models/fiscal_period.py and updated)
-from sqlalchemy import Column, Integer, String, Date, Boolean, DateTime, UniqueConstraint, CheckConstraint, ForeignKey
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.sql import func
-import datetime
-
-from app.models.base import Base, TimestampMixin
-from app.models.accounting.fiscal_year import FiscalYear 
-from app.models.core.user import User
-from typing import Optional, List
-
-class FiscalPeriod(Base, TimestampMixin):
-    __tablename__ = 'fiscal_periods'
-    __table_args__ = (
-        UniqueConstraint('fiscal_year_id', 'period_type', 'period_number', name='fp_unique_period_dates'),
-        CheckConstraint('start_date <= end_date', name='fp_date_range_check'),
-        CheckConstraint("period_type IN ('Month', 'Quarter', 'Year')", name='ck_fp_period_type'),
-        CheckConstraint("status IN ('Open', 'Closed', 'Archived')", name='ck_fp_status'),
-        {'schema': 'accounting'}
-    )
-
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True, index=True)
-    fiscal_year_id: Mapped[int] = mapped_column(Integer, ForeignKey('accounting.fiscal_years.id'), nullable=False)
-    name: Mapped[str] = mapped_column(String(50), nullable=False)
-    start_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
-    end_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
-    period_type: Mapped[str] = mapped_column(String(10), nullable=False) 
-    status: Mapped[str] = mapped_column(String(10), nullable=False, default='Open')
-    period_number: Mapped[int] = mapped_column(Integer, nullable=False)
-    is_adjustment: Mapped[bool] = mapped_column(Boolean, default=False)
-
-    created_by_user_id: Mapped[int] = mapped_column("created_by", Integer, ForeignKey('core.users.id'), nullable=False)
-    updated_by_user_id: Mapped[int] = mapped_column("updated_by", Integer, ForeignKey('core.users.id'), nullable=False)
-
-    fiscal_year: Mapped["FiscalYear"] = relationship("FiscalYear", back_populates="fiscal_periods")
-    created_by_user: Mapped["User"] = relationship("User", foreign_keys=[created_by_user_id])
-    updated_by_user: Mapped["User"] = relationship("User", foreign_keys=[updated_by_user_id])
-    
-    journal_entries: Mapped[List["JournalEntry"]] = relationship(back_populates="fiscal_period") # type: ignore
-    budget_details: Mapped[List["BudgetDetail"]] = relationship(back_populates="fiscal_period") # type: ignore
-
-```
-
-# app/models/accounting/tax_code.py
-```py
-# File: app/models/accounting/tax_code.py
-# (Moved from app/models/tax_code.py and updated)
-from sqlalchemy import Column, Integer, String, Boolean, Numeric, DateTime, ForeignKey, CheckConstraint
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.sql import func
-from typing import Optional, List # Added List
-from decimal import Decimal
-
-from app.models.base import Base, TimestampMixin
-from app.models.accounting.account import Account
-from app.models.core.user import User
-
-class TaxCode(Base, TimestampMixin):
-    __tablename__ = 'tax_codes'
-    __table_args__ = (
-        CheckConstraint("tax_type IN ('GST', 'Income Tax', 'Withholding Tax')", name='ck_tax_codes_tax_type'),
-        {'schema': 'accounting'}
-    )
-
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True, index=True)
-    code: Mapped[str] = mapped_column(String(20), unique=True, nullable=False, index=True)
-    description: Mapped[str] = mapped_column(String(100), nullable=False)
-    tax_type: Mapped[str] = mapped_column(String(20), nullable=False)
-    rate: Mapped[Decimal] = mapped_column(Numeric(5,2), nullable=False) 
-    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    affects_account_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('accounting.accounts.id'), nullable=True)
-
-    created_by_user_id: Mapped[int] = mapped_column("created_by", Integer, ForeignKey('core.users.id'), nullable=False)
-    updated_by_user_id: Mapped[int] = mapped_column("updated_by", Integer, ForeignKey('core.users.id'), nullable=False)
-
-    affects_account: Mapped[Optional["Account"]] = relationship("Account", back_populates="tax_code_applications", foreign_keys=[affects_account_id])
-    created_by_user: Mapped["User"] = relationship("User", foreign_keys=[created_by_user_id])
-    updated_by_user: Mapped["User"] = relationship("User", foreign_keys=[updated_by_user_id])
-
-    # Relationship defined by other models via back_populates:
-    # journal_entry_lines: Mapped[List["JournalEntryLine"]]
-    # product_default_tax_codes: Mapped[List["Product"]]
-
-# Add to Account model:
-Account.tax_code_applications = relationship("TaxCode", back_populates="affects_account", foreign_keys=[TaxCode.affects_account_id]) # type: ignore
-
-```
-
-# app/models/accounting/dimension.py
-```py
-# File: app/models/accounting/dimension.py
-# New model for accounting.dimensions
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, ForeignKey, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.sql import func
-from app.models.base import Base, TimestampMixin, UserAuditMixin
-# from app.models.core.user import User # For FKs
-from typing import List, Optional
-
-class Dimension(Base, TimestampMixin, UserAuditMixin):
-    __tablename__ = 'dimensions'
-    __table_args__ = (
-        UniqueConstraint('dimension_type', 'code', name='uq_dimensions_type_code'),
-        {'schema': 'accounting'} 
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    dimension_type: Mapped[str] = mapped_column(String(50), nullable=False)
-    code: Mapped[str] = mapped_column(String(20), nullable=False)
-    name: Mapped[str] = mapped_column(String(100), nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    parent_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('accounting.dimensions.id'), nullable=True)
-
-    created_by: Mapped[int] = mapped_column(Integer, ForeignKey('core.users.id'), nullable=False)
-    updated_by: Mapped[int] = mapped_column(Integer, ForeignKey('core.users.id'), nullable=False)
-    
-    parent: Mapped[Optional["Dimension"]] = relationship("Dimension", remote_side=[id], back_populates="children", foreign_keys=[parent_id])
-    children: Mapped[List["Dimension"]] = relationship("Dimension", back_populates="parent")
-
-```
-
-# app/models/accounting/account_type.py
-```py
-# File: app/models/accounting/account_type.py
-# (Moved from app/models/account_type.py and fields updated)
-from sqlalchemy import Column, Integer, String, Boolean, CheckConstraint, DateTime
-from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.sql import func
-from app.models.base import Base, TimestampMixin 
-from typing import Optional
-
-class AccountType(Base, TimestampMixin): 
-    __tablename__ = 'account_types'
-    __table_args__ = (
-        CheckConstraint("category IN ('Asset', 'Liability', 'Equity', 'Revenue', 'Expense')", name='ck_account_types_category'),
-        {'schema': 'accounting'}
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, index=True)
-    name: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
-    category: Mapped[str] = mapped_column(String(20), nullable=False) 
-    is_debit_balance: Mapped[bool] = mapped_column(Boolean, nullable=False)
-    report_type: Mapped[str] = mapped_column(String(30), nullable=False) 
-    display_order: Mapped[int] = mapped_column(Integer, nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
-
-```
-
-# app/models/accounting/recurring_pattern.py
-```py
-# File: app/models/accounting/recurring_pattern.py
-# (Moved from app/models/recurring_pattern.py and updated)
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, Text, DateTime, Date, CheckConstraint
-from sqlalchemy.orm import relationship, Mapped, mapped_column
-from sqlalchemy.sql import func
-from typing import Optional, List # Added List
-import datetime
-
-from app.models.base import Base, TimestampMixin
-from app.models.accounting.journal_entry import JournalEntry # For relationship type hint
-from app.models.core.user import User
-
-class RecurringPattern(Base, TimestampMixin):
-    __tablename__ = 'recurring_patterns'
-    __table_args__ = (
-        CheckConstraint("frequency IN ('Daily', 'Weekly', 'Monthly', 'Quarterly', 'Yearly')", name='ck_recurring_patterns_frequency'),
-        CheckConstraint("day_of_month BETWEEN 1 AND 31", name='ck_recurring_patterns_day_of_month'),
-        CheckConstraint("day_of_week BETWEEN 0 AND 6", name='ck_recurring_patterns_day_of_week'),
-        {'schema': 'accounting'}
-    )
-
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    name: Mapped[str] = mapped_column(String(100), nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    template_entry_id: Mapped[int] = mapped_column(Integer, ForeignKey('accounting.journal_entries.id'), nullable=False)
-    
-    frequency: Mapped[str] = mapped_column(String(20), nullable=False)
-    interval_value: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
-    start_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
-    end_date: Mapped[Optional[datetime.date]] = mapped_column(Date, nullable=True)
-    
-    day_of_month: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    day_of_week: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    
-    last_generated_date: Mapped[Optional[datetime.date]] = mapped_column(Date, nullable=True)
-    next_generation_date: Mapped[Optional[datetime.date]] = mapped_column(Date, nullable=True)
-    
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    
-    created_by_user_id: Mapped[int] = mapped_column("created_by", Integer, ForeignKey('core.users.id'), nullable=False)
-    updated_by_user_id: Mapped[int] = mapped_column("updated_by", Integer, ForeignKey('core.users.id'), nullable=False)
-
-    template_journal_entry: Mapped["JournalEntry"] = relationship("JournalEntry", foreign_keys=[template_entry_id], back_populates="template_for_patterns")
-    generated_journal_entries: Mapped[List["JournalEntry"]] = relationship("JournalEntry", foreign_keys="JournalEntry.recurring_pattern_id", back_populates="generated_from_pattern")
-    created_by_user: Mapped["User"] = relationship("User", foreign_keys=[created_by_user_id])
-    updated_by_user: Mapped["User"] = relationship("User", foreign_keys=[updated_by_user_id])
-
-```
-
-# app/models/accounting/currency.py
-```py
-# File: app/models/accounting/currency.py
-# (Moved from app/models/currency.py and fields updated)
-from sqlalchemy import Column, String, Boolean, Integer, DateTime, ForeignKey
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.sql import func
-from app.models.base import Base, TimestampMixin
-from app.models.core.user import User 
-from typing import Optional
-
-class Currency(Base, TimestampMixin):
-    __tablename__ = 'currencies'
-    __table_args__ = {'schema': 'accounting'}
-
-    code: Mapped[str] = mapped_column(String(3), primary_key=True) 
-    name: Mapped[str] = mapped_column(String(50), nullable=False)
-    symbol: Mapped[str] = mapped_column(String(10), nullable=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    decimal_places: Mapped[int] = mapped_column(Integer, default=2)
-    format_string: Mapped[str] = mapped_column(String(20), default='#,##0.00') 
-
-    created_by_user_id: Mapped[Optional[int]] = mapped_column("created_by", Integer, ForeignKey('core.users.id'), nullable=True)
-    updated_by_user_id: Mapped[Optional[int]] = mapped_column("updated_by", Integer, ForeignKey('core.users.id'), nullable=True)
-
-    created_by_user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[created_by_user_id])
-    updated_by_user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[updated_by_user_id])
 
 ```
 

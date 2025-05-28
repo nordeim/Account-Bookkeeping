@@ -10,7 +10,7 @@ command = /usr/bin/python3 -m venv /cdrom/project/SG-Bookkeeper
 
 # pyproject.toml
 ```toml
-# File: pyproject.toml
+# pyproject.toml
 [tool.poetry]
 name = "sg-bookkeeper"
 version = "1.0.0"
@@ -28,7 +28,7 @@ classifiers = [
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12", # Explicitly supported
+    "Programming Language :: Python :: 3.12", 
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Topic :: Office/Business :: Financial :: Accounting",
@@ -36,12 +36,13 @@ classifiers = [
 packages = [{include = "app", from = "."}]
 
 [tool.poetry.dependencies]
-python = ">=3.9,<3.13" # Supports 3.9, 3.10, 3.11, 3.12
-PySide6 = "^6.9.0"   # Min version supporting Python 3.12 officially
+python = ">=3.9,<3.13" 
+PySide6 = "^6.9.0"   
 SQLAlchemy = {extras = ["asyncio"], version = ">=2.0.0"}
 asyncpg = ">=0.25.0"
 alembic = ">=1.7.5"
-pydantic = "^2.0"     # For Pydantic V2 features like from_attributes
+# Changed pydantic line below
+pydantic = {version = "^2.0", extras = ["email"]}
 reportlab = ">=3.6.6"
 openpyxl = ">=3.0.9"
 python-dateutil = ">=2.8.2"
@@ -51,11 +52,11 @@ bcrypt = ">=3.2.0"
 pytest = "^7.0"
 pytest-cov = "^4.0"
 flake8 = "^6.0"
-black = "^24.0" # Updated Black version
-mypy = "^1.0" # mypy version can be updated if needed
+black = "^24.0" 
+mypy = "^1.0" 
 pre-commit = "^3.0"
 pytest-qt = "^4.0"
-pytest-asyncio = "^0.21.0" # Or newer
+pytest-asyncio = "^0.21.0" 
 
 [tool.poetry.scripts]
 sg_bookkeeper = "app.main:main"
@@ -77,1211 +78,24 @@ asyncio_mode = "auto"
 
 ```
 
-# scripts/initial_data.sql
-```sql
--- File: scripts/initial_data.sql
--- ============================================================================
--- INITIAL DATA (Version 1.0.1 - Corrected Order, Idempotency, GST 9%)
--- ============================================================================
+# /home/pete/.config/SGBookkeeper/config.ini
+```ini
+[Database]
+username = sgbookkeeper_user
+password = SGkeeperPass123
+host = localhost
+port = 5432
+database = sg_bookkeeper
+echo_sql = False
+pool_min_size = 2
+pool_max_size = 10
+pool_recycle_seconds = 3600
+
+[Application]
+theme = light
+language = en
+last_opened_company_id = 
 
--- ----------------------------------------------------------------------------
--- Insert default roles
--- ----------------------------------------------------------------------------
-INSERT INTO core.roles (name, description) VALUES
-('Administrator', 'Full system access'),
-('Accountant', 'Access to accounting functions'),
-('Bookkeeper', 'Basic transaction entry and reporting'),
-('Manager', 'Access to reports and dashboards'),
-('Viewer', 'Read-only access to data')
-ON CONFLICT (name) DO UPDATE SET 
-    description = EXCLUDED.description, 
-    updated_at = CURRENT_TIMESTAMP;
-
--- ----------------------------------------------------------------------------
--- Insert default permissions
--- ----------------------------------------------------------------------------
-INSERT INTO core.permissions (code, description, module) VALUES
--- Core permissions
-('SYSTEM_SETTINGS', 'Manage system settings', 'System'),
-('USER_MANAGE', 'Manage users', 'System'),
-('ROLE_MANAGE', 'Manage roles and permissions', 'System'),
-('DATA_BACKUP', 'Backup and restore data', 'System'),
-('DATA_IMPORT', 'Import data', 'System'),
-('DATA_EXPORT', 'Export data', 'System'),
--- Accounting permissions
-('ACCOUNT_VIEW', 'View chart of accounts', 'Accounting'),
-('ACCOUNT_CREATE', 'Create accounts', 'Accounting'),
-('ACCOUNT_EDIT', 'Edit accounts', 'Accounting'),
-('ACCOUNT_DELETE', 'Delete/deactivate accounts', 'Accounting'),
-('JOURNAL_VIEW', 'View journal entries', 'Accounting'),
-('JOURNAL_CREATE', 'Create journal entries', 'Accounting'),
-('JOURNAL_EDIT', 'Edit draft journal entries', 'Accounting'),
-('JOURNAL_POST', 'Post journal entries', 'Accounting'),
-('JOURNAL_REVERSE', 'Reverse posted journal entries', 'Accounting'),
-('PERIOD_MANAGE', 'Manage fiscal periods', 'Accounting'),
-('YEAR_CLOSE', 'Close fiscal years', 'Accounting'),
--- Business permissions
-('CUSTOMER_VIEW', 'View customers', 'Business'),
-('CUSTOMER_CREATE', 'Create customers', 'Business'),
-('CUSTOMER_EDIT', 'Edit customers', 'Business'),
-('CUSTOMER_DELETE', 'Delete customers', 'Business'),
-('VENDOR_VIEW', 'View vendors', 'Business'),
-('VENDOR_CREATE', 'Create vendors', 'Business'),
-('VENDOR_EDIT', 'Edit vendors', 'Business'),
-('VENDOR_DELETE', 'Delete vendors', 'Business'),
-('PRODUCT_VIEW', 'View products', 'Business'),
-('PRODUCT_CREATE', 'Create products', 'Business'),
-('PRODUCT_EDIT', 'Edit products', 'Business'),
-('PRODUCT_DELETE', 'Delete products', 'Business'),
--- Transaction permissions
-('INVOICE_VIEW', 'View invoices', 'Transactions'),
-('INVOICE_CREATE', 'Create invoices', 'Transactions'),
-('INVOICE_EDIT', 'Edit invoices', 'Transactions'),
-('INVOICE_DELETE', 'Delete invoices', 'Transactions'),
-('INVOICE_APPROVE', 'Approve invoices', 'Transactions'),
-('PAYMENT_VIEW', 'View payments', 'Transactions'),
-('PAYMENT_CREATE', 'Create payments', 'Transactions'),
-('PAYMENT_EDIT', 'Edit payments', 'Transactions'),
-('PAYMENT_DELETE', 'Delete payments', 'Transactions'),
-('PAYMENT_APPROVE', 'Approve payments', 'Transactions'),
--- Banking permissions
-('BANK_VIEW', 'View bank accounts', 'Banking'),
-('BANK_CREATE', 'Create bank accounts', 'Banking'),
-('BANK_EDIT', 'Edit bank accounts', 'Banking'),
-('BANK_DELETE', 'Delete bank accounts', 'Banking'),
-('BANK_RECONCILE', 'Reconcile bank accounts', 'Banking'),
-('BANK_STATEMENT', 'Import bank statements', 'Banking'),
--- Tax permissions
-('TAX_VIEW', 'View tax settings', 'Tax'),
-('TAX_EDIT', 'Edit tax settings', 'Tax'),
-('GST_PREPARE', 'Prepare GST returns', 'Tax'),
-('GST_SUBMIT', 'Mark GST returns as submitted', 'Tax'),
-('TAX_REPORT', 'Generate tax reports', 'Tax'),
--- Reporting permissions
-('REPORT_FINANCIAL', 'Access financial reports', 'Reporting'),
-('REPORT_TAX', 'Access tax reports', 'Reporting'),
-('REPORT_MANAGEMENT', 'Access management reports', 'Reporting'),
-('REPORT_CUSTOM', 'Create custom reports', 'Reporting'),
-('REPORT_EXPORT', 'Export reports', 'Reporting')
-ON CONFLICT (code) DO UPDATE SET
-    description = EXCLUDED.description,
-    module = EXCLUDED.module;
-
--- ----------------------------------------------------------------------------
--- Insert System Init User (ID 1) - MUST BE CREATED EARLY
--- ----------------------------------------------------------------------------
-INSERT INTO core.users (id, username, password_hash, email, full_name, is_active, require_password_change)
-VALUES (1, 'system_init_user', crypt('system_init_secure_password_!PLACEHOLDER!', gen_salt('bf')), 'system_init@sgbookkeeper.com', 'System Initializer', FALSE, FALSE) 
-ON CONFLICT (id) DO UPDATE SET 
-    username = EXCLUDED.username, 
-    password_hash = EXCLUDED.password_hash, 
-    email = EXCLUDED.email, 
-    full_name = EXCLUDED.full_name, 
-    is_active = EXCLUDED.is_active,
-    require_password_change = EXCLUDED.require_password_change,
-    updated_at = CURRENT_TIMESTAMP;
-
--- Synchronize the sequence for core.users.id after inserting user with ID 1
--- This ensures the next user (e.g., 'admin') gets a correct auto-generated ID
-SELECT setval(pg_get_serial_sequence('core.users', 'id'), COALESCE((SELECT MAX(id) FROM core.users), 1), true);
-
--- ----------------------------------------------------------------------------
--- Insert Default Company Settings (ID = 1)
--- This MUST come AFTER core.users ID 1 is created and currencies are defined.
--- ----------------------------------------------------------------------------
-INSERT INTO accounting.currencies (code, name, symbol, is_active, decimal_places, created_by, updated_by) VALUES
-('SGD', 'Singapore Dollar', '$', TRUE, 2, 1, 1)
-ON CONFLICT (code) DO UPDATE SET 
-    name = EXCLUDED.name, symbol = EXCLUDED.symbol, is_active = EXCLUDED.is_active, 
-    decimal_places = EXCLUDED.decimal_places, created_by = COALESCE(accounting.currencies.created_by, EXCLUDED.created_by), 
-    updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
-
-INSERT INTO core.company_settings (
-    id, company_name, legal_name, uen_no, gst_registration_no, gst_registered, 
-    address_line1, postal_code, city, country, 
-    fiscal_year_start_month, fiscal_year_start_day, base_currency, tax_id_label, date_format, 
-    updated_by 
-) VALUES (
-    1, 
-    'My Demo Company Pte. Ltd.', 
-    'My Demo Company Private Limited',
-    '202400001Z', 
-    'M90000001Z', 
-    TRUE,
-    '1 Marina Boulevard', 
-    '018989',
-    'Singapore',
-    'Singapore',
-    1, 
-    1, 
-    'SGD',
-    'UEN',
-    'dd/MM/yyyy',
-    1 
-)
-ON CONFLICT (id) DO UPDATE SET
-    company_name = EXCLUDED.company_name, legal_name = EXCLUDED.legal_name, uen_no = EXCLUDED.uen_no,
-    gst_registration_no = EXCLUDED.gst_registration_no, gst_registered = EXCLUDED.gst_registered,
-    address_line1 = EXCLUDED.address_line1, postal_code = EXCLUDED.postal_code, city = EXCLUDED.city, country = EXCLUDED.country,
-    fiscal_year_start_month = EXCLUDED.fiscal_year_start_month, fiscal_year_start_day = EXCLUDED.fiscal_year_start_day,
-    base_currency = EXCLUDED.base_currency, tax_id_label = EXCLUDED.tax_id_label, date_format = EXCLUDED.date_format,
-    updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
-
--- ----------------------------------------------------------------------------
--- Insert other default currencies (now references user ID 1)
--- ----------------------------------------------------------------------------
-INSERT INTO accounting.currencies (code, name, symbol, is_active, decimal_places, created_by, updated_by) VALUES
-('USD', 'US Dollar', '$', TRUE, 2, 1, 1),
-('EUR', 'Euro', '€', TRUE, 2, 1, 1),
-('GBP', 'British Pound', '£', TRUE, 2, 1, 1),
-('AUD', 'Australian Dollar', '$', TRUE, 2, 1, 1),
-('JPY', 'Japanese Yen', '¥', TRUE, 0, 1, 1),
-('CNY', 'Chinese Yuan', '¥', TRUE, 2, 1, 1),
-('MYR', 'Malaysian Ringgit', 'RM', TRUE, 2, 1, 1),
-('IDR', 'Indonesian Rupiah', 'Rp', TRUE, 0, 1, 1)
-ON CONFLICT (code) DO UPDATE SET 
-    name = EXCLUDED.name, symbol = EXCLUDED.symbol, is_active = EXCLUDED.is_active, 
-    decimal_places = EXCLUDED.decimal_places, created_by = COALESCE(accounting.currencies.created_by, EXCLUDED.created_by), 
-    updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
-
--- ----------------------------------------------------------------------------
--- Insert default document sequences
--- ----------------------------------------------------------------------------
-INSERT INTO core.sequences (sequence_name, prefix, next_value, format_template) VALUES
-('journal_entry', 'JE', 1, '{PREFIX}{VALUE:06}'), ('sales_invoice', 'INV', 1, '{PREFIX}{VALUE:06}'),
-('purchase_invoice', 'PUR', 1, '{PREFIX}{VALUE:06}'), ('payment', 'PAY', 1, '{PREFIX}{VALUE:06}'),
-('receipt', 'REC', 1, '{PREFIX}{VALUE:06}'), ('customer', 'CUS', 1, '{PREFIX}{VALUE:04}'),
-('vendor', 'VEN', 1, '{PREFIX}{VALUE:04}'), ('product', 'PRD', 1, '{PREFIX}{VALUE:04}'),
-('wht_certificate', 'WHT', 1, '{PREFIX}{VALUE:06}')
-ON CONFLICT (sequence_name) DO UPDATE SET
-    prefix = EXCLUDED.prefix, next_value = GREATEST(core.sequences.next_value, EXCLUDED.next_value), 
-    format_template = EXCLUDED.format_template, updated_at = CURRENT_TIMESTAMP;
-
--- ----------------------------------------------------------------------------
--- Insert account types
--- ----------------------------------------------------------------------------
-INSERT INTO accounting.account_types (name, category, is_debit_balance, report_type, display_order, description) VALUES
-('Current Asset', 'Asset', TRUE, 'Balance Sheet', 10, 'Assets expected to be converted to cash within one year'),
-('Fixed Asset', 'Asset', TRUE, 'Balance Sheet', 20, 'Long-term tangible assets'),
-('Other Asset', 'Asset', TRUE, 'Balance Sheet', 30, 'Assets that don''t fit in other categories'),
-('Current Liability', 'Liability', FALSE, 'Balance Sheet', 40, 'Obligations due within one year'),
-('Long-term Liability', 'Liability', FALSE, 'Balance Sheet', 50, 'Obligations due beyond one year'),
-('Equity', 'Equity', FALSE, 'Balance Sheet', 60, 'Owner''s equity and retained earnings'),
-('Revenue', 'Revenue', FALSE, 'Income Statement', 70, 'Income from business operations'),
-('Cost of Sales', 'Expense', TRUE, 'Income Statement', 80, 'Direct costs of goods sold'),
-('Expense', 'Expense', TRUE, 'Income Statement', 90, 'General business expenses'),
-('Other Income', 'Revenue', FALSE, 'Income Statement', 100, 'Income from non-core activities'),
-('Other Expense', 'Expense', TRUE, 'Income Statement', 110, 'Expenses from non-core activities')
-ON CONFLICT (name) DO UPDATE SET
-    category = EXCLUDED.category, is_debit_balance = EXCLUDED.is_debit_balance, report_type = EXCLUDED.report_type,
-    display_order = EXCLUDED.display_order, description = EXCLUDED.description, updated_at = CURRENT_TIMESTAMP;
-
--- ----------------------------------------------------------------------------
--- Insert default tax codes related accounts
--- ----------------------------------------------------------------------------
-INSERT INTO accounting.accounts (code, name, account_type, created_by, updated_by, is_active) VALUES
-('SYS-GST-OUTPUT', 'System GST Output Tax', 'Liability', 1, 1, TRUE),
-('SYS-GST-INPUT', 'System GST Input Tax', 'Asset', 1, 1, TRUE)
-ON CONFLICT (code) DO UPDATE SET
-    name = EXCLUDED.name, account_type = EXCLUDED.account_type, updated_by = EXCLUDED.updated_by, 
-    is_active = EXCLUDED.is_active, updated_at = CURRENT_TIMESTAMP;
-
--- ----------------------------------------------------------------------------
--- Insert default tax codes (GST updated to 9%)
--- ----------------------------------------------------------------------------
-INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id)
-SELECT 'SR', 'Standard Rate (9%)', 'GST', 9.00, TRUE, TRUE, 1, 1, acc.id FROM accounting.accounts acc WHERE acc.code = 'SYS-GST-OUTPUT'
-ON CONFLICT (code) DO UPDATE SET
-    description = EXCLUDED.description, tax_type = EXCLUDED.tax_type, rate = EXCLUDED.rate,
-    is_default = EXCLUDED.is_default, is_active = EXCLUDED.is_active, updated_by = EXCLUDED.updated_by, 
-    affects_account_id = EXCLUDED.affects_account_id, updated_at = CURRENT_TIMESTAMP;
-
-INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
-('ZR', 'Zero Rate', 'GST', 0.00, FALSE, TRUE, 1, 1, NULL)
-ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
-
-INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
-('ES', 'Exempt Supply', 'GST', 0.00, FALSE, TRUE, 1, 1, NULL)
-ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
-
-INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
-('OP', 'Out of Scope', 'GST', 0.00, FALSE, TRUE, 1, 1, NULL)
-ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
-
-INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id)
-SELECT 'TX', 'Taxable Purchase (9%)', 'GST', 9.00, FALSE, TRUE, 1, 1, acc.id FROM accounting.accounts acc WHERE acc.code = 'SYS-GST-INPUT'
-ON CONFLICT (code) DO UPDATE SET
-    description = EXCLUDED.description, tax_type = EXCLUDED.tax_type, rate = EXCLUDED.rate,
-    is_default = EXCLUDED.is_default, is_active = EXCLUDED.is_active, updated_by = EXCLUDED.updated_by, 
-    affects_account_id = EXCLUDED.affects_account_id, updated_at = CURRENT_TIMESTAMP;
-
-INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
-('BL', 'Blocked Input Tax (9%)', 'GST', 9.00, FALSE, TRUE, 1, 1, NULL)
-ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, rate = EXCLUDED.rate, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
-
-INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
-('NR', 'Non-Resident Services', 'Withholding Tax', 15.00, FALSE, TRUE, 1, 1, NULL)
-ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
-
-INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
-('ND', 'Non-Deductible', 'Income Tax', 0.00, FALSE, TRUE, 1, 1, NULL)
-ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
-
-INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
-('CA', 'Capital Allowance', 'Income Tax', 0.00, FALSE, TRUE, 1, 1, NULL)
-ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
-
--- Create an active 'admin' user for application login
--- ID will be auto-generated by sequence (should be 2 if ID 1 is system_init_user)
-INSERT INTO core.users (username, password_hash, email, full_name, is_active, require_password_change)
-VALUES ('admin', crypt('password', gen_salt('bf')), 'admin@sgbookkeeper.com', 'Administrator', TRUE, TRUE)
-ON CONFLICT (username) DO UPDATE SET
-    password_hash = EXCLUDED.password_hash, email = EXCLUDED.email, full_name = EXCLUDED.full_name,
-    is_active = EXCLUDED.is_active, require_password_change = EXCLUDED.require_password_change,
-    updated_at = CURRENT_TIMESTAMP;
-
--- Assign 'Administrator' role to 'admin' user
-WITH admin_user_id_cte AS (SELECT id FROM core.users WHERE username = 'admin'),
-     admin_role_id_cte AS (SELECT id FROM core.roles WHERE name = 'Administrator')
-INSERT INTO core.user_roles (user_id, role_id, created_at)
-SELECT admin_user_id_cte.id, admin_role_id_cte.id, CURRENT_TIMESTAMP FROM admin_user_id_cte, admin_role_id_cte
-WHERE admin_user_id_cte.id IS NOT NULL AND admin_role_id_cte.id IS NOT NULL
-ON CONFLICT (user_id, role_id) DO NOTHING;
-
--- For all permissions, grant them to the 'Administrator' role
-INSERT INTO core.role_permissions (role_id, permission_id, created_at)
-SELECT r.id, p.id, CURRENT_TIMESTAMP
-FROM core.roles r, core.permissions p
-WHERE r.name = 'Administrator'
-ON CONFLICT (role_id, permission_id) DO NOTHING;
-
-COMMIT; 
--- End of initial data
-
-```
-
-# scripts/db_init.py
-```py
-# File: scripts/db_init.py
-import asyncio
-import asyncpg # type: ignore
-import argparse
-import getpass
-import os
-import sys
-from pathlib import Path
-
-SCRIPT_DIR = Path(__file__).resolve().parent
-SCHEMA_SQL_PATH = SCRIPT_DIR / 'schema.sql'
-INITIAL_DATA_SQL_PATH = SCRIPT_DIR / 'initial_data.sql'
-
-async def create_database(args):
-    """Create PostgreSQL database and initialize schema using reference SQL files."""
-    conn_admin = None 
-    db_conn = None 
-    try:
-        conn_params_admin = { 
-            "user": args.user,
-            "password": args.password,
-            "host": args.host,
-            "port": args.port,
-        }
-        conn_admin = await asyncpg.connect(**conn_params_admin, database='postgres') 
-    except Exception as e:
-        print(f"Error connecting to PostgreSQL server (postgres DB): {type(e).__name__} - {str(e)}", file=sys.stderr)
-        return False
-    
-    try:
-        exists = await conn_admin.fetchval(
-            "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)",
-            args.dbname
-        )
-        
-        if exists:
-            if args.drop_existing:
-                print(f"Terminating connections to '{args.dbname}'...")
-                await conn_admin.execute(f"""
-                    SELECT pg_terminate_backend(pid)
-                    FROM pg_stat_activity
-                    WHERE datname = '{args.dbname}' AND pid <> pg_backend_pid();
-                """)
-                print(f"Dropping existing database '{args.dbname}'...")
-                await conn_admin.execute(f"DROP DATABASE IF EXISTS \"{args.dbname}\"") 
-            else:
-                print(f"Database '{args.dbname}' already exists. Use --drop-existing to recreate.")
-                await conn_admin.close()
-                return False 
-        
-        print(f"Creating database '{args.dbname}'...")
-        await conn_admin.execute(f"CREATE DATABASE \"{args.dbname}\"") 
-        
-        await conn_admin.close() 
-        conn_admin = None 
-        
-        conn_params_db = {**conn_params_admin, "database": args.dbname}
-        db_conn = await asyncpg.connect(**conn_params_db) 
-        
-        if not SCHEMA_SQL_PATH.exists():
-            print(f"Error: schema.sql not found at {SCHEMA_SQL_PATH}", file=sys.stderr)
-            return False
-            
-        print(f"Initializing database schema from {SCHEMA_SQL_PATH}...")
-        with open(SCHEMA_SQL_PATH, 'r', encoding='utf-8') as f:
-            schema_sql = f.read()
-        await db_conn.execute(schema_sql)
-        print("Schema execution completed.")
-        
-        if not INITIAL_DATA_SQL_PATH.exists():
-            print(f"Warning: initial_data.sql not found at {INITIAL_DATA_SQL_PATH}. Skipping initial data.", file=sys.stderr)
-        else:
-            print(f"Loading initial data from {INITIAL_DATA_SQL_PATH}...")
-            with open(INITIAL_DATA_SQL_PATH, 'r', encoding='utf-8') as f:
-                data_sql = f.read()
-            await db_conn.execute(data_sql)
-            print("Initial data loading completed.")
-
-        print(f"Setting default search_path for database '{args.dbname}'...")
-        await db_conn.execute(f"""
-            ALTER DATABASE "{args.dbname}" 
-            SET search_path TO core, accounting, business, audit, public;
-        """)
-        print("Default search_path set.")
-        
-        print(f"Database '{args.dbname}' created and initialized successfully.")
-        return True
-    
-    except Exception as e:
-        print(f"Error during database creation/initialization: {type(e).__name__} - {str(e)}", file=sys.stderr)
-        if hasattr(e, 'sqlstate') and e.sqlstate: # type: ignore
-            print(f"  SQLSTATE: {e.sqlstate}", file=sys.stderr) # type: ignore
-        if hasattr(e, 'detail') and e.detail: # type: ignore
-             print(f"  DETAIL: {e.detail}", file=sys.stderr) # type: ignore
-        if hasattr(e, 'query') and e.query: # type: ignore
-            print(f"  Query context: {e.query[:200]}...", file=sys.stderr) # type: ignore
-        return False
-    
-    finally:
-        if conn_admin and not conn_admin.is_closed():
-            await conn_admin.close()
-        if db_conn and not db_conn.is_closed():
-            await db_conn.close()
-
-def parse_args():
-    parser = argparse.ArgumentParser(description='Initialize SG Bookkeeper database from reference SQL files.')
-    parser.add_argument('--host', default=os.getenv('PGHOST', 'localhost'), help='PostgreSQL server host (Env: PGHOST)')
-    parser.add_argument('--port', type=int, default=os.getenv('PGPORT', 5432), help='PostgreSQL server port (Env: PGPORT)')
-    parser.add_argument('--user', default=os.getenv('PGUSER', 'postgres'), help='PostgreSQL username (Env: PGUSER)')
-    parser.add_argument('--password', help='PostgreSQL password (Env: PGPASSWORD, or prompts if empty)')
-    parser.add_argument('--dbname', default=os.getenv('PGDATABASE', 'sg_bookkeeper'), help='Database name (Env: PGDATABASE)')
-    parser.add_argument('--drop-existing', action='store_true', help='Drop database if it already exists')
-    return parser.parse_args()
-
-def main():
-    args = parse_args()
-    
-    if not args.password:
-        pgpassword_env = os.getenv('PGPASSWORD')
-        if pgpassword_env:
-            args.password = pgpassword_env
-        else:
-            try:
-                args.password = getpass.getpass(f"Password for PostgreSQL user '{args.user}' on host '{args.host}': ")
-            except (EOFError, KeyboardInterrupt): 
-                print("\nPassword prompt cancelled or non-interactive environment. Exiting.", file=sys.stderr)
-                sys.exit(1)
-            except Exception as e: 
-                print(f"Could not read password securely: {e}. Try setting PGPASSWORD environment variable or using --password.", file=sys.stderr)
-                sys.exit(1)
-
-    try:
-        success = asyncio.run(create_database(args))
-    except KeyboardInterrupt:
-        print("\nDatabase initialization cancelled by user.", file=sys.stderr)
-        sys.exit(1)
-    except Exception as e: 
-        print(f"An unexpected error occurred in main: {type(e).__name__} - {str(e)}", file=sys.stderr)
-        if hasattr(e, 'sqlstate') and e.sqlstate: # type: ignore
-             print(f"  SQLSTATE: {e.sqlstate}", file=sys.stderr) # type: ignore
-        success = False
-        
-    sys.exit(0 if success else 1)
-
-if __name__ == '__main__':
-    main()
-
-```
-
-# scripts/schema.sql
-```sql
--- File: scripts/schema.sql
--- ============================================================================
--- SG Bookkeeper - Complete Database Schema - Version 1.0.1 (Reordered FKs)
--- ============================================================================
--- This script creates the complete database schema for the SG Bookkeeper application.
--- Changes from 1.0.0:
---  - All CREATE TABLE statements are grouped first.
---  - All ALTER TABLE ADD CONSTRAINT FOREIGN KEY statements are grouped at the end.
---  - Full table definitions restored.
--- ============================================================================
-
--- ============================================================================
--- INITIAL SETUP
--- ============================================================================
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
-CREATE EXTENSION IF NOT EXISTS btree_gist;
-
-CREATE SCHEMA IF NOT EXISTS core;
-CREATE SCHEMA IF NOT EXISTS accounting;
-CREATE SCHEMA IF NOT EXISTS business;
-CREATE SCHEMA IF NOT EXISTS audit;
-
-SET search_path TO core, accounting, business, audit, public;
-
--- ============================================================================
--- CORE SCHEMA TABLES
--- ============================================================================
-CREATE TABLE core.users (
-    id SERIAL PRIMARY KEY,
-    username VARCHAR(50) NOT NULL UNIQUE,
-    password_hash VARCHAR(255) NOT NULL,
-    email VARCHAR(100) UNIQUE, -- Added UNIQUE constraint from reference logic
-    full_name VARCHAR(100),
-    is_active BOOLEAN DEFAULT TRUE,
-    failed_login_attempts INTEGER DEFAULT 0,
-    last_login_attempt TIMESTAMP WITH TIME ZONE,
-    last_login TIMESTAMP WITH TIME ZONE,
-    require_password_change BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
--- Comments for core.users (omitted here for brevity, assume they are as per reference)
-
-CREATE TABLE core.roles (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(50) NOT NULL UNIQUE,
-    description VARCHAR(200),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE core.permissions (
-    id SERIAL PRIMARY KEY,
-    code VARCHAR(50) NOT NULL UNIQUE,
-    description VARCHAR(200),
-    module VARCHAR(50) NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE core.role_permissions (
-    role_id INTEGER NOT NULL, -- FK added later
-    permission_id INTEGER NOT NULL, -- FK added later
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (role_id, permission_id)
-);
-
-CREATE TABLE core.user_roles (
-    user_id INTEGER NOT NULL, -- FK added later
-    role_id INTEGER NOT NULL, -- FK added later
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (user_id, role_id)
-);
-
-CREATE TABLE core.company_settings (
-    id SERIAL PRIMARY KEY,
-    company_name VARCHAR(100) NOT NULL,
-    legal_name VARCHAR(200),
-    uen_no VARCHAR(20),
-    gst_registration_no VARCHAR(20),
-    gst_registered BOOLEAN DEFAULT FALSE,
-    address_line1 VARCHAR(100),
-    address_line2 VARCHAR(100),
-    postal_code VARCHAR(20),
-    city VARCHAR(50) DEFAULT 'Singapore',
-    country VARCHAR(50) DEFAULT 'Singapore',
-    contact_person VARCHAR(100),
-    phone VARCHAR(20),
-    email VARCHAR(100),
-    website VARCHAR(100),
-    logo BYTEA,
-    fiscal_year_start_month INTEGER DEFAULT 1 CHECK (fiscal_year_start_month BETWEEN 1 AND 12),
-    fiscal_year_start_day INTEGER DEFAULT 1 CHECK (fiscal_year_start_day BETWEEN 1 AND 31),
-    base_currency VARCHAR(3) DEFAULT 'SGD', -- FK added later
-    tax_id_label VARCHAR(50) DEFAULT 'UEN',
-    date_format VARCHAR(20) DEFAULT 'yyyy-MM-dd',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_by INTEGER -- FK added later
-);
-
-CREATE TABLE core.configuration (
-    id SERIAL PRIMARY KEY,
-    config_key VARCHAR(50) NOT NULL UNIQUE,
-    config_value TEXT,
-    description VARCHAR(200),
-    is_encrypted BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_by INTEGER -- FK added later
-);
-
-CREATE TABLE core.sequences (
-    id SERIAL PRIMARY KEY,
-    sequence_name VARCHAR(50) NOT NULL UNIQUE,
-    prefix VARCHAR(10),
-    suffix VARCHAR(10),
-    next_value INTEGER NOT NULL DEFAULT 1,
-    increment_by INTEGER NOT NULL DEFAULT 1,
-    min_value INTEGER NOT NULL DEFAULT 1,
-    max_value INTEGER NOT NULL DEFAULT 2147483647,
-    cycle BOOLEAN DEFAULT FALSE,
-    format_template VARCHAR(50) DEFAULT '{PREFIX}{VALUE}{SUFFIX}',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- ============================================================================
--- ACCOUNTING SCHEMA TABLES
--- ============================================================================
-CREATE TABLE accounting.account_types (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(50) NOT NULL UNIQUE,
-    category VARCHAR(20) NOT NULL CHECK (category IN ('Asset', 'Liability', 'Equity', 'Revenue', 'Expense')),
-    is_debit_balance BOOLEAN NOT NULL,
-    report_type VARCHAR(30) NOT NULL,
-    display_order INTEGER NOT NULL,
-    description VARCHAR(200),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE accounting.accounts (
-    id SERIAL PRIMARY KEY,
-    code VARCHAR(20) NOT NULL UNIQUE,
-    name VARCHAR(100) NOT NULL,
-    account_type VARCHAR(20) NOT NULL CHECK (account_type IN ('Asset', 'Liability', 'Equity', 'Revenue', 'Expense')),
-    sub_type VARCHAR(30),
-    tax_treatment VARCHAR(20),
-    gst_applicable BOOLEAN DEFAULT FALSE,
-    is_active BOOLEAN DEFAULT TRUE,
-    description TEXT,
-    parent_id INTEGER, -- FK to self, added later
-    report_group VARCHAR(50),
-    is_control_account BOOLEAN DEFAULT FALSE,
-    is_bank_account BOOLEAN DEFAULT FALSE,
-    opening_balance NUMERIC(15,2) DEFAULT 0,
-    opening_balance_date DATE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER NOT NULL, -- FK added later
-    updated_by INTEGER NOT NULL -- FK added later
-);
-CREATE INDEX idx_accounts_parent_id ON accounting.accounts(parent_id);
-CREATE INDEX idx_accounts_is_active ON accounting.accounts(is_active);
-CREATE INDEX idx_accounts_account_type ON accounting.accounts(account_type);
-
-CREATE TABLE accounting.fiscal_years (
-    id SERIAL PRIMARY KEY,
-    year_name VARCHAR(20) NOT NULL UNIQUE,
-    start_date DATE NOT NULL,
-    end_date DATE NOT NULL,
-    is_closed BOOLEAN DEFAULT FALSE,
-    closed_date TIMESTAMP WITH TIME ZONE,
-    closed_by INTEGER, -- FK added later
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER NOT NULL, -- FK added later
-    updated_by INTEGER NOT NULL, -- FK added later
-    CONSTRAINT fy_date_range_check CHECK (start_date <= end_date),
-    CONSTRAINT fy_unique_date_ranges EXCLUDE USING gist (daterange(start_date, end_date, '[]') WITH &&)
-);
-
-CREATE TABLE accounting.fiscal_periods (
-    id SERIAL PRIMARY KEY,
-    fiscal_year_id INTEGER NOT NULL, -- FK added later
-    name VARCHAR(50) NOT NULL,
-    start_date DATE NOT NULL,
-    end_date DATE NOT NULL,
-    period_type VARCHAR(10) NOT NULL CHECK (period_type IN ('Month', 'Quarter', 'Year')),
-    status VARCHAR(10) NOT NULL CHECK (status IN ('Open', 'Closed', 'Archived')),
-    period_number INTEGER NOT NULL,
-    is_adjustment BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER NOT NULL, -- FK added later
-    updated_by INTEGER NOT NULL, -- FK added later
-    CONSTRAINT fp_date_range_check CHECK (start_date <= end_date),
-    CONSTRAINT fp_unique_period_dates UNIQUE (fiscal_year_id, period_type, period_number)
-);
-CREATE INDEX idx_fiscal_periods_dates ON accounting.fiscal_periods(start_date, end_date);
-CREATE INDEX idx_fiscal_periods_status ON accounting.fiscal_periods(status);
-
-CREATE TABLE accounting.currencies (
-    code CHAR(3) PRIMARY KEY,
-    name VARCHAR(50) NOT NULL,
-    symbol VARCHAR(10) NOT NULL,
-    is_active BOOLEAN DEFAULT TRUE,
-    decimal_places INTEGER DEFAULT 2,
-    format_string VARCHAR(20) DEFAULT '#,##0.00',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER, -- FK added later
-    updated_by INTEGER -- FK added later
-);
-
-CREATE TABLE accounting.exchange_rates (
-    id SERIAL PRIMARY KEY,
-    from_currency CHAR(3) NOT NULL, -- FK added later
-    to_currency CHAR(3) NOT NULL, -- FK added later
-    rate_date DATE NOT NULL,
-    exchange_rate NUMERIC(15,6) NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER, -- FK added later
-    updated_by INTEGER, -- FK added later
-    CONSTRAINT uq_exchange_rates_pair_date UNIQUE (from_currency, to_currency, rate_date)
-);
-CREATE INDEX idx_exchange_rates_lookup ON accounting.exchange_rates(from_currency, to_currency, rate_date);
-
-CREATE TABLE accounting.journal_entries (
-    id SERIAL PRIMARY KEY,
-    entry_no VARCHAR(20) NOT NULL UNIQUE,
-    journal_type VARCHAR(20) NOT NULL,
-    entry_date DATE NOT NULL,
-    fiscal_period_id INTEGER NOT NULL, -- FK added later
-    description VARCHAR(500),
-    reference VARCHAR(100),
-    is_recurring BOOLEAN DEFAULT FALSE,
-    recurring_pattern_id INTEGER, -- FK added later
-    is_posted BOOLEAN DEFAULT FALSE,
-    is_reversed BOOLEAN DEFAULT FALSE,
-    reversing_entry_id INTEGER, -- FK to self, added later
-    source_type VARCHAR(50),
-    source_id INTEGER,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER NOT NULL, -- FK added later
-    updated_by INTEGER NOT NULL -- FK added later
-);
-CREATE INDEX idx_journal_entries_date ON accounting.journal_entries(entry_date);
-CREATE INDEX idx_journal_entries_fiscal_period ON accounting.journal_entries(fiscal_period_id);
-CREATE INDEX idx_journal_entries_source ON accounting.journal_entries(source_type, source_id);
-CREATE INDEX idx_journal_entries_posted ON accounting.journal_entries(is_posted);
-
-CREATE TABLE accounting.journal_entry_lines (
-    id SERIAL PRIMARY KEY,
-    journal_entry_id INTEGER NOT NULL, -- FK added later
-    line_number INTEGER NOT NULL,
-    account_id INTEGER NOT NULL, -- FK added later
-    description VARCHAR(200),
-    debit_amount NUMERIC(15,2) DEFAULT 0,
-    credit_amount NUMERIC(15,2) DEFAULT 0,
-    currency_code CHAR(3) DEFAULT 'SGD', -- FK added later
-    exchange_rate NUMERIC(15,6) DEFAULT 1,
-    tax_code VARCHAR(20), -- FK added later
-    tax_amount NUMERIC(15,2) DEFAULT 0,
-    dimension1_id INTEGER, -- FK added later
-    dimension2_id INTEGER, -- FK added later
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT jel_check_debit_credit CHECK ((debit_amount > 0 AND credit_amount = 0) OR (credit_amount > 0 AND debit_amount = 0) OR (debit_amount = 0 AND credit_amount = 0))
-);
-CREATE INDEX idx_journal_entry_lines_entry ON accounting.journal_entry_lines(journal_entry_id);
-CREATE INDEX idx_journal_entry_lines_account ON accounting.journal_entry_lines(account_id);
-
-CREATE TABLE accounting.recurring_patterns (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
-    description TEXT,
-    template_entry_id INTEGER NOT NULL, -- FK added later
-    frequency VARCHAR(20) NOT NULL CHECK (frequency IN ('Daily', 'Weekly', 'Monthly', 'Quarterly', 'Yearly')),
-    interval_value INTEGER NOT NULL DEFAULT 1,
-    start_date DATE NOT NULL,
-    end_date DATE,
-    day_of_month INTEGER CHECK (day_of_month BETWEEN 1 AND 31),
-    day_of_week INTEGER CHECK (day_of_week BETWEEN 0 AND 6),
-    last_generated_date DATE,
-    next_generation_date DATE,
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER NOT NULL, -- FK added later
-    updated_by INTEGER NOT NULL -- FK added later
-);
-
-CREATE TABLE accounting.dimensions (
-    id SERIAL PRIMARY KEY,
-    dimension_type VARCHAR(50) NOT NULL,
-    code VARCHAR(20) NOT NULL,
-    name VARCHAR(100) NOT NULL,
-    description TEXT,
-    is_active BOOLEAN DEFAULT TRUE,
-    parent_id INTEGER, -- FK to self, added later
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER NOT NULL, -- FK added later
-    updated_by INTEGER NOT NULL, -- FK added later
-    UNIQUE (dimension_type, code)
-);
-
-CREATE TABLE accounting.budgets (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
-    fiscal_year_id INTEGER NOT NULL, -- FK added later
-    description TEXT,
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER NOT NULL, -- FK added later
-    updated_by INTEGER NOT NULL -- FK added later
-);
-
-CREATE TABLE accounting.budget_details (
-    id SERIAL PRIMARY KEY,
-    budget_id INTEGER NOT NULL, -- FK added later
-    account_id INTEGER NOT NULL, -- FK added later
-    fiscal_period_id INTEGER NOT NULL, -- FK added later
-    amount NUMERIC(15,2) NOT NULL,
-    dimension1_id INTEGER, -- FK added later
-    dimension2_id INTEGER, -- FK added later
-    notes TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER NOT NULL, -- FK added later
-    updated_by INTEGER NOT NULL -- FK added later
-);
-CREATE UNIQUE INDEX uix_budget_details_key ON accounting.budget_details (budget_id, account_id, fiscal_period_id, COALESCE(dimension1_id, 0), COALESCE(dimension2_id, 0));
-
-CREATE TABLE accounting.tax_codes (
-    id SERIAL PRIMARY KEY,
-    code VARCHAR(20) NOT NULL UNIQUE,
-    description VARCHAR(100) NOT NULL,
-    tax_type VARCHAR(20) NOT NULL CHECK (tax_type IN ('GST', 'Income Tax', 'Withholding Tax')),
-    rate NUMERIC(5,2) NOT NULL,
-    is_default BOOLEAN DEFAULT FALSE,
-    is_active BOOLEAN DEFAULT TRUE,
-    affects_account_id INTEGER, -- FK added later
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER NOT NULL, -- FK added later
-    updated_by INTEGER NOT NULL -- FK added later
-);
-
-CREATE TABLE accounting.gst_returns (
-    id SERIAL PRIMARY KEY,
-    return_period VARCHAR(20) NOT NULL UNIQUE,
-    start_date DATE NOT NULL,
-    end_date DATE NOT NULL,
-    filing_due_date DATE NOT NULL,
-    standard_rated_supplies NUMERIC(15,2) DEFAULT 0,
-    zero_rated_supplies NUMERIC(15,2) DEFAULT 0,
-    exempt_supplies NUMERIC(15,2) DEFAULT 0,
-    total_supplies NUMERIC(15,2) DEFAULT 0,
-    taxable_purchases NUMERIC(15,2) DEFAULT 0,
-    output_tax NUMERIC(15,2) DEFAULT 0,
-    input_tax NUMERIC(15,2) DEFAULT 0,
-    tax_adjustments NUMERIC(15,2) DEFAULT 0,
-    tax_payable NUMERIC(15,2) DEFAULT 0,
-    status VARCHAR(20) DEFAULT 'Draft' CHECK (status IN ('Draft', 'Submitted', 'Amended')),
-    submission_date DATE,
-    submission_reference VARCHAR(50),
-    journal_entry_id INTEGER, -- FK added later
-    notes TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER NOT NULL, -- FK added later
-    updated_by INTEGER NOT NULL -- FK added later
-);
-
-CREATE TABLE accounting.withholding_tax_certificates (
-    id SERIAL PRIMARY KEY,
-    certificate_no VARCHAR(20) NOT NULL UNIQUE,
-    vendor_id INTEGER NOT NULL, -- FK added later
-    tax_type VARCHAR(50) NOT NULL,
-    tax_rate NUMERIC(5,2) NOT NULL,
-    payment_date DATE NOT NULL,
-    amount_before_tax NUMERIC(15,2) NOT NULL,
-    tax_amount NUMERIC(15,2) NOT NULL,
-    payment_reference VARCHAR(50),
-    status VARCHAR(20) DEFAULT 'Draft' CHECK (status IN ('Draft', 'Issued', 'Voided')),
-    issue_date DATE,
-    journal_entry_id INTEGER, -- FK added later
-    notes TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER NOT NULL, -- FK added later
-    updated_by INTEGER NOT NULL -- FK added later
-);
-
--- ============================================================================
--- BUSINESS SCHEMA TABLES
--- ============================================================================
-CREATE TABLE business.customers (
-    id SERIAL PRIMARY KEY, customer_code VARCHAR(20) NOT NULL UNIQUE, name VARCHAR(100) NOT NULL, legal_name VARCHAR(200), uen_no VARCHAR(20), gst_registered BOOLEAN DEFAULT FALSE, gst_no VARCHAR(20), contact_person VARCHAR(100), email VARCHAR(100), phone VARCHAR(20), address_line1 VARCHAR(100), address_line2 VARCHAR(100), postal_code VARCHAR(20), city VARCHAR(50), country VARCHAR(50) DEFAULT 'Singapore', credit_terms INTEGER DEFAULT 30, credit_limit NUMERIC(15,2), currency_code CHAR(3) DEFAULT 'SGD', is_active BOOLEAN DEFAULT TRUE, customer_since DATE, notes TEXT, receivables_account_id INTEGER, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, created_by INTEGER NOT NULL, updated_by INTEGER NOT NULL);
-CREATE INDEX idx_customers_name ON business.customers(name); CREATE INDEX idx_customers_is_active ON business.customers(is_active);
-
-CREATE TABLE business.vendors (
-    id SERIAL PRIMARY KEY, vendor_code VARCHAR(20) NOT NULL UNIQUE, name VARCHAR(100) NOT NULL, legal_name VARCHAR(200), uen_no VARCHAR(20), gst_registered BOOLEAN DEFAULT FALSE, gst_no VARCHAR(20), withholding_tax_applicable BOOLEAN DEFAULT FALSE, withholding_tax_rate NUMERIC(5,2), contact_person VARCHAR(100), email VARCHAR(100), phone VARCHAR(20), address_line1 VARCHAR(100), address_line2 VARCHAR(100), postal_code VARCHAR(20), city VARCHAR(50), country VARCHAR(50) DEFAULT 'Singapore', payment_terms INTEGER DEFAULT 30, currency_code CHAR(3) DEFAULT 'SGD', is_active BOOLEAN DEFAULT TRUE, vendor_since DATE, notes TEXT, bank_account_name VARCHAR(100), bank_account_number VARCHAR(50), bank_name VARCHAR(100), bank_branch VARCHAR(100), bank_swift_code VARCHAR(20), payables_account_id INTEGER, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, created_by INTEGER NOT NULL, updated_by INTEGER NOT NULL);
-CREATE INDEX idx_vendors_name ON business.vendors(name); CREATE INDEX idx_vendors_is_active ON business.vendors(is_active);
-
-CREATE TABLE business.products (
-    id SERIAL PRIMARY KEY, product_code VARCHAR(20) NOT NULL UNIQUE, name VARCHAR(100) NOT NULL, description TEXT, product_type VARCHAR(20) NOT NULL CHECK (product_type IN ('Inventory', 'Service', 'Non-Inventory')), category VARCHAR(50), unit_of_measure VARCHAR(20), barcode VARCHAR(50), sales_price NUMERIC(15,2), purchase_price NUMERIC(15,2), sales_account_id INTEGER, purchase_account_id INTEGER, inventory_account_id INTEGER, tax_code VARCHAR(20), is_active BOOLEAN DEFAULT TRUE, min_stock_level NUMERIC(15,2), reorder_point NUMERIC(15,2), created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, created_by INTEGER NOT NULL, updated_by INTEGER NOT NULL);
-CREATE INDEX idx_products_name ON business.products(name); CREATE INDEX idx_products_is_active ON business.products(is_active); CREATE INDEX idx_products_type ON business.products(product_type);
-
-CREATE TABLE business.inventory_movements (
-    id SERIAL PRIMARY KEY, product_id INTEGER NOT NULL, movement_date DATE NOT NULL, movement_type VARCHAR(20) NOT NULL CHECK (movement_type IN ('Purchase', 'Sale', 'Adjustment', 'Transfer', 'Return', 'Opening')), quantity NUMERIC(15,2) NOT NULL, unit_cost NUMERIC(15,4), total_cost NUMERIC(15,2), reference_type VARCHAR(50), reference_id INTEGER, notes TEXT, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, created_by INTEGER NOT NULL);
-CREATE INDEX idx_inventory_movements_product ON business.inventory_movements(product_id, movement_date); CREATE INDEX idx_inventory_movements_reference ON business.inventory_movements(reference_type, reference_id);
-
-CREATE TABLE business.sales_invoices (
-    id SERIAL PRIMARY KEY, invoice_no VARCHAR(20) NOT NULL UNIQUE, customer_id INTEGER NOT NULL, invoice_date DATE NOT NULL, due_date DATE NOT NULL, currency_code CHAR(3) NOT NULL, exchange_rate NUMERIC(15,6) DEFAULT 1, subtotal NUMERIC(15,2) NOT NULL, tax_amount NUMERIC(15,2) NOT NULL DEFAULT 0, total_amount NUMERIC(15,2) NOT NULL, amount_paid NUMERIC(15,2) NOT NULL DEFAULT 0, status VARCHAR(20) NOT NULL DEFAULT 'Draft' CHECK (status IN ('Draft', 'Approved', 'Sent', 'Partially Paid', 'Paid', 'Overdue', 'Voided')), notes TEXT, terms_and_conditions TEXT, journal_entry_id INTEGER, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, created_by INTEGER NOT NULL, updated_by INTEGER NOT NULL);
-CREATE INDEX idx_sales_invoices_customer ON business.sales_invoices(customer_id); CREATE INDEX idx_sales_invoices_dates ON business.sales_invoices(invoice_date, due_date); CREATE INDEX idx_sales_invoices_status ON business.sales_invoices(status);
-
-CREATE TABLE business.sales_invoice_lines (
-    id SERIAL PRIMARY KEY, invoice_id INTEGER NOT NULL, line_number INTEGER NOT NULL, product_id INTEGER, description VARCHAR(200) NOT NULL, quantity NUMERIC(15,2) NOT NULL, unit_price NUMERIC(15,2) NOT NULL, discount_percent NUMERIC(5,2) DEFAULT 0, discount_amount NUMERIC(15,2) DEFAULT 0, line_subtotal NUMERIC(15,2) NOT NULL, tax_code VARCHAR(20), tax_amount NUMERIC(15,2) DEFAULT 0, line_total NUMERIC(15,2) NOT NULL, dimension1_id INTEGER, dimension2_id INTEGER, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP);
-CREATE INDEX idx_sales_invoice_lines_invoice ON business.sales_invoice_lines(invoice_id); CREATE INDEX idx_sales_invoice_lines_product ON business.sales_invoice_lines(product_id);
-
-CREATE TABLE business.purchase_invoices (
-    id SERIAL PRIMARY KEY, invoice_no VARCHAR(20) NOT NULL UNIQUE, vendor_id INTEGER NOT NULL, vendor_invoice_no VARCHAR(50), invoice_date DATE NOT NULL, due_date DATE NOT NULL, currency_code CHAR(3) NOT NULL, exchange_rate NUMERIC(15,6) DEFAULT 1, subtotal NUMERIC(15,2) NOT NULL, tax_amount NUMERIC(15,2) NOT NULL DEFAULT 0, total_amount NUMERIC(15,2) NOT NULL, amount_paid NUMERIC(15,2) NOT NULL DEFAULT 0, status VARCHAR(20) NOT NULL DEFAULT 'Draft' CHECK (status IN ('Draft', 'Approved', 'Partially Paid', 'Paid', 'Overdue', 'Disputed', 'Voided')), notes TEXT, journal_entry_id INTEGER, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, created_by INTEGER NOT NULL, updated_by INTEGER NOT NULL);
-CREATE INDEX idx_purchase_invoices_vendor ON business.purchase_invoices(vendor_id); CREATE INDEX idx_purchase_invoices_dates ON business.purchase_invoices(invoice_date, due_date); CREATE INDEX idx_purchase_invoices_status ON business.purchase_invoices(status);
-
-CREATE TABLE business.purchase_invoice_lines (
-    id SERIAL PRIMARY KEY, invoice_id INTEGER NOT NULL, line_number INTEGER NOT NULL, product_id INTEGER, description VARCHAR(200) NOT NULL, quantity NUMERIC(15,2) NOT NULL, unit_price NUMERIC(15,2) NOT NULL, discount_percent NUMERIC(5,2) DEFAULT 0, discount_amount NUMERIC(15,2) DEFAULT 0, line_subtotal NUMERIC(15,2) NOT NULL, tax_code VARCHAR(20), tax_amount NUMERIC(15,2) DEFAULT 0, line_total NUMERIC(15,2) NOT NULL, dimension1_id INTEGER, dimension2_id INTEGER, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP);
-CREATE INDEX idx_purchase_invoice_lines_invoice ON business.purchase_invoice_lines(invoice_id); CREATE INDEX idx_purchase_invoice_lines_product ON business.purchase_invoice_lines(product_id);
-
-CREATE TABLE business.bank_accounts (
-    id SERIAL PRIMARY KEY, account_name VARCHAR(100) NOT NULL, account_number VARCHAR(50) NOT NULL, bank_name VARCHAR(100) NOT NULL, bank_branch VARCHAR(100), bank_swift_code VARCHAR(20), currency_code CHAR(3) NOT NULL, opening_balance NUMERIC(15,2) DEFAULT 0, current_balance NUMERIC(15,2) DEFAULT 0, last_reconciled_date DATE, gl_account_id INTEGER NOT NULL, is_active BOOLEAN DEFAULT TRUE, description TEXT, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, created_by INTEGER NOT NULL, updated_by INTEGER NOT NULL);
-
-CREATE TABLE business.bank_transactions (
-    id SERIAL PRIMARY KEY, bank_account_id INTEGER NOT NULL, transaction_date DATE NOT NULL, value_date DATE, transaction_type VARCHAR(20) NOT NULL CHECK (transaction_type IN ('Deposit', 'Withdrawal', 'Transfer', 'Interest', 'Fee', 'Adjustment')), description VARCHAR(200) NOT NULL, reference VARCHAR(100), amount NUMERIC(15,2) NOT NULL, is_reconciled BOOLEAN DEFAULT FALSE, reconciled_date DATE, statement_date DATE, statement_id VARCHAR(50), journal_entry_id INTEGER, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, created_by INTEGER NOT NULL, updated_by INTEGER NOT NULL);
-CREATE INDEX idx_bank_transactions_account ON business.bank_transactions(bank_account_id); CREATE INDEX idx_bank_transactions_date ON business.bank_transactions(transaction_date); CREATE INDEX idx_bank_transactions_reconciled ON business.bank_transactions(is_reconciled);
-
-CREATE TABLE business.payments (
-    id SERIAL PRIMARY KEY, payment_no VARCHAR(20) NOT NULL UNIQUE, payment_type VARCHAR(20) NOT NULL CHECK (payment_type IN ('Customer Payment', 'Vendor Payment', 'Refund', 'Credit Note', 'Other')), payment_method VARCHAR(20) NOT NULL CHECK (payment_method IN ('Cash', 'Check', 'Bank Transfer', 'Credit Card', 'GIRO', 'PayNow', 'Other')), payment_date DATE NOT NULL, entity_type VARCHAR(20) NOT NULL CHECK (entity_type IN ('Customer', 'Vendor', 'Other')), entity_id INTEGER NOT NULL, bank_account_id INTEGER, currency_code CHAR(3) NOT NULL, exchange_rate NUMERIC(15,6) DEFAULT 1, amount NUMERIC(15,2) NOT NULL, reference VARCHAR(100), description TEXT, cheque_no VARCHAR(50), status VARCHAR(20) NOT NULL DEFAULT 'Draft' CHECK (status IN ('Draft', 'Approved', 'Completed', 'Voided', 'Returned')), journal_entry_id INTEGER, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, created_by INTEGER NOT NULL, updated_by INTEGER NOT NULL);
-CREATE INDEX idx_payments_date ON business.payments(payment_date); CREATE INDEX idx_payments_entity ON business.payments(entity_type, entity_id); CREATE INDEX idx_payments_status ON business.payments(status);
-
-CREATE TABLE business.payment_allocations (
-    id SERIAL PRIMARY KEY, payment_id INTEGER NOT NULL, document_type VARCHAR(20) NOT NULL CHECK (document_type IN ('Sales Invoice', 'Purchase Invoice', 'Credit Note', 'Debit Note', 'Other')), document_id INTEGER NOT NULL, amount NUMERIC(15,2) NOT NULL, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, created_by INTEGER NOT NULL);
-CREATE INDEX idx_payment_allocations_payment ON business.payment_allocations(payment_id); CREATE INDEX idx_payment_allocations_document ON business.payment_allocations(document_type, document_id);
-
--- ============================================================================
--- AUDIT SCHEMA TABLES
--- ============================================================================
-CREATE TABLE audit.audit_log (
-    id SERIAL PRIMARY KEY, user_id INTEGER, action VARCHAR(50) NOT NULL, entity_type VARCHAR(50) NOT NULL, entity_id INTEGER, entity_name VARCHAR(200), changes JSONB, ip_address VARCHAR(45), user_agent VARCHAR(255), timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP);
-CREATE INDEX idx_audit_log_user ON audit.audit_log(user_id); CREATE INDEX idx_audit_log_entity ON audit.audit_log(entity_type, entity_id); CREATE INDEX idx_audit_log_timestamp ON audit.audit_log(timestamp);
-
-CREATE TABLE audit.data_change_history (
-    id SERIAL PRIMARY KEY, table_name VARCHAR(100) NOT NULL, record_id INTEGER NOT NULL, field_name VARCHAR(100) NOT NULL, old_value TEXT, new_value TEXT, change_type VARCHAR(20) NOT NULL CHECK (change_type IN ('Insert', 'Update', 'Delete')), changed_by INTEGER, changed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP);
-CREATE INDEX idx_data_change_history_table_record ON audit.data_change_history(table_name, record_id); CREATE INDEX idx_data_change_history_changed_at ON audit.data_change_history(changed_at);
-
--- ============================================================================
--- ADDING FOREIGN KEY CONSTRAINTS (Grouped at the end)
--- ============================================================================
-
--- Core Schema FKs
-ALTER TABLE core.role_permissions ADD CONSTRAINT fk_rp_role FOREIGN KEY (role_id) REFERENCES core.roles(id) ON DELETE CASCADE;
-ALTER TABLE core.role_permissions ADD CONSTRAINT fk_rp_permission FOREIGN KEY (permission_id) REFERENCES core.permissions(id) ON DELETE CASCADE;
-ALTER TABLE core.user_roles ADD CONSTRAINT fk_ur_user FOREIGN KEY (user_id) REFERENCES core.users(id) ON DELETE CASCADE;
-ALTER TABLE core.user_roles ADD CONSTRAINT fk_ur_role FOREIGN KEY (role_id) REFERENCES core.roles(id) ON DELETE CASCADE;
-ALTER TABLE core.company_settings ADD CONSTRAINT fk_cs_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-ALTER TABLE core.company_settings ADD CONSTRAINT fk_cs_base_currency FOREIGN KEY (base_currency) REFERENCES accounting.currencies(code);
-ALTER TABLE core.configuration ADD CONSTRAINT fk_cfg_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
--- Accounting Schema FKs
-ALTER TABLE accounting.accounts ADD CONSTRAINT fk_acc_parent FOREIGN KEY (parent_id) REFERENCES accounting.accounts(id);
-ALTER TABLE accounting.accounts ADD CONSTRAINT fk_acc_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE accounting.accounts ADD CONSTRAINT fk_acc_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE accounting.fiscal_years ADD CONSTRAINT fk_fy_closed_by FOREIGN KEY (closed_by) REFERENCES core.users(id);
-ALTER TABLE accounting.fiscal_years ADD CONSTRAINT fk_fy_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE accounting.fiscal_years ADD CONSTRAINT fk_fy_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE accounting.fiscal_periods ADD CONSTRAINT fk_fp_fiscal_year FOREIGN KEY (fiscal_year_id) REFERENCES accounting.fiscal_years(id);
-ALTER TABLE accounting.fiscal_periods ADD CONSTRAINT fk_fp_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE accounting.fiscal_periods ADD CONSTRAINT fk_fp_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE accounting.currencies ADD CONSTRAINT fk_curr_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE accounting.currencies ADD CONSTRAINT fk_curr_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE accounting.exchange_rates ADD CONSTRAINT fk_er_from_curr FOREIGN KEY (from_currency) REFERENCES accounting.currencies(code);
-ALTER TABLE accounting.exchange_rates ADD CONSTRAINT fk_er_to_curr FOREIGN KEY (to_currency) REFERENCES accounting.currencies(code);
-ALTER TABLE accounting.exchange_rates ADD CONSTRAINT fk_er_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE accounting.exchange_rates ADD CONSTRAINT fk_er_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE accounting.journal_entries ADD CONSTRAINT fk_je_fiscal_period FOREIGN KEY (fiscal_period_id) REFERENCES accounting.fiscal_periods(id);
-ALTER TABLE accounting.journal_entries ADD CONSTRAINT fk_je_reversing_entry FOREIGN KEY (reversing_entry_id) REFERENCES accounting.journal_entries(id);
-ALTER TABLE accounting.journal_entries ADD CONSTRAINT fk_je_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE accounting.journal_entries ADD CONSTRAINT fk_je_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
--- Deferred FK for recurring_patterns cycle:
-ALTER TABLE accounting.journal_entries ADD CONSTRAINT fk_je_recurring_pattern FOREIGN KEY (recurring_pattern_id) REFERENCES accounting.recurring_patterns(id) DEFERRABLE INITIALLY DEFERRED;
-
-ALTER TABLE accounting.journal_entry_lines ADD CONSTRAINT fk_jel_journal_entry FOREIGN KEY (journal_entry_id) REFERENCES accounting.journal_entries(id) ON DELETE CASCADE;
-ALTER TABLE accounting.journal_entry_lines ADD CONSTRAINT fk_jel_account FOREIGN KEY (account_id) REFERENCES accounting.accounts(id);
-ALTER TABLE accounting.journal_entry_lines ADD CONSTRAINT fk_jel_currency FOREIGN KEY (currency_code) REFERENCES accounting.currencies(code);
-ALTER TABLE accounting.journal_entry_lines ADD CONSTRAINT fk_jel_tax_code FOREIGN KEY (tax_code) REFERENCES accounting.tax_codes(code);
-ALTER TABLE accounting.journal_entry_lines ADD CONSTRAINT fk_jel_dimension1 FOREIGN KEY (dimension1_id) REFERENCES accounting.dimensions(id);
-ALTER TABLE accounting.journal_entry_lines ADD CONSTRAINT fk_jel_dimension2 FOREIGN KEY (dimension2_id) REFERENCES accounting.dimensions(id);
-
-ALTER TABLE accounting.recurring_patterns ADD CONSTRAINT fk_rp_template_entry FOREIGN KEY (template_entry_id) REFERENCES accounting.journal_entries(id);
-ALTER TABLE accounting.recurring_patterns ADD CONSTRAINT fk_rp_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE accounting.recurring_patterns ADD CONSTRAINT fk_rp_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE accounting.dimensions ADD CONSTRAINT fk_dim_parent FOREIGN KEY (parent_id) REFERENCES accounting.dimensions(id);
-ALTER TABLE accounting.dimensions ADD CONSTRAINT fk_dim_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE accounting.dimensions ADD CONSTRAINT fk_dim_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE accounting.budgets ADD CONSTRAINT fk_bud_fiscal_year FOREIGN KEY (fiscal_year_id) REFERENCES accounting.fiscal_years(id);
-ALTER TABLE accounting.budgets ADD CONSTRAINT fk_bud_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE accounting.budgets ADD CONSTRAINT fk_bud_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE accounting.budget_details ADD CONSTRAINT fk_bd_budget FOREIGN KEY (budget_id) REFERENCES accounting.budgets(id) ON DELETE CASCADE;
-ALTER TABLE accounting.budget_details ADD CONSTRAINT fk_bd_account FOREIGN KEY (account_id) REFERENCES accounting.accounts(id);
-ALTER TABLE accounting.budget_details ADD CONSTRAINT fk_bd_fiscal_period FOREIGN KEY (fiscal_period_id) REFERENCES accounting.fiscal_periods(id);
-ALTER TABLE accounting.budget_details ADD CONSTRAINT fk_bd_dimension1 FOREIGN KEY (dimension1_id) REFERENCES accounting.dimensions(id);
-ALTER TABLE accounting.budget_details ADD CONSTRAINT fk_bd_dimension2 FOREIGN KEY (dimension2_id) REFERENCES accounting.dimensions(id);
-ALTER TABLE accounting.budget_details ADD CONSTRAINT fk_bd_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE accounting.budget_details ADD CONSTRAINT fk_bd_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE accounting.tax_codes ADD CONSTRAINT fk_tc_affects_account FOREIGN KEY (affects_account_id) REFERENCES accounting.accounts(id);
-ALTER TABLE accounting.tax_codes ADD CONSTRAINT fk_tc_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE accounting.tax_codes ADD CONSTRAINT fk_tc_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE accounting.gst_returns ADD CONSTRAINT fk_gstr_journal_entry FOREIGN KEY (journal_entry_id) REFERENCES accounting.journal_entries(id);
-ALTER TABLE accounting.gst_returns ADD CONSTRAINT fk_gstr_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE accounting.gst_returns ADD CONSTRAINT fk_gstr_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE accounting.withholding_tax_certificates ADD CONSTRAINT fk_whtc_vendor FOREIGN KEY (vendor_id) REFERENCES business.vendors(id);
-ALTER TABLE accounting.withholding_tax_certificates ADD CONSTRAINT fk_whtc_journal_entry FOREIGN KEY (journal_entry_id) REFERENCES accounting.journal_entries(id);
-ALTER TABLE accounting.withholding_tax_certificates ADD CONSTRAINT fk_whtc_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE accounting.withholding_tax_certificates ADD CONSTRAINT fk_whtc_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
--- Business Schema FKs
-ALTER TABLE business.customers ADD CONSTRAINT fk_cust_currency FOREIGN KEY (currency_code) REFERENCES accounting.currencies(code);
-ALTER TABLE business.customers ADD CONSTRAINT fk_cust_receivables_acc FOREIGN KEY (receivables_account_id) REFERENCES accounting.accounts(id);
-ALTER TABLE business.customers ADD CONSTRAINT fk_cust_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE business.customers ADD CONSTRAINT fk_cust_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE business.vendors ADD CONSTRAINT fk_vend_currency FOREIGN KEY (currency_code) REFERENCES accounting.currencies(code);
-ALTER TABLE business.vendors ADD CONSTRAINT fk_vend_payables_acc FOREIGN KEY (payables_account_id) REFERENCES accounting.accounts(id);
-ALTER TABLE business.vendors ADD CONSTRAINT fk_vend_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE business.vendors ADD CONSTRAINT fk_vend_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE business.products ADD CONSTRAINT fk_prod_sales_acc FOREIGN KEY (sales_account_id) REFERENCES accounting.accounts(id);
-ALTER TABLE business.products ADD CONSTRAINT fk_prod_purchase_acc FOREIGN KEY (purchase_account_id) REFERENCES accounting.accounts(id);
-ALTER TABLE business.products ADD CONSTRAINT fk_prod_inventory_acc FOREIGN KEY (inventory_account_id) REFERENCES accounting.accounts(id);
-ALTER TABLE business.products ADD CONSTRAINT fk_prod_tax_code FOREIGN KEY (tax_code) REFERENCES accounting.tax_codes(code);
-ALTER TABLE business.products ADD CONSTRAINT fk_prod_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE business.products ADD CONSTRAINT fk_prod_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE business.inventory_movements ADD CONSTRAINT fk_im_product FOREIGN KEY (product_id) REFERENCES business.products(id);
-ALTER TABLE business.inventory_movements ADD CONSTRAINT fk_im_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-
-ALTER TABLE business.sales_invoices ADD CONSTRAINT fk_si_customer FOREIGN KEY (customer_id) REFERENCES business.customers(id);
-ALTER TABLE business.sales_invoices ADD CONSTRAINT fk_si_currency FOREIGN KEY (currency_code) REFERENCES accounting.currencies(code);
-ALTER TABLE business.sales_invoices ADD CONSTRAINT fk_si_journal_entry FOREIGN KEY (journal_entry_id) REFERENCES accounting.journal_entries(id);
-ALTER TABLE business.sales_invoices ADD CONSTRAINT fk_si_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE business.sales_invoices ADD CONSTRAINT fk_si_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE business.sales_invoice_lines ADD CONSTRAINT fk_sil_invoice FOREIGN KEY (invoice_id) REFERENCES business.sales_invoices(id) ON DELETE CASCADE;
-ALTER TABLE business.sales_invoice_lines ADD CONSTRAINT fk_sil_product FOREIGN KEY (product_id) REFERENCES business.products(id);
-ALTER TABLE business.sales_invoice_lines ADD CONSTRAINT fk_sil_tax_code FOREIGN KEY (tax_code) REFERENCES accounting.tax_codes(code);
-ALTER TABLE business.sales_invoice_lines ADD CONSTRAINT fk_sil_dimension1 FOREIGN KEY (dimension1_id) REFERENCES accounting.dimensions(id);
-ALTER TABLE business.sales_invoice_lines ADD CONSTRAINT fk_sil_dimension2 FOREIGN KEY (dimension2_id) REFERENCES accounting.dimensions(id);
-
-ALTER TABLE business.purchase_invoices ADD CONSTRAINT fk_pi_vendor FOREIGN KEY (vendor_id) REFERENCES business.vendors(id);
-ALTER TABLE business.purchase_invoices ADD CONSTRAINT fk_pi_currency FOREIGN KEY (currency_code) REFERENCES accounting.currencies(code);
-ALTER TABLE business.purchase_invoices ADD CONSTRAINT fk_pi_journal_entry FOREIGN KEY (journal_entry_id) REFERENCES accounting.journal_entries(id);
-ALTER TABLE business.purchase_invoices ADD CONSTRAINT fk_pi_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE business.purchase_invoices ADD CONSTRAINT fk_pi_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE business.purchase_invoice_lines ADD CONSTRAINT fk_pil_invoice FOREIGN KEY (invoice_id) REFERENCES business.purchase_invoices(id) ON DELETE CASCADE;
-ALTER TABLE business.purchase_invoice_lines ADD CONSTRAINT fk_pil_product FOREIGN KEY (product_id) REFERENCES business.products(id);
-ALTER TABLE business.purchase_invoice_lines ADD CONSTRAINT fk_pil_tax_code FOREIGN KEY (tax_code) REFERENCES accounting.tax_codes(code);
-ALTER TABLE business.purchase_invoice_lines ADD CONSTRAINT fk_pil_dimension1 FOREIGN KEY (dimension1_id) REFERENCES accounting.dimensions(id);
-ALTER TABLE business.purchase_invoice_lines ADD CONSTRAINT fk_pil_dimension2 FOREIGN KEY (dimension2_id) REFERENCES accounting.dimensions(id);
-
-ALTER TABLE business.bank_accounts ADD CONSTRAINT fk_ba_currency FOREIGN KEY (currency_code) REFERENCES accounting.currencies(code);
-ALTER TABLE business.bank_accounts ADD CONSTRAINT fk_ba_gl_account FOREIGN KEY (gl_account_id) REFERENCES accounting.accounts(id);
-ALTER TABLE business.bank_accounts ADD CONSTRAINT fk_ba_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE business.bank_accounts ADD CONSTRAINT fk_ba_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE business.bank_transactions ADD CONSTRAINT fk_bt_bank_account FOREIGN KEY (bank_account_id) REFERENCES business.bank_accounts(id);
-ALTER TABLE business.bank_transactions ADD CONSTRAINT fk_bt_journal_entry FOREIGN KEY (journal_entry_id) REFERENCES accounting.journal_entries(id);
-ALTER TABLE business.bank_transactions ADD CONSTRAINT fk_bt_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE business.bank_transactions ADD CONSTRAINT fk_bt_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE business.payments ADD CONSTRAINT fk_pay_bank_account FOREIGN KEY (bank_account_id) REFERENCES business.bank_accounts(id);
-ALTER TABLE business.payments ADD CONSTRAINT fk_pay_currency FOREIGN KEY (currency_code) REFERENCES accounting.currencies(code);
-ALTER TABLE business.payments ADD CONSTRAINT fk_pay_journal_entry FOREIGN KEY (journal_entry_id) REFERENCES accounting.journal_entries(id);
-ALTER TABLE business.payments ADD CONSTRAINT fk_pay_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE business.payments ADD CONSTRAINT fk_pay_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
--- Note: entity_id in payments refers to customers.id or vendors.id; requires application logic or triggers to enforce based on entity_type.
-
-ALTER TABLE business.payment_allocations ADD CONSTRAINT fk_pa_payment FOREIGN KEY (payment_id) REFERENCES business.payments(id) ON DELETE CASCADE;
-ALTER TABLE business.payment_allocations ADD CONSTRAINT fk_pa_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-
--- Audit Schema FKs
-ALTER TABLE audit.audit_log ADD CONSTRAINT fk_al_user FOREIGN KEY (user_id) REFERENCES core.users(id);
-ALTER TABLE audit.data_change_history ADD CONSTRAINT fk_dch_changed_by FOREIGN KEY (changed_by) REFERENCES core.users(id);
-
--- ============================================================================
--- VIEWS
--- ============================================================================
-CREATE OR REPLACE VIEW accounting.account_balances AS
-SELECT 
-    a.id AS account_id, a.code AS account_code, a.name AS account_name, a.account_type, a.parent_id,
-    COALESCE(SUM(CASE WHEN jel.debit_amount > 0 THEN jel.debit_amount ELSE -jel.credit_amount END), 0) + a.opening_balance AS balance,
-    COALESCE(SUM(CASE WHEN jel.debit_amount > 0 THEN jel.debit_amount ELSE 0 END), 0) AS total_debits_activity,
-    COALESCE(SUM(CASE WHEN jel.credit_amount > 0 THEN jel.credit_amount ELSE 0 END), 0) AS total_credits_activity,
-    MAX(je.entry_date) AS last_activity_date
-FROM accounting.accounts a
-LEFT JOIN accounting.journal_entry_lines jel ON a.id = jel.account_id
-LEFT JOIN accounting.journal_entries je ON jel.journal_entry_id = je.id AND je.is_posted = TRUE
-GROUP BY a.id, a.code, a.name, a.account_type, a.parent_id, a.opening_balance;
-
-CREATE OR REPLACE VIEW accounting.trial_balance AS
-SELECT 
-    a.id AS account_id, a.code AS account_code, a.name AS account_name, a.account_type, a.sub_type,
-    CASE WHEN a.account_type IN ('Asset', 'Expense') THEN CASE WHEN ab.balance >= 0 THEN ab.balance ELSE 0 END ELSE CASE WHEN ab.balance < 0 THEN -ab.balance ELSE 0 END END AS debit_balance,
-    CASE WHEN a.account_type IN ('Asset', 'Expense') THEN CASE WHEN ab.balance < 0 THEN -ab.balance ELSE 0 END ELSE CASE WHEN ab.balance >= 0 THEN ab.balance ELSE 0 END END AS credit_balance
-FROM accounting.accounts a
-JOIN accounting.account_balances ab ON a.id = ab.account_id
-WHERE a.is_active = TRUE AND ab.balance != 0;
-
-CREATE OR REPLACE VIEW business.customer_balances AS
-SELECT c.id AS customer_id, c.customer_code, c.name AS customer_name,
-    COALESCE(SUM(si.total_amount - si.amount_paid), 0) AS outstanding_balance,
-    COALESCE(SUM(CASE WHEN si.due_date < CURRENT_DATE AND si.status NOT IN ('Paid', 'Voided') THEN si.total_amount - si.amount_paid ELSE 0 END), 0) AS overdue_amount,
-    COALESCE(SUM(CASE WHEN si.status = 'Draft' THEN si.total_amount ELSE 0 END), 0) AS draft_amount,
-    COALESCE(MAX(si.due_date), NULL) AS latest_due_date
-FROM business.customers c LEFT JOIN business.sales_invoices si ON c.id = si.customer_id AND si.status NOT IN ('Paid', 'Voided')
-GROUP BY c.id, c.customer_code, c.name;
-
-CREATE OR REPLACE VIEW business.vendor_balances AS
-SELECT v.id AS vendor_id, v.vendor_code, v.name AS vendor_name,
-    COALESCE(SUM(pi.total_amount - pi.amount_paid), 0) AS outstanding_balance,
-    COALESCE(SUM(CASE WHEN pi.due_date < CURRENT_DATE AND pi.status NOT IN ('Paid', 'Voided') THEN pi.total_amount - pi.amount_paid ELSE 0 END), 0) AS overdue_amount,
-    COALESCE(SUM(CASE WHEN pi.status = 'Draft' THEN pi.total_amount ELSE 0 END), 0) AS draft_amount,
-    COALESCE(MAX(pi.due_date), NULL) AS latest_due_date
-FROM business.vendors v LEFT JOIN business.purchase_invoices pi ON v.id = pi.vendor_id AND pi.status NOT IN ('Paid', 'Voided')
-GROUP BY v.id, v.vendor_code, v.name;
-
-CREATE OR REPLACE VIEW business.inventory_summary AS
-SELECT 
-    p.id AS product_id, p.product_code, p.name AS product_name, p.product_type, p.category, p.unit_of_measure,
-    COALESCE(SUM(im.quantity), 0) AS current_quantity,
-    CASE WHEN COALESCE(SUM(im.quantity), 0) != 0 THEN COALESCE(SUM(im.total_cost), 0) / SUM(im.quantity) ELSE p.purchase_price END AS average_cost,
-    COALESCE(SUM(im.total_cost), 0) AS inventory_value,
-    p.sales_price AS current_sales_price, p.min_stock_level, p.reorder_point,
-    CASE WHEN p.min_stock_level IS NOT NULL AND COALESCE(SUM(im.quantity), 0) <= p.min_stock_level THEN TRUE ELSE FALSE END AS below_minimum,
-    CASE WHEN p.reorder_point IS NOT NULL AND COALESCE(SUM(im.quantity), 0) <= p.reorder_point THEN TRUE ELSE FALSE END AS reorder_needed
-FROM business.products p LEFT JOIN business.inventory_movements im ON p.id = im.product_id
-WHERE p.product_type = 'Inventory' AND p.is_active = TRUE
-GROUP BY p.id, p.product_code, p.name, p.product_type, p.category, p.unit_of_measure, p.purchase_price, p.sales_price, p.min_stock_level, p.reorder_point;
-
--- ============================================================================
--- FUNCTIONS
--- ============================================================================
-CREATE OR REPLACE FUNCTION core.get_next_sequence_value(p_sequence_name VARCHAR)
-RETURNS VARCHAR AS $$
-DECLARE v_sequence RECORD; v_next_value INTEGER; v_result VARCHAR;
-BEGIN
-    SELECT * INTO v_sequence FROM core.sequences WHERE sequence_name = p_sequence_name FOR UPDATE;
-    IF NOT FOUND THEN RAISE EXCEPTION 'Sequence % not found', p_sequence_name; END IF;
-    v_next_value := v_sequence.next_value;
-    UPDATE core.sequences SET next_value = next_value + increment_by, updated_at = CURRENT_TIMESTAMP WHERE sequence_name = p_sequence_name;
-    v_result := v_sequence.format_template;
-    v_result := REPLACE(v_result, '{PREFIX}', COALESCE(v_sequence.prefix, ''));
-    v_result := REPLACE(v_result, '{VALUE}', LPAD(v_next_value::TEXT, 6, '0'));
-    v_result := REPLACE(v_result, '{SUFFIX}', COALESCE(v_sequence.suffix, ''));
-    RETURN v_result;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE FUNCTION accounting.generate_journal_entry(p_journal_type VARCHAR, p_entry_date DATE, p_description VARCHAR, p_reference VARCHAR, p_source_type VARCHAR, p_source_id INTEGER, p_lines JSONB, p_user_id INTEGER)
-RETURNS INTEGER AS $$ 
-DECLARE v_fiscal_period_id INTEGER; v_entry_no VARCHAR; v_journal_id INTEGER; v_line JSONB; v_line_number INTEGER := 1; v_total_debits NUMERIC(15,2) := 0; v_total_credits NUMERIC(15,2) := 0;
-BEGIN
-    SELECT id INTO v_fiscal_period_id FROM accounting.fiscal_periods WHERE p_entry_date BETWEEN start_date AND end_date AND status = 'Open';
-    IF v_fiscal_period_id IS NULL THEN RAISE EXCEPTION 'No open fiscal period found for date %', p_entry_date; END IF;
-    v_entry_no := core.get_next_sequence_value('journal_entry');
-    INSERT INTO accounting.journal_entries (entry_no, journal_type, entry_date, fiscal_period_id, description, reference, is_posted, source_type, source_id, created_by, updated_by) VALUES (v_entry_no, p_journal_type, p_entry_date, v_fiscal_period_id, p_description, p_reference, FALSE, p_source_type, p_source_id, p_user_id, p_user_id) RETURNING id INTO v_journal_id;
-    FOR v_line IN SELECT * FROM jsonb_array_elements(p_lines) LOOP
-        INSERT INTO accounting.journal_entry_lines (journal_entry_id, line_number, account_id, description, debit_amount, credit_amount, currency_code, exchange_rate, tax_code, tax_amount, dimension1_id, dimension2_id) 
-        VALUES (v_journal_id, v_line_number, (v_line->>'account_id')::INTEGER, v_line->>'description', COALESCE((v_line->>'debit_amount')::NUMERIC, 0), COALESCE((v_line->>'credit_amount')::NUMERIC, 0), COALESCE(v_line->>'currency_code', 'SGD'), COALESCE((v_line->>'exchange_rate')::NUMERIC, 1), v_line->>'tax_code', COALESCE((v_line->>'tax_amount')::NUMERIC, 0), NULLIF(TRIM(v_line->>'dimension1_id'), '')::INTEGER, NULLIF(TRIM(v_line->>'dimension2_id'), '')::INTEGER);
-        v_line_number := v_line_number + 1; v_total_debits := v_total_debits + COALESCE((v_line->>'debit_amount')::NUMERIC, 0); v_total_credits := v_total_credits + COALESCE((v_line->>'credit_amount')::NUMERIC, 0);
-    END LOOP;
-    IF round(v_total_debits, 2) != round(v_total_credits, 2) THEN RAISE EXCEPTION 'Journal entry is not balanced. Debits: %, Credits: %', v_total_debits, v_total_credits; END IF;
-    RETURN v_journal_id;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE FUNCTION accounting.post_journal_entry(p_journal_id INTEGER, p_user_id INTEGER)
-RETURNS BOOLEAN AS $$
-DECLARE v_fiscal_period_status VARCHAR; v_is_already_posted BOOLEAN;
-BEGIN
-    SELECT is_posted INTO v_is_already_posted FROM accounting.journal_entries WHERE id = p_journal_id;
-    IF v_is_already_posted THEN RAISE EXCEPTION 'Journal entry % is already posted', p_journal_id; END IF;
-    SELECT fp.status INTO v_fiscal_period_status FROM accounting.journal_entries je JOIN accounting.fiscal_periods fp ON je.fiscal_period_id = fp.id WHERE je.id = p_journal_id;
-    IF v_fiscal_period_status != 'Open' THEN RAISE EXCEPTION 'Cannot post to a closed or archived fiscal period'; END IF;
-    UPDATE accounting.journal_entries SET is_posted = TRUE, updated_at = CURRENT_TIMESTAMP, updated_by = p_user_id WHERE id = p_journal_id;
-    RETURN TRUE;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE FUNCTION accounting.calculate_account_balance(p_account_id INTEGER, p_as_of_date DATE)
-RETURNS NUMERIC AS $$
-DECLARE v_balance NUMERIC(15,2) := 0; v_opening_balance NUMERIC(15,2); v_account_opening_balance_date DATE; 
-BEGIN
-    SELECT acc.opening_balance, acc.opening_balance_date INTO v_opening_balance, v_account_opening_balance_date FROM accounting.accounts acc WHERE acc.id = p_account_id;
-    IF NOT FOUND THEN RAISE EXCEPTION 'Account with ID % not found', p_account_id; END IF;
-    SELECT COALESCE(SUM(CASE WHEN jel.debit_amount > 0 THEN jel.debit_amount ELSE -jel.credit_amount END), 0) INTO v_balance FROM accounting.journal_entry_lines jel JOIN accounting.journal_entries je ON jel.journal_entry_id = je.id WHERE jel.account_id = p_account_id AND je.is_posted = TRUE AND je.entry_date <= p_as_of_date AND (v_account_opening_balance_date IS NULL OR je.entry_date >= v_account_opening_balance_date);
-    v_balance := v_balance + COALESCE(v_opening_balance, 0);
-    RETURN v_balance;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE FUNCTION core.update_timestamp_trigger_func()
-RETURNS TRIGGER AS $$ BEGIN NEW.updated_at = CURRENT_TIMESTAMP; RETURN NEW; END; $$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE FUNCTION audit.log_data_change_trigger_func()
-RETURNS TRIGGER AS $$
-DECLARE
-    v_old_data JSONB; v_new_data JSONB; v_change_type VARCHAR(20); v_user_id INTEGER; v_entity_id INTEGER; v_entity_name VARCHAR(200); temp_val TEXT; current_field_name_from_json TEXT;
-BEGIN
-    BEGIN v_user_id := current_setting('app.current_user_id', TRUE)::INTEGER; EXCEPTION WHEN OTHERS THEN v_user_id := NULL; END;
-    IF v_user_id IS NULL THEN
-        IF TG_OP = 'INSERT' THEN BEGIN v_user_id := NEW.created_by; EXCEPTION WHEN undefined_column THEN IF TG_TABLE_SCHEMA = 'core' AND TG_TABLE_NAME = 'users' THEN v_user_id := NEW.id; ELSE v_user_id := NULL; END IF; END;
-        ELSIF TG_OP = 'UPDATE' THEN BEGIN v_user_id := NEW.updated_by; EXCEPTION WHEN undefined_column THEN IF TG_TABLE_SCHEMA = 'core' AND TG_TABLE_NAME = 'users' THEN v_user_id := NEW.id; ELSE v_user_id := NULL; END IF; END;
-        END IF;
-    END IF;
-    IF TG_TABLE_SCHEMA = 'audit' AND TG_TABLE_NAME IN ('audit_log', 'data_change_history') THEN RETURN NULL; END IF;
-    IF TG_OP = 'INSERT' THEN v_change_type := 'Insert'; v_old_data := NULL; v_new_data := to_jsonb(NEW);
-    ELSIF TG_OP = 'UPDATE' THEN v_change_type := 'Update'; v_old_data := to_jsonb(OLD); v_new_data := to_jsonb(NEW);
-    ELSIF TG_OP = 'DELETE' THEN v_change_type := 'Delete'; v_old_data := to_jsonb(OLD); v_new_data := NULL; END IF;
-    BEGIN IF TG_OP = 'DELETE' THEN v_entity_id := OLD.id; ELSE v_entity_id := NEW.id; END IF; EXCEPTION WHEN undefined_column THEN v_entity_id := NULL; END;
-    BEGIN IF TG_OP = 'DELETE' THEN temp_val := CASE WHEN TG_TABLE_NAME IN ('accounts','customers','vendors','products','roles','account_types','dimensions','fiscal_years','budgets') THEN OLD.name WHEN TG_TABLE_NAME = 'journal_entries' THEN OLD.entry_no WHEN TG_TABLE_NAME = 'sales_invoices' THEN OLD.invoice_no WHEN TG_TABLE_NAME = 'purchase_invoices' THEN OLD.invoice_no WHEN TG_TABLE_NAME = 'payments' THEN OLD.payment_no WHEN TG_TABLE_NAME = 'users' THEN OLD.username WHEN TG_TABLE_NAME = 'tax_codes' THEN OLD.code WHEN TG_TABLE_NAME = 'gst_returns' THEN OLD.return_period ELSE OLD.id::TEXT END;
-    ELSE temp_val := CASE WHEN TG_TABLE_NAME IN ('accounts','customers','vendors','products','roles','account_types','dimensions','fiscal_years','budgets') THEN NEW.name WHEN TG_TABLE_NAME = 'journal_entries' THEN NEW.entry_no WHEN TG_TABLE_NAME = 'sales_invoices' THEN NEW.invoice_no WHEN TG_TABLE_NAME = 'purchase_invoices' THEN NEW.invoice_no WHEN TG_TABLE_NAME = 'payments' THEN NEW.payment_no WHEN TG_TABLE_NAME = 'users' THEN NEW.username WHEN TG_TABLE_NAME = 'tax_codes' THEN NEW.code WHEN TG_TABLE_NAME = 'gst_returns' THEN NEW.return_period ELSE NEW.id::TEXT END; END IF; v_entity_name := temp_val;
-    EXCEPTION WHEN undefined_column THEN BEGIN IF TG_OP = 'DELETE' THEN v_entity_name := OLD.id::TEXT; ELSE v_entity_name := NEW.id::TEXT; END IF; EXCEPTION WHEN undefined_column THEN v_entity_name := NULL; END; END;
-    INSERT INTO audit.audit_log (user_id,action,entity_type,entity_id,entity_name,changes,timestamp) VALUES (v_user_id,v_change_type,TG_TABLE_SCHEMA||'.'||TG_TABLE_NAME,v_entity_id,v_entity_name,jsonb_build_object('old',v_old_data,'new',v_new_data),CURRENT_TIMESTAMP);
-    IF TG_OP = 'UPDATE' THEN
-        FOR current_field_name_from_json IN SELECT key_alias FROM jsonb_object_keys(v_old_data) AS t(key_alias) LOOP
-            IF (v_new_data ? current_field_name_from_json) AND ((v_old_data -> current_field_name_from_json) IS DISTINCT FROM (v_new_data -> current_field_name_from_json)) THEN
-                INSERT INTO audit.data_change_history (table_name,record_id,field_name,old_value,new_value,change_type,changed_by,changed_at) VALUES (TG_TABLE_SCHEMA||'.'||TG_TABLE_NAME,NEW.id,current_field_name_from_json,v_old_data->>current_field_name_from_json,v_new_data->>current_field_name_from_json,'Update',v_user_id,CURRENT_TIMESTAMP);
-            END IF;
-        END LOOP;
-    END IF;
-    RETURN NULL; 
-END;
-$$ LANGUAGE plpgsql;
-
--- ============================================================================
--- APPLYING TRIGGERS
--- ============================================================================
-DO $$ DECLARE r RECORD; BEGIN FOR r IN SELECT table_schema, table_name FROM information_schema.columns WHERE column_name = 'updated_at' AND table_schema IN ('core','accounting','business','audit') GROUP BY table_schema, table_name LOOP EXECUTE format('DROP TRIGGER IF EXISTS trg_update_timestamp ON %I.%I; CREATE TRIGGER trg_update_timestamp BEFORE UPDATE ON %I.%I FOR EACH ROW EXECUTE FUNCTION core.update_timestamp_trigger_func();',r.table_schema,r.table_name,r.table_schema,r.table_name); END LOOP; END; $$;
-DO $$ DECLARE tables_to_audit TEXT[] := ARRAY['accounting.accounts','accounting.journal_entries','accounting.fiscal_periods','accounting.fiscal_years','business.customers','business.vendors','business.products','business.sales_invoices','business.purchase_invoices','business.payments','accounting.tax_codes','accounting.gst_returns','core.users','core.roles','core.company_settings']; table_fullname TEXT; schema_name TEXT; table_name_var TEXT; BEGIN FOREACH table_fullname IN ARRAY tables_to_audit LOOP SELECT split_part(table_fullname,'.',1) INTO schema_name; SELECT split_part(table_fullname,'.',2) INTO table_name_var; EXECUTE format('DROP TRIGGER IF EXISTS trg_audit_log ON %I.%I; CREATE TRIGGER trg_audit_log AFTER INSERT OR UPDATE OR DELETE ON %I.%I FOR EACH ROW EXECUTE FUNCTION audit.log_data_change_trigger_func();',schema_name,table_name_var,schema_name,table_name_var); END LOOP; END; $$;
-
--- End of script
 
 ```
 
@@ -1593,7 +407,6 @@ class IncomeTaxManager:
 # app/tax/gst_manager.py
 ```py
 # File: app/tax/gst_manager.py
-# Update constructor and imports
 from typing import Optional, Any, TYPE_CHECKING, List 
 from datetime import date, timedelta
 from dateutil.relativedelta import relativedelta 
@@ -1608,7 +421,9 @@ from app.utils.sequence_generator import SequenceGenerator
 from app.utils.result import Result
 from app.utils.pydantic_models import GSTReturnData, JournalEntryData, JournalEntryLineData 
 from app.models.accounting.gst_return import GSTReturn 
-from app.models.accounting.journal_entry import JournalEntry 
+from app.models.accounting.journal_entry import JournalEntry, JournalEntryLine
+from app.models.accounting.account import Account
+from app.models.accounting.tax_code import TaxCode
 from app.common.enums import GSTReturnStatusEnum 
 
 if TYPE_CHECKING:
@@ -1642,94 +457,106 @@ class GSTManager:
         zero_rated_supplies = Decimal('0.00')  
         exempt_supplies = Decimal('0.00')     
         taxable_purchases = Decimal('0.00')   
-        output_tax_calc = Decimal('0.00')
-        input_tax_calc = Decimal('0.00')
+        output_tax_calc = Decimal('0.00') # Box 6
+        input_tax_calc = Decimal('0.00')  # Box 7
         
-        sr_tax_code = await self.tax_code_service.get_tax_code('SR')
-        gst_rate_decimal = Decimal('0.09') # Default to 9%
-        if sr_tax_code and sr_tax_code.tax_type == 'GST' and sr_tax_code.rate is not None:
-            gst_rate_decimal = sr_tax_code.rate / Decimal(100)
-        else:
-            print("Warning: Standard Rate GST tax code 'SR' not found or not GST type or rate is null. Defaulting to 9% for calculation.")
+        # Fetch posted journal entries for the period.
+        # The service method now eager loads lines, accounts, and tax_code_obj.
+        posted_entries: List[JournalEntry] = await self.journal_service.get_posted_entries_by_date_range(start_date, end_date)
+
+        for entry in posted_entries:
+            for line in entry.lines:
+                if not line.account or not line.tax_code_obj: # Skip lines without account or tax code info
+                    continue
+
+                account_orm: Account = line.account
+                tax_code_orm: TaxCode = line.tax_code_obj
+                
+                # Determine net amount for the line based on its nature in JE
+                # For revenue accounts (credit nature), a credit amount on the line increases revenue.
+                # For expense/asset accounts (debit nature), a debit amount on the line increases expense/asset.
+                line_net_value_for_gst_box: Decimal = Decimal('0.00')
+                if account_orm.account_type == 'Revenue':
+                    line_net_value_for_gst_box = line.credit_amount - line.debit_amount # Positive for revenue
+                elif account_orm.account_type in ['Expense', 'Asset']:
+                    line_net_value_for_gst_box = line.debit_amount - line.credit_amount # Positive for expense/asset
+
+                if line_net_value_for_gst_box <= Decimal('0.00') and tax_code_orm.tax_type == 'GST' : # Only process if it contributes to the total
+                    # This condition might be too strict if, e.g., a sales credit note (debit to revenue)
+                    # should reduce standard-rated supplies. For now, assuming positive contributions.
+                    # For a more robust system, credit notes would have their own handling or specific tax codes.
+                    pass # Or log a warning if a negative value with GST code is encountered
+
+                # Categorize based on account type and tax code
+                if tax_code_orm.tax_type == 'GST':
+                    if account_orm.account_type == 'Revenue':
+                        if tax_code_orm.code == 'SR': # Standard-Rated Supply
+                            std_rated_supplies += line_net_value_for_gst_box
+                            output_tax_calc += line.tax_amount # tax_amount on JE line IS the GST
+                        elif tax_code_orm.code == 'ZR': # Zero-Rated Supply
+                            zero_rated_supplies += line_net_value_for_gst_box
+                        elif tax_code_orm.code == 'ES': # Exempt Supply
+                            exempt_supplies += line_net_value_for_gst_box
+                        # OP (Out of Scope) supplies are typically not included in these boxes.
+                    
+                    elif account_orm.account_type in ['Expense', 'Asset']:
+                        if tax_code_orm.code == 'TX': # Taxable Purchase
+                            taxable_purchases += line_net_value_for_gst_box
+                            input_tax_calc += line.tax_amount # tax_amount on JE line IS the GST
+                        elif tax_code_orm.code == 'BL': # Blocked Input Tax
+                            # The net amount IS part of taxable purchases (Box 5)
+                            taxable_purchases += line_net_value_for_gst_box
+                            # However, the tax_amount is NOT claimable as input tax (Box 7)
+                            # So, no addition to input_tax_calc for BL code.
+                        # Other codes like ME (Imported Goods under Major Exporter Scheme) etc. would need specific handling.
         
-        # --- Placeholder for actual data aggregation ---
-        # This section needs to query JournalEntryLines within the date range,
-        # join with Accounts and TaxCodes to categorize amounts correctly.
-        # Example structure (conceptual, actual queries would be more complex):
-        #
-        # async with self.app_core.db_manager.session() as session:
-        #     # Output Tax related (Sales)
-        #     sales_lines = await session.execute(
-        #         select(JournalEntryLine, Account.account_type, TaxCode.code)
-        #         .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
-        #         .join(Account, Account.id == JournalEntryLine.account_id)
-        #         .outerjoin(TaxCode, TaxCode.code == JournalEntryLine.tax_code)
-        #         .where(JournalEntry.is_posted == True)
-        #         .where(JournalEntry.entry_date >= start_date)
-        #         .where(JournalEntry.entry_date <= end_date)
-        #         .where(Account.account_type == 'Revenue') # Example: Only revenue lines for supplies
-        #     )
-        #     for line, acc_type, tax_c in sales_lines.all():
-        #         amount = line.credit_amount - line.debit_amount # Net credit for revenue
-        #         if tax_c == 'SR':
-        #             std_rated_supplies += amount
-        #             output_tax_calc += line.tax_amount # Assuming tax_amount is correctly populated
-        #         elif tax_c == 'ZR':
-        #             zero_rated_supplies += amount
-        #         elif tax_c == 'ES':
-        #             exempt_supplies += amount
-            
-        #     # Input Tax related (Purchases/Expenses)
-        #     purchase_lines = await session.execute(...) # Similar query for expense/asset accounts
-        #     for line, acc_type, tax_c in purchase_lines.all():
-        #         amount = line.debit_amount - line.credit_amount # Net debit for expense/asset
-        #         if tax_c == 'TX':
-        #             taxable_purchases += amount
-        #             input_tax_calc += line.tax_amount
-        #         # Handle 'BL' - Blocked Input Tax if necessary
-        # --- End of Placeholder ---
-
-        # For now, using illustrative fixed values for demonstration (if above is commented out)
-        std_rated_supplies = Decimal('10000.00') 
-        zero_rated_supplies = Decimal('2000.00')  
-        exempt_supplies = Decimal('500.00')     
-        taxable_purchases = Decimal('5000.00')   
-        output_tax_calc = (std_rated_supplies * gst_rate_decimal).quantize(Decimal("0.01"))
-        input_tax_calc = (taxable_purchases * gst_rate_decimal).quantize(Decimal("0.01"))
-
         total_supplies = std_rated_supplies + zero_rated_supplies + exempt_supplies
-        tax_payable = output_tax_calc - input_tax_calc
+        tax_payable = output_tax_calc - input_tax_calc # Ignores Box 8 (adjustments) for now
 
-        filing_due_date = end_date + relativedelta(months=1, day=31) 
+        # Filing due date is typically one month after the end of the accounting period.
+        # Example: Period ends 31 Mar, due 30 Apr. Period ends 30 Apr, due 31 May.
+        # Using relativedelta for more robust month-end calculation.
+        filing_due_date = end_date + relativedelta(months=1) 
+        # If period ends mid-month, due date is end of next month. If period ends end-of-month, due date is end of next month.
+        # A common rule is simply "one month after the end of the prescribed accounting period".
+        # If end_date is always month-end, then +1 month then last day of that month works.
+        # For simplicity, let's assume end_date is the actual period end. IRAS specifies due date.
+        # For quarterly, it's 1 month after quarter end. Let's use a simpler rule for now.
+        # Safest might be to refer to company settings for GST period type to calculate precisely.
+        # For now: last day of the month following the end_date.
+        temp_due_date = end_date + relativedelta(months=1)
+        filing_due_date = temp_due_date + relativedelta(day=31) # Clamp to last day of that month
 
         return_data = GSTReturnData(
-            return_period=f"{start_date.strftime('%Y%m%d')}-{end_date.strftime('%Y%m%d')}",
-            start_date=start_date,
-            end_date=end_date,
+            return_period=f"{start_date.strftime('%d%m%Y')}-{end_date.strftime('%d%m%Y')}", # IRAS format for period
+            start_date=start_date, end_date=end_date,
             filing_due_date=filing_due_date,
-            standard_rated_supplies=std_rated_supplies,
-            zero_rated_supplies=zero_rated_supplies,
-            exempt_supplies=exempt_supplies,
-            total_supplies=total_supplies,
-            taxable_purchases=taxable_purchases,
-            output_tax=output_tax_calc,
-            input_tax=input_tax_calc,
-            tax_adjustments=Decimal(0), 
-            tax_payable=tax_payable,
+            standard_rated_supplies=std_rated_supplies.quantize(Decimal("0.01")),
+            zero_rated_supplies=zero_rated_supplies.quantize(Decimal("0.01")),
+            exempt_supplies=exempt_supplies.quantize(Decimal("0.01")),
+            total_supplies=total_supplies.quantize(Decimal("0.01")), # Box 4
+            taxable_purchases=taxable_purchases.quantize(Decimal("0.01")), # Box 5
+            output_tax=output_tax_calc.quantize(Decimal("0.01")), # Box 6
+            input_tax=input_tax_calc.quantize(Decimal("0.01")),   # Box 7
+            tax_adjustments=Decimal(0), # Box 8 - Placeholder
+            tax_payable=tax_payable.quantize(Decimal("0.01")), # Box 9
             status=GSTReturnStatusEnum.DRAFT.value,
             user_id=user_id 
         )
         return Result.success(return_data)
 
     async def save_gst_return(self, gst_return_data: GSTReturnData) -> Result[GSTReturn]:
+        # ... (method remains largely the same as previous version, was already robust)
         current_user_id = gst_return_data.user_id
 
+        orm_return: GSTReturn
         if gst_return_data.id: 
             existing_return = await self.gst_return_service.get_by_id(gst_return_data.id)
             if not existing_return:
                 return Result.failure([f"GST Return with ID {gst_return_data.id} not found for update."])
             
             orm_return = existing_return
+            # Use .model_dump() for Pydantic v2
             update_dict = gst_return_data.model_dump(exclude={'id', 'user_id'}, exclude_none=True)
             for key, value in update_dict.items():
                 if hasattr(orm_return, key):
@@ -1742,16 +569,20 @@ class GSTManager:
                 created_by_user_id=current_user_id,
                 updated_by_user_id=current_user_id
             )
-            if not orm_return.filing_due_date: 
-                 orm_return.filing_due_date = orm_return.end_date + relativedelta(months=1, day=31)
+            if not orm_return.filing_due_date and orm_return.end_date: # Calculate if not provided
+                 temp_due_date = orm_return.end_date + relativedelta(months=1)
+                 orm_return.filing_due_date = temp_due_date + relativedelta(day=31)
+
 
         try:
             saved_return = await self.gst_return_service.save_gst_return(orm_return)
             return Result.success(saved_return)
         except Exception as e:
+            self.app_core.logger.error(f"Failed to save GST return: {e}", exc_info=True) # type: ignore
             return Result.failure([f"Failed to save GST return: {str(e)}"])
 
     async def finalize_gst_return(self, return_id: int, submission_reference: str, submission_date: date, user_id: int) -> Result[GSTReturn]:
+        # ... (method remains largely the same as previous version, ensure logger for errors)
         gst_return = await self.gst_return_service.get_by_id(return_id)
         if not gst_return:
             return Result.failure([f"GST Return ID {return_id} not found."])
@@ -1763,38 +594,55 @@ class GSTManager:
         gst_return.submission_reference = submission_reference
         gst_return.updated_by_user_id = user_id
 
-        if gst_return.tax_payable != Decimal(0): # Only create JE if there's a net payable/refundable
-            # System account codes from config or defaults
-            sys_acc_config = self.app_core.config_manager.parser['SystemAccounts'] if self.app_core.config_manager.parser.has_section('SystemAccounts') else {}
+        if gst_return.tax_payable != Decimal(0):
+            sys_acc_config_section = 'SystemAccounts'
+            sys_acc_config = {}
+            if self.app_core.config_manager.parser.has_section(sys_acc_config_section):
+                sys_acc_config = self.app_core.config_manager.parser[sys_acc_config_section]
+            
             gst_output_tax_acc_code = sys_acc_config.get("GSTOutputTax", "SYS-GST-OUTPUT")
             gst_input_tax_acc_code = sys_acc_config.get("GSTInputTax", "SYS-GST-INPUT")
-            gst_payable_control_acc_code = sys_acc_config.get("GSTPayableControl", "GST-PAYABLE")
-
+            gst_payable_control_acc_code = sys_acc_config.get("GSTPayableControl", "GST-PAYABLE") # For net payable to IRAS
+            gst_receivable_control_acc_code = sys_acc_config.get("GSTReceivableControl", "GST-RECEIVABLE") # For net refundable from IRAS
 
             output_tax_acc = await self.account_service.get_by_code(gst_output_tax_acc_code)
             input_tax_acc = await self.account_service.get_by_code(gst_input_tax_acc_code)
-            payable_control_acc = await self.account_service.get_by_code(gst_payable_control_acc_code)
+            # Determine if it's payable or receivable for the control account
+            control_acc_code = gst_payable_control_acc_code if gst_return.tax_payable > 0 else gst_receivable_control_acc_code
+            control_acc = await self.account_service.get_by_code(control_acc_code)
 
-            if not (output_tax_acc and input_tax_acc and payable_control_acc):
+
+            if not (output_tax_acc and input_tax_acc and control_acc):
+                missing_accs = []
+                if not output_tax_acc: missing_accs.append(gst_output_tax_acc_code)
+                if not input_tax_acc: missing_accs.append(gst_input_tax_acc_code)
+                if not control_acc: missing_accs.append(control_acc_code)
+                
+                error_msg = f"Essential GST GL accounts not found: {', '.join(missing_accs)}. Cannot create settlement journal entry."
+                self.app_core.logger.error(error_msg) # type: ignore
+                # Save the GST return status update even if JE fails
                 try:
                     updated_return_no_je = await self.gst_return_service.save_gst_return(gst_return)
-                    return Result.failure([f"GST Return finalized and saved (ID: {updated_return_no_je.id}), but essential GST GL accounts ({gst_output_tax_acc_code}, {gst_input_tax_acc_code}, {gst_payable_control_acc_code}) not found. Cannot create journal entry."])
+                    return Result.failure([f"GST Return finalized (ID: {updated_return_no_je.id}), but JE creation failed: " + error_msg])
                 except Exception as e_save:
-                    return Result.failure([f"Failed to finalize GST return and also failed to save it before JE creation: {str(e_save)}"])
+                    return Result.failure([f"Failed to finalize GST return and also failed to save it before JE creation: {str(e_save)}"] + [error_msg])
 
-            lines = []
-            # To clear Output Tax (usually a credit balance): Debit Output Tax Account
-            if gst_return.output_tax != Decimal(0):
-                 lines.append(JournalEntryLineData(account_id=output_tax_acc.id, debit_amount=gst_return.output_tax, credit_amount=Decimal(0), description=f"Clear GST Output Tax for period {gst_return.return_period}"))
-            # To clear Input Tax (usually a debit balance): Credit Input Tax Account
-            if gst_return.input_tax != Decimal(0):
-                 lines.append(JournalEntryLineData(account_id=input_tax_acc.id, debit_amount=Decimal(0), credit_amount=gst_return.input_tax, description=f"Clear GST Input Tax for period {gst_return.return_period}"))
+
+            lines: List[JournalEntryLineData] = []
+            desc_period = f"GST for period {gst_return.start_date.strftime('%d/%m/%y')}-{gst_return.end_date.strftime('%d/%m/%y')}"
             
-            # Net effect on GST Payable/Control Account
+            # To clear Output Tax (usually a credit balance): Debit Output Tax Account
+            if gst_return.output_tax != Decimal(0): # Use actual output_tax from return
+                 lines.append(JournalEntryLineData(account_id=output_tax_acc.id, debit_amount=gst_return.output_tax, credit_amount=Decimal(0), description=f"Clear Output Tax - {desc_period}"))
+            # To clear Input Tax (usually a debit balance): Credit Input Tax Account
+            if gst_return.input_tax != Decimal(0): # Use actual input_tax from return
+                 lines.append(JournalEntryLineData(account_id=input_tax_acc.id, debit_amount=Decimal(0), credit_amount=gst_return.input_tax, description=f"Clear Input Tax - {desc_period}"))
+            
+            # Net effect on GST Payable/Receivable Control Account
             if gst_return.tax_payable > Decimal(0): # Tax Payable (Liability)
-                lines.append(JournalEntryLineData(account_id=payable_control_acc.id, debit_amount=Decimal(0), credit_amount=gst_return.tax_payable, description=f"GST Payable to IRAS for period {gst_return.return_period}"))
+                lines.append(JournalEntryLineData(account_id=control_acc.id, debit_amount=Decimal(0), credit_amount=gst_return.tax_payable, description=f"GST Payable - {desc_period}"))
             elif gst_return.tax_payable < Decimal(0): # Tax Refundable (Asset)
-                lines.append(JournalEntryLineData(account_id=payable_control_acc.id, debit_amount=abs(gst_return.tax_payable), credit_amount=Decimal(0), description=f"GST Refundable from IRAS for period {gst_return.return_period}"))
+                lines.append(JournalEntryLineData(account_id=control_acc.id, debit_amount=abs(gst_return.tax_payable), credit_amount=Decimal(0), description=f"GST Refundable - {desc_period}"))
             
             if lines:
                 if not hasattr(self.app_core, 'journal_entry_manager') or not self.app_core.journal_entry_manager:
@@ -1802,28 +650,30 @@ class GSTManager:
 
                 je_data = JournalEntryData(
                     journal_type="General", entry_date=submission_date, 
-                    description=f"GST settlement for period {gst_return.return_period}",
-                    reference=f"GST F5: {gst_return.return_period}", user_id=user_id, lines=lines,
-                    source_type="GSTReturn", source_id=gst_return.id
+                    description=f"GST Settlement for period {gst_return.return_period}",
+                    reference=f"GST F5 Finalized: {gst_return.submission_reference or gst_return.return_period}", 
+                    user_id=user_id, lines=lines,
+                    source_type="GSTReturnSettlement", source_id=gst_return.id
                 )
-                je_result = await self.app_core.journal_entry_manager.create_journal_entry(je_data) 
+                je_result: Result[JournalEntry] = await self.app_core.journal_entry_manager.create_journal_entry(je_data) 
                 if not je_result.is_success:
                     try:
                         updated_return_je_fail = await self.gst_return_service.save_gst_return(gst_return)
-                        return Result.failure([f"GST Return finalized and saved (ID: {updated_return_je_fail.id}) but JE creation failed."] + je_result.errors)
+                        return Result.failure([f"GST Return finalized and saved (ID: {updated_return_je_fail.id}) but settlement JE creation failed."] + je_result.errors)
                     except Exception as e_save_2:
                          return Result.failure([f"Failed to finalize GST return and also failed during JE creation and subsequent save: {str(e_save_2)}"] + je_result.errors)
                 else:
                     assert je_result.value is not None
                     gst_return.journal_entry_id = je_result.value.id
                     # Optionally auto-post the JE
-                    # post_result = await self.app_core.journal_entry_manager.post_journal_entry(je_result.value.id, user_id)
-                    # if not post_result.is_success:
-                    #     print(f"Warning: GST JE created (ID: {je_result.value.id}) but failed to auto-post: {post_result.errors}")
+                    post_result: Result[JournalEntry] = await self.app_core.journal_entry_manager.post_journal_entry(je_result.value.id, user_id)
+                    if not post_result.is_success:
+                        self.app_core.logger.warning(f"GST Settlement JE (ID: {je_result.value.id}) created but failed to auto-post: {post_result.errors}") # type: ignore
         try:
             updated_return = await self.gst_return_service.save_gst_return(gst_return)
             return Result.success(updated_return)
         except Exception as e:
+            self.app_core.logger.error(f"Failed to save finalized GST return: {e}", exc_info=True) # type: ignore
             return Result.failure([f"Failed to save finalized GST return: {str(e)}"])
 
 ```
@@ -1946,29 +796,671 @@ class TaxCalculator:
 
 # app/ui/customers/__init__.py
 ```py
-# File: app/ui/customers/__init__.py
-# (Content as previously generated)
+# app/ui/customers/__init__.py
 from .customers_widget import CustomersWidget
+from .customer_dialog import CustomerDialog
+from .customer_table_model import CustomerTableModel
 
-__all__ = ["CustomersWidget"]
+__all__ = [
+    "CustomersWidget",
+    "CustomerDialog",
+    "CustomerTableModel",
+]
+
+```
+
+# app/ui/customers/customer_dialog.py
+```py
+# app/ui/customers/customer_dialog.py
+from PySide6.QtWidgets import (
+    QDialog, QVBoxLayout, QFormLayout, QLineEdit, QPushButton, QDialogButtonBox, 
+    QMessageBox, QCheckBox, QDateEdit, QComboBox, QSpinBox, QTextEdit, QCompleter
+)
+from PySide6.QtCore import Qt, QDate, Slot, Signal, QTimer, QMetaObject, Q_ARG
+from PySide6.QtGui import QIcon
+from typing import Optional, List, Dict, Any, TYPE_CHECKING, cast
+from decimal import Decimal, InvalidOperation
+
+from app.core.application_core import ApplicationCore
+from app.main import schedule_task_from_qt
+from app.utils.pydantic_models import CustomerCreateData, CustomerUpdateData, AppBaseModel
+from app.models.business.customer import Customer
+from app.models.accounting.account import Account
+from app.models.accounting.currency import Currency
+from app.utils.result import Result
+from app.utils.json_helpers import json_converter, json_date_hook
+
+
+if TYPE_CHECKING:
+    from PySide6.QtGui import QPaintDevice
+
+class CustomerDialog(QDialog):
+    customer_saved = Signal(int) # Emits customer ID on successful save
+
+    def __init__(self, app_core: "ApplicationCore", current_user_id: int, 
+                 customer_id: Optional[int] = None, 
+                 parent: Optional["QWidget"] = None):
+        super().__init__(parent)
+        self.app_core = app_core
+        self.current_user_id = current_user_id
+        self.customer_id = customer_id
+        self.loaded_customer_data: Optional[Customer] = None # Store loaded ORM for pre-filling
+
+        self._currencies_cache: List[Currency] = []
+        self._receivables_accounts_cache: List[Account] = []
+        
+        self.setWindowTitle("Edit Customer" if self.customer_id else "Add New Customer")
+        self.setMinimumWidth(550) # Adjusted width
+        self.setModal(True)
+
+        self._init_ui()
+        self._connect_signals()
+
+        # Load combo box data asynchronously
+        QTimer.singleShot(0, lambda: schedule_task_from_qt(self._load_combo_data()))
+
+        if self.customer_id:
+            QTimer.singleShot(50, lambda: schedule_task_from_qt(self._load_existing_customer_details()))
+
+
+    def _init_ui(self):
+        main_layout = QVBoxLayout(self)
+        form_layout = QFormLayout()
+        form_layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
+
+        # Basic Info
+        self.customer_code_edit = QLineEdit(); form_layout.addRow("Customer Code*:", self.customer_code_edit)
+        self.name_edit = QLineEdit(); form_layout.addRow("Customer Name*:", self.name_edit)
+        self.legal_name_edit = QLineEdit(); form_layout.addRow("Legal Name:", self.legal_name_edit)
+        self.uen_no_edit = QLineEdit(); form_layout.addRow("UEN No.:", self.uen_no_edit)
+        
+        gst_layout = QHBoxLayout()
+        self.gst_registered_check = QCheckBox("GST Registered"); gst_layout.addWidget(self.gst_registered_check)
+        self.gst_no_edit = QLineEdit(); self.gst_no_edit.setPlaceholderText("GST Registration No."); gst_layout.addWidget(self.gst_no_edit)
+        form_layout.addRow(gst_layout) # Add layout for GST fields
+
+        # Contact Info
+        self.contact_person_edit = QLineEdit(); form_layout.addRow("Contact Person:", self.contact_person_edit)
+        self.email_edit = QLineEdit(); self.email_edit.setPlaceholderText("example@domain.com"); form_layout.addRow("Email:", self.email_edit)
+        self.phone_edit = QLineEdit(); form_layout.addRow("Phone:", self.phone_edit)
+
+        # Address Info
+        self.address_line1_edit = QLineEdit(); form_layout.addRow("Address Line 1:", self.address_line1_edit)
+        self.address_line2_edit = QLineEdit(); form_layout.addRow("Address Line 2:", self.address_line2_edit)
+        self.postal_code_edit = QLineEdit(); form_layout.addRow("Postal Code:", self.postal_code_edit)
+        self.city_edit = QLineEdit(); self.city_edit.setText("Singapore"); form_layout.addRow("City:", self.city_edit)
+        self.country_edit = QLineEdit(); self.country_edit.setText("Singapore"); form_layout.addRow("Country:", self.country_edit)
+        
+        # Financial Info
+        self.credit_terms_spin = QSpinBox(); self.credit_terms_spin.setRange(0, 365); self.credit_terms_spin.setValue(30); form_layout.addRow("Credit Terms (Days):", self.credit_terms_spin)
+        self.credit_limit_edit = QLineEdit(); self.credit_limit_edit.setPlaceholderText("0.00"); form_layout.addRow("Credit Limit:", self.credit_limit_edit)
+        
+        self.currency_code_combo = QComboBox()
+        self.currency_code_combo.setMinimumWidth(150)
+        form_layout.addRow("Default Currency*:", self.currency_code_combo)
+        
+        self.receivables_account_combo = QComboBox()
+        self.receivables_account_combo.setMinimumWidth(250)
+        form_layout.addRow("A/R Account:", self.receivables_account_combo)
+
+        # Other Info
+        self.is_active_check = QCheckBox("Is Active"); self.is_active_check.setChecked(True); form_layout.addRow(self.is_active_check)
+        self.customer_since_date_edit = QDateEdit(QDate.currentDate()); self.customer_since_date_edit.setCalendarPopup(True); self.customer_since_date_edit.setDisplayFormat("dd/MM/yyyy"); form_layout.addRow("Customer Since:", self.customer_since_date_edit)
+        self.notes_edit = QTextEdit(); self.notes_edit.setFixedHeight(80); form_layout.addRow("Notes:", self.notes_edit)
+        
+        main_layout.addLayout(form_layout)
+
+        self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        main_layout.addWidget(self.button_box)
+        self.setLayout(main_layout)
+
+    def _connect_signals(self):
+        self.button_box.accepted.connect(self.on_save_customer)
+        self.button_box.rejected.connect(self.reject)
+        self.gst_registered_check.stateChanged.connect(lambda state: self.gst_no_edit.setEnabled(state == Qt.CheckState.Checked.value))
+        self.gst_no_edit.setEnabled(self.gst_registered_check.isChecked())
+
+
+    async def _load_combo_data(self):
+        """ Load data for Currency and Receivables Account comboboxes. """
+        try:
+            if self.app_core.currency_manager:
+                active_currencies = await self.app_core.currency_manager.get_all_currencies() # Get all, filter active in UI if needed
+                self._currencies_cache = [c for c in active_currencies if c.is_active]
+            
+            if self.app_core.chart_of_accounts_manager:
+                # Fetch Asset accounts, ideally filtered for AR control accounts by sub_type or a flag
+                ar_accounts = await self.app_core.chart_of_accounts_manager.get_accounts_for_selection(account_type="Asset", active_only=True)
+                self._receivables_accounts_cache = [acc for acc in ar_accounts if acc.is_active and (acc.is_control_account or not acc.is_bank_account)] # Basic filter
+            
+            # Serialize data for thread-safe UI update
+            currencies_json = json.dumps([{"code": c.code, "name": c.name} for c in self._currencies_cache], default=json_converter)
+            accounts_json = json.dumps([{"id": acc.id, "code": acc.code, "name": acc.name} for acc in self._receivables_accounts_cache], default=json_converter)
+
+            QMetaObject.invokeMethod(self, "_populate_combos_slot", Qt.ConnectionType.QueuedConnection, 
+                                     Q_ARG(str, currencies_json), Q_ARG(str, accounts_json))
+        except Exception as e:
+            self.app_core.logger.error(f"Error loading combo data for CustomerDialog: {e}", exc_info=True)
+            QMessageBox.warning(self, "Data Load Error", f"Could not load data for dropdowns: {str(e)}")
+
+    @Slot(str, str)
+    def _populate_combos_slot(self, currencies_json: str, accounts_json: str):
+        try:
+            currencies_data = json.loads(currencies_json, object_hook=json_date_hook)
+            accounts_data = json.loads(accounts_json, object_hook=json_date_hook)
+        except json.JSONDecodeError as e:
+            self.app_core.logger.error(f"Error parsing combo JSON data: {e}")
+            QMessageBox.warning(self, "Data Error", "Error parsing dropdown data.")
+            return
+
+        # Populate Currency ComboBox
+        self.currency_code_combo.clear()
+        for curr in currencies_data: self.currency_code_combo.addItem(f"{curr['code']} - {curr['name']}", curr['code'])
+        
+        # Populate Receivables Account ComboBox
+        self.receivables_account_combo.clear()
+        self.receivables_account_combo.addItem("None", 0) # Option for no specific AR account
+        for acc in accounts_data: self.receivables_account_combo.addItem(f"{acc['code']} - {acc['name']}", acc['id'])
+        
+        # If editing, try to set current values after combos are populated
+        if self.loaded_customer_data:
+            self._populate_fields_from_orm(self.loaded_customer_data)
+
+
+    async def _load_existing_customer_details(self):
+        if not self.customer_id or not self.app_core.customer_manager: return
+        self.loaded_customer_data = await self.app_core.customer_manager.get_customer_for_dialog(self.customer_id)
+        if self.loaded_customer_data:
+            # Data passed via QMetaObject needs to be simple types or JSON serializable
+            customer_dict = {col.name: getattr(self.loaded_customer_data, col.name) for col in Customer.__table__.columns}
+            # Convert Decimal and date/datetime to string for JSON
+            customer_json_str = json.dumps(customer_dict, default=json_converter)
+            QMetaObject.invokeMethod(self, "_populate_fields_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, customer_json_str))
+        else:
+            QMessageBox.warning(self, "Load Error", f"Customer ID {self.customer_id} not found.")
+            self.reject() # Close dialog if customer not found
+
+    @Slot(str)
+    def _populate_fields_slot(self, customer_json_str: str):
+        try:
+            customer_data = json.loads(customer_json_str, object_hook=json_date_hook)
+        except json.JSONDecodeError:
+            QMessageBox.critical(self, "Error", "Failed to parse customer data for editing."); return
+        
+        self._populate_fields_from_dict(customer_data)
+
+
+    def _populate_fields_from_orm(self, customer_orm: Customer): # Primarily for setting combos after they are loaded
+        currency_idx = self.currency_code_combo.findData(customer_orm.currency_code)
+        if currency_idx != -1: self.currency_code_combo.setCurrentIndex(currency_idx)
+        else: self.app_core.logger.warning(f"Loaded customer currency '{customer_orm.currency_code}' not found in active currencies combo.")
+
+        ar_acc_idx = self.receivables_account_combo.findData(customer_orm.receivables_account_id or 0)
+        if ar_acc_idx != -1: self.receivables_account_combo.setCurrentIndex(ar_acc_idx)
+        elif customer_orm.receivables_account_id:
+             self.app_core.logger.warning(f"Loaded customer A/R account ID '{customer_orm.receivables_account_id}' not found in combo.")
+
+
+    def _populate_fields_from_dict(self, data: Dict[str, Any]):
+        self.customer_code_edit.setText(data.get("customer_code", ""))
+        self.name_edit.setText(data.get("name", ""))
+        self.legal_name_edit.setText(data.get("legal_name", "") or "")
+        self.uen_no_edit.setText(data.get("uen_no", "") or "")
+        self.gst_registered_check.setChecked(data.get("gst_registered", False))
+        self.gst_no_edit.setText(data.get("gst_no", "") or "")
+        self.gst_no_edit.setEnabled(data.get("gst_registered", False))
+        self.contact_person_edit.setText(data.get("contact_person", "") or "")
+        self.email_edit.setText(data.get("email", "") or "")
+        self.phone_edit.setText(data.get("phone", "") or "")
+        self.address_line1_edit.setText(data.get("address_line1", "") or "")
+        self.address_line2_edit.setText(data.get("address_line2", "") or "")
+        self.postal_code_edit.setText(data.get("postal_code", "") or "")
+        self.city_edit.setText(data.get("city", "") or "Singapore")
+        self.country_edit.setText(data.get("country", "") or "Singapore")
+        self.credit_terms_spin.setValue(data.get("credit_terms", 30))
+        cl_val = data.get("credit_limit")
+        self.credit_limit_edit.setText(f"{Decimal(str(cl_val)):.2f}" if cl_val is not None else "")
+        
+        # Set comboboxes - ensure they are populated first
+        currency_idx = self.currency_code_combo.findData(data.get("currency_code", "SGD"))
+        if currency_idx != -1: self.currency_code_combo.setCurrentIndex(currency_idx)
+        
+        ar_acc_id = data.get("receivables_account_id")
+        ar_acc_idx = self.receivables_account_combo.findData(ar_acc_id if ar_acc_id is not None else 0)
+        if ar_acc_idx != -1: self.receivables_account_combo.setCurrentIndex(ar_acc_idx)
+
+        self.is_active_check.setChecked(data.get("is_active", True))
+        cs_date = data.get("customer_since")
+        self.customer_since_date_edit.setDate(QDate(cs_date) if cs_date else QDate.currentDate())
+        self.notes_edit.setText(data.get("notes", "") or "")
+
+
+    @Slot()
+    def on_save_customer(self):
+        if not self.app_core.current_user:
+            QMessageBox.warning(self, "Auth Error", "No user logged in."); return
+
+        try:
+            credit_limit_val_str = self.credit_limit_edit.text().strip()
+            credit_limit_decimal = Decimal(credit_limit_val_str) if credit_limit_val_str else None
+        except InvalidOperation:
+            QMessageBox.warning(self, "Input Error", "Invalid Credit Limit format. Please enter a valid number or leave blank."); return
+
+        receivables_acc_id_data = self.receivables_account_combo.currentData()
+        receivables_acc_id = int(receivables_acc_id_data) if receivables_acc_id_data and int(receivables_acc_id_data) != 0 else None
+        
+        customer_since_py_date = self.customer_since_date_edit.date().toPython()
+
+        # Common data dictionary for DTOs
+        data_dict = {
+            "customer_code": self.customer_code_edit.text().strip(),
+            "name": self.name_edit.text().strip(),
+            "legal_name": self.legal_name_edit.text().strip() or None,
+            "uen_no": self.uen_no_edit.text().strip() or None,
+            "gst_registered": self.gst_registered_check.isChecked(),
+            "gst_no": self.gst_no_edit.text().strip() if self.gst_registered_check.isChecked() else None,
+            "contact_person": self.contact_person_edit.text().strip() or None,
+            "email": self.email_edit.text().strip() or None, # Pydantic will validate EmailStr
+            "phone": self.phone_edit.text().strip() or None,
+            "address_line1": self.address_line1_edit.text().strip() or None,
+            "address_line2": self.address_line2_edit.text().strip() or None,
+            "postal_code": self.postal_code_edit.text().strip() or None,
+            "city": self.city_edit.text().strip() or None,
+            "country": self.country_edit.text().strip() or "Singapore",
+            "credit_terms": self.credit_terms_spin.value(),
+            "credit_limit": credit_limit_decimal,
+            "currency_code": self.currency_code_combo.currentData() or "SGD",
+            "is_active": self.is_active_check.isChecked(),
+            "customer_since": customer_since_py_date,
+            "notes": self.notes_edit.toPlainText().strip() or None,
+            "receivables_account_id": receivables_acc_id,
+            "user_id": self.current_user_id
+        }
+
+        try:
+            if self.customer_id: # Update
+                dto = CustomerUpdateData(id=self.customer_id, **data_dict) # type: ignore
+            else: # Create
+                dto = CustomerCreateData(**data_dict) # type: ignore
+        except ValueError as pydantic_error: # Pydantic validation error
+             QMessageBox.warning(self, "Validation Error", f"Invalid data:\n{str(pydantic_error)}")
+             return
+
+        # Disable save button during operation
+        ok_button = self.button_box.button(QDialogButtonBox.StandardButton.Ok)
+        if ok_button: ok_button.setEnabled(False)
+
+        schedule_task_from_qt(self._perform_save(dto)).add_done_callback(
+            lambda _: ok_button.setEnabled(True) if ok_button else None
+        )
+
+    async def _perform_save(self, dto: CustomerCreateData | CustomerUpdateData):
+        if not self.app_core.customer_manager:
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str, "Customer Manager not available."))
+            return
+
+        result: Result[Customer]
+        if isinstance(dto, CustomerUpdateData):
+            result = await self.app_core.customer_manager.update_customer(dto.id, dto)
+        else:
+            result = await self.app_core.customer_manager.create_customer(dto)
+
+        if result.is_success and result.value:
+            action = "updated" if isinstance(dto, CustomerUpdateData) else "created"
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "information", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Success"), Q_ARG(str, f"Customer {action} successfully (ID: {result.value.id})."))
+            self.customer_saved.emit(result.value.id)
+            QMetaObject.invokeMethod(self, "accept", Qt.ConnectionType.QueuedConnection)
+        else:
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "warning", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Save Error"), Q_ARG(str, f"Failed to save customer:\n{', '.join(result.errors)}"))
+
+```
+
+# app/ui/customers/customer_table_model.py
+```py
+# app/ui/customers/customer_table_model.py
+from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
+from typing import List, Dict, Any, Optional
+
+from app.utils.pydantic_models import CustomerSummaryData # Using the DTO for type safety
+
+class CustomerTableModel(QAbstractTableModel):
+    def __init__(self, data: Optional[List[CustomerSummaryData]] = None, parent=None):
+        super().__init__(parent)
+        # Headers should match fields in CustomerSummaryData + any derived display fields
+        self._headers = ["ID", "Code", "Name", "Email", "Phone", "Active"]
+        self._data: List[CustomerSummaryData] = data or []
+
+    def rowCount(self, parent=QModelIndex()) -> int:
+        if parent.isValid():
+            return 0
+        return len(self._data)
+
+    def columnCount(self, parent=QModelIndex()) -> int:
+        return len(self._headers)
+
+    def headerData(self, section: int, orientation: Qt.Orientation, role=Qt.ItemDataRole.DisplayRole) -> Optional[str]:
+        if role == Qt.ItemDataRole.DisplayRole and orientation == Qt.Orientation.Horizontal:
+            if 0 <= section < len(self._headers):
+                return self._headers[section]
+        return None
+
+    def data(self, index: QModelIndex, role=Qt.ItemDataRole.DisplayRole) -> Any:
+        if not index.isValid():
+            return None
+        
+        row = index.row()
+        col = index.column()
+
+        if not (0 <= row < len(self._data)):
+            return None
+            
+        customer_summary: CustomerSummaryData = self._data[row]
+
+        if role == Qt.ItemDataRole.DisplayRole:
+            if col == 0: return str(customer_summary.id)
+            if col == 1: return customer_summary.customer_code
+            if col == 2: return customer_summary.name
+            if col == 3: return str(customer_summary.email) if customer_summary.email else ""
+            if col == 4: return customer_summary.phone if customer_summary.phone else ""
+            if col == 5: return "Yes" if customer_summary.is_active else "No"
+            
+            # Fallback for safety, though all defined headers should be covered
+            header_key = self._headers[col].lower().replace(' ', '_')
+            return str(getattr(customer_summary, header_key, ""))
+
+        elif role == Qt.ItemDataRole.UserRole:
+            # Store the full DTO or just the ID in UserRole for easy retrieval
+            # Storing ID in the first column's UserRole is common.
+            if col == 0: 
+                return customer_summary.id
+        
+        elif role == Qt.ItemDataRole.TextAlignmentRole:
+            if col == 5: # Active status
+                return Qt.AlignmentFlag.AlignCenter
+        
+        return None
+
+    def get_customer_id_at_row(self, row: int) -> Optional[int]:
+        if 0 <= row < len(self._data):
+            index = self.index(row, 0) # Assuming ID is in/associated with the first column (model index 0)
+            id_val = self.data(index, Qt.ItemDataRole.UserRole)
+            if id_val is not None:
+                return int(id_val)
+            # Fallback if UserRole is not used for ID or is somehow None
+            return self._data[row].id 
+        return None
+        
+    def get_customer_status_at_row(self, row: int) -> Optional[bool]:
+        if 0 <= row < len(self._data):
+            return self._data[row].is_active
+        return None
+
+    def update_data(self, new_data: List[CustomerSummaryData]):
+        self.beginResetModel()
+        self._data = new_data or []
+        self.endResetModel()
 
 ```
 
 # app/ui/customers/customers_widget.py
 ```py
-# File: app/ui/customers/customers_widget.py
-# (Stub content as previously generated)
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel
-from app.core.application_core import ApplicationCore 
+# app/ui/customers/customers_widget.py
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QTableView, QPushButton, 
+    QToolBar, QMenu, QHeaderView, QAbstractItemView, QMessageBox,
+    QLabel, QLineEdit, QCheckBox # Added for filtering/search
+)
+from PySide6.QtCore import Qt, Slot, QTimer, QMetaObject, Q_ARG, QModelIndex, QSize
+from PySide6.QtGui import QIcon, QAction
+from typing import Optional, List, Dict, Any, TYPE_CHECKING
+
+import json
+
+from app.core.application_core import ApplicationCore
+from app.main import schedule_task_from_qt
+from app.ui.customers.customer_table_model import CustomerTableModel # New import
+from app.ui.customers.customer_dialog import CustomerDialog # New import
+from app.utils.pydantic_models import CustomerSummaryData # For type hinting
+from app.utils.json_helpers import json_converter, json_date_hook
+from app.utils.result import Result
+from app.models.business.customer import Customer # For Result type hint from manager
+
+if TYPE_CHECKING:
+    from PySide6.QtGui import QPaintDevice
 
 class CustomersWidget(QWidget):
-    def __init__(self, app_core: ApplicationCore, parent=None):
+    def __init__(self, app_core: ApplicationCore, parent: Optional["QWidget"] = None):
         super().__init__(parent)
         self.app_core = app_core
-        self.layout = QVBoxLayout(self)
-        self.label = QLabel("Customers Management Widget (List, Add, Edit Customers - To be implemented)")
-        self.layout.addWidget(self.label)
-        self.setLayout(self.layout)
+        
+        self.icon_path_prefix = "resources/icons/" 
+        try:
+            import app.resources_rc 
+            self.icon_path_prefix = ":/icons/"
+            self.app_core.logger.info("Using compiled Qt resources for CustomersWidget.")
+        except ImportError:
+            self.app_core.logger.info("CustomersWidget: Compiled Qt resources not found. Using direct file paths.")
+            pass
+        
+        self._init_ui()
+        QTimer.singleShot(0, lambda: schedule_task_from_qt(self._load_customers()))
+
+    def _init_ui(self):
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setSpacing(5)
+
+        # --- Toolbar ---
+        self._create_toolbar()
+        self.main_layout.addWidget(self.toolbar)
+
+        # --- Filter/Search Area ---
+        filter_layout = QHBoxLayout()
+        filter_layout.addWidget(QLabel("Search:"))
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText("Enter code, name, or email...")
+        self.search_edit.returnPressed.connect(self.toolbar_refresh_action.trigger) # Trigger refresh on Enter
+        filter_layout.addWidget(self.search_edit)
+
+        self.show_inactive_check = QCheckBox("Show Inactive")
+        self.show_inactive_check.stateChanged.connect(self.toolbar_refresh_action.trigger) # Trigger refresh on change
+        filter_layout.addWidget(self.show_inactive_check)
+        filter_layout.addStretch()
+        self.main_layout.addLayout(filter_layout)
+
+        # --- Table View ---
+        self.customers_table = QTableView()
+        self.customers_table.setAlternatingRowColors(True)
+        self.customers_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.customers_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.customers_table.horizontalHeader().setStretchLastSection(True)
+        self.customers_table.doubleClicked.connect(self._on_edit_customer) # Or view
+        self.customers_table.setSortingEnabled(True)
+
+        self.table_model = CustomerTableModel()
+        self.customers_table.setModel(self.table_model)
+        
+        # Configure columns after model is set
+        if "ID" in self.table_model._headers:
+            self.customers_table.setColumnHidden(self.table_model._headers.index("ID"), True)
+        if "Name" in self.table_model._headers:
+            name_col_idx = self.table_model._headers.index("Name")
+            self.customers_table.horizontalHeader().setSectionResizeMode(name_col_idx, QHeaderView.ResizeMode.Stretch)
+        else: # Fallback if "Name" header changes
+             self.customers_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+
+
+        self.main_layout.addWidget(self.customers_table)
+        self.setLayout(self.main_layout)
+
+        if self.customers_table.selectionModel():
+            self.customers_table.selectionModel().selectionChanged.connect(self._update_action_states)
+        self._update_action_states()
+
+
+    def _create_toolbar(self):
+        self.toolbar = QToolBar("Customer Toolbar")
+        self.toolbar.setIconSize(QSize(16, 16))
+
+        self.toolbar_add_action = QAction(QIcon(self.icon_path_prefix + "add.svg"), "Add Customer", self)
+        self.toolbar_add_action.triggered.connect(self._on_add_customer)
+        self.toolbar.addAction(self.toolbar_add_action)
+
+        self.toolbar_edit_action = QAction(QIcon(self.icon_path_prefix + "edit.svg"), "Edit Customer", self)
+        self.toolbar_edit_action.triggered.connect(self._on_edit_customer)
+        self.toolbar.addAction(self.toolbar_edit_action)
+
+        self.toolbar_toggle_active_action = QAction(QIcon(self.icon_path_prefix + "deactivate.svg"), "Toggle Active", self)
+        self.toolbar_toggle_active_action.triggered.connect(self._on_toggle_active_status)
+        self.toolbar.addAction(self.toolbar_toggle_active_action)
+        
+        self.toolbar.addSeparator()
+        self.toolbar_refresh_action = QAction(QIcon(self.icon_path_prefix + "refresh.svg"), "Refresh List", self)
+        self.toolbar_refresh_action.triggered.connect(lambda: schedule_task_from_qt(self._load_customers()))
+        self.toolbar.addAction(self.toolbar_refresh_action)
+
+
+    @Slot()
+    def _update_action_states(self):
+        selected_rows = self.customers_table.selectionModel().selectedRows()
+        has_selection = bool(selected_rows)
+        single_selection = len(selected_rows) == 1
+        
+        self.toolbar_edit_action.setEnabled(single_selection)
+        self.toolbar_toggle_active_action.setEnabled(single_selection)
+
+    async def _load_customers(self):
+        if not self.app_core.customer_manager:
+            self.app_core.logger.error("CustomerManager not available in CustomersWidget.")
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str,"Customer Manager component not available."))
+            return
+        try:
+            search_term = self.search_edit.text().strip() or None
+            active_only = not self.show_inactive_check.isChecked()
+            
+            # For MVP, pagination is handled by service if params are passed. UI doesn't have page controls yet.
+            result: Result[List[CustomerSummaryData]] = await self.app_core.customer_manager.get_customers_for_listing(
+                active_only=active_only, 
+                search_term=search_term,
+                page=1, # Default to first page
+                page_size=200 # Load a reasonable number for MVP table
+            )
+            
+            if result.is_success:
+                data_for_table = result.value if result.value is not None else []
+                json_data = json.dumps([dto.model_dump() for dto in data_for_table], default=json_converter)
+                QMetaObject.invokeMethod(self, "_update_table_model_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, json_data))
+            else:
+                error_msg = f"Failed to load customers: {', '.join(result.errors)}"
+                self.app_core.logger.error(error_msg)
+                QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "warning", Qt.ConnectionType.QueuedConnection,
+                    Q_ARG(QWidget, self), Q_ARG(str, "Load Error"), Q_ARG(str, error_msg))
+        except Exception as e:
+            error_msg = f"Unexpected error loading customers: {str(e)}"
+            self.app_core.logger.error(error_msg, exc_info=True)
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Load Error"), Q_ARG(str, error_msg))
+
+    @Slot(str)
+    def _update_table_model_slot(self, json_data_str: str):
+        try:
+            list_of_dicts = json.loads(json_data_str, object_hook=json_date_hook)
+            # Convert list of dicts to list of CustomerSummaryData DTOs
+            customer_summaries: List[CustomerSummaryData] = [CustomerSummaryData.model_validate(item) for item in list_of_dicts]
+            self.table_model.update_data(customer_summaries)
+        except json.JSONDecodeError as e:
+            QMessageBox.critical(self, "Data Error", f"Failed to parse customer data: {e}")
+        except Exception as p_error: # Catch Pydantic validation errors too
+            QMessageBox.critical(self, "Data Error", f"Invalid customer data format: {p_error}")
+        finally:
+            self._update_action_states()
+
+    @Slot()
+    def _on_add_customer(self):
+        if not self.app_core.current_user:
+            QMessageBox.warning(self, "Auth Error", "Please log in to add a customer.")
+            return
+        
+        dialog = CustomerDialog(self.app_core, self.app_core.current_user.id, parent=self)
+        dialog.customer_saved.connect(lambda _id: schedule_task_from_qt(self._load_customers()))
+        dialog.exec()
+
+    def _get_selected_customer_id(self) -> Optional[int]:
+        selected_rows = self.customers_table.selectionModel().selectedRows()
+        if not selected_rows or len(selected_rows) > 1:
+            QMessageBox.information(self, "Selection", "Please select a single customer.")
+            return None
+        return self.table_model.get_customer_id_at_row(selected_rows[0].row())
+
+    @Slot()
+    def _on_edit_customer(self):
+        customer_id = self._get_selected_customer_id()
+        if customer_id is None: return
+
+        if not self.app_core.current_user:
+            QMessageBox.warning(self, "Auth Error", "Please log in to edit a customer.")
+            return
+            
+        dialog = CustomerDialog(self.app_core, self.app_core.current_user.id, customer_id=customer_id, parent=self)
+        dialog.customer_saved.connect(lambda _id: schedule_task_from_qt(self._load_customers()))
+        dialog.exec()
+        
+    @Slot(QModelIndex)
+    def _on_view_customer_double_click(self, index: QModelIndex):
+        if not index.isValid(): return
+        customer_id = self.table_model.get_customer_id_at_row(index.row())
+        if customer_id is None: return
+        # For MVP, double-click also opens for edit. Can be changed to view-only later.
+        if not self.app_core.current_user:
+            QMessageBox.warning(self, "Auth Error", "Please log in to view/edit customer.")
+            return
+        dialog = CustomerDialog(self.app_core, self.app_core.current_user.id, customer_id=customer_id, parent=self)
+        dialog.customer_saved.connect(lambda _id: schedule_task_from_qt(self._load_customers()))
+        dialog.exec()
+
+
+    @Slot()
+    def _on_toggle_active_status(self):
+        customer_id = self._get_selected_customer_id()
+        if customer_id is None: return
+
+        if not self.app_core.current_user:
+            QMessageBox.warning(self, "Auth Error", "Please log in to change customer status.")
+            return
+            
+        # Confirm action
+        customer_status_active = self.table_model.get_customer_status_at_row(self.customers_table.currentIndex().row())
+        action_verb = "deactivate" if customer_status_active else "activate"
+        reply = QMessageBox.question(self, f"Confirm {action_verb.capitalize()}",
+                                     f"Are you sure you want to {action_verb} this customer?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                     QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.No:
+            return
+
+        future = schedule_task_from_qt(
+            self.app_core.customer_manager.toggle_customer_active_status(customer_id, self.app_core.current_user.id)
+        )
+        if future: future.add_done_callback(self._handle_toggle_active_result)
+        else: self._handle_toggle_active_result(None)
+
+    def _handle_toggle_active_result(self, future):
+        if future is None: QMessageBox.critical(self, "Task Error", "Failed to schedule customer status toggle."); return
+        try:
+            result: Result[Customer] = future.result()
+            if result.is_success:
+                action_verb_past = "activated" if result.value and result.value.is_active else "deactivated"
+                QMessageBox.information(self, "Success", f"Customer {action_verb_past} successfully.")
+                schedule_task_from_qt(self._load_customers()) # Refresh list
+            else:
+                QMessageBox.warning(self, "Error", f"Failed to toggle customer status:\n{', '.join(result.errors)}")
+        except Exception as e:
+            self.app_core.logger.error(f"Error handling toggle active status result: {e}", exc_info=True)
+            QMessageBox.critical(self, "Error", f"An unexpected error occurred: {str(e)}")
+
 
 ```
 
@@ -2419,30 +1911,1787 @@ class BankingWidget(QWidget):
 
 ```
 
+# app/ui/products/__init__.py
+```py
+# app/ui/products/__init__.py
+from .product_table_model import ProductTableModel
+from .product_dialog import ProductDialog
+from .products_widget import ProductsWidget # New export
+
+__all__ = [
+    "ProductTableModel",
+    "ProductDialog",
+    "ProductsWidget", # Added to __all__
+]
+
+
+```
+
+# app/ui/products/product_table_model.py
+```py
+# app/ui/products/product_table_model.py
+from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
+from typing import List, Dict, Any, Optional
+from decimal import Decimal, InvalidOperation
+
+from app.utils.pydantic_models import ProductSummaryData # Using the DTO for type safety
+from app.common.enums import ProductTypeEnum # For displaying enum value
+
+class ProductTableModel(QAbstractTableModel):
+    def __init__(self, data: Optional[List[ProductSummaryData]] = None, parent=None):
+        super().__init__(parent)
+        # Headers match fields in ProductSummaryData + any derived display fields
+        self._headers = ["ID", "Code", "Name", "Type", "Sales Price", "Purchase Price", "Active"]
+        self._data: List[ProductSummaryData] = data or []
+
+    def rowCount(self, parent=QModelIndex()) -> int:
+        if parent.isValid():
+            return 0
+        return len(self._data)
+
+    def columnCount(self, parent=QModelIndex()) -> int:
+        return len(self._headers)
+
+    def headerData(self, section: int, orientation: Qt.Orientation, role=Qt.ItemDataRole.DisplayRole) -> Optional[str]:
+        if role == Qt.ItemDataRole.DisplayRole and orientation == Qt.Orientation.Horizontal:
+            if 0 <= section < len(self._headers):
+                return self._headers[section]
+        return None
+    
+    def _format_decimal_for_table(self, value: Optional[Decimal]) -> str:
+        if value is None: return ""
+        try:
+            return f"{Decimal(str(value)):,.2f}"
+        except (InvalidOperation, TypeError):
+            return str(value) # Fallback
+
+    def data(self, index: QModelIndex, role=Qt.ItemDataRole.DisplayRole) -> Any:
+        if not index.isValid():
+            return None
+        
+        row = index.row()
+        col = index.column()
+
+        if not (0 <= row < len(self._data)):
+            return None
+            
+        product_summary: ProductSummaryData = self._data[row]
+
+        if role == Qt.ItemDataRole.DisplayRole:
+            header_key = self._headers[col].lower().replace(' ', '_') # e.g. "Sales Price" -> "sales_price"
+            
+            if col == 0: return str(product_summary.id)
+            if col == 1: return product_summary.product_code
+            if col == 2: return product_summary.name
+            if col == 3: return product_summary.product_type.value if isinstance(product_summary.product_type, ProductTypeEnum) else str(product_summary.product_type)
+            if col == 4: return self._format_decimal_for_table(product_summary.sales_price)
+            if col == 5: return self._format_decimal_for_table(product_summary.purchase_price)
+            if col == 6: return "Yes" if product_summary.is_active else "No"
+            
+            # Fallback for safety (should be covered by above)
+            return str(getattr(product_summary, header_key, ""))
+
+        elif role == Qt.ItemDataRole.UserRole:
+            if col == 0: 
+                return product_summary.id
+        
+        elif role == Qt.ItemDataRole.TextAlignmentRole:
+            if self._headers[col] in ["Sales Price", "Purchase Price"]:
+                return Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            if self._headers[col] == "Active":
+                return Qt.AlignmentFlag.AlignCenter
+        
+        return None
+
+    def get_product_id_at_row(self, row: int) -> Optional[int]:
+        if 0 <= row < len(self._data):
+            index = self.index(row, 0) 
+            id_val = self.data(index, Qt.ItemDataRole.UserRole)
+            if id_val is not None:
+                return int(id_val)
+            return self._data[row].id 
+        return None
+        
+    def get_product_status_at_row(self, row: int) -> Optional[bool]:
+        if 0 <= row < len(self._data):
+            return self._data[row].is_active
+        return None
+
+    def update_data(self, new_data: List[ProductSummaryData]):
+        self.beginResetModel()
+        self._data = new_data or []
+        self.endResetModel()
+
+```
+
+# app/ui/products/products_widget.py
+```py
+# app/ui/products/products_widget.py
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QTableView, QPushButton, 
+    QToolBar, QMenu, QHeaderView, QAbstractItemView, QMessageBox,
+    QLabel, QLineEdit, QCheckBox, QComboBox 
+)
+from PySide6.QtCore import Qt, Slot, QTimer, QMetaObject, Q_ARG, QModelIndex, QSize
+from PySide6.QtGui import QIcon, QAction
+from typing import Optional, List, Dict, Any, TYPE_CHECKING
+
+import json
+
+from app.core.application_core import ApplicationCore
+from app.main import schedule_task_from_qt
+from app.ui.products.product_table_model import ProductTableModel 
+from app.ui.products.product_dialog import ProductDialog 
+from app.utils.pydantic_models import ProductSummaryData 
+from app.common.enums import ProductTypeEnum 
+from app.utils.json_helpers import json_converter, json_date_hook
+from app.utils.result import Result
+from app.models.business.product import Product 
+
+if TYPE_CHECKING:
+    from PySide6.QtGui import QPaintDevice
+
+class ProductsWidget(QWidget):
+    def __init__(self, app_core: ApplicationCore, parent: Optional["QWidget"] = None):
+        super().__init__(parent)
+        self.app_core = app_core
+        
+        self.icon_path_prefix = "resources/icons/" 
+        try:
+            import app.resources_rc 
+            self.icon_path_prefix = ":/icons/"
+            self.app_core.logger.info("Using compiled Qt resources for ProductsWidget.")
+        except ImportError:
+            self.app_core.logger.info("ProductsWidget: Compiled Qt resources not found. Using direct file paths.")
+            pass
+        
+        self._init_ui()
+        QTimer.singleShot(0, lambda: self.toolbar_refresh_action.trigger() if hasattr(self, 'toolbar_refresh_action') else schedule_task_from_qt(self._load_products()))
+
+    def _init_ui(self):
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setSpacing(5)
+
+        self._create_toolbar()
+        self.main_layout.addWidget(self.toolbar)
+
+        filter_layout = QHBoxLayout()
+        filter_layout.addWidget(QLabel("Search:"))
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText("Code, Name, Description...")
+        self.search_edit.returnPressed.connect(self.toolbar_refresh_action.trigger)
+        filter_layout.addWidget(self.search_edit)
+
+        filter_layout.addWidget(QLabel("Type:"))
+        self.product_type_filter_combo = QComboBox()
+        self.product_type_filter_combo.addItem("All Types", None) 
+        for pt_enum in ProductTypeEnum:
+            self.product_type_filter_combo.addItem(pt_enum.value, pt_enum) 
+        self.product_type_filter_combo.currentIndexChanged.connect(self.toolbar_refresh_action.trigger)
+        filter_layout.addWidget(self.product_type_filter_combo)
+
+        self.show_inactive_check = QCheckBox("Show Inactive")
+        self.show_inactive_check.stateChanged.connect(self.toolbar_refresh_action.trigger)
+        filter_layout.addWidget(self.show_inactive_check)
+        
+        self.clear_filters_button = QPushButton(QIcon(self.icon_path_prefix + "refresh.svg"),"Clear Filters")
+        self.clear_filters_button.clicked.connect(self._clear_filters_and_load)
+        filter_layout.addWidget(self.clear_filters_button)
+        filter_layout.addStretch()
+        self.main_layout.addLayout(filter_layout)
+
+        self.products_table = QTableView()
+        self.products_table.setAlternatingRowColors(True)
+        self.products_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.products_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.products_table.horizontalHeader().setStretchLastSection(False)
+        self.products_table.doubleClicked.connect(self._on_edit_product_double_click) 
+        self.products_table.setSortingEnabled(True)
+
+        self.table_model = ProductTableModel()
+        self.products_table.setModel(self.table_model)
+        
+        header = self.products_table.horizontalHeader()
+        for i in range(self.table_model.columnCount()):
+            header.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
+        
+        id_col_idx = self.table_model._headers.index("ID") if "ID" in self.table_model._headers else -1
+        if id_col_idx != -1: self.products_table.setColumnHidden(id_col_idx, True)
+        
+        name_col_idx = self.table_model._headers.index("Name") if "Name" in self.table_model._headers else -1
+        if name_col_idx != -1:
+            visible_name_idx = name_col_idx
+            if id_col_idx != -1 and id_col_idx < name_col_idx and self.products_table.isColumnHidden(id_col_idx): # Check if ID column is actually hidden
+                visible_name_idx -=1
+            
+            # Check if the model column corresponding to name_col_idx is not hidden before stretching
+            if not self.products_table.isColumnHidden(name_col_idx): # Use model index for isColumnHidden
+                 header.setSectionResizeMode(visible_name_idx, QHeaderView.ResizeMode.Stretch)
+        elif self.table_model.columnCount() > 2 : 
+            # Fallback: if ID (model index 0) is hidden, stretch second visible column (model index 2 -> visible 1)
+            # This assumes "Code" is model index 1 (visible 0) and "Name" is model index 2 (visible 1)
+            # If headers are ["ID", "Code", "Name", ...], and ID is hidden, visible Name is index 1.
+            header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch) 
+
+
+        self.main_layout.addWidget(self.products_table)
+        self.setLayout(self.main_layout)
+
+        if self.products_table.selectionModel():
+            self.products_table.selectionModel().selectionChanged.connect(self._update_action_states)
+        self._update_action_states()
+
+    def _create_toolbar(self):
+        self.toolbar = QToolBar("Product/Service Toolbar")
+        self.toolbar.setIconSize(QSize(16, 16))
+
+        self.toolbar_add_action = QAction(QIcon(self.icon_path_prefix + "add.svg"), "Add Product/Service", self)
+        self.toolbar_add_action.triggered.connect(self._on_add_product)
+        self.toolbar.addAction(self.toolbar_add_action)
+
+        self.toolbar_edit_action = QAction(QIcon(self.icon_path_prefix + "edit.svg"), "Edit Product/Service", self)
+        self.toolbar_edit_action.triggered.connect(self._on_edit_product)
+        self.toolbar.addAction(self.toolbar_edit_action)
+
+        self.toolbar_toggle_active_action = QAction(QIcon(self.icon_path_prefix + "deactivate.svg"), "Toggle Active", self)
+        self.toolbar_toggle_active_action.triggered.connect(self._on_toggle_active_status)
+        self.toolbar.addAction(self.toolbar_toggle_active_action)
+        
+        self.toolbar.addSeparator()
+        self.toolbar_refresh_action = QAction(QIcon(self.icon_path_prefix + "refresh.svg"), "Refresh List", self)
+        self.toolbar_refresh_action.triggered.connect(lambda: schedule_task_from_qt(self._load_products()))
+        self.toolbar.addAction(self.toolbar_refresh_action)
+
+    @Slot()
+    def _clear_filters_and_load(self):
+        self.search_edit.clear()
+        self.product_type_filter_combo.setCurrentIndex(0) 
+        self.show_inactive_check.setChecked(False)
+        schedule_task_from_qt(self._load_products())
+
+    @Slot()
+    def _update_action_states(self):
+        selected_rows = self.products_table.selectionModel().selectedRows()
+        single_selection = len(selected_rows) == 1
+        
+        self.toolbar_edit_action.setEnabled(single_selection)
+        self.toolbar_toggle_active_action.setEnabled(single_selection)
+
+    async def _load_products(self):
+        if not self.app_core.product_manager:
+            self.app_core.logger.error("ProductManager not available in ProductsWidget.")
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str,"Product Manager component not available."))
+            return
+        try:
+            search_term = self.search_edit.text().strip() or None
+            active_only = not self.show_inactive_check.isChecked()
+            product_type_enum_filter: Optional[ProductTypeEnum] = self.product_type_filter_combo.currentData()
+            
+            result: Result[List[ProductSummaryData]] = await self.app_core.product_manager.get_products_for_listing(
+                active_only=active_only, 
+                product_type_filter=product_type_enum_filter,
+                search_term=search_term,
+                page=1, 
+                page_size=200 
+            )
+            
+            if result.is_success:
+                data_for_table = result.value if result.value is not None else []
+                list_of_dicts = [dto.model_dump() for dto in data_for_table]
+                json_data = json.dumps(list_of_dicts, default=json_converter)
+                QMetaObject.invokeMethod(self, "_update_table_model_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, json_data))
+            else:
+                error_msg = f"Failed to load products/services: {', '.join(result.errors)}"
+                self.app_core.logger.error(error_msg)
+                QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "warning", Qt.ConnectionType.QueuedConnection,
+                    Q_ARG(QWidget, self), Q_ARG(str, "Load Error"), Q_ARG(str, error_msg))
+        except Exception as e:
+            error_msg = f"Unexpected error loading products/services: {str(e)}"
+            self.app_core.logger.error(error_msg, exc_info=True)
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Load Error"), Q_ARG(str, error_msg))
+
+    @Slot(str)
+    def _update_table_model_slot(self, json_data_str: str):
+        try:
+            list_of_dicts = json.loads(json_data_str, object_hook=json_date_hook)
+            product_summaries: List[ProductSummaryData] = [ProductSummaryData.model_validate(item) for item in list_of_dicts]
+            self.table_model.update_data(product_summaries)
+        except json.JSONDecodeError as e:
+            QMessageBox.critical(self, "Data Error", f"Failed to parse product/service data: {e}")
+        except Exception as p_error: 
+            QMessageBox.critical(self, "Data Error", f"Invalid product/service data format: {p_error}")
+        finally:
+            self._update_action_states()
+
+    @Slot()
+    def _on_add_product(self):
+        if not self.app_core.current_user:
+            QMessageBox.warning(self, "Auth Error", "Please log in to add a product/service.")
+            return
+        
+        dialog = ProductDialog(self.app_core, self.app_core.current_user.id, parent=self)
+        dialog.product_saved.connect(lambda _id: schedule_task_from_qt(self._load_products()))
+        dialog.exec()
+
+    def _get_selected_product_id(self) -> Optional[int]:
+        selected_rows = self.products_table.selectionModel().selectedRows()
+        if not selected_rows or len(selected_rows) > 1:
+            return None
+        return self.table_model.get_product_id_at_row(selected_rows[0].row())
+
+    @Slot()
+    def _on_edit_product(self):
+        product_id = self._get_selected_product_id()
+        if product_id is None: 
+            QMessageBox.information(self, "Selection", "Please select a single product/service to edit.")
+            return
+
+        if not self.app_core.current_user:
+            QMessageBox.warning(self, "Auth Error", "Please log in to edit a product/service.")
+            return
+            
+        dialog = ProductDialog(self.app_core, self.app_core.current_user.id, product_id=product_id, parent=self)
+        dialog.product_saved.connect(lambda _id: schedule_task_from_qt(self._load_products()))
+        dialog.exec()
+        
+    @Slot(QModelIndex)
+    def _on_edit_product_double_click(self, index: QModelIndex): 
+        if not index.isValid(): return
+        product_id = self.table_model.get_product_id_at_row(index.row())
+        if product_id is None: return
+        
+        if not self.app_core.current_user:
+            QMessageBox.warning(self, "Auth Error", "Please log in to edit product/service.")
+            return
+        dialog = ProductDialog(self.app_core, self.app_core.current_user.id, product_id=product_id, parent=self)
+        dialog.product_saved.connect(lambda _id: schedule_task_from_qt(self._load_products()))
+        dialog.exec()
+
+    @Slot()
+    def _on_toggle_active_status(self):
+        product_id = self._get_selected_product_id()
+        if product_id is None: 
+            QMessageBox.information(self, "Selection", "Please select a single product/service to toggle status.")
+            return
+
+        if not self.app_core.current_user:
+            QMessageBox.warning(self, "Auth Error", "Please log in to change product/service status.")
+            return
+            
+        current_row = self.products_table.currentIndex().row()
+        if current_row < 0: # Should not happen if product_id is not None
+            return
+
+        product_status_active = self.table_model.get_product_status_at_row(current_row)
+        action_verb = "deactivate" if product_status_active else "activate"
+        reply = QMessageBox.question(self, f"Confirm {action_verb.capitalize()}",
+                                     f"Are you sure you want to {action_verb} this product/service?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                     QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.No:
+            return
+
+        future = schedule_task_from_qt(
+            self.app_core.product_manager.toggle_product_active_status(product_id, self.app_core.current_user.id)
+        )
+        if future: future.add_done_callback(self._handle_toggle_active_result)
+        else: self._handle_toggle_active_result(None)
+
+    def _handle_toggle_active_result(self, future):
+        if future is None: QMessageBox.critical(self, "Task Error", "Failed to schedule product/service status toggle."); return
+        try:
+            result: Result[Product] = future.result()
+            if result.is_success:
+                action_verb_past = "activated" if result.value and result.value.is_active else "deactivated"
+                QMessageBox.information(self, "Success", f"Product/Service {action_verb_past} successfully.")
+                schedule_task_from_qt(self._load_products()) 
+            else:
+                QMessageBox.warning(self, "Error", f"Failed to toggle product/service status:\n{', '.join(result.errors)}")
+        except Exception as e:
+            self.app_core.logger.error(f"Error handling toggle active status result for product/service: {e}", exc_info=True)
+            QMessageBox.critical(self, "Error", f"An unexpected error occurred: {str(e)}")
+
+
+```
+
+# app/ui/products/product_dialog.py
+```py
+# app/ui/products/product_dialog.py
+from PySide6.QtWidgets import (
+    QDialog, QVBoxLayout, QFormLayout, QLineEdit, QPushButton, QDialogButtonBox, 
+    QMessageBox, QCheckBox, QDateEdit, QComboBox, QSpinBox, QTextEdit, QDoubleSpinBox,
+    QCompleter
+)
+from PySide6.QtCore import Qt, QDate, Slot, Signal, QTimer, QMetaObject, Q_ARG
+from PySide6.QtGui import QIcon
+from typing import Optional, List, Dict, Any, TYPE_CHECKING, cast
+from decimal import Decimal, InvalidOperation
+
+from app.core.application_core import ApplicationCore
+from app.main import schedule_task_from_qt
+from app.utils.pydantic_models import ProductCreateData, ProductUpdateData
+from app.models.business.product import Product
+from app.models.accounting.account import Account
+from app.models.accounting.tax_code import TaxCode
+from app.common.enums import ProductTypeEnum # Enum for product type
+from app.utils.result import Result
+from app.utils.json_helpers import json_converter, json_date_hook
+
+
+if TYPE_CHECKING:
+    from PySide6.QtGui import QPaintDevice
+
+class ProductDialog(QDialog):
+    product_saved = Signal(int) # Emits product ID on successful save
+
+    def __init__(self, app_core: "ApplicationCore", current_user_id: int, 
+                 product_id: Optional[int] = None, 
+                 parent: Optional["QWidget"] = None):
+        super().__init__(parent)
+        self.app_core = app_core
+        self.current_user_id = current_user_id
+        self.product_id = product_id
+        self.loaded_product_data: Optional[Product] = None 
+
+        self._sales_accounts_cache: List[Account] = []
+        self._purchase_accounts_cache: List[Account] = []
+        self._inventory_accounts_cache: List[Account] = []
+        self._tax_codes_cache: List[TaxCode] = []
+        
+        self.setWindowTitle("Edit Product/Service" if self.product_id else "Add New Product/Service")
+        self.setMinimumWidth(600)
+        self.setModal(True)
+
+        self._init_ui()
+        self._connect_signals()
+
+        QTimer.singleShot(0, lambda: schedule_task_from_qt(self._load_combo_data()))
+        if self.product_id:
+            QTimer.singleShot(50, lambda: schedule_task_from_qt(self._load_existing_product_details()))
+        else: # For new product, trigger initial UI state based on default product type
+            self._on_product_type_changed(self.product_type_combo.currentData().value if self.product_type_combo.currentData() else ProductTypeEnum.SERVICE.value)
+
+
+    def _init_ui(self):
+        main_layout = QVBoxLayout(self)
+        form_layout = QFormLayout()
+        form_layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
+
+        self.product_code_edit = QLineEdit(); form_layout.addRow("Code*:", self.product_code_edit)
+        self.name_edit = QLineEdit(); form_layout.addRow("Name*:", self.name_edit)
+        self.description_edit = QTextEdit(); self.description_edit.setFixedHeight(60); form_layout.addRow("Description:", self.description_edit)
+
+        self.product_type_combo = QComboBox()
+        for pt_enum in ProductTypeEnum: self.product_type_combo.addItem(pt_enum.value, pt_enum) # Store Enum member as data
+        form_layout.addRow("Product Type*:", self.product_type_combo)
+
+        self.category_edit = QLineEdit(); form_layout.addRow("Category:", self.category_edit)
+        self.unit_of_measure_edit = QLineEdit(); form_layout.addRow("Unit of Measure:", self.unit_of_measure_edit)
+        self.barcode_edit = QLineEdit(); form_layout.addRow("Barcode:", self.barcode_edit)
+        
+        self.sales_price_spin = QDoubleSpinBox(); self.sales_price_spin.setDecimals(2); self.sales_price_spin.setRange(0, 99999999.99); self.sales_price_spin.setGroupSeparatorShown(True); form_layout.addRow("Sales Price:", self.sales_price_spin)
+        self.purchase_price_spin = QDoubleSpinBox(); self.purchase_price_spin.setDecimals(2); self.purchase_price_spin.setRange(0, 99999999.99); self.purchase_price_spin.setGroupSeparatorShown(True); form_layout.addRow("Purchase Price:", self.purchase_price_spin)
+        
+        self.sales_account_combo = QComboBox(); self.sales_account_combo.setMinimumWidth(200); form_layout.addRow("Sales Account:", self.sales_account_combo)
+        self.purchase_account_combo = QComboBox(); self.purchase_account_combo.setMinimumWidth(200); form_layout.addRow("Purchase Account:", self.purchase_account_combo)
+        
+        self.inventory_account_label = QLabel("Inventory Account*:") # For toggling visibility
+        self.inventory_account_combo = QComboBox(); self.inventory_account_combo.setMinimumWidth(200)
+        form_layout.addRow(self.inventory_account_label, self.inventory_account_combo)
+        
+        self.tax_code_combo = QComboBox(); self.tax_code_combo.setMinimumWidth(150); form_layout.addRow("Default Tax Code:", self.tax_code_combo)
+        
+        stock_group = QGroupBox("Inventory Details (for 'Inventory' type products)")
+        stock_layout = QFormLayout(stock_group)
+        self.min_stock_level_spin = QDoubleSpinBox(); self.min_stock_level_spin.setDecimals(2); self.min_stock_level_spin.setRange(0, 999999.99); stock_layout.addRow("Min. Stock Level:", self.min_stock_level_spin)
+        self.reorder_point_spin = QDoubleSpinBox(); self.reorder_point_spin.setDecimals(2); self.reorder_point_spin.setRange(0, 999999.99); stock_layout.addRow("Reorder Point:", self.reorder_point_spin)
+        form_layout.addRow(stock_group)
+        self.stock_details_group_box = stock_group # Store reference to toggle visibility
+
+        self.is_active_check = QCheckBox("Is Active"); self.is_active_check.setChecked(True); form_layout.addRow(self.is_active_check)
+        
+        main_layout.addLayout(form_layout)
+        self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        main_layout.addWidget(self.button_box)
+        self.setLayout(main_layout)
+
+    def _connect_signals(self):
+        self.button_box.accepted.connect(self.on_save_product)
+        self.button_box.rejected.connect(self.reject)
+        self.product_type_combo.currentDataChanged.connect(self._on_product_type_changed_enum) # Use currentDataChanged for Enums
+
+    @Slot(ProductTypeEnum) # Slot to receive the Enum member directly
+    def _on_product_type_changed_enum(self, product_type_enum: Optional[ProductTypeEnum]):
+        if product_type_enum:
+            self._on_product_type_changed(product_type_enum.value)
+
+    def _on_product_type_changed(self, product_type_value: str):
+        is_inventory_type = (product_type_value == ProductTypeEnum.INVENTORY.value)
+        self.inventory_account_label.setVisible(is_inventory_type)
+        self.inventory_account_combo.setVisible(is_inventory_type)
+        self.stock_details_group_box.setVisible(is_inventory_type)
+        if not is_inventory_type: # Clear inventory specific fields if not applicable
+            self.inventory_account_combo.setCurrentIndex(-1) # Or find "None" if added
+            self.min_stock_level_spin.setValue(0)
+            self.reorder_point_spin.setValue(0)
+
+
+    async def _load_combo_data(self):
+        try:
+            coa_manager = self.app_core.chart_of_accounts_manager
+            if coa_manager:
+                self._sales_accounts_cache = await coa_manager.get_accounts_for_selection(account_type="Revenue", active_only=True)
+                self._purchase_accounts_cache = await coa_manager.get_accounts_for_selection(account_type="Expense", active_only=True) # Could also be Asset
+                self._inventory_accounts_cache = await coa_manager.get_accounts_for_selection(account_type="Asset", active_only=True)
+            if self.app_core.tax_code_service:
+                self._tax_codes_cache = await self.app_core.tax_code_service.get_all() # Assumes active
+
+            # Serialize for thread-safe UI update
+            def acc_to_dict(acc: Account): return {"id": acc.id, "code": acc.code, "name": acc.name}
+            sales_acc_json = json.dumps(list(map(acc_to_dict, self._sales_accounts_cache)))
+            purch_acc_json = json.dumps(list(map(acc_to_dict, self._purchase_accounts_cache)))
+            inv_acc_json = json.dumps(list(map(acc_to_dict, self._inventory_accounts_cache)))
+            tax_codes_json = json.dumps([{"code": tc.code, "description": f"{tc.code} ({tc.rate}%)"} for tc in self._tax_codes_cache])
+
+            QMetaObject.invokeMethod(self, "_populate_combos_slot", Qt.ConnectionType.QueuedConnection, 
+                                     Q_ARG(str, sales_acc_json), Q_ARG(str, purch_acc_json),
+                                     Q_ARG(str, inv_acc_json), Q_ARG(str, tax_codes_json))
+        except Exception as e:
+            self.app_core.logger.error(f"Error loading combo data for ProductDialog: {e}", exc_info=True)
+            QMessageBox.warning(self, "Data Load Error", f"Could not load data for dropdowns: {str(e)}")
+
+    @Slot(str, str, str, str)
+    def _populate_combos_slot(self, sales_acc_json: str, purch_acc_json: str, inv_acc_json: str, tax_codes_json: str):
+        def populate_combo(combo: QComboBox, json_str: str, data_key: str = "id", name_format="{code} - {name}", add_none=True):
+            combo.clear()
+            if add_none: combo.addItem("None", 0) # Using 0 as data for "None"
+            try:
+                items = json.loads(json_str)
+                for item in items: combo.addItem(name_format.format(**item), item[data_key])
+            except json.JSONDecodeError: self.app_core.logger.error(f"Error parsing JSON for {combo.objectName()}")
+
+        populate_combo(self.sales_account_combo, sales_acc_json, add_none=True)
+        populate_combo(self.purchase_account_combo, purch_acc_json, add_none=True)
+        populate_combo(self.inventory_account_combo, inv_acc_json, add_none=True)
+        populate_combo(self.tax_code_combo, tax_codes_json, data_key="code", name_format="{description}", add_none=True) # tax_code stores code string
+        
+        if self.loaded_product_data: # If editing, set current values after combos are populated
+            self._populate_fields_from_orm(self.loaded_product_data)
+
+
+    async def _load_existing_product_details(self):
+        if not self.product_id or not self.app_core.product_manager: return
+        self.loaded_product_data = await self.app_core.product_manager.get_product_for_dialog(self.product_id)
+        if self.loaded_product_data:
+            product_dict = {col.name: getattr(self.loaded_product_data, col.name) for col in Product.__table__.columns}
+            product_json_str = json.dumps(product_dict, default=json_converter)
+            QMetaObject.invokeMethod(self, "_populate_fields_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, product_json_str))
+        else:
+            QMessageBox.warning(self, "Load Error", f"Product/Service ID {self.product_id} not found.")
+            self.reject()
+
+    @Slot(str)
+    def _populate_fields_slot(self, product_json_str: str):
+        try:
+            data = json.loads(product_json_str, object_hook=json_date_hook)
+        except json.JSONDecodeError:
+            QMessageBox.critical(self, "Error", "Failed to parse product data for editing."); return
+        self._populate_fields_from_dict(data)
+
+    def _populate_fields_from_orm(self, product_orm: Product): # Called after combos populated, if editing
+        def set_combo_by_data(combo: QComboBox, data_value: Any):
+            if data_value is None and combo.itemData(0) == 0 : combo.setCurrentIndex(0); return # Select "None"
+            idx = combo.findData(data_value)
+            if idx != -1: combo.setCurrentIndex(idx)
+            else: self.app_core.logger.warning(f"Value '{data_value}' for combo '{combo.objectName()}' not found.")
+        
+        set_combo_by_data(self.sales_account_combo, product_orm.sales_account_id)
+        set_combo_by_data(self.purchase_account_combo, product_orm.purchase_account_id)
+        set_combo_by_data(self.inventory_account_combo, product_orm.inventory_account_id)
+        set_combo_by_data(self.tax_code_combo, product_orm.tax_code) # tax_code is string
+
+    def _populate_fields_from_dict(self, data: Dict[str, Any]):
+        self.product_code_edit.setText(data.get("product_code", ""))
+        self.name_edit.setText(data.get("name", ""))
+        self.description_edit.setText(data.get("description", "") or "")
+        
+        pt_enum_val = data.get("product_type") # This will be string value from DB
+        pt_idx = self.product_type_combo.findData(ProductTypeEnum(pt_enum_val) if pt_enum_val else ProductTypeEnum.SERVICE, Qt.ItemDataRole.UserRole) # Find by Enum member
+        if pt_idx != -1: self.product_type_combo.setCurrentIndex(pt_idx)
+        self._on_product_type_changed(pt_enum_val if pt_enum_val else ProductTypeEnum.SERVICE.value) # Trigger UI update based on type
+
+        self.category_edit.setText(data.get("category", "") or "")
+        self.unit_of_measure_edit.setText(data.get("unit_of_measure", "") or "")
+        self.barcode_edit.setText(data.get("barcode", "") or "")
+        self.sales_price_spin.setValue(float(data.get("sales_price", 0.0) or 0.0))
+        self.purchase_price_spin.setValue(float(data.get("purchase_price", 0.0) or 0.0))
+        self.min_stock_level_spin.setValue(float(data.get("min_stock_level", 0.0) or 0.0))
+        self.reorder_point_spin.setValue(float(data.get("reorder_point", 0.0) or 0.0))
+        
+        self.is_active_check.setChecked(data.get("is_active", True))
+        
+        # Combos are set by _populate_fields_from_orm if data was from ORM,
+        # or if self.loaded_product_data is None (new entry), they will be default.
+        # This call might be redundant if _populate_combos_slot already called _populate_fields_from_orm.
+        if self.loaded_product_data: self._populate_fields_from_orm(self.loaded_product_data)
+
+
+    @Slot()
+    def on_save_product(self):
+        if not self.app_core.current_user: QMessageBox.warning(self, "Auth Error", "No user logged in."); return
+
+        sales_acc_id = self.sales_account_combo.currentData()
+        purch_acc_id = self.purchase_account_combo.currentData()
+        inv_acc_id = self.inventory_account_combo.currentData()
+        tax_code_val = self.tax_code_combo.currentData()
+
+        selected_product_type_enum = self.product_type_combo.currentData()
+        if not isinstance(selected_product_type_enum, ProductTypeEnum):
+            QMessageBox.warning(self, "Input Error", "Invalid product type selected."); return
+
+
+        data_dict = {
+            "product_code": self.product_code_edit.text().strip(), "name": self.name_edit.text().strip(),
+            "description": self.description_edit.toPlainText().strip() or None,
+            "product_type": selected_product_type_enum, # Pass the enum member
+            "category": self.category_edit.text().strip() or None,
+            "unit_of_measure": self.unit_of_measure_edit.text().strip() or None,
+            "barcode": self.barcode_edit.text().strip() or None,
+            "sales_price": Decimal(str(self.sales_price_spin.value())),
+            "purchase_price": Decimal(str(self.purchase_price_spin.value())),
+            "sales_account_id": int(sales_acc_id) if sales_acc_id and sales_acc_id !=0 else None,
+            "purchase_account_id": int(purch_acc_id) if purch_acc_id and purch_acc_id !=0 else None,
+            "inventory_account_id": int(inv_acc_id) if inv_acc_id and inv_acc_id !=0 and selected_product_type_enum == ProductTypeEnum.INVENTORY else None,
+            "tax_code": str(tax_code_val) if tax_code_val else None,
+            "is_active": self.is_active_check.isChecked(),
+            "min_stock_level": Decimal(str(self.min_stock_level_spin.value())) if selected_product_type_enum == ProductTypeEnum.INVENTORY else None,
+            "reorder_point": Decimal(str(self.reorder_point_spin.value())) if selected_product_type_enum == ProductTypeEnum.INVENTORY else None,
+            "user_id": self.current_user_id
+        }
+
+        try:
+            if self.product_id: dto = ProductUpdateData(id=self.product_id, **data_dict) # type: ignore
+            else: dto = ProductCreateData(**data_dict) # type: ignore
+        except ValueError as pydantic_error: 
+             QMessageBox.warning(self, "Validation Error", f"Invalid data:\n{str(pydantic_error)}"); return
+
+        ok_button = self.button_box.button(QDialogButtonBox.StandardButton.Ok)
+        if ok_button: ok_button.setEnabled(False)
+        schedule_task_from_qt(self._perform_save(dto)).add_done_callback(
+            lambda _: ok_button.setEnabled(True) if ok_button else None)
+
+    async def _perform_save(self, dto: ProductCreateData | ProductUpdateData):
+        if not self.app_core.product_manager:
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str, "Product Manager not available."))
+            return
+
+        result: Result[Product]
+        if isinstance(dto, ProductUpdateData): result = await self.app_core.product_manager.update_product(dto.id, dto)
+        else: result = await self.app_core.product_manager.create_product(dto)
+
+        if result.is_success and result.value:
+            action = "updated" if isinstance(dto, ProductUpdateData) else "created"
+            QMessageBox.information(self, "Success", f"Product/Service {action} successfully (ID: {result.value.id}).")
+            self.product_saved.emit(result.value.id)
+            QMetaObject.invokeMethod(self, "accept", Qt.ConnectionType.QueuedConnection)
+        else:
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "warning", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Save Error"), Q_ARG(str, f"Failed to save product/service:\n{', '.join(result.errors)}"))
+
+
+```
+
+# app/ui/sales_invoices/__init__.py
+```py
+# app/ui/sales_invoices/__init__.py    
+from .sales_invoice_table_model import SalesInvoiceTableModel
+from .sales_invoice_dialog import SalesInvoiceDialog # Ensure this is exported
+# from .sales_invoices_widget import SalesInvoicesWidget # To be added later
+
+__all__ = [
+    "SalesInvoiceTableModel",
+    "SalesInvoiceDialog", # Added to __all__
+    # "SalesInvoicesWidget",
+]
+
+
+```
+
+# app/ui/sales_invoices/sales_invoice_dialog.py
+```py
+# app/ui/sales_invoices/sales_invoice_dialog.py
+from PySide6.QtWidgets import (
+    QDialog, QVBoxLayout, QFormLayout, QLineEdit, QPushButton, QDialogButtonBox, 
+    QMessageBox, QCheckBox, QDateEdit, QComboBox, QSpinBox, QTextEdit, QDoubleSpinBox,
+    QTableWidget, QTableWidgetItem, QAbstractItemView, QHeaderView, QCompleter,
+    QSizePolicy, QApplication, QStyledItemDelegate, QAbstractSpinBox, QLabel, QFrame # Added QFrame, QLabel
+)
+from PySide6.QtCore import Qt, QDate, Slot, Signal, QTimer, QMetaObject, Q_ARG
+from PySide6.QtGui import QIcon, QFont, QPalette, QColor
+from typing import Optional, List, Dict, Any, TYPE_CHECKING, cast
+from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
+import json
+from datetime import date as python_date
+
+from app.core.application_core import ApplicationCore
+from app.main import schedule_task_from_qt
+from app.utils.pydantic_models import (
+    SalesInvoiceCreateData, SalesInvoiceUpdateData, SalesInvoiceLineBaseData,
+    CustomerSummaryData, ProductSummaryData 
+)
+from app.models.business.sales_invoice import SalesInvoice, SalesInvoiceLine
+from app.models.accounting.currency import Currency 
+from app.models.accounting.tax_code import TaxCode 
+from app.models.business.product import Product 
+from app.common.enums import InvoiceStatusEnum, ProductTypeEnum
+from app.utils.result import Result
+from app.utils.json_helpers import json_converter, json_date_hook
+
+if TYPE_CHECKING:
+    from PySide6.QtGui import QPaintDevice
+
+class LineItemNumericDelegate(QStyledItemDelegate):
+    def __init__(self, decimals=2, allow_negative=False, parent=None):
+        super().__init__(parent)
+        self.decimals = decimals
+        self.allow_negative = allow_negative
+
+    def createEditor(self, parent: QWidget, option, index: QModelIndex) -> QWidget: # type: ignore
+        editor = QDoubleSpinBox(parent)
+        editor.setDecimals(self.decimals)
+        editor.setMinimum(-999999999999.9999 if self.allow_negative else 0.0)
+        editor.setMaximum(999999999999.9999) 
+        editor.setGroupSeparatorShown(True)
+        editor.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        return editor
+
+    def setEditorData(self, editor: QDoubleSpinBox, index: QModelIndex):
+        value_str = index.model().data(index, Qt.ItemDataRole.EditRole) # EditRole for QTableWidgetItem
+        try:
+            editor.setValue(float(Decimal(str(value_str if value_str else '0'))))
+        except (TypeError, ValueError, InvalidOperation):
+            editor.setValue(0.0)
+
+    def setModelData(self, editor: QDoubleSpinBox, model: QAbstractItemModel, index: QModelIndex): # type: ignore
+        # Store as string to maintain precision, round appropriately for display/calculation
+        precision_str = '0.01' if self.decimals == 2 else '0.0001' # Common precisions
+        model.setData(index, str(Decimal(str(editor.value())).quantize(Decimal(precision_str), ROUND_HALF_UP)), Qt.ItemDataRole.EditRole)
+
+
+class SalesInvoiceDialog(QDialog):
+    invoice_saved = Signal(int) 
+
+    COL_DEL = 0; COL_PROD = 1; COL_DESC = 2; COL_QTY = 3; COL_PRICE = 4
+    COL_DISC_PCT = 5; COL_SUBTOTAL = 6; COL_TAX_CODE = 7; COL_TAX_AMT = 8; COL_TOTAL = 9
+    
+    def __init__(self, app_core: "ApplicationCore", current_user_id: int, 
+                 invoice_id: Optional[int] = None, 
+                 view_only: bool = False, 
+                 parent: Optional["QWidget"] = None):
+        super().__init__(parent)
+        self.app_core = app_core; self.current_user_id = current_user_id
+        self.invoice_id = invoice_id; self.view_only_mode = view_only
+        self.loaded_invoice_orm: Optional[SalesInvoice] = None
+        self.loaded_invoice_data_dict: Optional[Dict[str, Any]] = None
+
+        self._customers_cache: List[Dict[str, Any]] = [] # Store as dicts for combo
+        self._products_cache: List[Dict[str, Any]] = []
+        self._currencies_cache: List[Dict[str, Any]] = []
+        self._tax_codes_cache: List[Dict[str, Any]] = []
+
+        self.icon_path_prefix = "resources/icons/"
+        try: import app.resources_rc; self.icon_path_prefix = ":/icons/"
+        except ImportError: pass
+        
+        self.setWindowTitle(self._get_window_title())
+        self.setMinimumSize(1000, 750); self.setModal(True)
+        self._init_ui(); self._connect_signals()
+
+        QTimer.singleShot(0, lambda: schedule_task_from_qt(self._load_initial_combo_data()))
+        if self.invoice_id:
+            QTimer.singleShot(100, lambda: schedule_task_from_qt(self._load_existing_invoice_data()))
+        elif not self.view_only_mode: self._add_new_invoice_line()
+
+    def _get_window_title(self) -> str:
+        if self.view_only_mode: return f"View Sales Invoice {self.loaded_invoice_orm.invoice_no if self.loaded_invoice_orm else ''}"
+        if self.invoice_id: return f"Edit Sales Invoice {self.loaded_invoice_orm.invoice_no if self.loaded_invoice_orm else ''}"
+        return "New Sales Invoice"
+
+    def _init_ui(self):
+        main_layout = QVBoxLayout(self); self.header_form = QFormLayout()
+        self.header_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
+        self.customer_combo = QComboBox(); self.customer_combo.setEditable(True); self.customer_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        cust_completer = QCompleter(); cust_completer.setFilterMode(Qt.MatchFlag.MatchContains); cust_completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        self.customer_combo.setCompleter(cust_completer); self.header_form.addRow("Customer*:", self.customer_combo)
+        self.invoice_no_label = QLabel("To be generated"); self.invoice_no_label.setStyleSheet("font-style: italic; color: grey;")
+        self.header_form.addRow("Invoice No.:", self.invoice_no_label)
+        self.invoice_date_edit = QDateEdit(QDate.currentDate()); self.invoice_date_edit.setCalendarPopup(True); self.invoice_date_edit.setDisplayFormat("dd/MM/yyyy")
+        self.header_form.addRow("Invoice Date*:", self.invoice_date_edit)
+        self.due_date_edit = QDateEdit(QDate.currentDate().addDays(30)); self.due_date_edit.setCalendarPopup(True); self.due_date_edit.setDisplayFormat("dd/MM/yyyy")
+        self.header_form.addRow("Due Date*:", self.due_date_edit)
+        self.currency_combo = QComboBox(); self.header_form.addRow("Currency*:", self.currency_combo)
+        self.exchange_rate_spin = QDoubleSpinBox(); self.exchange_rate_spin.setDecimals(6); self.exchange_rate_spin.setRange(0.000001, 999999.0); self.exchange_rate_spin.setValue(1.0)
+        self.header_form.addRow("Exchange Rate:", self.exchange_rate_spin)
+        self.notes_edit = QTextEdit(); self.notes_edit.setFixedHeight(40); self.header_form.addRow("Notes:", self.notes_edit)
+        self.terms_edit = QTextEdit(); self.terms_edit.setFixedHeight(40); self.header_form.addRow("Terms & Conditions:", self.terms_edit)
+        main_layout.addLayout(self.header_form)
+        self.lines_table = QTableWidget()
+        self.lines_table.setColumnCount(self.COL_TOTAL + 1) 
+        self.lines_table.setHorizontalHeaderLabels(["", "Product/Service", "Description", "Qty*", "Unit Price*", "Disc %", "Subtotal", "Tax Code", "Tax Amt", "Line Total"])
+        self._configure_lines_table_columns()
+        main_layout.addWidget(self.lines_table)
+        lines_button_layout = QHBoxLayout()
+        self.add_line_button = QPushButton(QIcon(self.icon_path_prefix + "add.svg"), "Add Line")
+        self.remove_line_button = QPushButton(QIcon(self.icon_path_prefix + "remove.svg"), "Remove Selected Line")
+        lines_button_layout.addWidget(self.add_line_button); lines_button_layout.addWidget(self.remove_line_button); lines_button_layout.addStretch()
+        main_layout.addLayout(lines_button_layout)
+        totals_form = QFormLayout(); totals_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows); totals_form.setStyleSheet("QLabel { font-weight: bold; } QLineEdit { font-weight: bold; }")
+        self.subtotal_display = QLineEdit("0.00"); self.subtotal_display.setReadOnly(True); self.subtotal_display.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.total_tax_display = QLineEdit("0.00"); self.total_tax_display.setReadOnly(True); self.total_tax_display.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.grand_total_display = QLineEdit("0.00"); self.grand_total_display.setReadOnly(True); self.grand_total_display.setAlignment(Qt.AlignmentFlag.AlignRight); self.grand_total_display.setStyleSheet("font-weight: bold; font-size: 14pt;")
+        totals_form.addRow("Subtotal:", self.subtotal_display); totals_form.addRow("Total Tax:", self.total_tax_display); totals_form.addRow("Grand Total:", self.grand_total_display)
+        align_totals_layout = QHBoxLayout(); align_totals_layout.addStretch(); align_totals_layout.addLayout(totals_form)
+        main_layout.addLayout(align_totals_layout)
+        self.button_box = QDialogButtonBox()
+        self.save_draft_button = self.button_box.addButton("Save Draft", QDialogButtonBox.ButtonRole.ActionRole)
+        self.save_approve_button = self.button_box.addButton("Save & Approve", QDialogButtonBox.ButtonRole.ActionRole) # Placeholder for future
+        self.save_approve_button.setToolTip("Future: Save, mark as Approved, and generate Journal Entry.")
+        self.save_approve_button.setEnabled(False) # Disabled for now
+        self.button_box.addButton(QDialogButtonBox.StandardButton.Close if self.view_only_mode else QDialogButtonBox.StandardButton.Cancel)
+        main_layout.addWidget(self.button_box); self.setLayout(main_layout)
+
+    def _configure_lines_table_columns(self):
+        # ... (same as before)
+        header = self.lines_table.horizontalHeader()
+        header.setSectionResizeMode(self.COL_DEL, QHeaderView.ResizeMode.Fixed); self.lines_table.setColumnWidth(self.COL_DEL, 30)
+        header.setSectionResizeMode(self.COL_PROD, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(self.COL_DESC, QHeaderView.ResizeMode.Stretch)
+        for col in [self.COL_QTY, self.COL_PRICE, self.COL_DISC_PCT, self.COL_SUBTOTAL, self.COL_TAX_CODE, self.COL_TAX_AMT, self.COL_TOTAL]:
+            header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
+        self.lines_table.setItemDelegateForColumn(self.COL_QTY, LineItemNumericDelegate(2, self))
+        self.lines_table.setItemDelegateForColumn(self.COL_PRICE, LineItemNumericDelegate(4, self))
+        self.lines_table.setItemDelegateForColumn(self.COL_DISC_PCT, LineItemNumericDelegate(2, self))
+
+
+    def _connect_signals(self): # ... (same as before)
+        self.add_line_button.clicked.connect(self._add_new_invoice_line)
+        self.remove_line_button.clicked.connect(self._remove_selected_invoice_line)
+        self.lines_table.itemChanged.connect(self._on_line_item_changed)
+        self.save_draft_button.clicked.connect(self.on_save_draft)
+        # self.save_approve_button.clicked.connect(self.on_save_approve) # Future
+        close_button = self.button_box.button(QDialogButtonBox.StandardButton.Close)
+        cancel_button = self.button_box.button(QDialogButtonBox.StandardButton.Cancel)
+        if close_button: close_button.clicked.connect(self.reject)
+        if cancel_button: cancel_button.clicked.connect(self.reject)
+        self.customer_combo.currentIndexChanged.connect(self._on_customer_changed)
+        self.currency_combo.currentIndexChanged.connect(self._on_currency_changed)
+
+
+    async def _load_initial_combo_data(self):
+        # ... (Implementation as previously planned, fetching customers, products, currencies, tax codes)
+        pass # Placeholder - full implementation is extensive
+
+    @Slot(str, str, str, str) 
+    def _populate_initial_combos_slot(self, customers_json: str, products_json: str, currencies_json: str, tax_codes_json: str):
+        # ... (Implementation as previously planned)
+        pass # Placeholder
+
+    async def _load_existing_invoice_data(self):
+        # ... (Implementation as previously planned, call manager.get_invoice_for_dialog)
+        pass # Placeholder
+
+    @Slot(str)
+    def _populate_dialog_from_data_slot(self, invoice_json_str: str):
+        # ... (Implementation as previously planned, parse JSON, populate header and lines)
+        pass # Placeholder
+    
+    def _set_read_only_state(self, read_only: bool): # ... (similar to JE Dialog, disable all inputs)
+        pass # Placeholder
+
+    def _add_new_invoice_line(self, line_data: Optional[Dict[str, Any]] = None):
+        # ... (Implementation as previously planned, create and set cell widgets, connect signals)
+        pass # Placeholder
+
+    def _remove_selected_invoice_line(self): # ... (similar to JE Dialog)
+        pass # Placeholder
+
+    @Slot(QTableWidgetItem)
+    def _on_line_item_changed(self, item: QTableWidgetItem): 
+        # ... (Trigger recalculations if Qty, Price, Disc%, or Tax Code text changes (if not using dedicated widgets))
+        # For QDoubleSpinBox/QComboBox, connect their valueChanged/currentIndexChanged directly.
+        # This slot mainly for Description if it's a QTableWidgetItem.
+        if item.column() in [self.COL_QTY, self.COL_PRICE, self.COL_DISC_PCT]: # Unlikely if using widgets
+            self._trigger_line_recalculation(item.row())
+
+    @Slot() # Helper to connect signals from widgets in cells
+    def _trigger_line_recalculation_slot(self):
+        sender_widget = self.sender()
+        if sender_widget:
+            for row in range(self.lines_table.rowCount()):
+                # Check if sender is a widget in this row for Qty, Price, Disc%, TaxCode
+                if self.lines_table.cellWidget(row, self.COL_QTY) == sender_widget or \
+                   self.lines_table.cellWidget(row, self.COL_PRICE) == sender_widget or \
+                   self.lines_table.cellWidget(row, self.COL_DISC_PCT) == sender_widget or \
+                   self.lines_table.cellWidget(row, self.COL_TAX_CODE) == sender_widget:
+                    self._calculate_line_item_totals(row)
+                    break # Found the row
+
+    def _calculate_line_item_totals(self, row: int): # ... (as previously planned)
+        pass # Placeholder
+
+    def _update_invoice_totals(self): # ... (as previously planned)
+        pass # Placeholder
+        
+    def _collect_data(self) -> Optional[Union[SalesInvoiceCreateData, SalesInvoiceUpdateData]]: # Updated return type
+        return None # Placeholder
+
+    @Slot()
+    def on_save_draft(self): # ... (collect data, call manager.create_draft_invoice or update_draft_invoice)
+        pass # Placeholder
+
+    # @Slot()
+    # def on_save_approve(self): # ... (Future: collect data, call manager.create_and_post_invoice)
+    #     pass
+
+    async def _perform_save(self, dto: Union[SalesInvoiceCreateData, SalesInvoiceUpdateData], post_after_save: bool = False):
+        pass # Placeholder
+
+    # --- New slots for customer/currency changes ---
+    @Slot(int)
+    def _on_customer_changed(self, index: int):
+        customer_id = self.customer_combo.itemData(index)
+        if customer_id and self._customers_cache:
+            customer_data = next((c for c in self._customers_cache if c.get("id") == customer_id), None)
+            if customer_data and customer_data.get("currency_code"):
+                curr_idx = self.currency_combo.findData(customer_data["currency_code"])
+                if curr_idx != -1: self.currency_combo.setCurrentIndex(curr_idx)
+                # Potentially auto-fill terms, etc.
+
+    @Slot(int)
+    def _on_currency_changed(self, index: int):
+        # Enable/disable exchange rate based on whether it's base currency
+        # Requires knowing base currency from company settings
+        # currency_code = self.currency_combo.itemData(index)
+        # base_currency = self.app_core.company_settings_service.get_base_currency_code() # Needs sync access or async
+        # self.exchange_rate_spin.setEnabled(currency_code != base_currency)
+        # if currency_code == base_currency: self.exchange_rate_spin.setValue(1.0)
+        pass # Placeholder
+
+
+```
+
+# app/ui/sales_invoices/sales_invoice_table_model.py
+```py
+# app/ui/sales_invoices/sales_invoice_table_model.py
+from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
+from typing import List, Dict, Any, Optional
+from decimal import Decimal, InvalidOperation
+from datetime import date as python_date
+
+from app.utils.pydantic_models import SalesInvoiceSummaryData
+from app.common.enums import InvoiceStatusEnum
+
+class SalesInvoiceTableModel(QAbstractTableModel):
+    def __init__(self, data: Optional[List[SalesInvoiceSummaryData]] = None, parent=None):
+        super().__init__(parent)
+        self._headers = [
+            "ID", "Inv No.", "Inv Date", "Due Date", 
+            "Customer", "Total", "Paid", "Balance", "Status"
+        ]
+        self._data: List[SalesInvoiceSummaryData] = data or []
+
+    def rowCount(self, parent=QModelIndex()) -> int:
+        if parent.isValid():
+            return 0
+        return len(self._data)
+
+    def columnCount(self, parent=QModelIndex()) -> int:
+        return len(self._headers)
+
+    def headerData(self, section: int, orientation: Qt.Orientation, role=Qt.ItemDataRole.DisplayRole) -> Optional[str]:
+        if role == Qt.ItemDataRole.DisplayRole and orientation == Qt.Orientation.Horizontal:
+            if 0 <= section < len(self._headers):
+                return self._headers[section]
+        return None
+
+    def _format_decimal_for_table(self, value: Optional[Decimal], show_zero_as_blank: bool = False) -> str:
+        if value is None: 
+            return "0.00" if not show_zero_as_blank else ""
+        try:
+            d_value = Decimal(str(value))
+            if show_zero_as_blank and d_value == Decimal(0):
+                return ""
+            return f"{d_value:,.2f}"
+        except (InvalidOperation, TypeError):
+            return str(value) # Fallback
+
+    def data(self, index: QModelIndex, role=Qt.ItemDataRole.DisplayRole) -> Any:
+        if not index.isValid():
+            return None
+        
+        row = index.row()
+        col = index.column()
+
+        if not (0 <= row < len(self._data)):
+            return None
+            
+        invoice_summary: SalesInvoiceSummaryData = self._data[row]
+
+        if role == Qt.ItemDataRole.DisplayRole:
+            header_key = self._headers[col].lower().replace('.', '').replace(' ', '_')
+            
+            if col == 0: return str(invoice_summary.id)
+            if col == 1: return invoice_summary.invoice_no
+            if col == 2: # Inv Date
+                inv_date = invoice_summary.invoice_date
+                return inv_date.strftime('%d/%m/%Y') if isinstance(inv_date, python_date) else str(inv_date)
+            if col == 3: # Due Date
+                due_date = invoice_summary.due_date
+                return due_date.strftime('%d/%m/%Y') if isinstance(due_date, python_date) else str(due_date)
+            if col == 4: return invoice_summary.customer_name
+            if col == 5: return self._format_decimal_for_table(invoice_summary.total_amount, False) # Total
+            if col == 6: return self._format_decimal_for_table(invoice_summary.amount_paid, True)  # Paid
+            if col == 7: # Balance
+                balance = invoice_summary.total_amount - invoice_summary.amount_paid
+                return self._format_decimal_for_table(balance, False)
+            if col == 8: # Status
+                status_val = invoice_summary.status
+                return status_val.value if isinstance(status_val, InvoiceStatusEnum) else str(status_val)
+            
+            return str(getattr(invoice_summary, header_key, ""))
+
+        elif role == Qt.ItemDataRole.UserRole: # Store ID for quick retrieval
+            if col == 0: 
+                return invoice_summary.id
+        
+        elif role == Qt.ItemDataRole.TextAlignmentRole:
+            if self._headers[col] in ["Total", "Paid", "Balance"]:
+                return Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            if self._headers[col] == "Status":
+                return Qt.AlignmentFlag.AlignCenter
+        
+        return None
+
+    def get_invoice_id_at_row(self, row: int) -> Optional[int]:
+        if 0 <= row < len(self._data):
+            index = self.index(row, 0) 
+            id_val = self.data(index, Qt.ItemDataRole.UserRole)
+            if id_val is not None:
+                return int(id_val)
+            return self._data[row].id 
+        return None
+        
+    def get_invoice_status_at_row(self, row: int) -> Optional[InvoiceStatusEnum]:
+        if 0 <= row < len(self._data):
+            status_val = self._data[row].status
+            return status_val if isinstance(status_val, InvoiceStatusEnum) else None
+        return None
+
+    def update_data(self, new_data: List[SalesInvoiceSummaryData]):
+        self.beginResetModel()
+        self._data = new_data or []
+        self.endResetModel()
+
+
+```
+
+# app/ui/vendors/vendor_table_model.py
+```py
+# File: app/ui/vendors/vendor_table_model.py
+from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
+from typing import List, Dict, Any, Optional
+
+from app.utils.pydantic_models import VendorSummaryData # Using the DTO for type safety
+
+class VendorTableModel(QAbstractTableModel):
+    def __init__(self, data: Optional[List[VendorSummaryData]] = None, parent=None):
+        super().__init__(parent)
+        # Headers should match fields in VendorSummaryData + any derived display fields
+        self._headers = ["ID", "Code", "Name", "Email", "Phone", "Active"]
+        self._data: List[VendorSummaryData] = data or []
+
+    def rowCount(self, parent=QModelIndex()) -> int:
+        if parent.isValid():
+            return 0
+        return len(self._data)
+
+    def columnCount(self, parent=QModelIndex()) -> int:
+        return len(self._headers)
+
+    def headerData(self, section: int, orientation: Qt.Orientation, role=Qt.ItemDataRole.DisplayRole) -> Optional[str]:
+        if role == Qt.ItemDataRole.DisplayRole and orientation == Qt.Orientation.Horizontal:
+            if 0 <= section < len(self._headers):
+                return self._headers[section]
+        return None
+
+    def data(self, index: QModelIndex, role=Qt.ItemDataRole.DisplayRole) -> Any:
+        if not index.isValid():
+            return None
+        
+        row = index.row()
+        col = index.column()
+
+        if not (0 <= row < len(self._data)):
+            return None
+            
+        vendor_summary: VendorSummaryData = self._data[row]
+
+        if role == Qt.ItemDataRole.DisplayRole:
+            if col == 0: return str(vendor_summary.id)
+            if col == 1: return vendor_summary.vendor_code
+            if col == 2: return vendor_summary.name
+            if col == 3: return str(vendor_summary.email) if vendor_summary.email else ""
+            if col == 4: return vendor_summary.phone if vendor_summary.phone else ""
+            if col == 5: return "Yes" if vendor_summary.is_active else "No"
+            
+            header_key = self._headers[col].lower().replace(' ', '_')
+            return str(getattr(vendor_summary, header_key, ""))
+
+        elif role == Qt.ItemDataRole.UserRole:
+            if col == 0: 
+                return vendor_summary.id
+        
+        elif role == Qt.ItemDataRole.TextAlignmentRole:
+            if col == 5: # Active status
+                return Qt.AlignmentFlag.AlignCenter
+        
+        return None
+
+    def get_vendor_id_at_row(self, row: int) -> Optional[int]:
+        if 0 <= row < len(self._data):
+            index = self.index(row, 0) 
+            id_val = self.data(index, Qt.ItemDataRole.UserRole)
+            if id_val is not None:
+                return int(id_val)
+            return self._data[row].id 
+        return None
+        
+    def get_vendor_status_at_row(self, row: int) -> Optional[bool]:
+        if 0 <= row < len(self._data):
+            return self._data[row].is_active
+        return None
+
+    def update_data(self, new_data: List[VendorSummaryData]):
+        self.beginResetModel()
+        self._data = new_data or []
+        self.endResetModel()
+
+```
+
+# app/ui/vendors/vendor_dialog.py
+```py
+# File: app/ui/vendors/vendor_dialog.py
+from PySide6.QtWidgets import (
+    QDialog, QVBoxLayout, QFormLayout, QLineEdit, QPushButton, QDialogButtonBox, 
+    QMessageBox, QCheckBox, QDateEdit, QComboBox, QSpinBox, QTextEdit, QDoubleSpinBox, # Added QDoubleSpinBox
+    QCompleter
+)
+from PySide6.QtCore import Qt, QDate, Slot, Signal, QTimer, QMetaObject, Q_ARG
+from PySide6.QtGui import QIcon
+from typing import Optional, List, Dict, Any, TYPE_CHECKING, cast
+from decimal import Decimal, InvalidOperation
+
+from app.core.application_core import ApplicationCore
+from app.main import schedule_task_from_qt
+from app.utils.pydantic_models import VendorCreateData, VendorUpdateData
+from app.models.business.vendor import Vendor
+from app.models.accounting.account import Account
+from app.models.accounting.currency import Currency
+from app.utils.result import Result
+from app.utils.json_helpers import json_converter, json_date_hook
+
+if TYPE_CHECKING:
+    from PySide6.QtGui import QPaintDevice
+
+class VendorDialog(QDialog):
+    vendor_saved = Signal(int) # Emits vendor ID on successful save
+
+    def __init__(self, app_core: "ApplicationCore", current_user_id: int, 
+                 vendor_id: Optional[int] = None, 
+                 parent: Optional["QWidget"] = None):
+        super().__init__(parent)
+        self.app_core = app_core
+        self.current_user_id = current_user_id
+        self.vendor_id = vendor_id
+        self.loaded_vendor_data: Optional[Vendor] = None 
+
+        self._currencies_cache: List[Currency] = []
+        self._payables_accounts_cache: List[Account] = []
+        
+        self.setWindowTitle("Edit Vendor" if self.vendor_id else "Add New Vendor")
+        self.setMinimumWidth(600) # Adjusted width for more fields
+        self.setModal(True)
+
+        self._init_ui()
+        self._connect_signals()
+
+        QTimer.singleShot(0, lambda: schedule_task_from_qt(self._load_combo_data()))
+        if self.vendor_id:
+            QTimer.singleShot(50, lambda: schedule_task_from_qt(self._load_existing_vendor_details()))
+
+    def _init_ui(self):
+        main_layout = QVBoxLayout(self)
+        form_layout = QFormLayout()
+        form_layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
+
+        # Basic Info
+        self.vendor_code_edit = QLineEdit(); form_layout.addRow("Vendor Code*:", self.vendor_code_edit)
+        self.name_edit = QLineEdit(); form_layout.addRow("Vendor Name*:", self.name_edit)
+        self.legal_name_edit = QLineEdit(); form_layout.addRow("Legal Name:", self.legal_name_edit)
+        self.uen_no_edit = QLineEdit(); form_layout.addRow("UEN No.:", self.uen_no_edit)
+        
+        gst_layout = QHBoxLayout()
+        self.gst_registered_check = QCheckBox("GST Registered"); gst_layout.addWidget(self.gst_registered_check)
+        self.gst_no_edit = QLineEdit(); self.gst_no_edit.setPlaceholderText("GST Registration No."); gst_layout.addWidget(self.gst_no_edit)
+        form_layout.addRow(gst_layout)
+
+        wht_layout = QHBoxLayout()
+        self.wht_applicable_check = QCheckBox("WHT Applicable"); wht_layout.addWidget(self.wht_applicable_check)
+        self.wht_rate_spin = QDoubleSpinBox(); 
+        self.wht_rate_spin.setDecimals(2); self.wht_rate_spin.setRange(0, 100); self.wht_rate_spin.setSuffix(" %")
+        wht_layout.addWidget(self.wht_rate_spin)
+        form_layout.addRow(wht_layout)
+
+
+        # Contact Info
+        self.contact_person_edit = QLineEdit(); form_layout.addRow("Contact Person:", self.contact_person_edit)
+        self.email_edit = QLineEdit(); self.email_edit.setPlaceholderText("example@domain.com"); form_layout.addRow("Email:", self.email_edit)
+        self.phone_edit = QLineEdit(); form_layout.addRow("Phone:", self.phone_edit)
+
+        # Address Info
+        self.address_line1_edit = QLineEdit(); form_layout.addRow("Address Line 1:", self.address_line1_edit)
+        self.address_line2_edit = QLineEdit(); form_layout.addRow("Address Line 2:", self.address_line2_edit)
+        self.postal_code_edit = QLineEdit(); form_layout.addRow("Postal Code:", self.postal_code_edit)
+        self.city_edit = QLineEdit(); self.city_edit.setText("Singapore"); form_layout.addRow("City:", self.city_edit)
+        self.country_edit = QLineEdit(); self.country_edit.setText("Singapore"); form_layout.addRow("Country:", self.country_edit)
+        
+        # Financial Info
+        self.payment_terms_spin = QSpinBox(); self.payment_terms_spin.setRange(0, 365); self.payment_terms_spin.setValue(30); form_layout.addRow("Payment Terms (Days):", self.payment_terms_spin)
+        
+        self.currency_code_combo = QComboBox(); self.currency_code_combo.setMinimumWidth(150)
+        form_layout.addRow("Default Currency*:", self.currency_code_combo)
+        
+        self.payables_account_combo = QComboBox(); self.payables_account_combo.setMinimumWidth(250)
+        form_layout.addRow("A/P Account:", self.payables_account_combo)
+
+        # Bank Details
+        bank_details_group = QGroupBox("Vendor Bank Details")
+        bank_form_layout = QFormLayout(bank_details_group)
+        self.bank_account_name_edit = QLineEdit(); bank_form_layout.addRow("Account Name:", self.bank_account_name_edit)
+        self.bank_account_number_edit = QLineEdit(); bank_form_layout.addRow("Account Number:", self.bank_account_number_edit)
+        self.bank_name_edit = QLineEdit(); bank_form_layout.addRow("Bank Name:", self.bank_name_edit)
+        self.bank_branch_edit = QLineEdit(); bank_form_layout.addRow("Bank Branch:", self.bank_branch_edit)
+        self.bank_swift_code_edit = QLineEdit(); bank_form_layout.addRow("SWIFT Code:", self.bank_swift_code_edit)
+        form_layout.addRow(bank_details_group)
+
+
+        # Other Info
+        self.is_active_check = QCheckBox("Is Active"); self.is_active_check.setChecked(True); form_layout.addRow(self.is_active_check)
+        self.vendor_since_date_edit = QDateEdit(QDate.currentDate()); self.vendor_since_date_edit.setCalendarPopup(True); self.vendor_since_date_edit.setDisplayFormat("dd/MM/yyyy"); form_layout.addRow("Vendor Since:", self.vendor_since_date_edit)
+        self.notes_edit = QTextEdit(); self.notes_edit.setFixedHeight(80); form_layout.addRow("Notes:", self.notes_edit)
+        
+        main_layout.addLayout(form_layout)
+
+        self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        main_layout.addWidget(self.button_box)
+        self.setLayout(main_layout)
+
+    def _connect_signals(self):
+        self.button_box.accepted.connect(self.on_save_vendor)
+        self.button_box.rejected.connect(self.reject)
+        self.gst_registered_check.stateChanged.connect(lambda state: self.gst_no_edit.setEnabled(state == Qt.CheckState.Checked.value))
+        self.gst_no_edit.setEnabled(self.gst_registered_check.isChecked())
+        self.wht_applicable_check.stateChanged.connect(lambda state: self.wht_rate_spin.setEnabled(state == Qt.CheckState.Checked.value))
+        self.wht_rate_spin.setEnabled(self.wht_applicable_check.isChecked())
+
+
+    async def _load_combo_data(self):
+        try:
+            if self.app_core.currency_manager:
+                active_currencies = await self.app_core.currency_manager.get_all_currencies()
+                self._currencies_cache = [c for c in active_currencies if c.is_active]
+            
+            if self.app_core.chart_of_accounts_manager:
+                # Fetch Liability accounts, ideally filtered for AP control accounts
+                ap_accounts = await self.app_core.chart_of_accounts_manager.get_accounts_for_selection(account_type="Liability", active_only=True)
+                self._payables_accounts_cache = [acc for acc in ap_accounts if acc.is_active and (acc.is_control_account or "Payable" in acc.name)] # Basic filter
+            
+            currencies_json = json.dumps([{"code": c.code, "name": c.name} for c in self._currencies_cache], default=json_converter)
+            accounts_json = json.dumps([{"id": acc.id, "code": acc.code, "name": acc.name} for acc in self._payables_accounts_cache], default=json_converter)
+
+            QMetaObject.invokeMethod(self, "_populate_combos_slot", Qt.ConnectionType.QueuedConnection, 
+                                     Q_ARG(str, currencies_json), Q_ARG(str, accounts_json))
+        except Exception as e:
+            self.app_core.logger.error(f"Error loading combo data for VendorDialog: {e}", exc_info=True)
+            QMessageBox.warning(self, "Data Load Error", f"Could not load data for dropdowns: {str(e)}")
+
+    @Slot(str, str)
+    def _populate_combos_slot(self, currencies_json: str, accounts_json: str):
+        try:
+            currencies_data = json.loads(currencies_json, object_hook=json_date_hook)
+            accounts_data = json.loads(accounts_json, object_hook=json_date_hook)
+        except json.JSONDecodeError as e:
+            self.app_core.logger.error(f"Error parsing combo JSON data for VendorDialog: {e}")
+            QMessageBox.warning(self, "Data Error", "Error parsing dropdown data.")
+            return
+
+        self.currency_code_combo.clear()
+        for curr in currencies_data: self.currency_code_combo.addItem(f"{curr['code']} - {curr['name']}", curr['code'])
+        
+        self.payables_account_combo.clear()
+        self.payables_account_combo.addItem("None", 0) 
+        for acc in accounts_data: self.payables_account_combo.addItem(f"{acc['code']} - {acc['name']}", acc['id'])
+        
+        if self.loaded_vendor_data: # If editing, set current values after combos are populated
+            self._populate_fields_from_orm(self.loaded_vendor_data)
+
+
+    async def _load_existing_vendor_details(self):
+        if not self.vendor_id or not self.app_core.vendor_manager: return # Changed from customer_manager
+        self.loaded_vendor_data = await self.app_core.vendor_manager.get_vendor_for_dialog(self.vendor_id) # Changed
+        if self.loaded_vendor_data:
+            vendor_dict = {col.name: getattr(self.loaded_vendor_data, col.name) for col in Vendor.__table__.columns}
+            vendor_json_str = json.dumps(vendor_dict, default=json_converter)
+            QMetaObject.invokeMethod(self, "_populate_fields_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, vendor_json_str))
+        else:
+            QMessageBox.warning(self, "Load Error", f"Vendor ID {self.vendor_id} not found.")
+            self.reject()
+
+    @Slot(str)
+    def _populate_fields_slot(self, vendor_json_str: str):
+        try:
+            vendor_data = json.loads(vendor_json_str, object_hook=json_date_hook)
+        except json.JSONDecodeError:
+            QMessageBox.critical(self, "Error", "Failed to parse vendor data for editing."); return
+        self._populate_fields_from_dict(vendor_data)
+
+    def _populate_fields_from_orm(self, vendor_orm: Vendor): # Called after combos populated, if editing
+        currency_idx = self.currency_code_combo.findData(vendor_orm.currency_code)
+        if currency_idx != -1: self.currency_code_combo.setCurrentIndex(currency_idx)
+        else: self.app_core.logger.warning(f"Loaded vendor currency '{vendor_orm.currency_code}' not found in active currencies combo.")
+
+        ap_acc_idx = self.payables_account_combo.findData(vendor_orm.payables_account_id or 0)
+        if ap_acc_idx != -1: self.payables_account_combo.setCurrentIndex(ap_acc_idx)
+        elif vendor_orm.payables_account_id:
+             self.app_core.logger.warning(f"Loaded vendor A/P account ID '{vendor_orm.payables_account_id}' not found in combo.")
+
+    def _populate_fields_from_dict(self, data: Dict[str, Any]):
+        self.vendor_code_edit.setText(data.get("vendor_code", ""))
+        self.name_edit.setText(data.get("name", ""))
+        self.legal_name_edit.setText(data.get("legal_name", "") or "")
+        self.uen_no_edit.setText(data.get("uen_no", "") or "")
+        self.gst_registered_check.setChecked(data.get("gst_registered", False))
+        self.gst_no_edit.setText(data.get("gst_no", "") or ""); self.gst_no_edit.setEnabled(data.get("gst_registered", False))
+        self.wht_applicable_check.setChecked(data.get("withholding_tax_applicable", False))
+        self.wht_rate_spin.setValue(float(data.get("withholding_tax_rate", 0.0) or 0.0))
+        self.wht_rate_spin.setEnabled(data.get("withholding_tax_applicable", False))
+        self.contact_person_edit.setText(data.get("contact_person", "") or "")
+        self.email_edit.setText(data.get("email", "") or "")
+        self.phone_edit.setText(data.get("phone", "") or "")
+        self.address_line1_edit.setText(data.get("address_line1", "") or "")
+        self.address_line2_edit.setText(data.get("address_line2", "") or "")
+        self.postal_code_edit.setText(data.get("postal_code", "") or "")
+        self.city_edit.setText(data.get("city", "") or "Singapore")
+        self.country_edit.setText(data.get("country", "") or "Singapore")
+        self.payment_terms_spin.setValue(data.get("payment_terms", 30))
+        
+        currency_idx = self.currency_code_combo.findData(data.get("currency_code", "SGD"))
+        if currency_idx != -1: self.currency_code_combo.setCurrentIndex(currency_idx)
+        
+        ap_acc_id = data.get("payables_account_id")
+        ap_acc_idx = self.payables_account_combo.findData(ap_acc_id if ap_acc_id is not None else 0)
+        if ap_acc_idx != -1: self.payables_account_combo.setCurrentIndex(ap_acc_idx)
+
+        self.bank_account_name_edit.setText(data.get("bank_account_name","") or "")
+        self.bank_account_number_edit.setText(data.get("bank_account_number","") or "")
+        self.bank_name_edit.setText(data.get("bank_name","") or "")
+        self.bank_branch_edit.setText(data.get("bank_branch","") or "")
+        self.bank_swift_code_edit.setText(data.get("bank_swift_code","") or "")
+
+        self.is_active_check.setChecked(data.get("is_active", True))
+        vs_date = data.get("vendor_since")
+        self.vendor_since_date_edit.setDate(QDate(vs_date) if vs_date else QDate.currentDate())
+        self.notes_edit.setText(data.get("notes", "") or "")
+
+    @Slot()
+    def on_save_vendor(self):
+        if not self.app_core.current_user: QMessageBox.warning(self, "Auth Error", "No user logged in."); return
+
+        payables_acc_id_data = self.payables_account_combo.currentData()
+        payables_acc_id = int(payables_acc_id_data) if payables_acc_id_data and int(payables_acc_id_data) != 0 else None
+        
+        vendor_since_py_date = self.vendor_since_date_edit.date().toPython()
+
+        data_dict = {
+            "vendor_code": self.vendor_code_edit.text().strip(), "name": self.name_edit.text().strip(),
+            "legal_name": self.legal_name_edit.text().strip() or None, "uen_no": self.uen_no_edit.text().strip() or None,
+            "gst_registered": self.gst_registered_check.isChecked(),
+            "gst_no": self.gst_no_edit.text().strip() if self.gst_registered_check.isChecked() else None,
+            "withholding_tax_applicable": self.wht_applicable_check.isChecked(),
+            "withholding_tax_rate": Decimal(str(self.wht_rate_spin.value())) if self.wht_applicable_check.isChecked() else None,
+            "contact_person": self.contact_person_edit.text().strip() or None,
+            "email": self.email_edit.text().strip() or None, 
+            "phone": self.phone_edit.text().strip() or None,
+            "address_line1": self.address_line1_edit.text().strip() or None,
+            "address_line2": self.address_line2_edit.text().strip() or None,
+            "postal_code": self.postal_code_edit.text().strip() or None,
+            "city": self.city_edit.text().strip() or None,
+            "country": self.country_edit.text().strip() or "Singapore",
+            "payment_terms": self.payment_terms_spin.value(),
+            "currency_code": self.currency_code_combo.currentData() or "SGD",
+            "is_active": self.is_active_check.isChecked(),
+            "vendor_since": vendor_since_py_date,
+            "notes": self.notes_edit.toPlainText().strip() or None,
+            "bank_account_name": self.bank_account_name_edit.text().strip() or None,
+            "bank_account_number": self.bank_account_number_edit.text().strip() or None,
+            "bank_name": self.bank_name_edit.text().strip() or None,
+            "bank_branch": self.bank_branch_edit.text().strip() or None,
+            "bank_swift_code": self.bank_swift_code_edit.text().strip() or None,
+            "payables_account_id": payables_acc_id,
+            "user_id": self.current_user_id
+        }
+
+        try:
+            if self.vendor_id: dto = VendorUpdateData(id=self.vendor_id, **data_dict) # type: ignore
+            else: dto = VendorCreateData(**data_dict) # type: ignore
+        except ValueError as pydantic_error: 
+             QMessageBox.warning(self, "Validation Error", f"Invalid data:\n{str(pydantic_error)}"); return
+
+        ok_button = self.button_box.button(QDialogButtonBox.StandardButton.Ok)
+        if ok_button: ok_button.setEnabled(False)
+        schedule_task_from_qt(self._perform_save(dto)).add_done_callback(
+            lambda _: ok_button.setEnabled(True) if ok_button else None)
+
+    async def _perform_save(self, dto: VendorCreateData | VendorUpdateData):
+        if not self.app_core.vendor_manager:
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str, "Vendor Manager not available."))
+            return
+
+        result: Result[Vendor]
+        if isinstance(dto, VendorUpdateData): result = await self.app_core.vendor_manager.update_vendor(dto.id, dto)
+        else: result = await self.app_core.vendor_manager.create_vendor(dto)
+
+        if result.is_success and result.value:
+            action = "updated" if isinstance(dto, VendorUpdateData) else "created"
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "information", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Success"), Q_ARG(str, f"Vendor {action} successfully (ID: {result.value.id})."))
+            self.vendor_saved.emit(result.value.id)
+            QMetaObject.invokeMethod(self, "accept", Qt.ConnectionType.QueuedConnection)
+        else:
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "warning", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Save Error"), Q_ARG(str, f"Failed to save vendor:\n{', '.join(result.errors)}"))
+
+```
+
 # app/ui/vendors/__init__.py
 ```py
-# File: app/ui/vendors/__init__.py
-# (Content as previously generated)
-from .vendors_widget import VendorsWidget
+# app/ui/vendors/__init__.py
+from .vendors_widget import VendorsWidget # Was previously just a stub, now functional
+from .vendor_dialog import VendorDialog
+from .vendor_table_model import VendorTableModel
 
-__all__ = ["VendorsWidget"]
+__all__ = [
+    "VendorsWidget",
+    "VendorDialog",
+    "VendorTableModel",
+]
+
 
 ```
 
 # app/ui/vendors/vendors_widget.py
 ```py
-# File: app/ui/vendors/vendors_widget.py
-# (Stub content as previously generated)
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel
+# app/ui/vendors/vendors_widget.py
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QTableView, QPushButton, 
+    QToolBar, QMenu, QHeaderView, QAbstractItemView, QMessageBox,
+    QLabel, QLineEdit, QCheckBox # Added for filtering/search
+)
+from PySide6.QtCore import Qt, Slot, QTimer, QMetaObject, Q_ARG, QModelIndex, QSize
+from PySide6.QtGui import QIcon, QAction
+from typing import Optional, List, Dict, Any, TYPE_CHECKING
+
+import json
+
 from app.core.application_core import ApplicationCore
+from app.main import schedule_task_from_qt
+from app.ui.vendors.vendor_table_model import VendorTableModel 
+from app.ui.vendors.vendor_dialog import VendorDialog 
+from app.utils.pydantic_models import VendorSummaryData 
+from app.utils.json_helpers import json_converter, json_date_hook
+from app.utils.result import Result
+from app.models.business.vendor import Vendor # For Result type hint from manager
+
+if TYPE_CHECKING:
+    from PySide6.QtGui import QPaintDevice
 
 class VendorsWidget(QWidget):
-    def __init__(self, app_core: ApplicationCore, parent=None):
+    def __init__(self, app_core: ApplicationCore, parent: Optional["QWidget"] = None):
         super().__init__(parent)
         self.app_core = app_core
-        self.layout = QVBoxLayout(self)
-        self.label = QLabel("Vendors Management Widget (List, Add, Edit Vendors - To be implemented)")
-        self.setLayout(self.layout)
+        
+        self.icon_path_prefix = "resources/icons/" 
+        try:
+            import app.resources_rc 
+            self.icon_path_prefix = ":/icons/"
+            self.app_core.logger.info("Using compiled Qt resources for VendorsWidget.")
+        except ImportError:
+            self.app_core.logger.info("VendorsWidget: Compiled Qt resources not found. Using direct file paths.")
+            # self.icon_path_prefix remains "resources/icons/"
+
+        self._init_ui()
+        # Initial load triggered by filter button click to respect default filter settings
+        QTimer.singleShot(0, lambda: self.toolbar_refresh_action.trigger() if hasattr(self, 'toolbar_refresh_action') else schedule_task_from_qt(self._load_vendors()))
+
+
+    def _init_ui(self):
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setSpacing(5)
+
+        # --- Toolbar ---
+        self._create_toolbar()
+        self.main_layout.addWidget(self.toolbar)
+
+        # --- Filter/Search Area ---
+        filter_layout = QHBoxLayout()
+        filter_layout.addWidget(QLabel("Search:"))
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText("Enter code, name, or email...")
+        self.search_edit.returnPressed.connect(self.toolbar_refresh_action.trigger) 
+        filter_layout.addWidget(self.search_edit)
+
+        self.show_inactive_check = QCheckBox("Show Inactive")
+        self.show_inactive_check.stateChanged.connect(self.toolbar_refresh_action.trigger) 
+        filter_layout.addWidget(self.show_inactive_check)
+        
+        self.clear_filters_button = QPushButton(QIcon(self.icon_path_prefix + "refresh.svg"),"Clear Filters")
+        self.clear_filters_button.clicked.connect(self._clear_filters_and_load)
+        filter_layout.addWidget(self.clear_filters_button)
+        filter_layout.addStretch()
+        self.main_layout.addLayout(filter_layout)
+
+        # --- Table View ---
+        self.vendors_table = QTableView()
+        self.vendors_table.setAlternatingRowColors(True)
+        self.vendors_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.vendors_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.vendors_table.horizontalHeader().setStretchLastSection(False) # Changed for better control
+        self.vendors_table.doubleClicked.connect(self._on_edit_vendor) # Or view_vendor
+        self.vendors_table.setSortingEnabled(True)
+
+        self.table_model = VendorTableModel()
+        self.vendors_table.setModel(self.table_model)
+        
+        # Configure columns after model is set
+        header = self.vendors_table.horizontalHeader()
+        for i in range(self.table_model.columnCount()): # Default to ResizeToContents
+            header.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
+
+        if "ID" in self.table_model._headers:
+            id_col_idx = self.table_model._headers.index("ID")
+            self.vendors_table.setColumnHidden(id_col_idx, True)
+        
+        if "Name" in self.table_model._headers:
+            name_col_model_idx = self.table_model._headers.index("Name")
+            # Calculate visible index for "Name" if "ID" is hidden before it
+            visible_name_idx = name_col_model_idx
+            if "ID" in self.table_model._headers and self.table_model._headers.index("ID") < name_col_model_idx and self.vendors_table.isColumnHidden(self.table_model._headers.index("ID")):
+                visible_name_idx -=1
+            
+            if not self.vendors_table.isColumnHidden(name_col_model_idx):
+                 header.setSectionResizeMode(visible_name_idx, QHeaderView.ResizeMode.Stretch)
+        else: 
+             # Fallback: if ID is hidden (col 0), then Code (model col 1 -> vis col 0), Name (model col 2 -> vis col 1)
+             # Stretch the second visible column which is typically Name.
+             if self.table_model.columnCount() > 2 and self.vendors_table.isColumnHidden(0):
+                header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch) 
+             elif self.table_model.columnCount() > 1: # If ID is not hidden or not present
+                header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+
+
+        self.main_layout.addWidget(self.vendors_table)
+        self.setLayout(self.main_layout)
+
+        if self.vendors_table.selectionModel():
+            self.vendors_table.selectionModel().selectionChanged.connect(self._update_action_states)
+        self._update_action_states()
+
+    def _create_toolbar(self):
+        self.toolbar = QToolBar("Vendor Toolbar")
+        self.toolbar.setIconSize(QSize(16, 16))
+
+        self.toolbar_add_action = QAction(QIcon(self.icon_path_prefix + "add.svg"), "Add Vendor", self)
+        self.toolbar_add_action.triggered.connect(self._on_add_vendor)
+        self.toolbar.addAction(self.toolbar_add_action)
+
+        self.toolbar_edit_action = QAction(QIcon(self.icon_path_prefix + "edit.svg"), "Edit Vendor", self)
+        self.toolbar_edit_action.triggered.connect(self._on_edit_vendor)
+        self.toolbar.addAction(self.toolbar_edit_action)
+
+        self.toolbar_toggle_active_action = QAction(QIcon(self.icon_path_prefix + "deactivate.svg"), "Toggle Active", self) # Icon might need specific "activate" variant too
+        self.toolbar_toggle_active_action.triggered.connect(self._on_toggle_active_status)
+        self.toolbar.addAction(self.toolbar_toggle_active_action)
+        
+        self.toolbar.addSeparator()
+        self.toolbar_refresh_action = QAction(QIcon(self.icon_path_prefix + "refresh.svg"), "Refresh List", self)
+        self.toolbar_refresh_action.triggered.connect(lambda: schedule_task_from_qt(self._load_vendors()))
+        self.toolbar.addAction(self.toolbar_refresh_action)
+
+    @Slot()
+    def _clear_filters_and_load(self):
+        self.search_edit.clear()
+        self.show_inactive_check.setChecked(False)
+        schedule_task_from_qt(self._load_vendors()) # Trigger load with cleared filters
+
+    @Slot()
+    def _update_action_states(self):
+        selected_rows = self.vendors_table.selectionModel().selectedRows()
+        has_selection = bool(selected_rows)
+        single_selection = len(selected_rows) == 1
+        
+        self.toolbar_edit_action.setEnabled(single_selection)
+        self.toolbar_toggle_active_action.setEnabled(single_selection)
+
+    async def _load_vendors(self):
+        if not self.app_core.vendor_manager:
+            self.app_core.logger.error("VendorManager not available in VendorsWidget.")
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str,"Vendor Manager component not available."))
+            return
+        try:
+            search_term = self.search_edit.text().strip() or None
+            active_only = not self.show_inactive_check.isChecked()
+            
+            result: Result[List[VendorSummaryData]] = await self.app_core.vendor_manager.get_vendors_for_listing(
+                active_only=active_only, 
+                search_term=search_term,
+                page=1, 
+                page_size=200 # Load a reasonable number for MVP table, pagination UI later
+            )
+            
+            if result.is_success:
+                data_for_table = result.value if result.value is not None else []
+                list_of_dicts = [dto.model_dump() for dto in data_for_table]
+                json_data = json.dumps(list_of_dicts, default=json_converter)
+                QMetaObject.invokeMethod(self, "_update_table_model_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, json_data))
+            else:
+                error_msg = f"Failed to load vendors: {', '.join(result.errors)}"
+                self.app_core.logger.error(error_msg)
+                QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "warning", Qt.ConnectionType.QueuedConnection,
+                    Q_ARG(QWidget, self), Q_ARG(str, "Load Error"), Q_ARG(str, error_msg))
+        except Exception as e:
+            error_msg = f"Unexpected error loading vendors: {str(e)}"
+            self.app_core.logger.error(error_msg, exc_info=True)
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Load Error"), Q_ARG(str, error_msg))
+
+    @Slot(str)
+    def _update_table_model_slot(self, json_data_str: str):
+        try:
+            list_of_dicts = json.loads(json_data_str, object_hook=json_date_hook)
+            vendor_summaries: List[VendorSummaryData] = [VendorSummaryData.model_validate(item) for item in list_of_dicts]
+            self.table_model.update_data(vendor_summaries)
+        except json.JSONDecodeError as e:
+            QMessageBox.critical(self, "Data Error", f"Failed to parse vendor data: {e}")
+        except Exception as p_error: 
+            QMessageBox.critical(self, "Data Error", f"Invalid vendor data format: {p_error}")
+        finally:
+            self._update_action_states()
+
+    @Slot()
+    def _on_add_vendor(self):
+        if not self.app_core.current_user:
+            QMessageBox.warning(self, "Auth Error", "Please log in to add a vendor.")
+            return
+        
+        dialog = VendorDialog(self.app_core, self.app_core.current_user.id, parent=self)
+        dialog.vendor_saved.connect(lambda _id: schedule_task_from_qt(self._load_vendors()))
+        dialog.exec()
+
+    def _get_selected_vendor_id(self) -> Optional[int]:
+        selected_rows = self.vendors_table.selectionModel().selectedRows()
+        if not selected_rows: # No message if simply no selection for state update
+            return None
+        if len(selected_rows) > 1:
+            QMessageBox.information(self, "Selection", "Please select only a single vendor for this action.")
+            return None
+        return self.table_model.get_vendor_id_at_row(selected_rows[0].row())
+
+    @Slot()
+    def _on_edit_vendor(self):
+        vendor_id = self._get_selected_vendor_id()
+        if vendor_id is None: 
+            # Message only if action was explicitly triggered and no single item was selected
+            if self.sender() == self.toolbar_edit_action : # type: ignore
+                 QMessageBox.information(self, "Selection", "Please select a single vendor to edit.")
+            return
+
+        if not self.app_core.current_user:
+            QMessageBox.warning(self, "Auth Error", "Please log in to edit a vendor.")
+            return
+            
+        dialog = VendorDialog(self.app_core, self.app_core.current_user.id, vendor_id=vendor_id, parent=self)
+        dialog.vendor_saved.connect(lambda _id: schedule_task_from_qt(self._load_vendors()))
+        dialog.exec()
+        
+    @Slot(QModelIndex)
+    def _on_view_vendor_double_click(self, index: QModelIndex): # Renamed for clarity
+        if not index.isValid(): return
+        vendor_id = self.table_model.get_vendor_id_at_row(index.row())
+        if vendor_id is None: return
+        
+        if not self.app_core.current_user:
+            QMessageBox.warning(self, "Auth Error", "Please log in to view/edit vendor.")
+            return
+        # For MVP, double-click opens for edit. Can be changed to view-only later.
+        dialog = VendorDialog(self.app_core, self.app_core.current_user.id, vendor_id=vendor_id, parent=self)
+        dialog.vendor_saved.connect(lambda _id: schedule_task_from_qt(self._load_vendors()))
+        dialog.exec()
+
+    @Slot()
+    def _on_toggle_active_status(self):
+        vendor_id = self._get_selected_vendor_id()
+        if vendor_id is None: 
+            QMessageBox.information(self, "Selection", "Please select a single vendor to toggle status.")
+            return
+
+        if not self.app_core.current_user:
+            QMessageBox.warning(self, "Auth Error", "Please log in to change vendor status.")
+            return
+            
+        vendor_status_active = self.table_model.get_vendor_status_at_row(self.vendors_table.currentIndex().row())
+        action_verb = "deactivate" if vendor_status_active else "activate"
+        reply = QMessageBox.question(self, f"Confirm {action_verb.capitalize()}",
+                                     f"Are you sure you want to {action_verb} this vendor?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                     QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.No:
+            return
+
+        future = schedule_task_from_qt(
+            self.app_core.vendor_manager.toggle_vendor_active_status(vendor_id, self.app_core.current_user.id)
+        )
+        if future: future.add_done_callback(self._handle_toggle_active_result)
+        else: self._handle_toggle_active_result(None) # Handle scheduling failure
+
+    def _handle_toggle_active_result(self, future):
+        if future is None: QMessageBox.critical(self, "Task Error", "Failed to schedule vendor status toggle."); return
+        try:
+            result: Result[Vendor] = future.result()
+            if result.is_success:
+                action_verb_past = "activated" if result.value and result.value.is_active else "deactivated"
+                QMessageBox.information(self, "Success", f"Vendor {action_verb_past} successfully.")
+                schedule_task_from_qt(self._load_vendors()) 
+            else:
+                QMessageBox.warning(self, "Error", f"Failed to toggle vendor status:\n{', '.join(result.errors)}")
+        except Exception as e:
+            self.app_core.logger.error(f"Error handling toggle active status result for vendor: {e}", exc_info=True)
+            QMessageBox.critical(self, "Error", f"An unexpected error occurred: {str(e)}")
+
 
 ```
 
@@ -2472,1907 +3721,6 @@ class DashboardWidget(QWidget):
         self.label = QLabel("Dashboard Widget Content (Financial Snapshots, KPIs - To be implemented)")
         self.layout.addWidget(self.label)
         self.setLayout(self.layout)
-
-```
-
-# app/ui/main_window.py
-```py
-# File: app/ui/main_window.py
-# (Content as previously generated and verified - adding objectName to toolbar)
-from PySide6.QtWidgets import (
-    QMainWindow, QTabWidget, QToolBar, QStatusBar, 
-    QVBoxLayout, QWidget, QMessageBox, QLabel 
-)
-from PySide6.QtGui import QIcon, QKeySequence, QAction 
-from PySide6.QtCore import Qt, QSettings, Signal, Slot, QCoreApplication, QSize 
-
-from app.ui.dashboard.dashboard_widget import DashboardWidget
-from app.ui.accounting.accounting_widget import AccountingWidget
-from app.ui.customers.customers_widget import CustomersWidget
-from app.ui.vendors.vendors_widget import VendorsWidget
-from app.ui.banking.banking_widget import BankingWidget
-from app.ui.reports.reports_widget import ReportsWidget
-from app.ui.settings.settings_widget import SettingsWidget
-from app.core.application_core import ApplicationCore
-
-class MainWindow(QMainWindow):
-    def __init__(self, app_core: ApplicationCore):
-        super().__init__()
-        self.app_core = app_core
-        
-        self.setWindowTitle(f"{QCoreApplication.applicationName()} - {QCoreApplication.applicationVersion()}")
-        self.setMinimumSize(1024, 768)
-        
-        settings = QSettings() 
-        if settings.contains("MainWindow/geometry"):
-            self.restoreGeometry(settings.value("MainWindow/geometry")) 
-        else:
-            self.resize(1280, 800)
-        
-        self._init_ui()
-        
-        if settings.contains("MainWindow/state"):
-            self.restoreState(settings.value("MainWindow/state")) 
-    
-    def _init_ui(self):
-        self.central_widget = QWidget()
-        self.setCentralWidget(self.central_widget)
-        
-        self.main_layout = QVBoxLayout(self.central_widget)
-        self.main_layout.setContentsMargins(0, 0, 0, 0)
-        self.main_layout.setSpacing(0)
-        
-        self._create_toolbar()
-        
-        self.tab_widget = QTabWidget()
-        self.tab_widget.setTabPosition(QTabWidget.TabPosition.North)
-        self.tab_widget.setDocumentMode(True)
-        self.tab_widget.setMovable(True)
-        self.main_layout.addWidget(self.tab_widget)
-        
-        self._add_module_tabs()
-        self._create_status_bar()
-        self._create_actions()
-        self._create_menus()
-    
-    def _create_toolbar(self):
-        self.toolbar = QToolBar("Main Toolbar")
-        self.toolbar.setObjectName("MainToolbar") # Added object name
-        self.toolbar.setMovable(False)
-        self.toolbar.setIconSize(QSize(32, 32)) 
-        self.toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
-        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.toolbar) 
-    
-    def _add_module_tabs(self):
-        icon_path_prefix = "" 
-        try:
-            import app.resources_rc 
-            icon_path_prefix = ":/icons/" 
-        except ImportError:
-            icon_path_prefix = "resources/icons/" 
-
-        self.dashboard_widget = DashboardWidget(self.app_core)
-        self.tab_widget.addTab(self.dashboard_widget, QIcon(icon_path_prefix + "dashboard.svg"), "Dashboard")
-        
-        self.accounting_widget = AccountingWidget(self.app_core)
-        self.tab_widget.addTab(self.accounting_widget, QIcon(icon_path_prefix + "accounting.svg"), "Accounting")
-        
-        self.customers_widget = CustomersWidget(self.app_core)
-        self.tab_widget.addTab(self.customers_widget, QIcon(icon_path_prefix + "customers.svg"), "Customers")
-        
-        self.vendors_widget = VendorsWidget(self.app_core)
-        self.tab_widget.addTab(self.vendors_widget, QIcon(icon_path_prefix + "vendors.svg"), "Vendors")
-        
-        self.banking_widget = BankingWidget(self.app_core)
-        self.tab_widget.addTab(self.banking_widget, QIcon(icon_path_prefix + "banking.svg"), "Banking")
-        
-        self.reports_widget = ReportsWidget(self.app_core)
-        self.tab_widget.addTab(self.reports_widget, QIcon(icon_path_prefix + "reports.svg"), "Reports")
-        
-        self.settings_widget = SettingsWidget(self.app_core)
-        self.tab_widget.addTab(self.settings_widget, QIcon(icon_path_prefix + "settings.svg"), "Settings")
-    
-    def _create_status_bar(self):
-        self.status_bar = QStatusBar()
-        self.setStatusBar(self.status_bar)
-        
-        self.status_label = QLabel("Ready")
-        self.status_bar.addWidget(self.status_label, 1) 
-        
-        user_text = "User: Guest"
-        if self.app_core.current_user: 
-             user_text = f"User: {self.app_core.current_user.username}"
-        self.user_label = QLabel(user_text)
-        self.status_bar.addPermanentWidget(self.user_label)
-        
-        self.version_label = QLabel(f"Version: {QCoreApplication.applicationVersion()}")
-        self.status_bar.addPermanentWidget(self.version_label)
-    
-    def _create_actions(self):
-        icon_path_prefix = "" 
-        try:
-            import app.resources_rc 
-            icon_path_prefix = ":/icons/"
-        except ImportError:
-            icon_path_prefix = "resources/icons/"
-
-        self.new_company_action = QAction(QIcon(icon_path_prefix + "new_company.svg"), "New Company...", self)
-        self.new_company_action.setShortcut(QKeySequence(QKeySequence.StandardKey.New))
-        self.new_company_action.triggered.connect(self.on_new_company)
-        
-        self.open_company_action = QAction(QIcon(icon_path_prefix + "open_company.svg"), "Open Company...", self)
-        self.open_company_action.setShortcut(QKeySequence(QKeySequence.StandardKey.Open))
-        self.open_company_action.triggered.connect(self.on_open_company)
-        
-        self.backup_action = QAction(QIcon(icon_path_prefix + "backup.svg"), "Backup Data...", self)
-        self.backup_action.triggered.connect(self.on_backup)
-        
-        self.restore_action = QAction(QIcon(icon_path_prefix + "restore.svg"), "Restore Data...", self)
-        self.restore_action.triggered.connect(self.on_restore)
-        
-        self.exit_action = QAction(QIcon(icon_path_prefix + "exit.svg"), "Exit", self)
-        self.exit_action.setShortcut(QKeySequence(QKeySequence.StandardKey.Quit))
-        self.exit_action.triggered.connect(self.close) 
-        
-        self.preferences_action = QAction(QIcon(icon_path_prefix + "preferences.svg"), "Preferences...", self)
-        self.preferences_action.setShortcut(QKeySequence(QKeySequence.StandardKey.Preferences))
-        self.preferences_action.triggered.connect(self.on_preferences)
-        
-        self.help_contents_action = QAction(QIcon(icon_path_prefix + "help.svg"), "Help Contents", self)
-        self.help_contents_action.setShortcut(QKeySequence(QKeySequence.StandardKey.HelpContents))
-        self.help_contents_action.triggered.connect(self.on_help_contents)
-        
-        self.about_action = QAction(QIcon(icon_path_prefix + "about.svg"), "About " + QCoreApplication.applicationName(), self)
-        self.about_action.triggered.connect(self.on_about)
-    
-    def _create_menus(self):
-        self.file_menu = self.menuBar().addMenu("&File")
-        self.file_menu.addAction(self.new_company_action)
-        self.file_menu.addAction(self.open_company_action)
-        self.file_menu.addSeparator()
-        self.file_menu.addAction(self.backup_action)
-        self.file_menu.addAction(self.restore_action)
-        self.file_menu.addSeparator()
-        self.file_menu.addAction(self.exit_action)
-        
-        self.edit_menu = self.menuBar().addMenu("&Edit")
-        self.edit_menu.addAction(self.preferences_action)
-        
-        self.view_menu = self.menuBar().addMenu("&View")
-        self.tools_menu = self.menuBar().addMenu("&Tools")
-        
-        self.help_menu = self.menuBar().addMenu("&Help")
-        self.help_menu.addAction(self.help_contents_action)
-        self.help_menu.addSeparator()
-        self.help_menu.addAction(self.about_action)
-        
-        self.toolbar.addAction(self.new_company_action)
-        self.toolbar.addAction(self.open_company_action)
-        self.toolbar.addSeparator()
-        self.toolbar.addAction(self.backup_action)
-        self.toolbar.addAction(self.preferences_action)
-    
-    @Slot()
-    def on_new_company(self): QMessageBox.information(self, "New Company", "New company wizard not yet implemented.")
-    @Slot()
-    def on_open_company(self): QMessageBox.information(self, "Open Company", "Open company dialog not yet implemented.")
-    @Slot()
-    def on_backup(self): QMessageBox.information(self, "Backup Data", "Backup functionality not yet implemented.")
-    @Slot()
-    def on_restore(self): QMessageBox.information(self, "Restore Data", "Restore functionality not yet implemented.")
-    @Slot()
-    def on_preferences(self): QMessageBox.information(self, "Preferences", "Preferences dialog not yet implemented.")
-    @Slot()
-    def on_help_contents(self): QMessageBox.information(self, "Help", "Help system not yet implemented.")
-    
-    @Slot()
-    def on_about(self):
-        QMessageBox.about(
-            self,
-            f"About {QCoreApplication.applicationName()}",
-            f"{QCoreApplication.applicationName()} {QCoreApplication.applicationVersion()}\n\n"
-            "A comprehensive bookkeeping application for Singapore small businesses.\n\n"
-            f"© 2024 {QCoreApplication.organizationName()}" 
-        )
-    
-    def closeEvent(self, event): 
-        settings = QSettings()
-        settings.setValue("MainWindow/geometry", self.saveGeometry())
-        settings.setValue("MainWindow/state", self.saveState())
-        settings.sync()
-
-        reply = QMessageBox.question(
-            self, "Confirm Exit", "Are you sure you want to exit?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No
-        )
-        
-        if reply == QMessageBox.StandardButton.Yes:
-            event.accept() # Application.actual_shutdown_sequence will be called via aboutToQuit
-        else:
-            event.ignore()
-
-```
-
-# app/ui/reports/__init__.py
-```py
-# File: app/ui/reports/__init__.py
-# (Content as previously generated)
-from .reports_widget import ReportsWidget
-
-__all__ = ["ReportsWidget"]
-
-```
-
-# app/ui/reports/reports_widget.py
-```py
-# File: app/ui/reports/reports_widget.py
-# (Stub content as previously generated)
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel
-from app.core.application_core import ApplicationCore
-
-class ReportsWidget(QWidget):
-    def __init__(self, app_core: ApplicationCore, parent=None):
-        super().__init__(parent)
-        self.app_core = app_core
-        self.layout = QVBoxLayout(self)
-        self.label = QLabel("Financial Reports Widget (To be implemented with report selection and viewing)")
-        self.setLayout(self.layout)
-
-```
-
-# app/ui/accounting/journal_entry_table_model.py
-```py
-# File: app/ui/accounting/journal_entry_table_model.py
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
-from typing import List, Dict, Any, Optional
-from decimal import Decimal
-from datetime import date
-
-class JournalEntryTableModel(QAbstractTableModel):
-    def __init__(self, data: List[Dict[str, Any]] = None, parent=None):
-        super().__init__(parent)
-        self._headers = ["Entry No", "Date", "Description", "Type", "Total Amount", "Status"]
-        self._data: List[Dict[str, Any]] = data or []
-
-    def rowCount(self, parent=QModelIndex()):
-        if parent.isValid():
-            return 0
-        return len(self._data)
-
-    def columnCount(self, parent=QModelIndex()):
-        return len(self._headers)
-
-    def headerData(self, section: int, orientation: Qt.Orientation, role=Qt.ItemDataRole.DisplayRole):
-        if role == Qt.ItemDataRole.DisplayRole and orientation == Qt.Orientation.Horizontal:
-            return self._headers[section]
-        return None
-
-    def data(self, index: QModelIndex, role=Qt.ItemDataRole.DisplayRole):
-        if not index.isValid():
-            return None
-        
-        row_data = self._data[index.row()]
-        column_name = self._headers[index.column()].lower().replace(" ", "_") # e.g. "Entry No" -> "entry_no"
-
-        if role == Qt.ItemDataRole.DisplayRole:
-            value = row_data.get(column_name)
-            if column_name == "date" and isinstance(value, str): # Assuming date comes as ISO string from JSON
-                try:
-                    dt_value = date.fromisoformat(value)
-                    return dt_value.strftime('%d/%m/%Y')
-                except ValueError:
-                    return value # Return original string if parsing fails
-            elif column_name == "total_amount" and value is not None:
-                try:
-                    return f"{Decimal(str(value)):,.2f}"
-                except InvalidOperation:
-                    return str(value)
-            return str(value) if value is not None else ""
-        
-        if role == Qt.ItemDataRole.UserRole: # To store the ID
-            return row_data.get("id")
-            
-        return None
-
-    def get_journal_entry_id_at_row(self, row: int) -> Optional[int]:
-        if 0 <= row < len(self._data):
-            return self._data[row].get("id")
-        return None
-        
-    def get_journal_entry_status_at_row(self, row: int) -> Optional[str]:
-        if 0 <= row < len(self._data):
-            return self._data[row].get("status")
-        return None
-
-    def update_data(self, new_data: List[Dict[str, Any]]):
-        self.beginResetModel()
-        self._data = new_data or []
-        self.endResetModel()
-
-```
-
-# app/ui/accounting/__init__.py
-```py
-# File: app/ui/accounting/__init__.py
-from .accounting_widget import AccountingWidget
-from .chart_of_accounts_widget import ChartOfAccountsWidget
-from .account_dialog import AccountDialog
-from .fiscal_year_dialog import FiscalYearDialog 
-from .journal_entry_dialog import JournalEntryDialog # Added
-from .journal_entries_widget import JournalEntriesWidget # Added
-from .journal_entry_table_model import JournalEntryTableModel # Added
-
-__all__ = [
-    "AccountingWidget", 
-    "ChartOfAccountsWidget", 
-    "AccountDialog",
-    "FiscalYearDialog", 
-    "JournalEntryDialog",
-    "JournalEntriesWidget",
-    "JournalEntryTableModel",
-]
-
-```
-
-# app/ui/accounting/chart_of_accounts_widget.py
-```py
-# File: app/ui/accounting/chart_of_accounts_widget.py
-from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QTreeView, QHeaderView,
-    QPushButton, QToolBar, QMenu, QDialog, QMessageBox, QLabel, QSpacerItem, QSizePolicy 
-)
-from PySide6.QtCore import Qt, QModelIndex, Signal, Slot, QPoint, QSortFilterProxyModel, QTimer, QMetaObject, Q_ARG
-from PySide6.QtGui import QIcon, QStandardItemModel, QStandardItem, QAction, QColor
-from decimal import Decimal, InvalidOperation
-from datetime import date 
-import asyncio 
-import json # For JSON serialization
-from typing import Optional, Dict, Any, List 
-
-from app.ui.accounting.account_dialog import AccountDialog
-from app.core.application_core import ApplicationCore
-from app.utils.result import Result 
-from app.main import schedule_task_from_qt 
-
-# Helper for JSON serialization with Decimal and date
-def json_converter(obj):
-    if isinstance(obj, Decimal):
-        return str(obj)
-    if isinstance(obj, date):
-        return obj.isoformat()
-    raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
-
-class ChartOfAccountsWidget(QWidget):
-    account_selected = Signal(int)
-    
-    def __init__(self, app_core: ApplicationCore, parent=None):
-        super().__init__(parent)
-        self.app_core = app_core
-        self._init_ui()
-
-    def _init_ui(self):
-        self.main_layout = QVBoxLayout(self)
-        
-        self.account_tree = QTreeView()
-        self.account_tree.setAlternatingRowColors(True)
-        self.account_tree.setUniformRowHeights(True)
-        self.account_tree.setEditTriggers(QTreeView.EditTrigger.NoEditTriggers)
-        self.account_tree.setSelectionBehavior(QTreeView.SelectionBehavior.SelectRows)
-        self.account_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.account_tree.customContextMenuRequested.connect(self.on_context_menu)
-        self.account_tree.doubleClicked.connect(self.on_account_double_clicked)
-        
-        self.account_model = QStandardItemModel()
-        self.account_model.setHorizontalHeaderLabels(["Code", "Name", "Type", "Opening Balance", "Is Active"]) 
-        
-        self.proxy_model = QSortFilterProxyModel()
-        self.proxy_model.setSourceModel(self.account_model)
-        self.proxy_model.setRecursiveFilteringEnabled(True)
-        self.account_tree.setModel(self.proxy_model)
-        
-        header = self.account_tree.header()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents) 
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        
-        self._create_toolbar()
-        self.main_layout.addWidget(self.toolbar) 
-
-        self.main_layout.addWidget(self.account_tree) 
-        
-        self.button_layout = QHBoxLayout()
-        self.button_layout.setContentsMargins(0, 10, 0, 0)
-        
-        icon_path_prefix = "" 
-        try:
-            import app.resources_rc 
-            icon_path_prefix = ":/icons/"
-        except ImportError:
-            icon_path_prefix = "resources/icons/"
-
-        self.add_button = QPushButton(QIcon(icon_path_prefix + "edit.svg"), "Add Account") 
-        self.add_button.clicked.connect(self.on_add_account)
-        self.button_layout.addWidget(self.add_button)
-        
-        self.edit_button = QPushButton(QIcon(icon_path_prefix + "edit.svg"), "Edit Account")
-        self.edit_button.clicked.connect(self.on_edit_account)
-        self.button_layout.addWidget(self.edit_button)
-        
-        self.deactivate_button = QPushButton(QIcon(icon_path_prefix + "deactivate.svg"), "Toggle Active")
-        self.deactivate_button.clicked.connect(self.on_toggle_active_status) 
-        self.button_layout.addWidget(self.deactivate_button)
-        
-        self.button_layout.addStretch() 
-        self.main_layout.addLayout(self.button_layout)
-
-        QTimer.singleShot(0, lambda: schedule_task_from_qt(self._load_accounts()))
-
-    def _create_toolbar(self):
-        from PySide6.QtCore import QSize 
-        self.toolbar = QToolBar("COA Toolbar") 
-        self.toolbar.setObjectName("COAToolbar") 
-        self.toolbar.setIconSize(QSize(16, 16))
-        
-        icon_path_prefix = ""
-        try:
-            import app.resources_rc 
-            icon_path_prefix = ":/icons/"
-        except ImportError:
-            icon_path_prefix = "resources/icons/"
-
-        self.filter_action = QAction(QIcon(icon_path_prefix + "filter.svg"), "Filter", self)
-        self.filter_action.setCheckable(True)
-        self.filter_action.toggled.connect(self.on_filter_toggled)
-        self.toolbar.addAction(self.filter_action)
-        
-        self.toolbar.addSeparator()
-
-        self.expand_all_action = QAction(QIcon(icon_path_prefix + "expand_all.svg"), "Expand All", self)
-        self.expand_all_action.triggered.connect(self.account_tree.expandAll)
-        self.toolbar.addAction(self.expand_all_action)
-        
-        self.collapse_all_action = QAction(QIcon(icon_path_prefix + "collapse_all.svg"), "Collapse All", self)
-        self.collapse_all_action.triggered.connect(self.account_tree.collapseAll)
-        self.toolbar.addAction(self.collapse_all_action)
-        
-        self.toolbar.addSeparator()
-
-        self.refresh_action = QAction(QIcon(icon_path_prefix + "refresh.svg"), "Refresh", self)
-        self.refresh_action.triggered.connect(lambda: schedule_task_from_qt(self._load_accounts()))
-        self.toolbar.addAction(self.refresh_action)
-        
-    async def _load_accounts(self):
-        try:
-            manager = self.app_core.accounting_service 
-            if not (manager and hasattr(manager, 'get_account_tree')):
-                QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
-                    Q_ARG(QWidget, self), Q_ARG(str, "Error"), 
-                    Q_ARG(str,"Accounting service (ChartOfAccountsManager) or get_account_tree method not available."))
-                return
-
-            account_tree_data: List[Dict[str, Any]] = await manager.get_account_tree(active_only=False) 
-            json_data = json.dumps(account_tree_data, default=json_converter)
-            
-            QMetaObject.invokeMethod(self, "_update_account_model_slot", Qt.ConnectionType.QueuedConnection,
-                                     Q_ARG(str, json_data))
-            
-        except Exception as e:
-            error_message = f"Failed to load accounts: {str(e)}"
-            print(error_message) 
-            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
-                Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str, error_message))
-
-    @Slot(str) 
-    def _update_account_model_slot(self, account_tree_json_str: str):
-        try:
-            account_tree_data: List[Dict[str, Any]] = json.loads(account_tree_json_str)
-        except json.JSONDecodeError as e:
-            QMessageBox.critical(self, "Error", f"Failed to parse account data: {e}")
-            return
-
-        self.account_model.clear() 
-        self.account_model.setHorizontalHeaderLabels(["Code", "Name", "Type", "Opening Balance", "Is Active"])
-        root_item = self.account_model.invisibleRootItem()
-        if account_tree_data: 
-            for account_node in account_tree_data:
-                self._add_account_to_model_item(account_node, root_item) 
-        self.account_tree.expandToDepth(0) 
-
-    def _add_account_to_model_item(self, account_data: dict, parent_item: QStandardItem):
-        code_item = QStandardItem(account_data['code'])
-        code_item.setData(account_data['id'], Qt.ItemDataRole.UserRole)
-        name_item = QStandardItem(account_data['name'])
-        type_text = account_data.get('sub_type') or account_data.get('account_type', '')
-        type_item = QStandardItem(type_text)
-        
-        ob_str = account_data.get('opening_balance', "0.00")
-        try:
-            ob_val = Decimal(str(ob_str))
-        except InvalidOperation:
-            ob_val = Decimal(0)
-        ob_item = QStandardItem(f"{ob_val:,.2f}")
-        ob_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-
-        # Handle opening_balance_date if it's in ISO format string
-        ob_date_str = account_data.get('opening_balance_date')
-        if ob_date_str:
-            try:
-                # Potentially store/display QDate.fromString(ob_date_str, Qt.DateFormat.ISODate)
-                pass # For now, just displaying balance
-            except Exception:
-                pass
-
-
-        is_active_item = QStandardItem("Yes" if account_data.get('is_active', False) else "No")
-        parent_item.appendRow([code_item, name_item, type_item, ob_item, is_active_item])
-        
-        if 'children' in account_data:
-            for child_data in account_data['children']:
-                self._add_account_to_model_item(child_data, code_item) 
-    
-    @Slot()
-    def on_add_account(self):
-        if not self.app_core.current_user:
-            QMessageBox.warning(self, "Authentication Error", "No user logged in. Cannot add account.")
-            return
-        dialog = AccountDialog(self.app_core, current_user_id=self.app_core.current_user.id, parent=self) 
-        if dialog.exec() == QDialog.DialogCode.Accepted: 
-            schedule_task_from_qt(self._load_accounts())
-    
-    @Slot()
-    def on_edit_account(self):
-        index = self.account_tree.currentIndex()
-        if not index.isValid():
-            QMessageBox.warning(self, "Warning", "Please select an account to edit.")
-            return
-        source_index = self.proxy_model.mapToSource(index)
-        item = self.account_model.itemFromIndex(source_index.siblingAtColumn(0))
-        if not item: return
-        account_id = item.data(Qt.ItemDataRole.UserRole)
-        if not account_id: 
-            QMessageBox.warning(self, "Warning", "Cannot edit this item. Please select an account.")
-            return
-        if not self.app_core.current_user:
-            QMessageBox.warning(self, "Authentication Error", "No user logged in. Cannot edit account.")
-            return
-        dialog = AccountDialog(self.app_core, account_id=account_id, current_user_id=self.app_core.current_user.id, parent=self) 
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            schedule_task_from_qt(self._load_accounts())
-            
-    @Slot()
-    def on_toggle_active_status(self): 
-        index = self.account_tree.currentIndex()
-        if not index.isValid():
-            QMessageBox.warning(self, "Warning", "Please select an account.")
-            return
-        source_index = self.proxy_model.mapToSource(index)
-        item_id_qstandarditem = self.account_model.itemFromIndex(source_index.siblingAtColumn(0))
-        account_id = item_id_qstandarditem.data(Qt.ItemDataRole.UserRole) if item_id_qstandarditem else None
-        if not account_id:
-            QMessageBox.warning(self, "Warning", "Cannot determine account. Please select a valid account.")
-            return
-        if not self.app_core.current_user:
-            QMessageBox.warning(self, "Authentication Error", "No user logged in.")
-            return
-        schedule_task_from_qt(self._perform_toggle_active_status_logic(account_id, self.app_core.current_user.id))
-
-    async def _perform_toggle_active_status_logic(self, account_id: int, user_id: int):
-        try:
-            manager = self.app_core.accounting_service 
-            if not manager: raise RuntimeError("Accounting service not available.")
-            account = await manager.account_service.get_by_id(account_id) 
-            if not account:
-                 QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "warning", Qt.ConnectionType.QueuedConnection,
-                    Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str,f"Account ID {account_id} not found."))
-                 return
-            data_to_pass = {"id": account_id, "is_active": account.is_active, "code": account.code, "name": account.name, "user_id": user_id}
-            json_data_to_pass = json.dumps(data_to_pass, default=json_converter)
-            QMetaObject.invokeMethod(self, "_confirm_and_toggle_status_slot", Qt.ConnectionType.QueuedConnection,
-                                     Q_ARG(str, json_data_to_pass))
-        except Exception as e:
-            error_message = f"Failed to prepare toggle account active status: {str(e)}"
-            print(error_message)
-            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
-                Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str, error_message))
-
-    @Slot(str) 
-    def _confirm_and_toggle_status_slot(self, data_json_str: str):
-        try:
-            data: Dict[str, Any] = json.loads(data_json_str)
-        except json.JSONDecodeError as e:
-            QMessageBox.critical(self, "Error", f"Failed to parse toggle status data: {e}")
-            return
-
-        account_id = data["id"]
-        is_currently_active = data["is_active"]
-        acc_code = data["code"]
-        acc_name = data["name"]
-        user_id = data["user_id"]
-
-        action_verb_present = "deactivate" if is_currently_active else "activate"
-        action_verb_past = "deactivated" if is_currently_active else "activated"
-        confirm_msg = f"Are you sure you want to {action_verb_present} account '{acc_code} - {acc_name}'?"
-        reply = QMessageBox.question(self, f"Confirm {action_verb_present.capitalize()}", confirm_msg,
-                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
-        if reply == QMessageBox.StandardButton.Yes:
-            schedule_task_from_qt(self._finish_toggle_status(account_id, not is_currently_active, user_id, action_verb_past))
-
-    async def _finish_toggle_status(self, account_id: int, new_active_status: bool, user_id: int, action_verb_past: str):
-        try:
-            manager = self.app_core.accounting_service
-            account = await manager.account_service.get_by_id(account_id)
-            if not account: return 
-
-            result: Optional[Result] = None
-            if not new_active_status: 
-                result = await manager.deactivate_account(account_id, user_id)
-            else: 
-                account.is_active = True
-                account.updated_by_user_id = user_id
-                saved_acc = await manager.account_service.save(account)
-                result = Result.success(saved_acc)
-
-            if result and result.is_success:
-                QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "information", Qt.ConnectionType.QueuedConnection,
-                    Q_ARG(QWidget, self), Q_ARG(str, "Success"), Q_ARG(str,f"Account {action_verb_past} successfully."))
-                schedule_task_from_qt(self._load_accounts()) 
-            elif result:
-                error_str = f"Failed to {action_verb_past.replace('ed','e')} account:\n{', '.join(result.errors)}"
-                QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "warning", Qt.ConnectionType.QueuedConnection,
-                    Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str, error_str))
-        except Exception as e:
-            error_message = f"Error finishing toggle status: {str(e)}"
-            print(error_message)
-            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
-                Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str, error_message))
-
-    @Slot(QModelIndex)
-    def on_account_double_clicked(self, index: QModelIndex):
-        if not index.isValid(): return
-        source_index = self.proxy_model.mapToSource(index)
-        item = self.account_model.itemFromIndex(source_index.siblingAtColumn(0))
-        if not item: return
-        account_id = item.data(Qt.ItemDataRole.UserRole)
-        if account_id: self.account_selected.emit(account_id)
-    
-    @Slot(bool)
-    def on_filter_toggled(self, checked: bool):
-        if checked:
-            QMessageBox.information(self, "Filter", "Filter functionality to be implemented.")
-            self.filter_action.setChecked(False) 
-        else:
-            self.proxy_model.setFilterFixedString("") 
-    
-    @Slot(QPoint)
-    def on_context_menu(self, pos: QPoint):
-        index = self.account_tree.indexAt(pos)
-        if not index.isValid(): return
-        source_index = self.proxy_model.mapToSource(index)
-        item_id_qstandarditem = self.account_model.itemFromIndex(source_index.siblingAtColumn(0))
-        if not item_id_qstandarditem : return
-        account_id = item_id_qstandarditem.data(Qt.ItemDataRole.UserRole)
-        if not account_id: return 
-        icon_path_prefix = ""
-        try:
-            import app.resources_rc 
-            icon_path_prefix = ":/icons/"
-        except ImportError:
-            icon_path_prefix = "resources/icons/"
-        context_menu = QMenu(self)
-        edit_action = QAction(QIcon(icon_path_prefix + "edit.svg"), "Edit Account", self)
-        edit_action.triggered.connect(self.on_edit_account) 
-        context_menu.addAction(edit_action)
-        view_trans_action = QAction(QIcon(icon_path_prefix + "transactions.svg"), "View Transactions", self)
-        view_trans_action.triggered.connect(lambda: self.on_view_transactions(account_id))
-        context_menu.addAction(view_trans_action)
-        toggle_active_action = QAction(QIcon(icon_path_prefix + "deactivate.svg"), "Toggle Active Status", self)
-        toggle_active_action.triggered.connect(self.on_toggle_active_status)
-        context_menu.addAction(toggle_active_action)
-        context_menu.exec(self.account_tree.viewport().mapToGlobal(pos))
-    
-    @Slot(int)
-    def on_view_transactions(self, account_id: int):
-        QMessageBox.information(self, "View Transactions", f"View transactions for account ID {account_id} (To be implemented).")
-
-```
-
-# app/ui/accounting/journal_entries_widget.py
-```py
-# File: app/ui/accounting/journal_entries_widget.py
-from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QTableView, QPushButton, 
-    QToolBar, QMenu, QHeaderView, QAbstractItemView, QMessageBox
-)
-from PySide6.QtCore import Qt, Slot, QTimer, QMetaObject, Q_ARG, QModelIndex
-from PySide6.QtGui import QIcon, QAction
-from typing import Optional, List, Dict, Any, TYPE_CHECKING
-import json
-from datetime import date as python_date # Alias for datetime.date
-from decimal import Decimal # Ensure Decimal is imported
-
-from app.ui.accounting.journal_entry_dialog import JournalEntryDialog
-from app.ui.accounting.journal_entry_table_model import JournalEntryTableModel
-from app.common.enums import JournalTypeEnum 
-from app.main import schedule_task_from_qt
-from app.utils.pydantic_models import JournalEntryData 
-from app.models.accounting.journal_entry import JournalEntry 
-from app.utils.json_helpers import json_converter, json_date_hook # Import centralized helpers
-
-if TYPE_CHECKING:
-    from app.core.application_core import ApplicationCore
-
-class JournalEntriesWidget(QWidget):
-    def __init__(self, app_core: "ApplicationCore", parent: Optional[QWidget] = None):
-        super().__init__(parent)
-        self.app_core = app_core
-        self._init_ui()
-        QTimer.singleShot(0, lambda: schedule_task_from_qt(self._load_entries()))
-
-    def _init_ui(self):
-        self.main_layout = QVBoxLayout(self)
-
-        self.entries_table = QTableView()
-        self.entries_table.setAlternatingRowColors(True)
-        self.entries_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.entries_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.entries_table.horizontalHeader().setStretchLastSection(True)
-        self.entries_table.doubleClicked.connect(self.on_view_entry) 
-
-        self.table_model = JournalEntryTableModel()
-        self.entries_table.setModel(self.table_model)
-        
-        self._create_toolbar() # Create toolbar after table
-        self.main_layout.addWidget(self.toolbar) 
-        self.main_layout.addWidget(self.entries_table) 
-        self.setLayout(self.main_layout)
-
-    def _create_toolbar(self):
-        from PySide6.QtCore import QSize
-        self.toolbar = QToolBar("Journal Entries Toolbar")
-        self.toolbar.setObjectName("JournalEntriesToolbar")
-        self.toolbar.setIconSize(QSize(20, 20)) 
-
-        icon_path_prefix = "resources/icons/" 
-        try:
-            import app.resources_rc 
-            icon_path_prefix = ":/icons/"
-        except ImportError:
-            pass 
-
-        self.new_entry_action = QAction(QIcon(icon_path_prefix + "add.svg"), "New Entry", self) 
-        self.new_entry_action.triggered.connect(self.on_new_entry)
-        self.toolbar.addAction(self.new_entry_action)
-
-        self.edit_entry_action = QAction(QIcon(icon_path_prefix + "edit.svg"), "Edit Draft", self)
-        self.edit_entry_action.triggered.connect(self.on_edit_entry)
-        self.toolbar.addAction(self.edit_entry_action)
-        
-        self.view_entry_action = QAction(QIcon(icon_path_prefix + "view.svg"), "View Entry", self) 
-        self.view_entry_action.triggered.connect(self.on_view_entry)
-        self.toolbar.addAction(self.view_entry_action)
-
-        self.toolbar.addSeparator()
-
-        self.post_entry_action = QAction(QIcon(icon_path_prefix + "post.svg"), "Post Selected", self) 
-        self.post_entry_action.triggered.connect(self.on_post_entry)
-        self.toolbar.addAction(self.post_entry_action)
-        
-        self.reverse_entry_action = QAction(QIcon(icon_path_prefix + "reverse.svg"), "Reverse Selected", self) 
-        self.reverse_entry_action.triggered.connect(self.on_reverse_entry)
-        self.toolbar.addAction(self.reverse_entry_action)
-
-        self.toolbar.addSeparator()
-        self.refresh_action = QAction(QIcon(icon_path_prefix + "refresh.svg"), "Refresh", self)
-        self.refresh_action.triggered.connect(lambda: schedule_task_from_qt(self._load_entries()))
-        self.toolbar.addAction(self.refresh_action)
-
-        if self.entries_table.selectionModel(): # Ensure model is set
-            self.entries_table.selectionModel().selectionChanged.connect(self._update_action_states)
-        self._update_action_states() 
-
-
-    @Slot()
-    def _update_action_states(self):
-        selected_indexes = self.entries_table.selectionModel().selectedRows()
-        has_selection = bool(selected_indexes)
-        is_draft = False
-        is_posted = False
-
-        if has_selection:
-            first_selected_row = selected_indexes[0].row()
-            status = self.table_model.get_journal_entry_status_at_row(first_selected_row)
-            is_draft = status == "Draft" 
-            is_posted = status == "Posted"
-
-        self.edit_entry_action.setEnabled(has_selection and is_draft)
-        self.view_entry_action.setEnabled(has_selection)
-        self.post_entry_action.setEnabled(has_selection and is_draft) 
-        self.reverse_entry_action.setEnabled(has_selection and is_posted)
-
-
-    async def _load_entries(self):
-        if not self.app_core.journal_entry_manager:
-            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
-                Q_ARG(QWidget, self), Q_ARG(str, "Error"), 
-                Q_ARG(str,"Journal Entry Manager not available."))
-            return
-        try:
-            entries_orm: List[JournalEntry] = await self.app_core.journal_entry_manager.journal_service.get_all() 
-            
-            entries_data_for_table: List[Dict[str, Any]] = []
-            for je in entries_orm:
-                total_debit = sum(line.debit_amount for line in je.lines if line.debit_amount is not None)
-                entries_data_for_table.append({
-                    "id": je.id,
-                    "entry_no": je.entry_no,
-                    "date": je.entry_date, 
-                    "description": je.description,
-                    "type": je.journal_type,
-                    "total_amount": total_debit, 
-                    "status": "Posted" if je.is_posted else "Draft"
-                })
-            
-            json_data = json.dumps(entries_data_for_table, default=json_converter)
-            QMetaObject.invokeMethod(self, "_update_table_model_slot", Qt.ConnectionType.QueuedConnection,
-                                     Q_ARG(str, json_data))
-        except Exception as e:
-            error_msg = f"Failed to load journal entries: {str(e)}"
-            print(error_msg)
-            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
-                Q_ARG(QWidget, self), Q_ARG(str, "Load Error"), Q_ARG(str, error_msg))
-
-    @Slot(str)
-    def _update_table_model_slot(self, json_data_str: str):
-        try:
-            entries_data: List[Dict[str, Any]] = json.loads(json_data_str, object_hook=json_date_hook)
-            self.table_model.update_data(entries_data)
-        except json.JSONDecodeError as e:
-            QMessageBox.critical(self, "Data Error", f"Failed to parse journal entry data: {e}")
-        self._update_action_states()
-
-
-    @Slot()
-    def on_new_entry(self):
-        if not self.app_core.current_user:
-            QMessageBox.warning(self, "Auth Error", "Please log in to create a journal entry.")
-            return
-        dialog = JournalEntryDialog(self.app_core, self.app_core.current_user.id, parent=self)
-        dialog.journal_entry_saved.connect(lambda _id: schedule_task_from_qt(self._load_entries()))
-        dialog.exec() 
-
-    @Slot()
-    def on_edit_entry(self):
-        selected_rows = self.entries_table.selectionModel().selectedRows()
-        if not selected_rows:
-            QMessageBox.information(self, "Selection", "Please select a draft journal entry to edit.")
-            return
-        
-        row = selected_rows[0].row() 
-        entry_id = self.table_model.get_journal_entry_id_at_row(row)
-        entry_status = self.table_model.get_journal_entry_status_at_row(row)
-
-        if entry_id is None or entry_status != "Draft":
-            QMessageBox.warning(self, "Edit Error", "Only draft entries can be edited. This entry is not a draft or ID is missing.")
-            return
-        if not self.app_core.current_user:
-            QMessageBox.warning(self, "Auth Error", "Please log in to edit.")
-            return
-
-        dialog = JournalEntryDialog(self.app_core, self.app_core.current_user.id, journal_entry_id=entry_id, parent=self)
-        dialog.journal_entry_saved.connect(lambda _id: schedule_task_from_qt(self._load_entries()))
-        dialog.exec()
-
-    @Slot()
-    def on_view_entry(self):
-        selected_rows = self.entries_table.selectionModel().selectedRows()
-        if not selected_rows:
-            QMessageBox.information(self, "Selection", "Please select a journal entry to view.")
-            return
-        
-        row = selected_rows[0].row()
-        entry_id = self.table_model.get_journal_entry_id_at_row(row)
-        if entry_id is None: return
-
-        if not self.app_core.current_user: 
-             QMessageBox.warning(self, "Auth Error", "Please log in.")
-             return
-
-        dialog = JournalEntryDialog(self.app_core, self.app_core.current_user.id, journal_entry_id=entry_id, parent=self)
-        dialog.exec()
-
-
-    @Slot()
-    def on_post_entry(self):
-        selected_rows = self.entries_table.selectionModel().selectedRows()
-        if not selected_rows:
-            QMessageBox.information(self, "Selection", "Please select one or more draft journal entries to post.")
-            return
-        if not self.app_core.current_user:
-            QMessageBox.warning(self, "Auth Error", "Please log in to post entries.")
-            return
-
-        entries_to_post = []
-        for index in selected_rows:
-            row = index.row()
-            entry_id = self.table_model.get_journal_entry_id_at_row(row)
-            entry_status = self.table_model.get_journal_entry_status_at_row(row)
-            if entry_id and entry_status == "Draft":
-                entries_to_post.append(entry_id)
-        
-        if not entries_to_post:
-            QMessageBox.information(self, "Selection", "No draft entries selected for posting.")
-            return
-
-        schedule_task_from_qt(self._perform_post_entries(entries_to_post, self.app_core.current_user.id))
-
-    async def _perform_post_entries(self, entry_ids: List[int], user_id: int):
-        if not self.app_core.journal_entry_manager: return
-
-        success_count = 0
-        errors = []
-        for entry_id in entry_ids:
-            result = await self.app_core.journal_entry_manager.post_journal_entry(entry_id, user_id)
-            if result.is_success:
-                success_count += 1
-            else:
-                errors.append(f"ID {entry_id}: {', '.join(result.errors)}")
-        
-        message = f"{success_count} of {len(entry_ids)} entries posted."
-        if errors:
-            message += "\nErrors:\n" + "\n".join(errors)
-        
-        QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "information" if not errors else "warning", Qt.ConnectionType.QueuedConnection,
-            Q_ARG(QWidget, self), Q_ARG(str, "Posting Complete" if not errors else "Posting Partially Failed"), 
-            Q_ARG(str, message))
-        
-        schedule_task_from_qt(self._load_entries()) 
-
-    @Slot()
-    def on_reverse_entry(self):
-        QMessageBox.information(self, "Reverse Entry", "Reverse entry functionality to be implemented.")
-
-```
-
-# app/ui/accounting/fiscal_year_dialog.py
-```py
-# File: app/ui/accounting/fiscal_year_dialog.py
-from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QFormLayout, QLineEdit, QDateEdit, 
-    QComboBox, QPushButton, QDialogButtonBox, QMessageBox
-)
-from PySide6.QtCore import Qt, QDate, Slot
-from typing import Optional, Dict, Any, TYPE_CHECKING
-from datetime import date as python_date # Alias to avoid conflict with QDate
-
-from app.utils.pydantic_models import FiscalYearCreateData
-
-if TYPE_CHECKING:
-    from app.core.application_core import ApplicationCore
-
-class FiscalYearDialog(QDialog):
-    def __init__(self, app_core: "ApplicationCore", current_user_id: int, parent=None):
-        super().__init__(parent)
-        self.app_core = app_core
-        self.current_user_id = current_user_id
-        self._fiscal_year_data: Optional[FiscalYearCreateData] = None
-        self._previous_start_date: Optional[QDate] = None # For default end date logic
-
-        self.setWindowTitle("Add New Fiscal Year")
-        self.setMinimumWidth(400)
-        self.setModal(True)
-
-        self._init_ui()
-        self._set_initial_dates() # Set initial default dates
-
-    def _init_ui(self):
-        layout = QVBoxLayout(self)
-        form_layout = QFormLayout()
-
-        self.year_name_edit = QLineEdit()
-        self.year_name_edit.setPlaceholderText("e.g., FY2024 or Y/E 31 Dec 2024")
-        form_layout.addRow("Fiscal Year Name*:", self.year_name_edit)
-
-        self.start_date_edit = QDateEdit()
-        self.start_date_edit.setCalendarPopup(True)
-        self.start_date_edit.setDisplayFormat("dd/MM/yyyy")
-        form_layout.addRow("Start Date*:", self.start_date_edit)
-
-        self.end_date_edit = QDateEdit()
-        self.end_date_edit.setCalendarPopup(True)
-        self.end_date_edit.setDisplayFormat("dd/MM/yyyy")
-        form_layout.addRow("End Date*:", self.end_date_edit)
-        
-        self.start_date_edit.dateChanged.connect(self._update_default_end_date)
-
-        self.auto_generate_periods_combo = QComboBox()
-        self.auto_generate_periods_combo.addItems(["Monthly", "Quarterly", "None"])
-        self.auto_generate_periods_combo.setCurrentText("Monthly")
-        form_layout.addRow("Auto-generate Periods:", self.auto_generate_periods_combo)
-
-        layout.addLayout(form_layout)
-
-        self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        self.button_box.accepted.connect(self.accept_data)
-        self.button_box.rejected.connect(self.reject)
-        layout.addWidget(self.button_box)
-
-        self.setLayout(layout)
-
-    def _set_initial_dates(self):
-        today = QDate.currentDate()
-        # Default start: first day of current month, or Jan 1st if typical
-        default_start = QDate(today.year(), 1, 1) # Default to Jan 1st of current year
-        # If current date is past June, suggest starting next year's FY
-        if today.month() > 6:
-            default_start = QDate(today.year() + 1, 1, 1)
-        
-        default_end = default_start.addYears(1).addDays(-1)
-        
-        self.start_date_edit.setDate(default_start)
-        self.end_date_edit.setDate(default_end) 
-        self._previous_start_date = default_start
-
-
-    @Slot(QDate)
-    def _update_default_end_date(self, new_start_date: QDate):
-        # Only update if the end date seems to be following the start date automatically
-        # or if it's the initial setup.
-        if self._previous_start_date is None: # Initial setup
-            self._previous_start_date = self.start_date_edit.date() # Could be different from new_start_date if called by setDate initially
-        
-        # Calculate expected end based on previous start
-        expected_end_from_prev_start = self._previous_start_date.addYears(1).addDays(-1)
-        
-        # If current end date matches the old default, then update it based on new start date
-        if self.end_date_edit.date() == expected_end_from_prev_start:
-            self.end_date_edit.setDate(new_start_date.addYears(1).addDays(-1))
-        
-        self._previous_start_date = new_start_date
-
-
-    @Slot()
-    def accept_data(self):
-        """Validate and store data before accepting the dialog."""
-        year_name = self.year_name_edit.text().strip()
-        start_date_py: python_date = self.start_date_edit.date().toPython() 
-        end_date_py: python_date = self.end_date_edit.date().toPython()
-        auto_generate_str = self.auto_generate_periods_combo.currentText()
-        auto_generate_periods = auto_generate_str if auto_generate_str != "None" else None
-
-        errors = []
-        if not year_name:
-            errors.append("Fiscal Year Name is required.")
-        if start_date_py >= end_date_py:
-            errors.append("End Date must be after Start Date.")
-        
-        days_in_year = (end_date_py - start_date_py).days + 1
-        if not (300 < days_in_year < 400): # Heuristic for typical year length
-             errors.append("Fiscal year duration seems unusual (typically around 365 days). Please verify dates.")
-
-        if errors:
-            QMessageBox.warning(self, "Validation Error", "\n".join(errors))
-            return # Do not accept
-
-        try:
-            self._fiscal_year_data = FiscalYearCreateData(
-                year_name=year_name,
-                start_date=start_date_py,
-                end_date=end_date_py,
-                auto_generate_periods=auto_generate_periods,
-                user_id=self.current_user_id # Passed in from calling widget
-            )
-            super().accept() 
-        except Exception as e: 
-            QMessageBox.warning(self, "Data Error", f"Invalid data: {str(e)}")
-
-
-    def get_fiscal_year_data(self) -> Optional[FiscalYearCreateData]:
-        return self._fiscal_year_data
-
-    def open(self) -> int: 
-        self._fiscal_year_data = None
-        self.year_name_edit.clear()
-        self._set_initial_dates() # Reset dates to default for a new entry
-        self.auto_generate_periods_combo.setCurrentText("Monthly")
-        self.year_name_edit.setFocus()
-        return super().open()
-
-```
-
-# app/ui/accounting/accounting_widget.py
-```py
-# File: app/ui/accounting/accounting_widget.py
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QTabWidget
-from app.ui.accounting.chart_of_accounts_widget import ChartOfAccountsWidget
-from app.ui.accounting.journal_entries_widget import JournalEntriesWidget # Import new widget
-from app.core.application_core import ApplicationCore 
-
-class AccountingWidget(QWidget):
-    def __init__(self, app_core: ApplicationCore, parent=None): 
-        super().__init__(parent)
-        self.app_core = app_core
-        
-        self.layout = QVBoxLayout(self)
-        
-        self.tab_widget = QTabWidget()
-        self.layout.addWidget(self.tab_widget)
-        
-        self.coa_widget = ChartOfAccountsWidget(self.app_core)
-        self.tab_widget.addTab(self.coa_widget, "Chart of Accounts")
-        
-        self.journal_entries_widget = JournalEntriesWidget(self.app_core) # Create instance
-        self.tab_widget.addTab(self.journal_entries_widget, "Journal Entries") # Add as tab
-        
-        other_label = QLabel("Other Accounting Features (e.g., Fiscal Periods, Budgets)")
-        self.tab_widget.addTab(other_label, "More...")
-
-        self.setLayout(self.layout)
-
-```
-
-# app/ui/accounting/journal_entry_dialog.py
-```py
-# File: app/ui/accounting/journal_entry_dialog.py
-from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QFormLayout, QLineEdit, QDateEdit, QComboBox,
-    QPushButton, QDialogButtonBox, QMessageBox, QTableWidget, QTableWidgetItem,
-    QAbstractItemView, QHeaderView, QDoubleSpinBox, QApplication, QStyledItemDelegate
-)
-from PySide6.QtCore import Qt, QDate, Slot, Signal, QTimer, QMetaObject, Q_ARG
-from PySide6.QtGui import QIcon, QKeySequence, QColor, QPalette
-from typing import Optional, List, Dict, Any, TYPE_CHECKING
-from decimal import Decimal, InvalidOperation
-import asyncio
-import json
-from datetime import date as python_date
-
-from app.utils.pydantic_models import JournalEntryData, JournalEntryLineData
-from app.models.accounting.account import Account
-from app.models.accounting.tax_code import TaxCode
-from app.models.accounting.currency import Currency
-# from app.models.accounting.dimension import Dimension # Not used directly in this version of dialog
-from app.models.accounting.journal_entry import JournalEntry 
-from app.common.enums import JournalTypeEnum 
-from app.main import schedule_task_from_qt
-
-if TYPE_CHECKING:
-    from app.core.application_core import ApplicationCore
-
-# Custom delegate for currency formatting (optional, QDoubleSpinBox handles basic numeric)
-class CurrencyDelegate(QStyledItemDelegate):
-    def createEditor(self, parent, option, index):
-        editor = QDoubleSpinBox(parent)
-        editor.setDecimals(2)
-        editor.setMinimum(0) # Or allow negative for credit memos that might look like JE
-        editor.setMaximum(999999999999.99) # Example max
-        editor.setGroupSeparatorShown(True)
-        return editor
-
-    def setEditorData(self, editor, index):
-        value = index.model().data(index, Qt.ItemDataRole.EditRole)
-        try:
-            editor.setValue(float(Decimal(str(value))))
-        except (TypeError, ValueError, InvalidOperation):
-            editor.setValue(0.0)
-
-    def setModelData(self, editor, model, index):
-        model.setData(index, str(editor.value()), Qt.ItemDataRole.EditRole)
-
-    def updateEditorGeometry(self, editor, option, index):
-        editor.setGeometry(option.rect)
-
-
-class JournalEntryDialog(QDialog):
-    journal_entry_saved = Signal(int) 
-
-    def __init__(self, app_core: "ApplicationCore", current_user_id: int, 
-                 journal_entry_id: Optional[int] = None, parent=None):
-        super().__init__(parent)
-        self.app_core = app_core
-        self.current_user_id = current_user_id
-        self.journal_entry_id = journal_entry_id
-        self.existing_journal_entry: Optional[JournalEntry] = None # Stores the loaded ORM object
-
-        self.setWindowTitle("Edit Journal Entry" if journal_entry_id else "New Journal Entry")
-        self.setMinimumSize(850, 650) # Increased size slightly
-        self.setModal(True)
-
-        self._accounts_cache: List[Account] = []
-        self._tax_codes_cache: List[TaxCode] = []
-        # self._currencies_cache: List[Currency] = [] # Not directly used for dropdowns in this simplified version
-        # self._dimensions1_cache: List[Dimension] = [] 
-        # self._dimensions2_cache: List[Dimension] = []
-
-        self._init_ui()
-        self._connect_signals()
-
-        QTimer.singleShot(0, lambda: schedule_task_from_qt(self._load_initial_combo_data()))
-        if self.journal_entry_id:
-            QTimer.singleShot(50, lambda: schedule_task_from_qt(self._load_existing_journal_entry())) # Slight delay for combos
-
-    def _init_ui(self):
-        main_layout = QVBoxLayout(self)
-        main_layout.setSpacing(10)
-
-        header_form = QFormLayout()
-        header_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
-        self.entry_date_edit = QDateEdit(QDate.currentDate())
-        self.entry_date_edit.setCalendarPopup(True)
-        self.entry_date_edit.setDisplayFormat("dd/MM/yyyy")
-        header_form.addRow("Entry Date*:", self.entry_date_edit)
-
-        self.journal_type_combo = QComboBox()
-        self.journal_type_combo.addItems([jt.value for jt in JournalTypeEnum] if hasattr(JournalTypeEnum, '__members__') else ["General Journal"])
-        self.journal_type_combo.setCurrentText(JournalTypeEnum.GENERAL.value if hasattr(JournalTypeEnum, 'GENERAL') else "General Journal")
-        header_form.addRow("Journal Type:", self.journal_type_combo)
-        
-        self.description_edit = QLineEdit()
-        self.description_edit.setPlaceholderText("Overall description for the journal entry")
-        header_form.addRow("Description:", self.description_edit)
-
-        self.reference_edit = QLineEdit()
-        self.reference_edit.setPlaceholderText("e.g., Invoice #, Check #, Source Document ID")
-        header_form.addRow("Reference:", self.reference_edit)
-        
-        main_layout.addLayout(header_form)
-
-        self.lines_table = QTableWidget()
-        self.lines_table.setColumnCount(7) # Account, Desc, Debit, Credit, Tax Code, Tax Amt, (Actions)
-        self.lines_table.setHorizontalHeaderLabels([
-            "Account*", "Description", "Debit*", "Credit*", 
-            "Tax Code", "Tax Amt", "Del"
-        ])
-        self.lines_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch) 
-        self.lines_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        self.lines_table.setColumnWidth(2, 120) # Debit
-        self.lines_table.setColumnWidth(3, 120) # Credit
-        self.lines_table.setColumnWidth(4, 150) # Tax Code
-        self.lines_table.setColumnWidth(5, 100) # Tax Amt
-        self.lines_table.setColumnWidth(6, 40)  # Delete button
-        self.lines_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        
-        # Custom delegates for currency columns if QDoubleSpinBox is not used directly as cell widget
-        # self.lines_table.setItemDelegateForColumn(2, CurrencyDelegate(self))
-        # self.lines_table.setItemDelegateForColumn(3, CurrencyDelegate(self))
-        main_layout.addWidget(self.lines_table)
-
-        lines_button_layout = QHBoxLayout()
-        self.add_line_button = QPushButton(QIcon.fromTheme("list-add", QIcon(":/icons/add.svg")), "Add Line") # Fallback icon path
-        self.remove_line_button = QPushButton(QIcon.fromTheme("list-remove", QIcon(":/icons/remove.svg")), "Remove Line")
-        lines_button_layout.addWidget(self.add_line_button)
-        lines_button_layout.addWidget(self.remove_line_button)
-        lines_button_layout.addStretch()
-        main_layout.addLayout(lines_button_layout)
-
-        totals_layout = QHBoxLayout()
-        totals_layout.addStretch()
-        self.debits_label = QLabel("Debits: 0.00")
-        self.credits_label = QLabel("Credits: 0.00")
-        self.balance_label = QLabel("Balance: OK")
-        self.balance_label.setStyleSheet("font-weight: bold;")
-        totals_layout.addWidget(self.debits_label)
-        totals_layout.addWidget(QLabel(" | "))
-        totals_layout.addWidget(self.credits_label)
-        totals_layout.addWidget(QLabel(" | "))
-        totals_layout.addWidget(self.balance_label)
-        main_layout.addLayout(totals_layout)
-
-        self.button_box = QDialogButtonBox()
-        self.save_draft_button = self.button_box.addButton("Save Draft", QDialogButtonBox.ButtonRole.ActionRole)
-        self.save_post_button = self.button_box.addButton("Save & Post", QDialogButtonBox.ButtonRole.ActionRole)
-        self.button_box.addButton(QDialogButtonBox.StandardButton.Cancel)
-        main_layout.addWidget(self.button_box)
-
-        self.setLayout(main_layout)
-        if not self.journal_entry_id: # Only add initial line for new entries
-            self._add_new_line() 
-            self._add_new_line() # Start with two lines for convenience
-
-    def _connect_signals(self):
-        self.add_line_button.clicked.connect(self._add_new_line)
-        self.remove_line_button.clicked.connect(self._remove_selected_line)
-        # itemChanged is problematic for QComboBox/QDoubleSpinBox cell widgets.
-        # Connect valueChanged of cell widgets instead when they are created.
-        
-        self.save_draft_button.clicked.connect(self.on_save_draft)
-        self.save_post_button.clicked.connect(self.on_save_and_post)
-        self.button_box.rejected.connect(self.reject)
-
-    async def _load_initial_combo_data(self):
-        try:
-            if self.app_core.chart_of_accounts_manager:
-                 self._accounts_cache = await self.app_core.chart_of_accounts_manager.get_accounts_for_selection(active_only=True)
-            if self.app_core.tax_code_service:
-                 self._tax_codes_cache = await self.app_core.tax_code_service.get_all()
-            
-            # If table already has rows (e.g. from loading existing JE), update their combos
-            QMetaObject.invokeMethod(self, "_update_combos_in_all_lines_slot", Qt.ConnectionType.QueuedConnection)
-
-        except Exception as e:
-            print(f"Error loading initial combo data for JE Dialog: {e}")
-            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "warning", Qt.ConnectionType.QueuedConnection,
-                Q_ARG(QWidget, self), Q_ARG(str, "Data Load Error"), Q_ARG(str, f"Could not load all data for dropdowns: {e}"))
-
-    @Slot()
-    def _update_combos_in_all_lines_slot(self):
-        for r in range(self.lines_table.rowCount()):
-            self._populate_combos_for_row(r)
-
-    async def _load_existing_journal_entry(self):
-        if not self.journal_entry_id or not self.app_core.journal_entry_manager:
-            return
-        # Fetch with lines and related data
-        self.existing_journal_entry = await self.app_core.journal_entry_manager.journal_service.get_by_id(self.journal_entry_id) 
-        if self.existing_journal_entry:
-            json_data = self._serialize_je_for_ui(self.existing_journal_entry)
-            QMetaObject.invokeMethod(self, "_populate_dialog_from_data_slot", Qt.ConnectionType.QueuedConnection,
-                                     Q_ARG(str, json_data))
-        else:
-            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "warning", Qt.ConnectionType.QueuedConnection,
-                Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str, f"Journal Entry ID {self.journal_entry_id} not found."))
-
-    def _serialize_je_for_ui(self, je: JournalEntry) -> str:
-        # ... (same as before, ensure Decimals and dates are str for JSON)
-        data = {
-            "entry_date": je.entry_date.isoformat() if je.entry_date else None,
-            "journal_type": je.journal_type,
-            "description": je.description,
-            "reference": je.reference,
-            "is_posted": je.is_posted, # Add status
-            "lines": [
-                {
-                    "account_id": line.account_id,
-                    "description": line.description,
-                    "debit_amount": str(line.debit_amount or Decimal(0)),
-                    "credit_amount": str(line.credit_amount or Decimal(0)),
-                    "currency_code": line.currency_code,
-                    "exchange_rate": str(line.exchange_rate or Decimal(1)),
-                    "tax_code": line.tax_code,
-                    "tax_amount": str(line.tax_amount or Decimal(0)),
-                    "dimension1_id": line.dimension1_id,
-                    "dimension2_id": line.dimension2_id,
-                } for line in je.lines
-            ]
-        }
-        return json.dumps(data, default=json_converter)
-
-
-    @Slot(str)
-    def _populate_dialog_from_data_slot(self, json_data: str):
-        # ... (Ensure date parsing is robust, populate all fields, disable if posted)
-        try:
-            data = json.loads(json_data)
-        except json.JSONDecodeError:
-            QMessageBox.critical(self, "Error", "Failed to parse existing journal entry data.")
-            return
-
-        if data.get("entry_date"):
-            self.entry_date_edit.setDate(QDate.fromString(data["entry_date"], Qt.DateFormat.ISODate))
-        
-        type_idx = self.journal_type_combo.findText(data.get("journal_type", JournalTypeEnum.GENERAL.value))
-        if type_idx != -1: self.journal_type_combo.setCurrentIndex(type_idx)
-        
-        self.description_edit.setText(data.get("description", ""))
-        self.reference_edit.setText(data.get("reference", ""))
-
-        self.lines_table.setRowCount(0) 
-        for line_data_dict in data.get("lines", []):
-            self._add_new_line(line_data_dict) # Pass dict to pre-fill
-        
-        if not data.get("lines"): # Ensure at least one line if loaded data had none (empty JE?)
-            self._add_new_line()
-            self._add_new_line()
-
-        self._calculate_totals()
-
-        if data.get("is_posted"):
-            self.save_draft_button.setEnabled(False)
-            self.save_post_button.setText("Posted")
-            self.save_post_button.setEnabled(False)
-            self.lines_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-            self.entry_date_edit.setEnabled(False)
-            self.journal_type_combo.setEnabled(False)
-            self.description_edit.setReadOnly(True)
-            self.reference_edit.setReadOnly(True)
-            self.add_line_button.setEnabled(False)
-            self.remove_line_button.setEnabled(False)
-
-    def _populate_combos_for_row(self, row_position: int, line_data: Optional[Dict[str, Any]] = None):
-        # Account ComboBox
-        acc_combo = self.lines_table.cellWidget(row_position, 0)
-        if not isinstance(acc_combo, QComboBox): # Should not happen if _add_new_line was called
-            acc_combo = QComboBox(); self.lines_table.setCellWidget(row_position, 0, acc_combo)
-        acc_combo.clear()
-        acc_combo.setEditable(True); acc_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
-        current_acc_id = line_data.get("account_id") if line_data else None
-        for acc in self._accounts_cache:
-            acc_combo.addItem(f"{acc.code} - {acc.name}", acc.id)
-            if acc.id == current_acc_id: acc_combo.setCurrentText(f"{acc.code} - {acc.name}")
-        if acc_combo.currentIndex() == -1 and current_acc_id: # Account from data not in active cache
-            acc_combo.addItem(f"ID: {current_acc_id} (Inactive/Unknown)", current_acc_id)
-            acc_combo.setCurrentIndex(acc_combo.count() -1)
-
-        # Tax Code ComboBox
-        tax_combo = self.lines_table.cellWidget(row_position, 4)
-        if not isinstance(tax_combo, QComboBox):
-            tax_combo = QComboBox(); self.lines_table.setCellWidget(row_position, 4, tax_combo)
-        tax_combo.clear()
-        tax_combo.addItem("None", None) 
-        current_tax_code = line_data.get("tax_code") if line_data else None
-        for tc in self._tax_codes_cache:
-            tax_combo.addItem(f"{tc.code} ({tc.rate}%)", tc.code)
-            if tc.code == current_tax_code: tax_combo.setCurrentText(f"{tc.code} ({tc.rate}%)")
-        if tax_combo.currentIndex() == -1 and current_tax_code:
-            tax_combo.addItem(f"{current_tax_code} (Unknown)", current_tax_code)
-            tax_combo.setCurrentIndex(tax_combo.count() -1)
-
-
-    def _add_new_line(self, line_data: Optional[Dict[str, Any]] = None):
-        # ... (Setup SpinBoxes and other non-combo widgets as before) ...
-        # ... then call _populate_combos_for_row ...
-        row_position = self.lines_table.rowCount()
-        self.lines_table.insertRow(row_position)
-
-        # Account ComboBox (placeholder, populated by _populate_combos_for_row)
-        acc_combo = QComboBox(); self.lines_table.setCellWidget(row_position, 0, acc_combo)
-        
-        desc_item = QTableWidgetItem(line_data.get("description", "") if line_data else "")
-        self.lines_table.setItem(row_position, 1, desc_item)
-
-        debit_spin = QDoubleSpinBox(); debit_spin.setRange(0, 999999999.99); debit_spin.setDecimals(2)
-        credit_spin = QDoubleSpinBox(); credit_spin.setRange(0, 999999999.99); credit_spin.setDecimals(2)
-        if line_data:
-            debit_spin.setValue(float(Decimal(str(line_data.get("debit_amount", "0")))))
-            credit_spin.setValue(float(Decimal(str(line_data.get("credit_amount", "0")))))
-        self.lines_table.setCellWidget(row_position, 2, debit_spin)
-        self.lines_table.setCellWidget(row_position, 3, credit_spin)
-        
-        debit_spin.valueChanged.connect(lambda val, r=row_position, cs=credit_spin: cs.setValue(0) if val > 0 else None)
-        credit_spin.valueChanged.connect(lambda val, r=row_position, ds=debit_spin: ds.setValue(0) if val > 0 else None)
-        debit_spin.valueChanged.connect(self._calculate_totals_from_signal)
-        credit_spin.valueChanged.connect(self._calculate_totals_from_signal)
-
-        # Tax Code ComboBox (placeholder)
-        tax_combo = QComboBox(); self.lines_table.setCellWidget(row_position, 4, tax_combo)
-        tax_combo.currentIndexChanged.connect(lambda _idx, r=row_position: self._recalculate_tax_for_line(r)) # Pass row index
-
-        tax_amt_item = QTableWidgetItem(str(Decimal(line_data.get("tax_amount", "0.00")).quantize(Decimal("0.01"))) if line_data else "0.00")
-        tax_amt_item.setFlags(tax_amt_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-        tax_amt_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self.lines_table.setItem(row_position, 5, tax_amt_item)
-        
-        # Delete button for the line
-        del_button = QPushButton(QIcon.fromTheme("edit-delete", QIcon(":/icons/remove.svg")))
-        del_button.setToolTip("Remove this line")
-        del_button.clicked.connect(lambda _, r=row_position: self._remove_specific_line(r))
-        self.lines_table.setCellWidget(row_position, 6, del_button) # Column 6 for Del
-
-        self._populate_combos_for_row(row_position, line_data) # Populate combos after widgets are set
-        self._recalculate_tax_for_line(row_position) # Initial tax calc
-        self._calculate_totals()
-
-
-    def _remove_selected_line(self):
-        current_row = self.lines_table.currentRow()
-        if current_row >= 0:
-            self._remove_specific_line(current_row)
-
-    def _remove_specific_line(self, row_to_remove: int):
-        if self.lines_table.rowCount() > 1:
-            self.lines_table.removeRow(row_to_remove)
-            self._calculate_totals()
-        else:
-            QMessageBox.warning(self, "Action Denied", "Cannot remove the last line. Clear fields if needed.")
-
-
-    @Slot() 
-    def _calculate_totals_from_signal(self):
-        self._calculate_totals()
-
-    def _calculate_totals(self):
-        # ... (implementation as before) ...
-        total_debits = Decimal(0)
-        total_credits = Decimal(0)
-        for row in range(self.lines_table.rowCount()):
-            debit_spin = self.lines_table.cellWidget(row, 2) # cast(QDoubleSpinBox, ...)
-            credit_spin = self.lines_table.cellWidget(row, 3) # cast(QDoubleSpinBox, ...)
-            if isinstance(debit_spin, QDoubleSpinBox):
-                total_debits += Decimal(str(debit_spin.value()))
-            if isinstance(credit_spin, QDoubleSpinBox):
-                total_credits += Decimal(str(credit_spin.value()))
-        
-        self.debits_label.setText(f"Debits: {total_debits:,.2f}")
-        self.credits_label.setText(f"Credits: {total_credits:,.2f}")
-
-        if abs(total_debits - total_credits) < Decimal("0.005"): 
-            self.balance_label.setText("Balance: OK")
-            self.balance_label.setStyleSheet("font-weight: bold; color: green;")
-        else:
-            diff = total_debits - total_credits
-            self.balance_label.setText(f"Out of Balance: {diff:,.2f}")
-            self.balance_label.setStyleSheet("font-weight: bold; color: red;")
-
-
-    def _recalculate_tax_for_line(self, row: int):
-        # ... (implementation as before, ensure Decimal conversions are safe) ...
-        try:
-            debit_spin = self.lines_table.cellWidget(row, 2) # cast(QDoubleSpinBox, ...)
-            credit_spin = self.lines_table.cellWidget(row, 3) # cast(QDoubleSpinBox, ...)
-            tax_combo = self.lines_table.cellWidget(row, 4) # cast(QComboBox, ...)
-            tax_amt_item = self.lines_table.item(row, 5)
-
-            if not isinstance(debit_spin, QDoubleSpinBox) or \
-               not isinstance(credit_spin, QDoubleSpinBox) or \
-               not isinstance(tax_combo, QComboBox):
-                return # Widgets not fully initialized yet
-
-            if not tax_amt_item: 
-                tax_amt_item = QTableWidgetItem("0.00")
-                tax_amt_item.setFlags(tax_amt_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                tax_amt_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                self.lines_table.setItem(row, 5, tax_amt_item)
-
-            base_amount = Decimal(str(debit_spin.value())) if debit_spin.value() > 0 else Decimal(str(credit_spin.value()))
-            tax_code_str = tax_combo.currentData() 
-
-            if tax_code_str and base_amount != Decimal(0):
-                tc_obj = next((tc for tc in self._tax_codes_cache if tc.code == tax_code_str), None)
-                if tc_obj and tc_obj.tax_type == "GST" and tc_obj.rate is not None:
-                    tax_rate = tc_obj.rate / Decimal(100)
-                    calculated_tax = (base_amount * tax_rate).quantize(Decimal("0.01"))
-                    tax_amt_item.setText(f"{calculated_tax:,.2f}")
-                else:
-                    tax_amt_item.setText("0.00")
-            else:
-                tax_amt_item.setText("0.00")
-        except Exception as e:
-            print(f"Error recalculating tax for row {row}: {e}")
-            if tax_amt_item: tax_amt_item.setText("Error")
-        
-        self._calculate_totals()
-
-
-    def _collect_data(self) -> Optional[JournalEntryData]:
-        # ... (implementation as before, ensure Decimal conversions and None checks) ...
-        lines_data: List[JournalEntryLineData] = []
-        for row in range(self.lines_table.rowCount()):
-            try:
-                acc_combo = cast(QComboBox, self.lines_table.cellWidget(row, 0))
-                desc_item = self.lines_table.item(row, 1)
-                debit_spin = cast(QDoubleSpinBox, self.lines_table.cellWidget(row, 2))
-                credit_spin = cast(QDoubleSpinBox, self.lines_table.cellWidget(row, 3))
-                tax_combo = cast(QComboBox, self.lines_table.cellWidget(row, 4))
-                tax_amt_item = self.lines_table.item(row, 5)
-                # dim1_combo = cast(QComboBox, self.lines_table.cellWidget(row, 6)) # Placeholder
-                # dim2_combo = cast(QComboBox, self.lines_table.cellWidget(row, 7)) # Placeholder
-
-                account_id = acc_combo.currentData()
-                if account_id is None : 
-                    if debit_spin.value() != 0 or credit_spin.value() != 0: 
-                        QMessageBox.warning(self, "Validation Error", f"Account not selected for line {row+1} with amounts.")
-                        return None
-                    continue 
-
-                line_dto = JournalEntryLineData(
-                    account_id=int(account_id),
-                    description=desc_item.text() if desc_item else "",
-                    debit_amount=Decimal(str(debit_spin.value())),
-                    credit_amount=Decimal(str(credit_spin.value())),
-                    tax_code=tax_combo.currentData(), 
-                    tax_amount=Decimal(tax_amt_item.text().replace(',','')) if tax_amt_item and tax_amt_item.text() else Decimal(0),
-                    # dimension1_id=dim1_combo.currentData() if dim1_combo.currentData() != 0 else None, 
-                    # dimension2_id=dim2_combo.currentData() if dim2_combo.currentData() != 0 else None
-                    dimension1_id=None, # Simplified for now
-                    dimension2_id=None  # Simplified for now
-                )
-                lines_data.append(line_dto)
-            except Exception as e:
-                QMessageBox.warning(self, "Input Error", f"Error processing line {row + 1}: {e}")
-                return None
-        
-        if not lines_data and self.lines_table.rowCount() > 0 : # If all lines were skipped
-             QMessageBox.warning(self, "Input Error", "No valid lines to save.")
-             return None
-        if not lines_data and self.lines_table.rowCount() == 0:
-             QMessageBox.warning(self, "Input Error", "Journal entry must have at least one line.")
-             return None
-
-
-        try:
-            entry_data = JournalEntryData(
-                journal_type=self.journal_type_combo.currentText(),
-                entry_date=self.entry_date_edit.date().toPython(),
-                description=self.description_edit.text().strip() or None,
-                reference=self.reference_edit.text().strip() or None,
-                user_id=self.current_user_id,
-                lines=lines_data,
-                source_type=self.existing_journal_entry.source_type if self.existing_journal_entry else None,
-                source_id=self.existing_journal_entry.source_id if self.existing_journal_entry else None,
-            )
-            return entry_data
-        except ValueError as e: 
-            QMessageBox.warning(self, "Validation Error", str(e))
-            return None
-
-    @Slot()
-    def on_save_draft(self):
-        if self.existing_journal_entry and self.existing_journal_entry.is_posted:
-            QMessageBox.information(self, "Info", "Cannot save a posted journal entry as draft.")
-            return
-            
-        entry_data = self._collect_data()
-        if entry_data:
-            schedule_task_from_qt(self._perform_save(entry_data, post_after_save=False))
-
-    @Slot()
-    def on_save_and_post(self):
-        if self.existing_journal_entry and self.existing_journal_entry.is_posted:
-            QMessageBox.information(self, "Info", "Journal entry is already posted.")
-            return
-
-        entry_data = self._collect_data()
-        if entry_data:
-            schedule_task_from_qt(self._perform_save(entry_data, post_after_save=True))
-
-    async def _perform_save(self, entry_data: JournalEntryData, post_after_save: bool):
-        manager = self.app_core.journal_entry_manager
-        if not manager:
-             QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
-                Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str, "Journal Entry Manager not available."))
-             return
-
-        result: Result[JournalEntry]
-        if self.existing_journal_entry and self.existing_journal_entry.id: 
-            # Ensure manager has update_journal_entry or adapt to use create if ID not for update
-            if hasattr(manager, "update_journal_entry"):
-                result = await manager.update_journal_entry(self.existing_journal_entry.id, entry_data)
-            else: # Fallback if no explicit update method, recreate by deleting and adding (not ideal)
-                QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "warning", Qt.ConnectionType.QueuedConnection,
-                    Q_ARG(QWidget, self), Q_ARG(str, "Dev Info"), Q_ARG(str, "Update JE logic not fully implemented in manager, trying create."))
-                result = await manager.create_journal_entry(entry_data) # This might create a new one
-        else: 
-            result = await manager.create_journal_entry(entry_data)
-
-        if result.is_success:
-            saved_je = result.value
-            assert saved_je is not None
-            if post_after_save:
-                post_result = await manager.post_journal_entry(saved_je.id, self.current_user_id)
-                if post_result.is_success:
-                    QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "information", Qt.ConnectionType.QueuedConnection,
-                        Q_ARG(QWidget, self), Q_ARG(str, "Success"), Q_ARG(str, "Journal entry saved and posted successfully."))
-                    QMetaObject.invokeMethod(self, "accept", Qt.ConnectionType.QueuedConnection)
-                    self.journal_entry_saved.emit(saved_je.id) # Emit with new/updated JE ID
-                else:
-                    error_msg = f"Journal entry saved as draft (ID: {saved_je.id}), but failed to post:\n{', '.join(post_result.errors)}"
-                    QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "warning", Qt.ConnectionType.QueuedConnection,
-                        Q_ARG(QWidget, self), Q_ARG(str, "Posting Error"), Q_ARG(str, error_msg))
-            else:
-                QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "information", Qt.ConnectionType.QueuedConnection,
-                    Q_ARG(QWidget, self), Q_ARG(str, "Success"), Q_ARG(str, "Journal entry saved as draft successfully."))
-                QMetaObject.invokeMethod(self, "accept", Qt.ConnectionType.QueuedConnection)
-                self.journal_entry_saved.emit(saved_je.id)
-        else:
-            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "warning", Qt.ConnectionType.QueuedConnection,
-                Q_ARG(QWidget, self), Q_ARG(str, "Save Error"), Q_ARG(str, f"Failed to save journal entry:\n{', '.join(result.errors)}"))
-
-    def open(self) -> int: # Ensure dialog is reset for new entry if not editing
-        if not self.journal_entry_id: # Only reset if it's for a new entry
-            self.entry_date_edit.setDate(QDate.currentDate())
-            self.journal_type_combo.setCurrentText(JournalTypeEnum.GENERAL.value if hasattr(JournalTypeEnum, 'GENERAL') else "General Journal")
-            self.description_edit.clear()
-            self.reference_edit.clear()
-            self.lines_table.setRowCount(0)
-            self._add_new_line()
-            self._add_new_line()
-            self._calculate_totals()
-            self.save_draft_button.setEnabled(True)
-            self.save_post_button.setText("Save & Post")
-            self.save_post_button.setEnabled(True)
-            self.lines_table.setEditTriggers(QAbstractItemView.EditTrigger.AllEditTriggers)
-
-        return super().open()
-
-
-```
-
-# app/ui/accounting/account_dialog.py
-```py
-# File: app/ui/accounting/account_dialog.py
-# (Content as previously updated and verified)
-from PySide6.QtWidgets import (QDialog, QVBoxLayout, QLabel, QLineEdit, QPushButton, 
-                               QFormLayout, QMessageBox, QCheckBox, QDateEdit, QComboBox, 
-                               QSpinBox, QHBoxLayout) 
-from PySide6.QtCore import Slot, QDate, QTimer 
-from app.utils.pydantic_models import AccountCreateData, AccountUpdateData
-from app.models.accounting.account import Account 
-from app.core.application_core import ApplicationCore
-from decimal import Decimal, InvalidOperation 
-import asyncio 
-from typing import Optional, cast 
-
-class AccountDialog(QDialog):
-    def __init__(self, app_core: ApplicationCore, current_user_id: int, account_id: Optional[int] = None, parent=None):
-        super().__init__(parent)
-        self.app_core = app_core
-        self.account_id = account_id
-        self.current_user_id = current_user_id 
-        self.account: Optional[Account] = None 
-
-        self.setWindowTitle("Add Account" if not account_id else "Edit Account")
-        self.setMinimumWidth(450) 
-
-        self.layout = QVBoxLayout(self)
-        self.form_layout = QFormLayout()
-
-        self.code_edit = QLineEdit()
-        self.name_edit = QLineEdit()
-        
-        self.account_type_combo = QComboBox()
-        self.account_type_combo.addItems(['Asset', 'Liability', 'Equity', 'Revenue', 'Expense'])
-        
-        self.sub_type_edit = QLineEdit() 
-        self.description_edit = QLineEdit() 
-        self.parent_id_spin = QSpinBox() 
-        self.parent_id_spin.setRange(0, 999999) 
-        self.parent_id_spin.setSpecialValueText("None (Root Account)")
-
-
-        self.opening_balance_edit = QLineEdit("0.00") 
-        self.opening_balance_date_edit = QDateEdit(QDate.currentDate())
-        self.opening_balance_date_edit.setCalendarPopup(True)
-        self.opening_balance_date_edit.setEnabled(False) 
-
-        self.report_group_edit = QLineEdit()
-        self.gst_applicable_check = QCheckBox()
-        self.tax_treatment_edit = QLineEdit() 
-        self.is_active_check = QCheckBox("Is Active")
-        self.is_active_check.setChecked(True)
-        self.is_control_account_check = QCheckBox("Is Control Account")
-        self.is_bank_account_check = QCheckBox("Is Bank Account")
-        
-        self.form_layout.addRow("Code:", self.code_edit)
-        self.form_layout.addRow("Name:", self.name_edit)
-        self.form_layout.addRow("Account Type:", self.account_type_combo)
-        self.form_layout.addRow("Sub Type:", self.sub_type_edit)
-        self.form_layout.addRow("Parent Account ID:", self.parent_id_spin) 
-        self.form_layout.addRow("Description:", self.description_edit)
-        self.form_layout.addRow("Opening Balance:", self.opening_balance_edit)
-        self.form_layout.addRow("OB Date:", self.opening_balance_date_edit)
-        self.form_layout.addRow("Report Group:", self.report_group_edit)
-        self.form_layout.addRow("GST Applicable:", self.gst_applicable_check)
-        self.form_layout.addRow("Tax Treatment:", self.tax_treatment_edit)
-        self.form_layout.addRow(self.is_active_check)
-        self.form_layout.addRow(self.is_control_account_check)
-        self.form_layout.addRow(self.is_bank_account_check)
-        
-        self.layout.addLayout(self.form_layout)
-
-        self.save_button = QPushButton("Save")
-        self.cancel_button = QPushButton("Cancel")
-        
-        self.button_layout_bottom = QHBoxLayout() 
-        self.button_layout_bottom.addStretch()
-        self.button_layout_bottom.addWidget(self.save_button)
-        self.button_layout_bottom.addWidget(self.cancel_button)
-        self.layout.addLayout(self.button_layout_bottom)
-
-        self.save_button.clicked.connect(self.on_save)
-        self.cancel_button.clicked.connect(self.reject)
-        self.opening_balance_edit.textChanged.connect(self._on_ob_changed)
-
-        if self.account_id:
-            QTimer.singleShot(0, lambda: asyncio.ensure_future(self.load_account_data()))
-
-    def _on_ob_changed(self, text: str):
-        try:
-            ob_val = Decimal(text)
-            self.opening_balance_date_edit.setEnabled(ob_val != Decimal(0))
-        except InvalidOperation: 
-            self.opening_balance_date_edit.setEnabled(False)
-
-
-    async def load_account_data(self):
-        manager = self.app_core.accounting_service 
-        if not manager or not hasattr(manager, 'account_service'): 
-            QMessageBox.critical(self, "Error", "Accounting service or account_service attribute not available.")
-            self.reject(); return
-
-        self.account = await manager.account_service.get_by_id(self.account_id) # type: ignore
-        if self.account:
-            self.code_edit.setText(self.account.code)
-            self.name_edit.setText(self.account.name)
-            self.account_type_combo.setCurrentText(self.account.account_type)
-            self.sub_type_edit.setText(self.account.sub_type or "")
-            self.description_edit.setText(self.account.description or "")
-            self.parent_id_spin.setValue(self.account.parent_id or 0)
-            
-            self.opening_balance_edit.setText(f"{self.account.opening_balance:.2f}")
-            if self.account.opening_balance_date:
-                self.opening_balance_date_edit.setDate(QDate.fromString(str(self.account.opening_balance_date), "yyyy-MM-dd"))
-                self.opening_balance_date_edit.setEnabled(True)
-            else:
-                self.opening_balance_date_edit.setEnabled(False)
-                self.opening_balance_date_edit.setDate(QDate.currentDate())
-
-
-            self.report_group_edit.setText(self.account.report_group or "")
-            self.gst_applicable_check.setChecked(self.account.gst_applicable)
-            self.tax_treatment_edit.setText(self.account.tax_treatment or "")
-            self.is_active_check.setChecked(self.account.is_active)
-            self.is_control_account_check.setChecked(self.account.is_control_account)
-            self.is_bank_account_check.setChecked(self.account.is_bank_account)
-        else:
-            QMessageBox.warning(self, "Error", f"Account ID {self.account_id} not found.")
-            self.reject()
-
-    @Slot()
-    def on_save(self):
-        try:
-            ob_decimal = Decimal(self.opening_balance_edit.text())
-        except InvalidOperation:
-            QMessageBox.warning(self, "Input Error", "Invalid opening balance format. Please enter a valid number.")
-            return
-
-        parent_id_val = self.parent_id_spin.value()
-        parent_id = parent_id_val if parent_id_val > 0 else None
-
-        common_data = {
-            "code": self.code_edit.text(),
-            "name": self.name_edit.text(),
-            "account_type": self.account_type_combo.currentText(),
-            "sub_type": self.sub_type_edit.text() or None,
-            "description": self.description_edit.text() or None,
-            "parent_id": parent_id,
-            "opening_balance": ob_decimal,
-            "opening_balance_date": self.opening_balance_date_edit.date().toPython() if self.opening_balance_date_edit.isEnabled() else None,
-            "report_group": self.report_group_edit.text() or None,
-            "gst_applicable": self.gst_applicable_check.isChecked(),
-            "tax_treatment": self.tax_treatment_edit.text() or None,
-            "is_active": self.is_active_check.isChecked(),
-            "is_control_account": self.is_control_account_check.isChecked(),
-            "is_bank_account": self.is_bank_account_check.isChecked(),
-            "user_id": self.current_user_id
-        }
-
-        try:
-            if self.account_id:
-                update_dto = AccountUpdateData(id=self.account_id, **common_data)
-                asyncio.ensure_future(self._perform_update(update_dto))
-            else:
-                create_dto = AccountCreateData(**common_data)
-                asyncio.ensure_future(self._perform_create(create_dto))
-        except Exception as pydantic_error: 
-             QMessageBox.warning(self, "Validation Error", f"Data validation failed:\n{pydantic_error}")
-
-
-    async def _perform_create(self, data: AccountCreateData):
-        manager = self.app_core.accounting_service 
-        if not (manager and hasattr(manager, 'create_account')): 
-            QMessageBox.critical(self, "Error", "Accounting service (ChartOfAccountsManager) not available.")
-            return
-        
-        result = await manager.create_account(data) # type: ignore
-        if result.is_success:
-            QMessageBox.information(self, "Success", "Account created successfully.")
-            self.accept()
-        else:
-            QMessageBox.warning(self, "Error", f"Failed to create account:\n{', '.join(result.errors)}")
-
-    async def _perform_update(self, data: AccountUpdateData):
-        manager = self.app_core.accounting_service 
-        if not (manager and hasattr(manager, 'update_account')):
-            QMessageBox.critical(self, "Error", "Accounting service (ChartOfAccountsManager) not available.")
-            return
-
-        result = await manager.update_account(data) # type: ignore
-        if result.is_success:
-            QMessageBox.information(self, "Success", "Account updated successfully.")
-            self.accept()
-        else:
-            QMessageBox.warning(self, "Error", f"Failed to update account:\n{', '.join(result.errors)}")
 
 ```
 

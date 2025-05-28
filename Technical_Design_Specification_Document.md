@@ -1,187 +1,193 @@
-# Technical Design Specification Document: SG Bookkeeper (v7)
+# Technical Design Specification Document: SG Bookkeeper (v8)
 
-**Version:** 7.0
-**Date:** 2025-05-27 <!-- Or current date -->
+**Version:** 8.0
+**Date:** 2025-05-28 
 
 ## 1. Introduction
 
 ### 1.1 Purpose
-This Technical Design Specification (TDS) document, version 7, provides a detailed and up-to-date overview of the SG Bookkeeper application's technical design and implementation. It reflects the current state of the project, incorporating architectural decisions, component structures, and functionalities. This version specifically details the addition of basic Product/Service Management capabilities (backend and UI), alongside previously documented features like Customer and Vendor Management, GST F5 workflow, and Financial Reporting. This document serves as a comprehensive guide for ongoing development, feature enhancement, testing, and maintenance.
+This Technical Design Specification (TDS) document, version 8, provides a detailed and up-to-date overview of the SG Bookkeeper application's technical design and implementation. It reflects the current state of the project, incorporating architectural decisions, component structures, and functionalities. This version specifically details the backend logic and initial UI dialog for **Sales Invoicing (Draft Management)**, alongside previously documented features like Customer, Vendor, Product/Service Management, GST F5 workflow, and Financial Reporting. This document serves as a comprehensive guide for ongoing development, feature enhancement, testing, and maintenance.
 
 ### 1.2 Scope
 This TDS covers the following aspects of the SG Bookkeeper application:
 -   System Architecture: UI, business logic, data access layers, and asynchronous processing.
 -   Database Schema: Alignment with `scripts/schema.sql`.
 -   Key UI Implementation Patterns: `PySide6` interactions with the asynchronous backend.
--   Core Business Logic: Component structures, including those for Customer, Vendor, and Product/Service management.
+-   Core Business Logic: Component structures, including those for Customer, Vendor, Product/Service, and Sales Invoice management.
 -   Data Models (SQLAlchemy ORM) and Data Transfer Objects (Pydantic DTOs).
 -   Security Implementation: Authentication, authorization, and audit mechanisms.
 -   Deployment and Initialization procedures.
--   Current Implementation Status: Highlighting implemented features such as Settings, CoA, Journal Entries, GST workflow, Financial Reports, Customer Management, Vendor Management, and basic Product/Service Management.
+-   Current Implementation Status: Highlighting implemented features such as Settings, CoA, Journal Entries, GST workflow, Financial Reports, Customer/Vendor/Product Management, and Sales Invoicing (backend logic and initial dialog).
 
 ### 1.3 Intended Audience
-(Remains the same as TDS v6)
+(Remains the same as TDS v7)
 -   Software Developers, QA Engineers, System Administrators, Technical Project Managers.
 
 ### 1.4 System Overview
-SG Bookkeeper is a cross-platform desktop application engineered with Python, utilizing PySide6 for its graphical user interface and PostgreSQL for robust data storage. It provides comprehensive accounting for Singaporean SMBs, including double-entry bookkeeping, GST management, interactive financial reporting, and foundational modules for business operations such as Customer Management, Vendor Management, and basic Product/Service Management (all allowing view, add, edit, toggle active status). The application emphasizes data integrity, compliance, and user-friendliness. Data structures are defined in `scripts/schema.sql` and seeded by `scripts/initial_data.sql`.
+SG Bookkeeper is a cross-platform desktop application engineered with Python, utilizing PySide6 for its graphical user interface and PostgreSQL for robust data storage. It provides comprehensive accounting for Singaporean SMBs, including double-entry bookkeeping, GST management, interactive financial reporting, and foundational modules for business operations such as Customer, Vendor, Product/Service management, and initial Sales Invoicing capabilities (allowing creation and update of draft invoices). The application emphasizes data integrity, compliance, and user-friendliness. Data structures are defined in `scripts/schema.sql` and seeded by `scripts/initial_data.sql`.
 
 ## 2. System Architecture
 
 ### 2.1 High-Level Architecture
-(Diagram and core description remain the same as TDS v6)
+(Diagram and core description remain the same as TDS v7)
 
 ### 2.2 Component Architecture
 
 #### 2.2.1 Core Components (`app/core/`)
-(Descriptions remain largely the same as TDS v6. `ApplicationCore` now also instantiates and provides access to `ProductService` and `ProductManager`.)
+(Descriptions remain largely the same as TDS v7. `ApplicationCore` now also instantiates and provides access to `SalesInvoiceService` and `SalesInvoiceManager`.)
 
 #### 2.2.2 Asynchronous Task Management (`app/main.py`)
-(Description remains the same as TDS v6)
+(Description remains the same as TDS v7)
 
 #### 2.2.3 Services (`app/services/`)
--   **Accounting & Core Services** (as listed in TDS v6).
--   **Tax Services** (as listed in TDS v6).
+-   **Accounting & Core Services** (as listed in TDS v7).
+-   **Tax Services** (as listed in TDS v7).
 -   **Business Services (`app/services/business_services.py`)**:
     -   `CustomerService`: Manages `Customer` entity data access.
     -   `VendorService`: Manages `Vendor` entity data access.
-    -   **`ProductService` (New)**: Implements `IProductRepository`. Responsible for basic CRUD operations, fetching product/service summaries (with filtering and pagination), and specific lookups for `Product` entities.
+    -   `ProductService`: Manages `Product` entity data access.
+    -   **`SalesInvoiceService` (New)**: Implements `ISalesInvoiceRepository`. Responsible for CRUD operations on `SalesInvoice` and `SalesInvoiceLine` entities, fetching invoice summaries (with filtering and pagination), and specific lookups (e.g., by invoice number).
 
 #### 2.2.4 Managers (Business Logic) (`app/accounting/`, `app/tax/`, `app/business_logic/`)
--   **Accounting, Tax, Reporting Managers** (as listed in TDS v6).
+-   **Accounting, Tax, Reporting Managers** (as listed in TDS v7).
 -   **Business Logic Managers (`app/business_logic/`)**:
     -   `CustomerManager`: Orchestrates customer lifecycle operations.
     -   `VendorManager`: Orchestrates vendor lifecycle operations.
-    -   **`ProductManager` (New details - `app/business_logic/product_manager.py`)**: Orchestrates product/service lifecycle operations. Handles validation (e.g., product code uniqueness, valid GL accounts based on product type, valid tax code), maps DTOs to ORM models, interacts with `ProductService` for persistence, and manages active status.
+    -   `ProductManager`: Orchestrates product/service lifecycle operations.
+    -   **`SalesInvoiceManager` (New details - `app/business_logic/sales_invoice_manager.py`)**: Orchestrates sales invoice lifecycle operations, particularly for draft invoices. Handles validation of invoice data (customer, products, tax codes), calculation of line item totals and tax (using `TaxCalculator`), overall invoice totals (subtotal, tax, grand total), mapping DTOs to ORM models, interaction with `SalesInvoiceService` for persistence, and generation of invoice numbers using `SequenceService` (via DB function). Posting logic (JE creation) is a placeholder.
 
 #### 2.2.5 User Interface (`app/ui/`)
--   **`MainWindow` (`app/ui/main_window.py`)**: Now includes a "Products & Services" tab.
+-   **`MainWindow` (`app/ui/main_window.py`)**: Includes "Products & Services" tab. A "Sales" or "Invoicing" tab is conceptually planned but the main list widget might be a stub.
 -   **Module Widgets**:
-    -   `AccountingWidget`, `SettingsWidget`, `ReportsWidget`, `CustomersWidget`, `VendorsWidget` (Functional as per TDS v6).
-    -   **`ProductsWidget` (New - `app/ui/products/products_widget.py`)**: Provides a `QTableView` (using `ProductTableModel`) to list products/services. Includes a toolbar with "Add", "Edit", "Toggle Active", "Refresh" actions, and filter controls (search, product type, active status). Interacts with `ProductManager` and `ProductDialog`.
+    -   `AccountingWidget`, `SettingsWidget`, `ReportsWidget`, `CustomersWidget`, `VendorsWidget`, `ProductsWidget` (Functional as per TDS v7).
     -   `DashboardWidget`, `BankingWidget` (Remain stubs).
+    -   **`SalesInvoicesWidget` (Planned/Stub - `app/ui/sales_invoices/sales_invoices_widget.py`)**: Intended to provide a list view for sales invoices. Currently, a dialog for creating/editing is the primary UI.
 -   **Detail Widgets & Dialogs**:
-    -   `AccountDialog`, `JournalEntryDialog`, `FiscalYearDialog`, `CustomerDialog`, `VendorDialog` (as in TDS v6).
-    -   **`ProductTableModel` (New - `app/ui/products/product_table_model.py`)**: `QAbstractTableModel` subclass for displaying `ProductSummaryData` in `ProductsWidget`.
-    -   **`ProductDialog` (New - `app/ui/products/product_dialog.py`)**: `QDialog` for adding and editing product/service details. Includes fields for all product attributes, dynamically adapts UI based on `ProductType` (e.g., inventory-specific fields), asynchronously populates `QComboBox`es for related accounts and tax codes, validates input, and interacts with `ProductManager` for saving.
+    -   `AccountDialog`, `JournalEntryDialog`, `FiscalYearDialog`, `CustomerDialog`, `VendorDialog`, `ProductDialog` (as in TDS v7).
+    -   **`SalesInvoiceTableModel` (New - `app/ui/sales_invoices/sales_invoice_table_model.py`)**: `QAbstractTableModel` subclass for displaying `SalesInvoiceSummaryData`.
+    -   **`SalesInvoiceDialog` (New details - `app/ui/sales_invoices/sales_invoice_dialog.py`)**: `QDialog` for creating and editing draft sales invoice details. Includes fields for header information (customer, dates, currency) and a `QTableWidget` for line items (product, description, quantity, price, discount, tax code). Dynamically calculates line totals and invoice totals. Interacts with `SalesInvoiceManager` for saving drafts. Asynchronously populates `QComboBox`es for customers, products, currencies, and tax codes.
 
 ### 2.3 Technology Stack
-(Same as TDS v6)
+(Same as TDS v7)
 
 ### 2.4 Design Patterns
-(Same as TDS v6. New Product module follows established patterns.)
+(Same as TDS v7. New Sales Invoice module follows established patterns.)
 
 ## 3. Data Architecture
 
 ### 3.1 Database Schema Overview
-(Remains consistent. `business.products` table is now actively used.)
+(Remains consistent. `business.sales_invoices` and `business.sales_invoice_lines` tables are now actively used.)
 
 ### 3.2 SQLAlchemy ORM Models (`app/models/`)
-(`app/models/business/product.py` is now actively used.)
+(`app/models/business/sales_invoice.py` is now actively used.)
 
 ### 3.3 Data Transfer Objects (DTOs - `app/utils/pydantic_models.py`)
-DTOs for `Product/Service` Management have been added and are actively used:
--   `ProductBaseData`, `ProductCreateData`, `ProductUpdateData`, `ProductData`, `ProductSummaryData`. (Details of fields as per `pydantic_models.py` which include `product_type` enum validation and conditional logic for inventory fields).
+DTOs for `SalesInvoice` Management have been added and are actively used:
+-   `SalesInvoiceLineBaseData`: Common fields for invoice lines.
+-   `SalesInvoiceBaseData`: Common fields for invoice header.
+-   `SalesInvoiceCreateData(SalesInvoiceBaseData, UserAuditData)`: For creating new invoices.
+-   `SalesInvoiceUpdateData(SalesInvoiceBaseData, UserAuditData)`: For updating existing invoices.
+-   `SalesInvoiceData`: Full representation of an invoice, including calculated totals and status.
+-   `SalesInvoiceSummaryData`: Slim DTO for list views.
+-   `TaxCalculationResultData` is used by `SalesInvoiceManager` via `TaxCalculator`.
 
 ### 3.4 Data Access Layer Interfaces (`app/services/__init__.py`)
 The following interface has been added:
--   **`IProductRepository(IRepository[Product, int])`**:
+-   **`ISalesInvoiceRepository(IRepository[SalesInvoice, int])`**:
     ```python
-    from app.models.business.product import Product
-    from app.utils.pydantic_models import ProductSummaryData
-    from app.common.enums import ProductTypeEnum
+    from app.models.business.sales_invoice import SalesInvoice
+    from app.utils.pydantic_models import SalesInvoiceSummaryData
+    from app.common.enums import InvoiceStatusEnum
+    from datetime import date
 
-    class IProductRepository(IRepository[Product, int]):
+    class ISalesInvoiceRepository(IRepository[SalesInvoice, int]):
         @abstractmethod
-        async def get_by_code(self, code: str) -> Optional[Product]: pass
+        async def get_by_invoice_no(self, invoice_no: str) -> Optional[SalesInvoice]: pass
         
         @abstractmethod
         async def get_all_summary(self, 
-                                  active_only: bool = True,
-                                  product_type_filter: Optional[ProductTypeEnum] = None,
-                                  search_term: Optional[str] = None,
+                                  customer_id: Optional[int] = None,
+                                  status: Optional[InvoiceStatusEnum] = None, 
+                                  start_date: Optional[date] = None, 
+                                  end_date: Optional[date] = None,
                                   page: int = 1, 
                                   page_size: int = 50
-                                 ) -> List[ProductSummaryData]: pass
+                                 ) -> List[SalesInvoiceSummaryData]: pass
     ```
 
 ## 4. Module and Component Specifications
 
 ### 4.1 - 4.3 Core Accounting, Tax, Reporting Modules
-(Functionality as detailed in TDS v6 remains current for these modules.)
+(Functionality as detailed in TDS v7 remains current.)
 
 ### 4.4 Business Operations Modules
 
 #### 4.4.1 Customer Management Module 
-(As detailed in TDS v6)
+(As detailed in TDS v7)
 
 #### 4.4.2 Vendor Management Module
-(As detailed in TDS v6)
+(As detailed in TDS v7)
 
-#### 4.4.3 Product/Service Management Module (Backend and Basic UI Implemented)
-This module provides capabilities for managing product and service items.
+#### 4.4.3 Product/Service Management Module
+(As detailed in TDS v7)
+
+#### 4.4.4 Sales Invoicing Module (Backend and Initial Dialog Implemented)
+This module provides capabilities for creating and managing draft sales invoices.
 -   **Service (`app/services/business_services.py`)**:
-    -   **`ProductService`**: Implements `IProductRepository`.
-        -   `get_by_id()`: Fetches a `Product` ORM, eager-loading related accounts (sales, purchase, inventory) and `tax_code_obj`.
-        -   `get_all_summary()`: Fetches `List[ProductSummaryData]` with filtering (active, product type, search on code/name/description) and pagination.
-        -   `save()`: Persists `Product` ORM objects.
--   **Manager (`app/business_logic/product_manager.py`)**:
-    -   **`ProductManager`**:
-        -   Dependencies: `ProductService`, `AccountService` (for GL account validation), `TaxCodeService` (for tax code validation), `ApplicationCore`.
-        -   `get_product_for_dialog()`: Retrieves full `Product` ORM for dialogs.
-        -   `get_products_for_listing()`: Retrieves `List[ProductSummaryData]` for table display.
-        -   `create_product(dto: ProductCreateData)`: Validates (code uniqueness, FKs for GL accounts based on product type, tax code). Maps DTO to `Product` ORM (handles `ProductTypeEnum.value`), sets audit IDs, saves.
-        -   `update_product(product_id: int, dto: ProductUpdateData)`: Fetches, validates, updates ORM, sets audit ID, saves.
-        -   `toggle_product_active_status(product_id: int, user_id: int)`: Toggles `is_active` and saves.
+    -   **`SalesInvoiceService`**: Implements `ISalesInvoiceRepository`.
+        -   `get_by_id()`: Fetches a `SalesInvoice` ORM, eager-loading lines (with product, tax_code_obj), customer, currency, and audit users.
+        -   `get_all_summary()`: Fetches `List[SalesInvoiceSummaryData]` with filtering and pagination.
+        -   `save()`: Persists `SalesInvoice` ORM objects, handling cascaded line items.
+-   **Manager (`app/business_logic/sales_invoice_manager.py`)**:
+    -   **`SalesInvoiceManager`**:
+        -   Dependencies: `SalesInvoiceService`, `CustomerService`, `ProductService`, `TaxCodeService`, `TaxCalculator`, `SequenceService`, `ApplicationCore`.
+        -   `get_invoice_for_dialog()`: Retrieves full `SalesInvoice` ORM for dialogs.
+        -   `get_invoices_for_listing()`: Retrieves `List[SalesInvoiceSummaryData]`.
+        -   `_validate_and_prepare_invoice_data()`: Core internal method to validate DTOs, fetch related entities (customer, products, tax codes for each line), calculate line subtotals, discounts, tax per line (using `TaxCalculator`), and then aggregate for invoice header totals (subtotal, total tax, grand total).
+        -   `create_draft_invoice(dto: SalesInvoiceCreateData)`: Uses `_validate_and_prepare_invoice_data`. Generates `invoice_no` via `core.get_next_sequence_value` DB function. Maps DTO and calculated data to `SalesInvoice` and `SalesInvoiceLine` ORMs. Sets status to `Draft` and audit IDs, then saves.
+        -   `update_draft_invoice(invoice_id: int, dto: SalesInvoiceUpdateData)`: Fetches existing draft invoice. Uses `_validate_and_prepare_invoice_data`. Updates ORM fields, handles replacement of line items (transactionally deletes old lines and adds new ones). Sets audit ID and saves.
+        -   `post_invoice(invoice_id: int, user_id: int)`: Currently a placeholder; intended to change status to `Approved`/`Sent`, generate accounting journal entries, and potentially update inventory.
 
 ## 5. User Interface Implementation (`app/ui/`)
 
-### 5.1 - 5.3 Core UI Components (MainWindow, Accounting, Settings, Reports, Customers, Vendors)
-(Functionality for Reports, Customers, Vendors as detailed in TDS v6. Other core UI unchanged.)
+### 5.1 - 5.4 Core UI, Accounting, Settings, Reports, Customers, Vendors, Products Modules
+(Functionality as detailed in TDS v7.)
 
-### 5.4 Products & Services Module UI (`app/ui/products/`) (New Section)
--   **`ProductsWidget` (`app/ui/products/products_widget.py`)**:
-    -   The main UI for managing products and services, accessed via a dedicated tab in `MainWindow`.
-    -   **Layout**: Features a toolbar for common actions, a filter area, and a `QTableView`.
-    -   **Toolbar**: Includes "Add Product/Service", "Edit", "Toggle Active", and "Refresh List" actions.
-    *   **Filter Area**: Allows filtering by a text search term (acting on product code, name, description), `ProductTypeEnum` (Inventory, Service, Non-Inventory via a `QComboBox`), and an "Show Inactive" `QCheckBox`. A "Clear Filters" button resets filters.
-    -   **Table View**: Uses `ProductTableModel` to display product/service summaries (ID (hidden), Code, Name, Type, Sales Price, Purchase Price, Active status). Supports column sorting. Double-clicking a row opens the item for editing.
-    -   **Data Flow**:
-        -   `_load_products()`: Triggered on init and by filter changes/refresh. Asynchronously calls `ProductManager.get_products_for_listing()` with current filter parameters.
-        -   `_update_table_model_slot()`: Receives `List[ProductSummaryData]` (as JSON string from async call), parses it, and updates `ProductTableModel`.
-    -   **Actions**:
-        -   Add/Edit actions launch `ProductDialog`.
-        -   Toggle Active calls `ProductManager.toggle_product_active_status()`.
-        -   All backend interactions are asynchronous, with UI updates handled safely.
--   **`ProductTableModel` (`app/ui/products/product_table_model.py`)**:
+### 5.5 Sales Invoicing Module UI (`app/ui/sales_invoices/`) (New Section)
+-   **`SalesInvoicesWidget` (Planned/Stub)**:
+    -   The main list view for sales invoices is not yet fully implemented.
+-   **`SalesInvoiceTableModel` (`app/ui/sales_invoices/sales_invoice_table_model.py`)**:
     -   `QAbstractTableModel` subclass.
-    -   Manages `List[ProductSummaryData]`.
-    -   Provides data for columns: ID, Code, Name, Type (displays enum value), Sales Price (formatted), Purchase Price (formatted), Active (Yes/No).
--   **`ProductDialog` (`app/ui/products/product_dialog.py`)**:
-    *   `QDialog` for creating or editing product/service details.
-    *   **Fields**: Includes inputs for all attributes defined in `ProductBaseData` (code, name, description, product type, category, UoM, barcode, prices, linked GL accounts, tax code, stock levels, active status).
-    *   **Dynamic UI**: The visibility and applicability of `inventory_account_id`, `min_stock_level`, and `reorder_point` fields are dynamically controlled based on the selected `ProductType` (enabled for "Inventory", disabled/cleared otherwise).
-    *   **ComboBox Population**: Asynchronously loads active accounts (filtered by appropriate types like Revenue for sales GL, Expense/Asset for purchase GL, Asset for inventory GL) and active tax codes into respective `QComboBox`es during dialog initialization.
+    -   Manages `List[SalesInvoiceSummaryData]`.
+    -   Provides data for columns: ID (hidden), Invoice No., Invoice Date, Due Date, Customer Name, Total Amount, Amount Paid, Balance, Status.
+-   **`SalesInvoiceDialog` (`app/ui/sales_invoices/sales_invoice_dialog.py`)**:
+    *   `QDialog` for creating or editing (draft) sales invoice details.
+    *   **Header Fields**: `QComboBox` for Customer (with completer), `QDateEdit` for Invoice Date and Due Date, `QComboBox` for Currency, `QDoubleSpinBox` for Exchange Rate, `QTextEdit` for Notes and Terms. Displays Invoice No. (generated on save).
+    *   **Line Items Table (`QTableWidget`)**: Columns for Delete (button), Product/Service (`QComboBox` with completer), Description (`QLineEdit`), Quantity (`QDoubleSpinBox` via delegate), Unit Price (`QDoubleSpinBox` via delegate), Discount % (`QDoubleSpinBox` via delegate), Line Subtotal (read-only), Tax Code (`QComboBox`), Tax Amount (read-only), Line Total (read-only).
+    *   **Dynamic UI & Calculations**:
+        *   Line subtotals, tax amounts, and line totals are calculated dynamically as quantity, price, discount, or tax code change for a line.
+        *   Invoice subtotal, total tax, and grand total are updated in read-only display fields based on line item changes.
+    *   **ComboBox Population**: Asynchronously loads active customers, products (filtered for saleable types), currencies, and tax codes into respective `QComboBox`es during dialog initialization.
     *   **Data Handling**:
-        -   In edit mode, loads existing product data via `ProductManager.get_product_for_dialog()`.
-        -   On save, collects UI data into `ProductCreateData` or `ProductUpdateData` DTOs. Pydantic validation occurs.
-        -   Calls `ProductManager.create_product()` or `ProductManager.update_product()` asynchronously.
-        -   Displays success/error messages and emits `product_saved(product_id)` signal.
+        -   In edit mode, loads existing draft invoice data via `SalesInvoiceManager.get_invoice_for_dialog()`.
+        -   On save (draft), collects UI data into `SalesInvoiceCreateData` or `SalesInvoiceUpdateData` DTOs. Pydantic validation occurs.
+        -   Calls `SalesInvoiceManager.create_draft_invoice()` or `SalesInvoiceManager.update_draft_invoice()` asynchronously.
+        -   Displays success/error messages and emits `invoice_saved(invoice_id)` signal.
+        -   "Save & Approve" button is present but currently disabled, indicating future functionality for posting.
 
 ## 6. Security Considerations
-(Unchanged from TDS v6)
+(Unchanged from TDS v7)
 
 ## 7. Database Access Implementation (`app/services/`)
 -   **`business_services.py`**:
-    -   `CustomerService`, `VendorService` (As detailed in TDS v6).
-    -   **`ProductService` (New details)**: Implements `IProductRepository`.
-        -   `get_by_id()`: Fetches `Product` ORM, eager-loading `sales_account`, `purchase_account`, `inventory_account`, `tax_code_obj`, and audit users.
-        -   `get_all_summary()`: Fetches `List[ProductSummaryData]` with filtering (active, product type, search term) and pagination.
-        -   Other methods (`get_by_code`, `save`) provide standard repository functionality for `Product` entities.
+    -   `CustomerService`, `VendorService`, `ProductService` (As detailed in TDS v7).
+    -   **`SalesInvoiceService` (New details)**: Implements `ISalesInvoiceRepository`.
+        -   `get_by_id()`: Fetches `SalesInvoice` ORM, eager-loading `lines` (with their `product` and `tax_code_obj`), `customer`, `currency`, `journal_entry`, and audit users.
+        -   `get_all_summary()`: Fetches `List[SalesInvoiceSummaryData]` with filtering (customer, status, dates) and pagination. Joins with `Customer` to include customer name.
+        -   `save()`: Persists `SalesInvoice` ORM objects, managing related `SalesInvoiceLine` items (SQLAlchemy handles cascades based on relationship configuration). This method is designed to be called within a transaction managed by the `SalesInvoiceManager` for operations like updates that involve deleting old lines.
 
 ## 8. Deployment and Installation
-(Unchanged from TDS v6)
+(Unchanged from TDS v7)
 
 ## 9. Conclusion
-This TDS (v7) documents further significant progress in SG Bookkeeper's development. The core feature set has been expanded with the implementation of basic Product/Service Management (backend and UI), complementing the existing Customer and Vendor management modules. The application now offers a more rounded suite for managing key business entities alongside its robust accounting, GST, and reporting functionalities. The architecture remains stable and continues to support asynchronous operations and clear component responsibilities. Future iterations will focus on building transactional modules (like Invoicing) that leverage these foundational data entities.
-
+This TDS (v8) documents further progress, notably the addition of backend logic for managing draft Sales Invoices, including complex calculations and data validation. A functional UI dialog for creating and editing these draft invoices has also been implemented. This complements the existing Customer, Vendor, and Product/Service management modules, laying a critical foundation for transactional accounting. Core accounting, GST workflow, and financial reporting functionalities remain robust. Future iterations will focus on completing the Sales Invoicing lifecycle (posting, payment tracking), implementing Purchase Invoicing, and further enhancing other modules.
