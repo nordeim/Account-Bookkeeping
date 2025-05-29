@@ -25,6 +25,9 @@ class RoleTableModel(QAbstractTableModel):
 
     def data(self, index: QModelIndex, role=Qt.ItemDataRole.DisplayRole) -> Any:
         if not index.isValid() or role != Qt.ItemDataRole.DisplayRole:
+            # Allow UserRole for ID retrieval
+            if role == Qt.ItemDataRole.UserRole and index.column() == 0 and 0 <= index.row() < len(self._data):
+                return self._data[index.row()].id
             return None
         
         row = index.row(); col = index.column()
@@ -40,6 +43,10 @@ class RoleTableModel(QAbstractTableModel):
 
     def get_role_id_at_row(self, row: int) -> Optional[int]:
         if 0 <= row < len(self._data):
+            # Try UserRole first for consistency if data() method is updated to store it
+            idx = self.index(row, 0)
+            role_id = self.data(idx, Qt.ItemDataRole.UserRole)
+            if role_id is not None: return int(role_id)
             return self._data[row].id 
         return None
         

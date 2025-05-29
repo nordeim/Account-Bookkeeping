@@ -3,7 +3,7 @@ import bcrypt
 from typing import Optional, List, cast
 from app.models.core.user import User, Role, Permission 
 from app.models.accounting.account import Account 
-from sqlalchemy import select, update, delete 
+from sqlalchemy import select, update, delete, func # Added func
 from sqlalchemy.orm import selectinload, joinedload
 from app.core.database_manager import DatabaseManager 
 import datetime 
@@ -11,7 +11,7 @@ from app.utils.result import Result
 from app.utils.pydantic_models import (
     UserSummaryData, UserCreateInternalData, UserRoleAssignmentData,
     UserCreateData, UserUpdateData, UserPasswordChangeData,
-    RoleCreateData, RoleUpdateData, PermissionData # New DTOs for Roles/Permissions
+    RoleCreateData, RoleUpdateData, PermissionData 
 )
 
 
@@ -20,6 +20,7 @@ class SecurityManager:
         self.db_manager = db_manager
         self.current_user: Optional[User] = None
 
+    # ... (hash_password, verify_password, authenticate_user, logout_user, get_current_user, has_permission - unchanged) ...
     def hash_password(self, password: str) -> str:
         salt = bcrypt.gensalt()
         hashed_password = bcrypt.hashpw(password.encode('utf-8'), salt)
@@ -81,7 +82,7 @@ class SecurityManager:
                 if perm.code == required_permission_code:
                     return True
         return False
-
+    
     async def create_user_from_internal_data(self, user_data: UserCreateInternalData) -> Result[User]:
         async with self.db_manager.session() as session:
             stmt_exist = select(User).where(User.username == user_data.username)
@@ -196,6 +197,7 @@ class SecurityManager:
             await session.refresh(user_to_update, attribute_names=['roles'])
             return Result.success(user_to_update)
 
+
     async def toggle_user_active_status(self, user_id_to_toggle: int, current_admin_user_id: int) -> Result[User]:
         if user_id_to_toggle == current_admin_user_id:
             return Result.failure(["Cannot change the active status of your own account."])
@@ -227,9 +229,9 @@ class SecurityManager:
 
     async def get_all_roles(self) -> List[Role]:
         async with self.db_manager.session() as session:
-            stmt = select(Role).options(selectinload(Role.permissions)).order_by(Role.name) # Eager load permissions
+            stmt = select(Role).options(selectinload(Role.permissions)).order_by(Role.name) 
             result = await session.execute(stmt)
-            return list(result.scalars().unique().all()) # unique() because of join with permissions
+            return list(result.scalars().unique().all()) 
 
     async def change_user_password(self, password_dto: UserPasswordChangeData) -> Result[None]:
         async with self.db_manager.session() as session:
@@ -247,10 +249,9 @@ class SecurityManager:
             await session.flush()
             return Result.success(None)
 
-    # --- New Role Management Methods ---
+    # --- Role Management Methods ---
     async def get_role_by_id(self, role_id: int) -> Optional[Role]:
         async with self.db_manager.session() as session:
-            # Eager load permissions when fetching a single role for editing
             stmt = select(Role).options(selectinload(Role.permissions)).where(Role.id == role_id)
             result = await session.execute(stmt)
             return result.scalars().first()
@@ -262,16 +263,28 @@ class SecurityManager:
                 return Result.failure([f"Role name '{dto.name}' already exists."])
             
             new_role = Role(name=dto.name, description=dto.description)
-            # created_at, updated_at are handled by TimestampMixin in Role model
+            # TimestampMixin handles created_at, updated_at
             
+            # Assign permissions if provided
+            if dto.permission_ids:
+                permissions_to_assign: List[Permission] = []
+                if dto.permission_ids: # Ensure list is not empty before querying
+                    perm_q = await session.execute(select(Permission).where(Permission.id.in_(dto.permission_ids))) # type: ignore
+                    permissions_to_assign = list(perm_q.scalars().all())
+                    if len(permissions_to_assign) != len(set(dto.permission_ids)):
+                        return Result.failure(["One or more provided permission IDs are invalid."])
+                new_role.permissions.extend(permissions_to_assign)
+
             session.add(new_role)
             await session.flush()
             await session.refresh(new_role)
+            if new_role.permissions: # Eager load permissions if they were assigned
+                await session.refresh(new_role, attribute_names=['permissions'])
             return Result.success(new_role)
 
     async def update_role(self, dto: RoleUpdateData, current_admin_user_id: int) -> Result[Role]:
         async with self.db_manager.session() as session:
-            role_to_update = await session.get(Role, dto.id)
+            role_to_update = await session.get(Role, dto.id, options=[selectinload(Role.permissions)])
             if not role_to_update:
                 return Result.failure([f"Role with ID {dto.id} not found."])
 
@@ -285,10 +298,24 @@ class SecurityManager:
             
             role_to_update.name = dto.name
             role_to_update.description = dto.description
-            role_to_update.updated_at = datetime.datetime.now(datetime.timezone.utc) # Manually if TimestampMixin not used
+            role_to_update.updated_at = datetime.datetime.now(datetime.timezone.utc)
+            
+            # Update permissions
+            if dto.permission_ids is not None: # Allow passing empty list to clear permissions
+                role_to_update.permissions.clear() # Clear existing
+                if dto.permission_ids: # If new list is not empty, fetch and assign
+                    new_permissions_orm: List[Permission] = []
+                    perm_q = await session.execute(select(Permission).where(Permission.id.in_(dto.permission_ids))) # type: ignore
+                    new_permissions_orm = list(perm_q.scalars().all())
+                    if len(new_permissions_orm) != len(set(dto.permission_ids)):
+                        return Result.failure(["One or more selected permission IDs for update are invalid."])
+                    for perm in new_permissions_orm:
+                        role_to_update.permissions.append(perm)
             
             await session.flush()
             await session.refresh(role_to_update)
+            # Ensure permissions are loaded after update
+            await session.refresh(role_to_update, attribute_names=['permissions'])
             return Result.success(role_to_update)
 
     async def delete_role(self, role_id: int, current_admin_user_id: int) -> Result[None]:
@@ -300,14 +327,13 @@ class SecurityManager:
             if role_to_delete.name == "Administrator":
                 return Result.failure(["The 'Administrator' role cannot be deleted."])
             
-            if role_to_delete.users: # Check if role is assigned to any users
-                user_list = ", ".join([user.username for user in role_to_delete.users[:5]])
-                if len(role_to_delete.users) > 5: user_list += "..."
-                return Result.failure([f"Role '{role_to_delete.name}' is assigned to users ({user_list}) and cannot be deleted. Please reassign users first."])
+            if role_to_delete.users: 
+                user_list = ", ".join([user.username for user in role_to_delete.users[:3]]) # Show first 3
+                if len(role_to_delete.users) > 3: user_list += "..."
+                return Result.failure([f"Role '{role_to_delete.name}' is assigned to users (e.g., {user_list}) and cannot be deleted. Please reassign users first."])
             
-            # Permissions associated via role_permissions table will be cascade deleted by DB if FK is set up correctly.
             await session.delete(role_to_delete)
-            await session.flush() # Make sure delete is processed
+            await session.flush() 
             return Result.success(None)
 
     async def get_all_permissions(self) -> List[PermissionData]:
@@ -318,27 +344,20 @@ class SecurityManager:
             return [PermissionData.model_validate(p) for p in permissions_orm]
             
     async def assign_permissions_to_role(self, role_id: int, permission_ids: List[int], current_admin_user_id: int) -> Result[Role]:
-        async with self.db_manager.session() as session:
-            role = await session.get(Role, role_id, options=[selectinload(Role.permissions)])
-            if not role:
-                return Result.failure([f"Role with ID {role_id} not found."])
-            
-            if role.name == "Administrator":
-                return Result.failure(["Permissions for 'Administrator' role cannot be changed from UI; it has all permissions implicitly."])
-
-            new_permissions_orm: List[Permission] = []
-            if permission_ids:
-                perm_q = await session.execute(select(Permission).where(Permission.id.in_(permission_ids))) # type: ignore
-                new_permissions_orm = list(perm_q.scalars().all())
-                if len(new_permissions_orm) != len(set(permission_ids)):
-                     return Result.failure(["One or more selected permission IDs are invalid."])
-            
-            role.permissions.clear()
-            for perm in new_permissions_orm:
-                role.permissions.append(perm)
-            
-            role.updated_at = datetime.datetime.now(datetime.timezone.utc)
-            await session.flush()
-            await session.refresh(role)
-            await session.refresh(role, attribute_names=['permissions'])
-            return Result.success(role)
+        # This method is now effectively covered by update_role if RoleUpdateData contains permission_ids
+        # For clarity, it could be kept as a separate endpoint/manager method if preferred,
+        # but it would largely duplicate logic from update_role's permission handling.
+        # For now, assume update_role is the primary way to modify role details including permissions.
+        # If a dedicated "Assign Permissions" UI action is needed, this can call update_role
+        # with only the permission_ids changing in the DTO.
+        role_orm = await self.get_role_by_id(role_id)
+        if not role_orm:
+            return Result.failure([f"Role ID {role_id} not found."])
+        
+        update_dto = RoleUpdateData(
+            id=role_id,
+            name=role_orm.name, # Keep existing name
+            description=role_orm.description, # Keep existing description
+            permission_ids=permission_ids # Set new permissions
+        )
+        return await self.update_role(update_dto, current_admin_user_id)

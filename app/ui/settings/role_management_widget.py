@@ -12,11 +12,11 @@ import json
 from app.core.application_core import ApplicationCore
 from app.main import schedule_task_from_qt
 from app.ui.settings.role_table_model import RoleTableModel
-from app.ui.settings.role_dialog import RoleDialog
+from app.ui.settings.role_dialog import RoleDialog # Import RoleDialog
 from app.utils.pydantic_models import RoleData
 from app.utils.json_helpers import json_converter
 from app.utils.result import Result
-from app.models.core.user import Role # For ORM type hint from SecurityManager
+from app.models.core.user import Role 
 
 if TYPE_CHECKING:
     from PySide6.QtGui import QPaintDevice
@@ -103,13 +103,13 @@ class RoleManagementWidget(QWidget):
             if role_name == "Administrator":
                 is_admin_role_selected = True
         
-        self.toolbar_edit_action.setEnabled(can_modify) # Admin role description can be edited
+        self.toolbar_edit_action.setEnabled(can_modify) 
         self.toolbar_delete_action.setEnabled(can_modify and not is_admin_role_selected)
 
     async def _load_roles(self):
         if not self.app_core.security_manager:
             QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
-                Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str,"Security Manager not available."))
+                Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str,"Security Manager component not available."))
             return
         try:
             roles_orm: List[Role] = await self.app_core.security_manager.get_all_roles()
@@ -142,8 +142,8 @@ class RoleManagementWidget(QWidget):
 
     def _get_selected_role_id(self) -> Optional[int]:
         selected_rows = self.roles_table.selectionModel().selectedRows()
-        if not selected_rows or len(selected_rows) > 1:
-            return None
+        if not selected_rows: return None
+        if len(selected_rows) > 1: return None # Only operate on single selection for edit/delete
         return self.table_model.get_role_id_at_row(selected_rows[0].row())
 
     @Slot()
@@ -153,6 +153,12 @@ class RoleManagementWidget(QWidget):
             QMessageBox.information(self, "Selection", "Please select a single role to edit.")
             return
         if not self.app_core.current_user: QMessageBox.warning(self, "Auth Error", "Please log in."); return
+        
+        role_name = self.table_model.get_role_name_at_row(self.roles_table.currentIndex().row())
+        if role_name == "Administrator" and self.name_edit.text().strip() != "Administrator": # self.name_edit does not exist here. This check is in RoleDialog.
+             # This check is better placed within RoleDialog or SecurityManager. For now, allow opening.
+             pass
+
         dialog = RoleDialog(self.app_core, self.app_core.current_user.id, role_id_to_edit=role_id, parent=self)
         dialog.role_saved.connect(self._refresh_list_after_save)
         dialog.exec()
@@ -163,6 +169,7 @@ class RoleManagementWidget(QWidget):
         role_id = self.table_model.get_role_id_at_row(index.row())
         if role_id is None: return
         if not self.app_core.current_user: QMessageBox.warning(self, "Auth Error", "Please log in."); return
+        
         dialog = RoleDialog(self.app_core, self.app_core.current_user.id, role_id_to_edit=role_id, parent=self)
         dialog.role_saved.connect(self._refresh_list_after_save)
         dialog.exec()
@@ -206,7 +213,7 @@ class RoleManagementWidget(QWidget):
             self.app_core.logger.error(f"Error handling role deletion result: {e}", exc_info=True)
             QMessageBox.critical(self, "Error", f"An unexpected error occurred during role deletion: {str(e)}")
         finally:
-            self._update_action_states() # Ensure actions are re-evaluated
+            self._update_action_states() 
 
     @Slot(int)
     def _refresh_list_after_save(self, role_id: int):

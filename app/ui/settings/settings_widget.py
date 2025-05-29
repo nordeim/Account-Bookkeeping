@@ -14,7 +14,7 @@ from app.models.accounting.currency import Currency
 from app.models.accounting.fiscal_year import FiscalYear 
 from app.ui.accounting.fiscal_year_dialog import FiscalYearDialog 
 from app.ui.settings.user_management_widget import UserManagementWidget 
-from app.ui.settings.role_management_widget import RoleManagementWidget # New Import
+from app.ui.settings.role_management_widget import RoleManagementWidget 
 from decimal import Decimal, InvalidOperation
 import asyncio
 import json 
@@ -43,7 +43,7 @@ class FiscalYearTableModel(QAbstractTableModel):
         return None
 
     def data(self, index: QModelIndex, role=Qt.ItemDataRole.DisplayRole):
-        if not index.isValid(): # Removed "or role != Qt.ItemDataRole.DisplayRole" to allow FontRole etc.
+        if not index.isValid(): 
             return None
         
         try:
@@ -180,7 +180,7 @@ class SettingsWidget(QWidget):
         self.user_management_widget = UserManagementWidget(self.app_core)
         self.tab_widget.addTab(self.user_management_widget, "Users")
 
-        # --- Role Management Tab (NEW) ---
+        # --- Role Management Tab ---
         self.role_management_widget = RoleManagementWidget(self.app_core)
         self.tab_widget.addTab(self.role_management_widget, "Roles & Permissions")
         

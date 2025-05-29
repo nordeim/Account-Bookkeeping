@@ -1,7 +1,8 @@
 # File: app/ui/settings/role_dialog.py
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QFormLayout, QLineEdit, QPushButton, QDialogButtonBox, 
-    QMessageBox, QLabel, QTextEdit
+    QMessageBox, QLabel, QTextEdit, QListWidget, QListWidgetItem, QAbstractItemView,
+    QGroupBox # Added QGroupBox
 )
 from PySide6.QtCore import Qt, Slot, Signal, QTimer, QMetaObject, Q_ARG
 from typing import Optional, List, Dict, Any, TYPE_CHECKING, Union
@@ -10,10 +11,10 @@ import json
 
 from app.core.application_core import ApplicationCore
 from app.main import schedule_task_from_qt
-from app.utils.pydantic_models import RoleCreateData, RoleUpdateData, RoleData
+from app.utils.pydantic_models import RoleCreateData, RoleUpdateData, RoleData, PermissionData
 from app.models.core.user import Role # ORM for loading
 from app.utils.result import Result
-from app.utils.json_helpers import json_converter
+from app.utils.json_helpers import json_converter # For serializing if complex objects were in DTO
 
 if TYPE_CHECKING:
     from PySide6.QtGui import QPaintDevice
@@ -30,23 +31,26 @@ class RoleDialog(QDialog):
         self.current_admin_user_id = current_admin_user_id
         self.role_id_to_edit = role_id_to_edit
         self.loaded_role_orm: Optional[Role] = None
+        self._all_permissions_cache: List[PermissionData] = []
+
 
         self.is_new_role = self.role_id_to_edit is None
         self.setWindowTitle("Add New Role" if self.is_new_role else "Edit Role")
-        self.setMinimumWidth(400)
+        self.setMinimumWidth(500) # Increased width for permissions
+        self.setMinimumHeight(450)
         self.setModal(True)
 
         self._init_ui()
         self._connect_signals()
 
-        if self.role_id_to_edit:
-            QTimer.singleShot(0, lambda: schedule_task_from_qt(self._load_existing_role_data()))
-        else:
-            self.name_edit.setFocus() # Focus on name for new role
+        QTimer.singleShot(0, lambda: schedule_task_from_qt(self._load_initial_data()))
+        # load_existing_role_data is called within _load_initial_data if editing
 
     def _init_ui(self):
         main_layout = QVBoxLayout(self)
-        form_layout = QFormLayout()
+        
+        details_group = QGroupBox("Role Details")
+        form_layout = QFormLayout(details_group)
         form_layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
 
         self.name_edit = QLineEdit()
@@ -55,20 +59,18 @@ class RoleDialog(QDialog):
 
         self.description_edit = QTextEdit()
         self.description_edit.setPlaceholderText("Enter a brief description for this role.")
-        self.description_edit.setFixedHeight(80)
+        self.description_edit.setFixedHeight(60) # Reduced height slightly
         form_layout.addRow("Description:", self.description_edit)
+        main_layout.addWidget(details_group)
         
-        # Placeholder for Permission Assignment UI (Part 2)
-        self.permissions_placeholder_label = QLabel(
-            "<i>Permission assignment will be available here in a future update.</i>"
-        )
-        self.permissions_placeholder_label.setTextFormat(Qt.TextFormat.RichText)
-        self.permissions_placeholder_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.permissions_placeholder_label.setStyleSheet("padding: 10px; background-color: #f0f0f0; border-radius: 5px;")
-        form_layout.addRow(self.permissions_placeholder_label)
+        permissions_group = QGroupBox("Assign Permissions")
+        permissions_layout = QVBoxLayout(permissions_group)
+        self.permissions_list_widget = QListWidget()
+        self.permissions_list_widget.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
+        # Height can be adjusted or let it expand
+        permissions_layout.addWidget(self.permissions_list_widget)
+        main_layout.addWidget(permissions_group)
 
-
-        main_layout.addLayout(form_layout)
         self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         main_layout.addWidget(self.button_box)
         self.setLayout(main_layout)
@@ -77,21 +79,67 @@ class RoleDialog(QDialog):
         self.button_box.accepted.connect(self.on_save)
         self.button_box.rejected.connect(self.reject)
 
-    async def _load_existing_role_data(self):
-        if not self.role_id_to_edit or not self.app_core.security_manager: return
+    async def _load_initial_data(self):
+        """Load all available permissions and role data if editing."""
+        perms_loaded = False
+        try:
+            if self.app_core.security_manager:
+                self._all_permissions_cache = await self.app_core.security_manager.get_all_permissions()
+                perms_json = json.dumps([p.model_dump() for p in self._all_permissions_cache])
+                QMetaObject.invokeMethod(self, "_populate_permissions_list_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, perms_json))
+                perms_loaded = True
+        except Exception as e:
+            self.app_core.logger.error(f"Error loading permissions for RoleDialog: {e}", exc_info=True)
+            QMessageBox.warning(self, "Data Load Error", f"Could not load permissions: {str(e)}")
+        
+        if not perms_loaded:
+            self.permissions_list_widget.addItem("Error loading permissions.")
+            self.permissions_list_widget.setEnabled(False)
 
-        self.loaded_role_orm = await self.app_core.security_manager.get_role_by_id(self.role_id_to_edit)
-        if self.loaded_role_orm:
-            role_dict = {
-                "id": self.loaded_role_orm.id,
-                "name": self.loaded_role_orm.name,
-                "description": self.loaded_role_orm.description
-            }
-            role_json_str = json.dumps(role_dict, default=json_converter)
-            QMetaObject.invokeMethod(self, "_populate_fields_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, role_json_str))
-        else:
-            QMessageBox.warning(self, "Load Error", f"Role ID {self.role_id_to_edit} not found.")
-            self.reject()
+        if self.role_id_to_edit: # If editing, load role data (which includes its permissions)
+            try:
+                if self.app_core.security_manager:
+                    self.loaded_role_orm = await self.app_core.security_manager.get_role_by_id(self.role_id_to_edit)
+                    if self.loaded_role_orm:
+                        # Serialize role data (including its assigned permission IDs)
+                        assigned_perm_ids = [p.id for p in self.loaded_role_orm.permissions]
+                        role_dict = {
+                            "id": self.loaded_role_orm.id, "name": self.loaded_role_orm.name,
+                            "description": self.loaded_role_orm.description,
+                            "assigned_permission_ids": assigned_perm_ids
+                        }
+                        role_json_str = json.dumps(role_dict, default=json_converter)
+                        QMetaObject.invokeMethod(self, "_populate_fields_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, role_json_str))
+                    else:
+                        QMessageBox.warning(self, "Load Error", f"Role ID {self.role_id_to_edit} not found.")
+                        self.reject()
+            except Exception as e:
+                 self.app_core.logger.error(f"Error loading role (ID: {self.role_id_to_edit}) for edit: {e}", exc_info=True)
+                 QMessageBox.warning(self, "Load Error", f"Could not load role details: {str(e)}"); self.reject()
+        elif self.is_new_role : # New role
+            self.name_edit.setFocus()
+
+
+    @Slot(str)
+    def _populate_permissions_list_slot(self, permissions_json_str: str):
+        self.permissions_list_widget.clear()
+        try:
+            permissions_data_list = json.loads(permissions_json_str)
+            self._all_permissions_cache = [PermissionData.model_validate(p_dict) for p_dict in permissions_data_list]
+            for perm_dto in self._all_permissions_cache:
+                item_text = f"{perm_dto.module}: {perm_dto.code}"
+                if perm_dto.description: item_text += f" - {perm_dto.description}"
+                item = QListWidgetItem(item_text)
+                item.setData(Qt.ItemDataRole.UserRole, perm_dto.id) # Store permission ID
+                self.permissions_list_widget.addItem(item)
+        except json.JSONDecodeError as e:
+            self.app_core.logger.error(f"Error parsing permissions JSON for RoleDialog: {e}")
+            self.permissions_list_widget.addItem("Error parsing permissions.")
+        
+        # If editing and user data already loaded, re-select permissions
+        if self.role_id_to_edit and self.loaded_role_orm:
+            self._select_assigned_permissions([p.id for p in self.loaded_role_orm.permissions])
+
 
     @Slot(str)
     def _populate_fields_slot(self, role_json_str: str):
@@ -103,10 +151,27 @@ class RoleDialog(QDialog):
         self.name_edit.setText(role_data.get("name", ""))
         self.description_edit.setText(role_data.get("description", "") or "")
 
-        # Prevent editing name of "Administrator" role
         if role_data.get("name") == "Administrator":
             self.name_edit.setReadOnly(True)
             self.name_edit.setToolTip("The 'Administrator' role name cannot be changed.")
+            # self.permissions_list_widget.setEnabled(False) # Admin role permissions are implicit
+            # For Admin role, all permissions should be selected and disabled from unchecking.
+            for i in range(self.permissions_list_widget.count()):
+                self.permissions_list_widget.item(i).setSelected(True)
+            self.permissions_list_widget.setEnabled(False) # Prevent changing Admin permissions
+
+        else:
+            assigned_permission_ids = role_data.get("assigned_permission_ids", [])
+            self._select_assigned_permissions(assigned_permission_ids)
+
+    def _select_assigned_permissions(self, assigned_ids: List[int]):
+        for i in range(self.permissions_list_widget.count()):
+            item = self.permissions_list_widget.item(i)
+            permission_id_in_item = item.data(Qt.ItemDataRole.UserRole)
+            if permission_id_in_item in assigned_ids:
+                item.setSelected(True)
+            else:
+                item.setSelected(False) # Explicitly deselect
 
     def _collect_data(self) -> Optional[Union[RoleCreateData, RoleUpdateData]]:
         name = self.name_edit.text().strip()
@@ -116,18 +181,34 @@ class RoleDialog(QDialog):
             QMessageBox.warning(self, "Validation Error", "Role Name is required.")
             return None
         
+        selected_permission_ids: List[int] = []
+        for item in self.permissions_list_widget.selectedItems():
+            perm_id = item.data(Qt.ItemDataRole.UserRole)
+            if isinstance(perm_id, int):
+                selected_permission_ids.append(perm_id)
+        
+        common_data = {"name": name, "description": description, "permission_ids": selected_permission_ids}
+
         try:
             if self.is_new_role:
-                return RoleCreateData(name=name, description=description)
+                return RoleCreateData(**common_data) # type: ignore
             else:
                 assert self.role_id_to_edit is not None
-                return RoleUpdateData(id=self.role_id_to_edit, name=name, description=description)
-        except ValueError as pydantic_error: # Catches Pydantic validation errors
+                return RoleUpdateData(id=self.role_id_to_edit, **common_data) # type: ignore
+        except ValueError as pydantic_error: 
             QMessageBox.warning(self, "Validation Error", f"Invalid data:\n{str(pydantic_error)}")
             return None
 
     @Slot()
     def on_save(self):
+        # Prevent saving if editing "Administrator" role name (already handled by read-only)
+        # but this is an additional safeguard.
+        if self.loaded_role_orm and self.loaded_role_orm.name == "Administrator" and \
+           self.name_edit.text().strip() != "Administrator":
+            QMessageBox.warning(self, "Save Error", "Cannot change the name of the 'Administrator' role.")
+            self.name_edit.setText("Administrator") # Reset it
+            return
+
         dto = self._collect_data()
         if dto:
             ok_button = self.button_box.button(QDialogButtonBox.StandardButton.Ok)
@@ -138,7 +219,7 @@ class RoleDialog(QDialog):
                 future.add_done_callback(
                     lambda _: ok_button.setEnabled(True) if ok_button and self.isVisible() else None
                 )
-            else: # Handle scheduling failure
+            else: 
                 if ok_button: ok_button.setEnabled(True)
 
     async def _perform_save(self, dto: Union[RoleCreateData, RoleUpdateData]):
@@ -153,7 +234,7 @@ class RoleDialog(QDialog):
 
         if isinstance(dto, RoleUpdateData):
             result = await self.app_core.security_manager.update_role(dto, self.current_admin_user_id)
-        else: # RoleCreateData
+        else: 
             result = await self.app_core.security_manager.create_role(dto, self.current_admin_user_id)
 
         if result.is_success and result.value:
