@@ -214,34 +214,34 @@ class SalesInvoiceData(SalesInvoiceBaseData): id: int; invoice_no: str; subtotal
 class SalesInvoiceSummaryData(AppBaseModel): id: int; invoice_no: str; invoice_date: date; due_date: date; customer_name: str; total_amount: Decimal; amount_paid: Decimal; status: InvoiceStatusEnum
 
 # --- User & Role Management DTOs ---
-class RoleData(AppBaseModel):
+class RoleData(AppBaseModel): # Already existed, confirmed structure
     id: int
     name: str
     description: Optional[str] = None
 
-class UserSummaryData(AppBaseModel):
+class UserSummaryData(AppBaseModel): # Already existed, confirmed structure
     id: int
     username: str
     full_name: Optional[str] = None
     email: Optional[EmailStr] = None
     is_active: bool
     last_login: Optional[datetime] = None
-    roles: List[str] = Field(default_factory=list) # List of role names
+    roles: List[str] = Field(default_factory=list) 
 
-class UserRoleAssignmentData(AppBaseModel): # For internal use when creating/updating user roles
+class UserRoleAssignmentData(AppBaseModel): # Already existed, confirmed structure
     role_id: int
 
-class UserBaseData(AppBaseModel):
+class UserBaseData(AppBaseModel): # Already existed, confirmed structure
     username: str = Field(..., min_length=3, max_length=50)
     full_name: Optional[str] = Field(None, max_length=100)
     email: Optional[EmailStr] = None
     is_active: bool = True
 
-class UserCreateInternalData(UserBaseData): # Used by SecurityManager internally for ORM mapping
+class UserCreateInternalData(UserBaseData): # Already existed, confirmed structure
     password_hash: str 
     assigned_roles: List[UserRoleAssignmentData] = Field(default_factory=list)
 
-class UserCreateData(UserBaseData, UserAuditData): # For UI -> Manager validation
+class UserCreateData(UserBaseData, UserAuditData): # Already existed, confirmed structure
     password: str = Field(..., min_length=8)
     confirm_password: str
     assigned_role_ids: List[int] = Field(default_factory=list)
@@ -253,21 +253,33 @@ class UserCreateData(UserBaseData, UserAuditData): # For UI -> Manager validatio
             raise ValueError('Passwords do not match')
         return values
 
-class UserUpdateData(UserBaseData, UserAuditData): # For UI -> Manager validation
+class UserUpdateData(UserBaseData, UserAuditData): # Already existed, confirmed structure
     id: int
     assigned_role_ids: List[int] = Field(default_factory=list)
-    # Password changes are handled by a separate DTO/endpoint for security
-    # Username change might be disallowed or handled with care due to uniqueness
 
-class UserPasswordChangeData(AppBaseModel, UserAuditData):
+class UserPasswordChangeData(AppBaseModel, UserAuditData): # Already existed, confirmed structure
     user_id_to_change: int 
     new_password: str = Field(..., min_length=8)
     confirm_new_password: str
-    # old_password: Optional[str] = None # If user changes own, not for admin change
-
     @root_validator(skip_on_failure=True)
     def new_passwords_match(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         pw1, pw2 = values.get('new_password'), values.get('confirm_new_password')
         if pw1 is not None and pw2 is not None and pw1 != pw2:
             raise ValueError('New passwords do not match')
         return values
+
+# --- NEW DTOs for Role Management ---
+class RoleCreateData(AppBaseModel): # No UserAuditData, roles are system-level
+    name: str = Field(..., min_length=3, max_length=50)
+    description: Optional[str] = Field(None, max_length=200)
+    # permission_codes: List[str] = Field(default_factory=list) # For Part 2
+
+class RoleUpdateData(RoleCreateData):
+    id: int
+    # permission_codes: List[str] = Field(default_factory=list) # For Part 2
+
+class PermissionData(AppBaseModel): # For listing available permissions
+    id: int
+    code: str
+    description: Optional[str] = None
+    module: str

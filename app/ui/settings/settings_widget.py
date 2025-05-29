@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QLabel, QPushButton,
                                QHBoxLayout, QTabWidget 
                                ) 
 from PySide6.QtCore import Slot, QDate, QTimer, QMetaObject, Q_ARG, Qt, QAbstractTableModel, QModelIndex 
-from PySide6.QtGui import QColor, QFont # Added QFont
+from PySide6.QtGui import QColor, QFont 
 from app.core.application_core import ApplicationCore
 from app.utils.pydantic_models import CompanySettingData, FiscalYearCreateData, FiscalYearData 
 from app.models.core.company_setting import CompanySetting
@@ -14,6 +14,7 @@ from app.models.accounting.currency import Currency
 from app.models.accounting.fiscal_year import FiscalYear 
 from app.ui.accounting.fiscal_year_dialog import FiscalYearDialog 
 from app.ui.settings.user_management_widget import UserManagementWidget 
+from app.ui.settings.role_management_widget import RoleManagementWidget # New Import
 from decimal import Decimal, InvalidOperation
 import asyncio
 import json 
@@ -23,7 +24,7 @@ from datetime import date as python_date, datetime
 from app.utils.json_helpers import json_converter, json_date_hook 
 
 class FiscalYearTableModel(QAbstractTableModel):
-    def __init__(self, data: Optional[List[FiscalYearData]] = None, parent=None): # type: ignore
+    def __init__(self, data: Optional[List[FiscalYearData]] = None, parent=None): 
         super().__init__(parent)
         self._headers = ["Name", "Start Date", "End Date", "Status"]
         self._data: List[FiscalYearData] = data or []
@@ -42,7 +43,7 @@ class FiscalYearTableModel(QAbstractTableModel):
         return None
 
     def data(self, index: QModelIndex, role=Qt.ItemDataRole.DisplayRole):
-        if not index.isValid():
+        if not index.isValid(): # Removed "or role != Qt.ItemDataRole.DisplayRole" to allow FontRole etc.
             return None
         
         try:
@@ -55,18 +56,16 @@ class FiscalYearTableModel(QAbstractTableModel):
                 if column == 2: return fy.end_date.strftime('%d/%m/%Y') if isinstance(fy.end_date, python_date) else str(fy.end_date)
                 if column == 3: return "Closed" if fy.is_closed else "Open"
             elif role == Qt.ItemDataRole.FontRole:
-                if column == 3: # Status column
+                if column == 3: 
                     font = QFont()
                     if fy.is_closed:
-                        pass # Default font
-                    else: # Open
+                        pass 
+                    else: 
                         font.setBold(True)
                     return font
             elif role == Qt.ItemDataRole.ForegroundRole:
-                 if column == 3 and not fy.is_closed: # Status column and Open
+                 if column == 3 and not fy.is_closed: 
                     return QColor("green")
-
-
         except IndexError:
             return None 
         return None
@@ -147,9 +146,8 @@ class SettingsWidget(QWidget):
         company_settings_form_layout.addRow(self.save_company_settings_button)
         
         company_tab_layout.addWidget(company_settings_group)
-        company_tab_layout.addStretch() # Push group to top
+        company_tab_layout.addStretch() 
         self.tab_widget.addTab(self.company_settings_tab, "Company")
-
 
         # --- Fiscal Year Management Tab ---
         self.fiscal_year_tab = QWidget()
@@ -181,6 +179,10 @@ class SettingsWidget(QWidget):
         # --- User Management Tab ---
         self.user_management_widget = UserManagementWidget(self.app_core)
         self.tab_widget.addTab(self.user_management_widget, "Users")
+
+        # --- Role Management Tab (NEW) ---
+        self.role_management_widget = RoleManagementWidget(self.app_core)
+        self.tab_widget.addTab(self.role_management_widget, "Roles & Permissions")
         
         self.setLayout(self.main_layout) 
 
@@ -302,7 +304,7 @@ class SettingsWidget(QWidget):
             return
         selected_currency_code = self.base_currency_combo.currentData() or "SGD"
         dto = CompanySettingData(
-            id=1, # Assuming ID 1 for the single company settings row
+            id=1, 
             company_name=self.company_name_edit.text(),
             legal_name=self.legal_name_edit.text() or None, uen_no=self.uen_edit.text() or None,
             gst_registration_no=self.gst_reg_edit.text() or None, gst_registered=self.gst_registered_check.isChecked(),
@@ -420,4 +422,3 @@ class SettingsWidget(QWidget):
         else:
             QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "warning", Qt.ConnectionType.QueuedConnection,
                 Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str, f"Failed to create fiscal year:\n{', '.join(result.errors)}"))
-

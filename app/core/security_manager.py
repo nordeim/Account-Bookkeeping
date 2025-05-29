@@ -10,7 +10,8 @@ import datetime
 from app.utils.result import Result
 from app.utils.pydantic_models import (
     UserSummaryData, UserCreateInternalData, UserRoleAssignmentData,
-    UserCreateData, UserUpdateData, UserPasswordChangeData 
+    UserCreateData, UserUpdateData, UserPasswordChangeData,
+    RoleCreateData, RoleUpdateData, PermissionData # New DTOs for Roles/Permissions
 )
 
 
@@ -82,13 +83,12 @@ class SecurityManager:
         return False
 
     async def create_user_from_internal_data(self, user_data: UserCreateInternalData) -> Result[User]:
-        """Creates a user from UserCreateInternalData (expects password_hash)."""
         async with self.db_manager.session() as session:
             stmt_exist = select(User).where(User.username == user_data.username)
             if (await session.execute(stmt_exist)).scalars().first():
                 return Result.failure([f"Username '{user_data.username}' already exists."])
             if user_data.email:
-                stmt_email_exist = select(User).where(User.email == str(user_data.email)) # Ensure email is string for query
+                stmt_email_exist = select(User).where(User.email == str(user_data.email)) 
                 if (await session.execute(stmt_email_exist)).scalars().first():
                     return Result.failure([f"Email '{user_data.email}' already registered."])
 
@@ -103,7 +103,7 @@ class SecurityManager:
                 if role_ids: 
                     roles_q = await session.execute(select(Role).where(Role.id.in_(role_ids))) # type: ignore
                     db_roles = roles_q.scalars().all()
-                    if len(db_roles) != len(set(role_ids)): # Check if all requested roles were found
+                    if len(db_roles) != len(set(role_ids)): 
                         found_role_ids = {r.id for r in db_roles}
                         missing_roles = [r_id for r_id in role_ids if r_id not in found_role_ids]
                         if hasattr(self.db_manager, 'logger') and self.db_manager.logger:
@@ -118,10 +118,6 @@ class SecurityManager:
             return Result.success(new_user)
 
     async def create_user_with_roles(self, dto: UserCreateData) -> Result[User]:
-        """Handles UserCreateData from UI, hashes password, prepares internal DTO."""
-        # Username/email uniqueness will be checked by create_user_from_internal_data
-        # Password match is validated by UserCreateData DTO itself.
-        
         hashed_password = self.hash_password(dto.password)
         
         role_assignments: List[UserRoleAssignmentData] = []
@@ -136,7 +132,6 @@ class SecurityManager:
             password_hash=hashed_password,
             assigned_roles=role_assignments
         )
-        # user_id from UserAuditData in dto is the creator, not used directly in User model fields
         return await self.create_user_from_internal_data(internal_dto)
             
     async def get_all_users_summary(self) -> List[UserSummaryData]:
@@ -170,13 +165,13 @@ class SecurityManager:
             if not user_to_update:
                 return Result.failure([f"User with ID {dto.id} not found."])
 
-            if dto.username != user_to_update.username: # Check only if username is changing
+            if dto.username != user_to_update.username: 
                 stmt_exist = select(User).where(User.username == dto.username, User.id != dto.id)
                 if (await session.execute(stmt_exist)).scalars().first():
                     return Result.failure([f"Username '{dto.username}' already exists for another user."])
             
-            if dto.email and dto.email != user_to_update.email: # Check only if email is changing and not None
-                stmt_email_exist = select(User).where(User.email == str(dto.email), User.id != dto.id) # Query with string
+            if dto.email and dto.email != user_to_update.email: 
+                stmt_email_exist = select(User).where(User.email == str(dto.email), User.id != dto.id) 
                 if (await session.execute(stmt_email_exist)).scalars().first():
                     return Result.failure([f"Email '{dto.email}' already registered by another user."])
 
@@ -198,13 +193,10 @@ class SecurityManager:
 
             await session.flush()
             await session.refresh(user_to_update)
-            # Refresh roles if they were changed or cleared, or if they were potentially mutated by clear/append
             await session.refresh(user_to_update, attribute_names=['roles'])
             return Result.success(user_to_update)
 
-
     async def toggle_user_active_status(self, user_id_to_toggle: int, current_admin_user_id: int) -> Result[User]:
-        # current_admin_user_id is the ID of the user performing the action
         if user_id_to_toggle == current_admin_user_id:
             return Result.failure(["Cannot change the active status of your own account."])
 
@@ -213,10 +205,10 @@ class SecurityManager:
             if not user:
                 return Result.failure([f"User with ID {user_id_to_toggle} not found."])
             
-            if user.username == "system_init_user": # Prevent modification of system_init_user
+            if user.username == "system_init_user": 
                  return Result.failure(["The 'system_init_user' status cannot be changed."])
 
-            if user.is_active: # If trying to deactivate
+            if user.is_active: 
                 is_admin = any(role.name == "Administrator" for role in user.roles)
                 if is_admin:
                     active_admins_count_stmt = select(func.count(User.id)).join(User.roles).where( # type: ignore
@@ -235,9 +227,9 @@ class SecurityManager:
 
     async def get_all_roles(self) -> List[Role]:
         async with self.db_manager.session() as session:
-            stmt = select(Role).order_by(Role.name)
+            stmt = select(Role).options(selectinload(Role.permissions)).order_by(Role.name) # Eager load permissions
             result = await session.execute(stmt)
-            return list(result.scalars().all())
+            return list(result.scalars().unique().all()) # unique() because of join with permissions
 
     async def change_user_password(self, password_dto: UserPasswordChangeData) -> Result[None]:
         async with self.db_manager.session() as session:
@@ -254,3 +246,99 @@ class SecurityManager:
             
             await session.flush()
             return Result.success(None)
+
+    # --- New Role Management Methods ---
+    async def get_role_by_id(self, role_id: int) -> Optional[Role]:
+        async with self.db_manager.session() as session:
+            # Eager load permissions when fetching a single role for editing
+            stmt = select(Role).options(selectinload(Role.permissions)).where(Role.id == role_id)
+            result = await session.execute(stmt)
+            return result.scalars().first()
+
+    async def create_role(self, dto: RoleCreateData, current_admin_user_id: int) -> Result[Role]:
+        async with self.db_manager.session() as session:
+            stmt_exist = select(Role).where(Role.name == dto.name)
+            if (await session.execute(stmt_exist)).scalars().first():
+                return Result.failure([f"Role name '{dto.name}' already exists."])
+            
+            new_role = Role(name=dto.name, description=dto.description)
+            # created_at, updated_at are handled by TimestampMixin in Role model
+            
+            session.add(new_role)
+            await session.flush()
+            await session.refresh(new_role)
+            return Result.success(new_role)
+
+    async def update_role(self, dto: RoleUpdateData, current_admin_user_id: int) -> Result[Role]:
+        async with self.db_manager.session() as session:
+            role_to_update = await session.get(Role, dto.id)
+            if not role_to_update:
+                return Result.failure([f"Role with ID {dto.id} not found."])
+
+            if role_to_update.name == "Administrator" and dto.name != "Administrator":
+                return Result.failure(["The 'Administrator' role name cannot be changed."])
+
+            if dto.name != role_to_update.name:
+                stmt_exist = select(Role).where(Role.name == dto.name, Role.id != dto.id)
+                if (await session.execute(stmt_exist)).scalars().first():
+                    return Result.failure([f"Role name '{dto.name}' already exists for another role."])
+            
+            role_to_update.name = dto.name
+            role_to_update.description = dto.description
+            role_to_update.updated_at = datetime.datetime.now(datetime.timezone.utc) # Manually if TimestampMixin not used
+            
+            await session.flush()
+            await session.refresh(role_to_update)
+            return Result.success(role_to_update)
+
+    async def delete_role(self, role_id: int, current_admin_user_id: int) -> Result[None]:
+        async with self.db_manager.session() as session:
+            role_to_delete = await session.get(Role, role_id, options=[selectinload(Role.users)])
+            if not role_to_delete:
+                return Result.failure([f"Role with ID {role_id} not found."])
+
+            if role_to_delete.name == "Administrator":
+                return Result.failure(["The 'Administrator' role cannot be deleted."])
+            
+            if role_to_delete.users: # Check if role is assigned to any users
+                user_list = ", ".join([user.username for user in role_to_delete.users[:5]])
+                if len(role_to_delete.users) > 5: user_list += "..."
+                return Result.failure([f"Role '{role_to_delete.name}' is assigned to users ({user_list}) and cannot be deleted. Please reassign users first."])
+            
+            # Permissions associated via role_permissions table will be cascade deleted by DB if FK is set up correctly.
+            await session.delete(role_to_delete)
+            await session.flush() # Make sure delete is processed
+            return Result.success(None)
+
+    async def get_all_permissions(self) -> List[PermissionData]:
+        async with self.db_manager.session() as session:
+            stmt = select(Permission).order_by(Permission.module, Permission.code)
+            result = await session.execute(stmt)
+            permissions_orm = result.scalars().all()
+            return [PermissionData.model_validate(p) for p in permissions_orm]
+            
+    async def assign_permissions_to_role(self, role_id: int, permission_ids: List[int], current_admin_user_id: int) -> Result[Role]:
+        async with self.db_manager.session() as session:
+            role = await session.get(Role, role_id, options=[selectinload(Role.permissions)])
+            if not role:
+                return Result.failure([f"Role with ID {role_id} not found."])
+            
+            if role.name == "Administrator":
+                return Result.failure(["Permissions for 'Administrator' role cannot be changed from UI; it has all permissions implicitly."])
+
+            new_permissions_orm: List[Permission] = []
+            if permission_ids:
+                perm_q = await session.execute(select(Permission).where(Permission.id.in_(permission_ids))) # type: ignore
+                new_permissions_orm = list(perm_q.scalars().all())
+                if len(new_permissions_orm) != len(set(permission_ids)):
+                     return Result.failure(["One or more selected permission IDs are invalid."])
+            
+            role.permissions.clear()
+            for perm in new_permissions_orm:
+                role.permissions.append(perm)
+            
+            role.updated_at = datetime.datetime.now(datetime.timezone.utc)
+            await session.flush()
+            await session.refresh(role)
+            await session.refresh(role, attribute_names=['permissions'])
+            return Result.success(role)
