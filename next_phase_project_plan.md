@@ -1,22 +1,32 @@
+**Current Project Status Recap (Relevant for README/TDS updates):**
+    
+*   **User Management UI**: Fully functional (CRUD, role assignment, password change, status toggle).
+*   **Role Management UI**: Fully functional (CRUD for roles, assignment of permissions to roles).
+*   **Sales Invoicing**: Draft management, posting with JE creation, list view UI are functional. "Save & Approve" in dialog is a minor pending UI polish.
+*   **Core Accounting, Customer/Vendor/Product Management, GST F5, Reporting**: Stable and functional as per previous updates. 
+    
+---
 **Current Project Status Recap:**
             
-*   **User Management UI**:
-    *   `UserManagementWidget`: Lists users. Actions: Add User (launches `UserDialog`), Edit User (launches `UserDialog`), Toggle Active User, Change Password (launches `UserPasswordDialog`).
-    *   `UserDialog`: Supports creating new users and editing existing users, including role assignments.
-    *   `UserPasswordDialog`: Supports changing a user's password.
-    *   `SecurityManager`: Contains backend methods for all these operations.
-*   All previously implemented features remain stable.
-            
-**Next Step Identification (from Roadmap):**
+*   **User Management UI**: Functional for CRUD, role assignment, password changes, status toggling.
+*   **Role Management UI (Part 1)**:
+    *   `RoleManagementWidget`: Lists roles; Add/Edit actions launch `RoleDialog`; Delete action is functional with checks.
+    *   `RoleDialog`: Supports creating/editing role name and description. Permission assignment UI is a placeholder.
+    *   `SecurityManager`: Backend methods for role CRUD (name/description) and permission listing are in place.
+*   All previously implemented features (Sales Invoicing drafts & posting, Core Accounting, etc.) remain stable.
 
-Roadmap Item: **"User and Role Management UI**: Add UI in Settings for managing users, roles, and permissions."
-We have substantially completed the "User Management" part. The next logical component is "Role Management" and then "Permission Assignment to Roles".
+**Next Step Identification (from Roadmap & previous plan):**
             
-**Plan for this Turn: Role and Permission Management UI - Part 1 (Role Listing and Basic CRUD Dialog).**
+Roadmap Item: **"User and Role Management UI**: Add UI in Settings for managing users, roles, and permissions."
+We've done User Management and basic Role CRUD. The next step is **Part 2 of Role Management: Implementing Permission Assignment within `RoleDialog`**.
+
+**Plan for this Turn: Role Management UI - Part 2 (Permission Assignment in `RoleDialog`).**
             
 **Objective:**  
-1.  Create a new sub-tab within `SettingsWidget` for "Role Management" (alongside "Users").
-2.  This tab will list existing roles.
-3.  Implement a `RoleDialog` to allow adding new roles and editing existing role names/descriptions.
-4.  Permission assignment to roles will be Part 2 for this sub-module.
+Enhance `RoleDialog` to:
+1.  Display all available system permissions (already fetched by `SecurityManager.get_all_permissions()`).
+2.  Allow users to select/deselect multiple permissions to be assigned to the role being created or edited.
+3.  When editing a role, pre-select the permissions currently assigned to it.
+4.  Collect the selected permission IDs and include them in the DTO sent to the `SecurityManager`.
+5.  Ensure `SecurityManager` methods for `create_role` and `update_role` correctly handle saving these permission assignments.
 

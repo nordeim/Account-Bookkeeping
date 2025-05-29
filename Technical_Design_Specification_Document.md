@@ -1,193 +1,156 @@
-# Technical Design Specification Document: SG Bookkeeper (v8)
+# Technical Design Specification Document: SG Bookkeeper (v9)
 
-**Version:** 8.0
-**Date:** 2025-05-28 
+**Version:** 9.0
+**Date:** 2025-05-29 <!-- Or current date -->
 
 ## 1. Introduction
 
 ### 1.1 Purpose
-This Technical Design Specification (TDS) document, version 8, provides a detailed and up-to-date overview of the SG Bookkeeper application's technical design and implementation. It reflects the current state of the project, incorporating architectural decisions, component structures, and functionalities. This version specifically details the backend logic and initial UI dialog for **Sales Invoicing (Draft Management)**, alongside previously documented features like Customer, Vendor, Product/Service Management, GST F5 workflow, and Financial Reporting. This document serves as a comprehensive guide for ongoing development, feature enhancement, testing, and maintenance.
+This Technical Design Specification (TDS) document, version 9, provides a detailed and up-to-date overview of the SG Bookkeeper application's technical design and implementation. It reflects the current state of the project, incorporating architectural decisions, component structures, and functionalities. This version specifically details the addition of comprehensive **User and Role Management capabilities (including Permission Assignment to Roles)**, alongside previously documented features like Sales Invoicing (Drafts & Posting), Customer, Vendor, Product/Service Management, GST F5 workflow, and Financial Reporting. This document serves as a comprehensive guide for ongoing development, feature enhancement, testing, and maintenance.
 
 ### 1.2 Scope
 This TDS covers the following aspects of the SG Bookkeeper application:
 -   System Architecture: UI, business logic, data access layers, and asynchronous processing.
 -   Database Schema: Alignment with `scripts/schema.sql`.
 -   Key UI Implementation Patterns: `PySide6` interactions with the asynchronous backend.
--   Core Business Logic: Component structures, including those for Customer, Vendor, Product/Service, and Sales Invoice management.
+-   Core Business Logic: Component structures, including those for business entity management and system administration (Users, Roles).
 -   Data Models (SQLAlchemy ORM) and Data Transfer Objects (Pydantic DTOs).
--   Security Implementation: Authentication, authorization, and audit mechanisms.
+-   Security Implementation: Authentication, authorization (RBAC with UI for User/Role/Permission management), and audit mechanisms.
 -   Deployment and Initialization procedures.
--   Current Implementation Status: Highlighting implemented features such as Settings, CoA, Journal Entries, GST workflow, Financial Reports, Customer/Vendor/Product Management, and Sales Invoicing (backend logic and initial dialog).
+-   Current Implementation Status: Highlighting implemented features, including the new User and Role Management UI.
 
 ### 1.3 Intended Audience
-(Remains the same as TDS v7)
+(Remains the same as TDS v8)
 -   Software Developers, QA Engineers, System Administrators, Technical Project Managers.
 
 ### 1.4 System Overview
-SG Bookkeeper is a cross-platform desktop application engineered with Python, utilizing PySide6 for its graphical user interface and PostgreSQL for robust data storage. It provides comprehensive accounting for Singaporean SMBs, including double-entry bookkeeping, GST management, interactive financial reporting, and foundational modules for business operations such as Customer, Vendor, Product/Service management, and initial Sales Invoicing capabilities (allowing creation and update of draft invoices). The application emphasizes data integrity, compliance, and user-friendliness. Data structures are defined in `scripts/schema.sql` and seeded by `scripts/initial_data.sql`.
+SG Bookkeeper is a cross-platform desktop application engineered with Python, utilizing PySide6 for its graphical user interface and PostgreSQL for robust data storage. It provides comprehensive accounting for Singaporean SMBs, including double-entry bookkeeping, GST management, interactive financial reporting, modules for business operations (Customer, Vendor, Product/Service, Sales Invoicing), and robust system administration features for managing Users, Roles, and Permissions. The application emphasizes data integrity, compliance, and user-friendliness. Data structures are defined in `scripts/schema.sql` and seeded by `scripts/initial_data.sql`.
 
 ## 2. System Architecture
 
 ### 2.1 High-Level Architecture
-(Diagram and core description remain the same as TDS v7)
+(Diagram and core description remain the same as TDS v8)
 
 ### 2.2 Component Architecture
 
 #### 2.2.1 Core Components (`app/core/`)
-(Descriptions remain largely the same as TDS v7. `ApplicationCore` now also instantiates and provides access to `SalesInvoiceService` and `SalesInvoiceManager`.)
+-   **`SecurityManager` (`app/core/security_manager.py`) (Enhanced)**: Now includes comprehensive methods for:
+    -   User CRUD: `get_all_users_summary`, `get_user_by_id_for_edit`, `create_user_with_roles` (handles DTO, password hashing, role assignment), `update_user_from_dto` (handles user details and role updates), `toggle_user_active_status`, `change_user_password`.
+    -   Role CRUD: `get_all_roles`, `get_role_by_id` (eager loads permissions), `create_role` (handles name, description, permission assignment), `update_role` (handles details and permission reassignment), `delete_role` (with checks for assignments and protected roles).
+    -   Permission Listing: `get_all_permissions`.
+-   Other core components (`Application`, `ApplicationCore`, `ConfigManager`, `DatabaseManager`, `ModuleManager`) descriptions remain largely the same, with `ApplicationCore` providing access to the enhanced `SecurityManager`.
 
 #### 2.2.2 Asynchronous Task Management (`app/main.py`)
-(Description remains the same as TDS v7)
+(Description remains the same as TDS v8)
 
 #### 2.2.3 Services (`app/services/`)
--   **Accounting & Core Services** (as listed in TDS v7).
--   **Tax Services** (as listed in TDS v7).
--   **Business Services (`app/services/business_services.py`)**:
-    -   `CustomerService`: Manages `Customer` entity data access.
-    -   `VendorService`: Manages `Vendor` entity data access.
-    -   `ProductService`: Manages `Product` entity data access.
-    -   **`SalesInvoiceService` (New)**: Implements `ISalesInvoiceRepository`. Responsible for CRUD operations on `SalesInvoice` and `SalesInvoiceLine` entities, fetching invoice summaries (with filtering and pagination), and specific lookups (e.g., by invoice number).
+(No new services added specifically for User/Role management beyond what `SecurityManager` uses from ORM directly or existing core services. `CoreServices` like `UserService`, `RoleService` could be abstracted later if `SecurityManager` becomes too large, but currently, it manages these ORM interactions directly.)
 
 #### 2.2.4 Managers (Business Logic) (`app/accounting/`, `app/tax/`, `app/business_logic/`)
--   **Accounting, Tax, Reporting Managers** (as listed in TDS v7).
--   **Business Logic Managers (`app/business_logic/`)**:
-    -   `CustomerManager`: Orchestrates customer lifecycle operations.
-    -   `VendorManager`: Orchestrates vendor lifecycle operations.
-    -   `ProductManager`: Orchestrates product/service lifecycle operations.
-    -   **`SalesInvoiceManager` (New details - `app/business_logic/sales_invoice_manager.py`)**: Orchestrates sales invoice lifecycle operations, particularly for draft invoices. Handles validation of invoice data (customer, products, tax codes), calculation of line item totals and tax (using `TaxCalculator`), overall invoice totals (subtotal, tax, grand total), mapping DTOs to ORM models, interaction with `SalesInvoiceService` for persistence, and generation of invoice numbers using `SequenceService` (via DB function). Posting logic (JE creation) is a placeholder.
+(No changes to existing managers. `SecurityManager` acts as the "manager" for user/role/permission logic directly interacting with ORM models or basic services if any were used.)
 
 #### 2.2.5 User Interface (`app/ui/`)
--   **`MainWindow` (`app/ui/main_window.py`)**: Includes "Products & Services" tab. A "Sales" or "Invoicing" tab is conceptually planned but the main list widget might be a stub.
--   **Module Widgets**:
-    -   `AccountingWidget`, `SettingsWidget`, `ReportsWidget`, `CustomersWidget`, `VendorsWidget`, `ProductsWidget` (Functional as per TDS v7).
-    -   `DashboardWidget`, `BankingWidget` (Remain stubs).
-    -   **`SalesInvoicesWidget` (Planned/Stub - `app/ui/sales_invoices/sales_invoices_widget.py`)**: Intended to provide a list view for sales invoices. Currently, a dialog for creating/editing is the primary UI.
--   **Detail Widgets & Dialogs**:
-    -   `AccountDialog`, `JournalEntryDialog`, `FiscalYearDialog`, `CustomerDialog`, `VendorDialog`, `ProductDialog` (as in TDS v7).
-    -   **`SalesInvoiceTableModel` (New - `app/ui/sales_invoices/sales_invoice_table_model.py`)**: `QAbstractTableModel` subclass for displaying `SalesInvoiceSummaryData`.
-    -   **`SalesInvoiceDialog` (New details - `app/ui/sales_invoices/sales_invoice_dialog.py`)**: `QDialog` for creating and editing draft sales invoice details. Includes fields for header information (customer, dates, currency) and a `QTableWidget` for line items (product, description, quantity, price, discount, tax code). Dynamically calculates line totals and invoice totals. Interacts with `SalesInvoiceManager` for saving drafts. Asynchronously populates `QComboBox`es for customers, products, currencies, and tax codes.
+-   **`MainWindow` (`app/ui/main_window.py`)**: Contains "Settings" tab.
+-   **`SettingsWidget` (`app/ui/settings/settings_widget.py`) (Enhanced)**:
+    -   Now uses a `QTabWidget` to organize settings into "Company", "Fiscal Years", "Users", and "Roles & Permissions".
+    -   Hosts `UserManagementWidget` and `RoleManagementWidget` in their respective tabs.
+-   **User Management UI (`app/ui/settings/`)**:
+    -   **`UserManagementWidget` (New)**: Provides a `QTableView` (using `UserTableModel`) to list users. Includes a toolbar with "Add User", "Edit User", "Toggle Active", "Change Password", and "Refresh" actions. Interacts with `UserDialog`, `UserPasswordDialog`, and `SecurityManager`.
+    -   **`UserTableModel` (New)**: `QAbstractTableModel` for displaying `UserSummaryData`.
+    -   **`UserDialog` (New)**: `QDialog` for adding/editing user details (username, full name, email, active status) and assigning roles via a multi-select `QListWidget`. Handles password input for new users.
+    -   **`UserPasswordDialog` (New)**: `QDialog` for changing a selected user's password.
+-   **Role Management UI (`app/ui/settings/`)**:
+    -   **`RoleManagementWidget` (New)**: Provides a `QTableView` (using `RoleTableModel`) to list roles. Includes a toolbar with "Add Role", "Edit Role", "Delete Role", and "Refresh" actions. Interacts with `RoleDialog` and `SecurityManager`.
+    -   **`RoleTableModel` (New)**: `QAbstractTableModel` for displaying `RoleData`.
+    -   **`RoleDialog` (New)**: `QDialog` for adding/editing role name and description. Critically, includes a multi-select `QListWidget` to display all system permissions and allows assigning/unassigning them to the role. Special handling for "Administrator" role (name read-only, all permissions selected and disabled).
+-   Other module widgets (`AccountingWidget`, `SalesInvoicesWidget`, etc.) remain as per TDS v8.
 
 ### 2.3 Technology Stack
-(Same as TDS v7)
+(Same as TDS v8)
 
 ### 2.4 Design Patterns
-(Same as TDS v7. New Sales Invoice module follows established patterns.)
+(Same as TDS v8. New User/Role management UI follows established patterns of async data loading, DTOs for data transfer, and manager interaction.)
 
 ## 3. Data Architecture
 
 ### 3.1 Database Schema Overview
-(Remains consistent. `business.sales_invoices` and `business.sales_invoice_lines` tables are now actively used.)
+(Remains consistent. `core.users`, `core.roles`, `core.permissions`, `core.user_roles`, `core.role_permissions` tables are now actively managed via the UI.)
 
 ### 3.2 SQLAlchemy ORM Models (`app/models/`)
-(`app/models/business/sales_invoice.py` is now actively used.)
+(`app/models/core/user.py` defining `User`, `Role`, `Permission` and their many-to-many relationships via `user_roles_table` and `role_permissions_table` is central to this update.)
 
 ### 3.3 Data Transfer Objects (DTOs - `app/utils/pydantic_models.py`)
-DTOs for `SalesInvoice` Management have been added and are actively used:
--   `SalesInvoiceLineBaseData`: Common fields for invoice lines.
--   `SalesInvoiceBaseData`: Common fields for invoice header.
--   `SalesInvoiceCreateData(SalesInvoiceBaseData, UserAuditData)`: For creating new invoices.
--   `SalesInvoiceUpdateData(SalesInvoiceBaseData, UserAuditData)`: For updating existing invoices.
--   `SalesInvoiceData`: Full representation of an invoice, including calculated totals and status.
--   `SalesInvoiceSummaryData`: Slim DTO for list views.
--   `TaxCalculationResultData` is used by `SalesInvoiceManager` via `TaxCalculator`.
+The following DTOs related to User and Role Management are now actively used:
+-   **User DTOs**: `UserSummaryData`, `UserBaseData`, `UserCreateData` (with password validation), `UserUpdateData`, `UserPasswordChangeData`, `UserRoleAssignmentData`, `UserCreateInternalData`.
+-   **Role DTOs**: `RoleData`, `RoleCreateData` (includes `permission_ids`), `RoleUpdateData` (includes `permission_ids`).
+-   **Permission DTO**: `PermissionData`.
 
 ### 3.4 Data Access Layer Interfaces (`app/services/__init__.py`)
-The following interface has been added:
--   **`ISalesInvoiceRepository(IRepository[SalesInvoice, int])`**:
-    ```python
-    from app.models.business.sales_invoice import SalesInvoice
-    from app.utils.pydantic_models import SalesInvoiceSummaryData
-    from app.common.enums import InvoiceStatusEnum
-    from datetime import date
-
-    class ISalesInvoiceRepository(IRepository[SalesInvoice, int]):
-        @abstractmethod
-        async def get_by_invoice_no(self, invoice_no: str) -> Optional[SalesInvoice]: pass
-        
-        @abstractmethod
-        async def get_all_summary(self, 
-                                  customer_id: Optional[int] = None,
-                                  status: Optional[InvoiceStatusEnum] = None, 
-                                  start_date: Optional[date] = None, 
-                                  end_date: Optional[date] = None,
-                                  page: int = 1, 
-                                  page_size: int = 50
-                                 ) -> List[SalesInvoiceSummaryData]: pass
-    ```
+(No new *repository interfaces* were strictly added for User/Role management as `SecurityManager` currently handles these ORM operations directly. If abstracted, `IUserRepository`, `IRoleRepository`, `IPermissionRepository` could be defined.)
 
 ## 4. Module and Component Specifications
 
-### 4.1 - 4.3 Core Accounting, Tax, Reporting Modules
-(Functionality as detailed in TDS v7 remains current.)
+### 4.1 - 4.4 Core Accounting, Tax, Reporting, Business Operations Modules
+(Functionality as detailed in TDS v8 remains current.)
 
-### 4.4 Business Operations Modules
+### 4.5 System Administration Modules (New Section, or expansion of Security)
 
-#### 4.4.1 Customer Management Module 
-(As detailed in TDS v7)
+#### 4.5.1 User Management Module (Backend and UI Implemented)
+This module allows administrators to manage user accounts.
+-   **Manager (`app/core/security_manager.py`)**:
+    -   Handles fetching user summaries (`get_all_users_summary`).
+    -   Fetches full user details with roles for editing (`get_user_by_id_for_edit`).
+    -   Creates new users, including password hashing and role assignments (`create_user_with_roles` using `UserCreateData`).
+    -   Updates existing user details and role assignments (`update_user_from_dto` using `UserUpdateData`).
+    -   Toggles user active status (`toggle_user_active_status`) with safety checks (cannot deactivate self or last admin).
+    -   Changes user passwords (`change_user_password` using `UserPasswordChangeData`).
+-   **UI (`app/ui/settings/user_management_widget.py`, `user_dialog.py`, `user_password_dialog.py`)**:
+    -   `UserManagementWidget`: Displays users in `UserTableModel`. Toolbar provides Add, Edit, Toggle Active, Change Password actions.
+    -   `UserDialog`: Form for user details (username, full name, email, active). Password fields for new users. `QListWidget` for multi-selecting roles to assign.
+    -   `UserPasswordDialog`: Simple dialog to input and confirm new password for a selected user.
 
-#### 4.4.2 Vendor Management Module
-(As detailed in TDS v7)
-
-#### 4.4.3 Product/Service Management Module
-(As detailed in TDS v7)
-
-#### 4.4.4 Sales Invoicing Module (Backend and Initial Dialog Implemented)
-This module provides capabilities for creating and managing draft sales invoices.
--   **Service (`app/services/business_services.py`)**:
-    -   **`SalesInvoiceService`**: Implements `ISalesInvoiceRepository`.
-        -   `get_by_id()`: Fetches a `SalesInvoice` ORM, eager-loading lines (with product, tax_code_obj), customer, currency, and audit users.
-        -   `get_all_summary()`: Fetches `List[SalesInvoiceSummaryData]` with filtering and pagination.
-        -   `save()`: Persists `SalesInvoice` ORM objects, handling cascaded line items.
--   **Manager (`app/business_logic/sales_invoice_manager.py`)**:
-    -   **`SalesInvoiceManager`**:
-        -   Dependencies: `SalesInvoiceService`, `CustomerService`, `ProductService`, `TaxCodeService`, `TaxCalculator`, `SequenceService`, `ApplicationCore`.
-        -   `get_invoice_for_dialog()`: Retrieves full `SalesInvoice` ORM for dialogs.
-        -   `get_invoices_for_listing()`: Retrieves `List[SalesInvoiceSummaryData]`.
-        -   `_validate_and_prepare_invoice_data()`: Core internal method to validate DTOs, fetch related entities (customer, products, tax codes for each line), calculate line subtotals, discounts, tax per line (using `TaxCalculator`), and then aggregate for invoice header totals (subtotal, total tax, grand total).
-        -   `create_draft_invoice(dto: SalesInvoiceCreateData)`: Uses `_validate_and_prepare_invoice_data`. Generates `invoice_no` via `core.get_next_sequence_value` DB function. Maps DTO and calculated data to `SalesInvoice` and `SalesInvoiceLine` ORMs. Sets status to `Draft` and audit IDs, then saves.
-        -   `update_draft_invoice(invoice_id: int, dto: SalesInvoiceUpdateData)`: Fetches existing draft invoice. Uses `_validate_and_prepare_invoice_data`. Updates ORM fields, handles replacement of line items (transactionally deletes old lines and adds new ones). Sets audit ID and saves.
-        -   `post_invoice(invoice_id: int, user_id: int)`: Currently a placeholder; intended to change status to `Approved`/`Sent`, generate accounting journal entries, and potentially update inventory.
+#### 4.5.2 Role & Permission Management Module (Backend and UI Implemented)
+This module allows administrators to manage roles and their associated permissions.
+-   **Manager (`app/core/security_manager.py`)**:
+    -   Handles fetching all roles (`get_all_roles` - ORM returned, DTO mapping in UI widget).
+    -   Fetches a specific role with its assigned permissions (`get_role_by_id`).
+    -   Creates new roles, including assigning selected permissions (`create_role` using `RoleCreateData`).
+    -   Updates existing role names, descriptions, and re-assigns permissions (`update_role` using `RoleUpdateData`).
+    -   Deletes roles (`delete_role`) with checks (cannot delete "Administrator", cannot delete if assigned to users).
+    -   Fetches all available system permissions (`get_all_permissions` returning `List[PermissionData]`).
+-   **UI (`app/ui/settings/role_management_widget.py`, `role_dialog.py`)**:
+    -   `RoleManagementWidget`: Displays roles in `RoleTableModel`. Toolbar provides Add, Edit, Delete actions.
+    -   `RoleDialog`: Form for role name and description. `QListWidget` (multi-select) displays all system permissions (module: code - description) allowing an admin to check/uncheck permissions for the role. Special handling for "Administrator" role (name read-only, all permissions selected and list disabled).
 
 ## 5. User Interface Implementation (`app/ui/`)
 
-### 5.1 - 5.4 Core UI, Accounting, Settings, Reports, Customers, Vendors, Products Modules
-(Functionality as detailed in TDS v7.)
+### 5.1 - 5.5 Core UI, Accounting, Reports, Business Entity Modules
+(Functionality as detailed in TDS v8.)
 
-### 5.5 Sales Invoicing Module UI (`app/ui/sales_invoices/`) (New Section)
--   **`SalesInvoicesWidget` (Planned/Stub)**:
-    -   The main list view for sales invoices is not yet fully implemented.
--   **`SalesInvoiceTableModel` (`app/ui/sales_invoices/sales_invoice_table_model.py`)**:
-    -   `QAbstractTableModel` subclass.
-    -   Manages `List[SalesInvoiceSummaryData]`.
-    -   Provides data for columns: ID (hidden), Invoice No., Invoice Date, Due Date, Customer Name, Total Amount, Amount Paid, Balance, Status.
--   **`SalesInvoiceDialog` (`app/ui/sales_invoices/sales_invoice_dialog.py`)**:
-    *   `QDialog` for creating or editing (draft) sales invoice details.
-    *   **Header Fields**: `QComboBox` for Customer (with completer), `QDateEdit` for Invoice Date and Due Date, `QComboBox` for Currency, `QDoubleSpinBox` for Exchange Rate, `QTextEdit` for Notes and Terms. Displays Invoice No. (generated on save).
-    *   **Line Items Table (`QTableWidget`)**: Columns for Delete (button), Product/Service (`QComboBox` with completer), Description (`QLineEdit`), Quantity (`QDoubleSpinBox` via delegate), Unit Price (`QDoubleSpinBox` via delegate), Discount % (`QDoubleSpinBox` via delegate), Line Subtotal (read-only), Tax Code (`QComboBox`), Tax Amount (read-only), Line Total (read-only).
-    *   **Dynamic UI & Calculations**:
-        *   Line subtotals, tax amounts, and line totals are calculated dynamically as quantity, price, discount, or tax code change for a line.
-        *   Invoice subtotal, total tax, and grand total are updated in read-only display fields based on line item changes.
-    *   **ComboBox Population**: Asynchronously loads active customers, products (filtered for saleable types), currencies, and tax codes into respective `QComboBox`es during dialog initialization.
-    *   **Data Handling**:
-        -   In edit mode, loads existing draft invoice data via `SalesInvoiceManager.get_invoice_for_dialog()`.
-        -   On save (draft), collects UI data into `SalesInvoiceCreateData` or `SalesInvoiceUpdateData` DTOs. Pydantic validation occurs.
-        -   Calls `SalesInvoiceManager.create_draft_invoice()` or `SalesInvoiceManager.update_draft_invoice()` asynchronously.
-        -   Displays success/error messages and emits `invoice_saved(invoice_id)` signal.
-        -   "Save & Approve" button is present but currently disabled, indicating future functionality for posting.
+### 5.6 Settings Module UI (`app/ui/settings/settings_widget.py`) (Enhanced)
+-   **`SettingsWidget`**:
+    -   Now structured with a `QTabWidget`.
+    -   **"Company" Tab**: Contains company information settings (as before).
+    -   **"Fiscal Years" Tab**: Contains fiscal year management (as before).
+    -   **"Users" Tab (New)**: Hosts the `UserManagementWidget`.
+        -   `UserManagementWidget`: Lists users in a `QTableView` via `UserTableModel`. Toolbar allows adding new users (launching `UserDialog`), editing selected users (launching `UserDialog`), toggling active status of selected users (with confirmation and safety checks), and changing a selected user's password (launching `UserPasswordDialog`).
+        -   `UserDialog`: Collects username, full name, email, active status. For new users, collects password and confirmation. Includes a `QListWidget` populated with all available roles, allowing multi-selection for role assignment.
+        -   `UserPasswordDialog`: Takes new password and confirmation for the selected user.
+    -   **"Roles & Permissions" Tab (New)**: Hosts the `RoleManagementWidget`.
+        -   `RoleManagementWidget`: Lists roles in a `QTableView` via `RoleTableModel`. Toolbar allows adding new roles (launching `RoleDialog`), editing selected roles (launching `RoleDialog`), and deleting selected roles (with confirmation and safety checks like not deleting "Administrator" or roles in use).
+        -   `RoleDialog`: Collects role name and description. Includes a `QListWidget` populated with all system permissions, allowing multi-selection to assign permissions to the role. The "Administrator" role's name is read-only, and its permissions list is shown as all selected and disabled.
 
-## 6. Security Considerations
-(Unchanged from TDS v7)
+## 6. Security Considerations (Enhanced)
+-   The RBAC system is now fully manageable through the UI.
+-   `SecurityManager` provides backend logic for all user and role CRUD operations, including password hashing and permission assignments.
+-   Protection mechanisms are in place to prevent deactivating/deleting critical users (self, last admin) or roles ("Administrator").
+-   Audit trails continue to log changes, now including user/role modifications if audit triggers cover `core.users`, `core.roles`, `core.user_roles`, `core.role_permissions`.
 
 ## 7. Database Access Implementation (`app/services/`)
--   **`business_services.py`**:
-    -   `CustomerService`, `VendorService`, `ProductService` (As detailed in TDS v7).
-    -   **`SalesInvoiceService` (New details)**: Implements `ISalesInvoiceRepository`.
-        -   `get_by_id()`: Fetches `SalesInvoice` ORM, eager-loading `lines` (with their `product` and `tax_code_obj`), `customer`, `currency`, `journal_entry`, and audit users.
-        -   `get_all_summary()`: Fetches `List[SalesInvoiceSummaryData]` with filtering (customer, status, dates) and pagination. Joins with `Customer` to include customer name.
-        -   `save()`: Persists `SalesInvoice` ORM objects, managing related `SalesInvoiceLine` items (SQLAlchemy handles cascades based on relationship configuration). This method is designed to be called within a transaction managed by the `SalesInvoiceManager` for operations like updates that involve deleting old lines.
+(No new *services* directly for User/Role management, as `SecurityManager` handles these. `SecurityManager` itself uses `DatabaseManager` for sessions and SQLAlchemy ORM operations on `User`, `Role`, `Permission` models.)
 
 ## 8. Deployment and Installation
-(Unchanged from TDS v7)
+(Unchanged from TDS v8. `initial_data.sql` seeds default users, roles, permissions, and configurations which are now more critical.)
 
 ## 9. Conclusion
-This TDS (v8) documents further progress, notably the addition of backend logic for managing draft Sales Invoices, including complex calculations and data validation. A functional UI dialog for creating and editing these draft invoices has also been implemented. This complements the existing Customer, Vendor, and Product/Service management modules, laying a critical foundation for transactional accounting. Core accounting, GST workflow, and financial reporting functionalities remain robust. Future iterations will focus on completing the Sales Invoicing lifecycle (posting, payment tracking), implementing Purchase Invoicing, and further enhancing other modules.
+This TDS (v9) documents a significantly more mature SG Bookkeeper application with comprehensive User and Role Management capabilities integrated into the Settings UI. Administrators can now manage user accounts, define custom roles, and assign granular permissions to these roles, providing a robust security framework. This complements the strong accounting and business entity management features. Future work will continue to build out transactional modules and enhance reporting.
