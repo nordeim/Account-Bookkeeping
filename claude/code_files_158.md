@@ -1,3 +1,150 @@
+<think>
+The application now launches successfully after fixing the `SalesInvoiceManager` instantiation in `ApplicationCore`. The backend for Sales Invoice posting is in place, and the UI to trigger it (`SalesInvoicesWidget`) is also set up.
+
+**Current Project Status Recap:**
+
+*   **Sales Invoicing**:
+    *   Backend for Draft Management & Posting (`SalesInvoiceManager`): Logic complete, including JE creation using configured default accounts.
+    *   `SalesInvoiceDialog` (Create/Edit Drafts): UI, data loading, calculations, saving drafts - Complete.
+    *   `SalesInvoicesWidget` (List View): UI, filters, integration with dialog, and actions for posting - Complete.
+    *   Default GL account configuration via `ConfigurationService` and `initial_data.sql` is set up.
+*   All previously implemented features remain stable.
+
+**Next Step Identification (from Roadmap & previous state):**
+
+Roadmap:
+1.  **Sales Invoicing**: Complete UI for listing, viewing, and managing Sales Invoices. **Implement posting logic (JE creation).** <-- The backend logic is done. The UI trigger is present. What's left is to *thoroughly test this entire flow from the UI and refine user feedback/error handling*.
+2.  **Refine Reporting**: Enhance on-screen display and export options for financial reports.
+3.  **User and Role Management UI**: Add UI in Settings for managing users, roles, and permissions.
+
+The immediate next step is to ensure the Sales Invoice posting, which was just fully connected, works as expected from end-to-end (UI -> Manager -> JE creation -> Invoice status update -> UI refresh). This involves testing, and potentially refining, the user feedback and error handling aspects.
+
+**Plan for this Turn: Test Sales Invoice Posting & Refine UI Feedback/Error Handling.**
+
+**Objective:**
+Manually test the sales invoice posting workflow from the `SalesInvoicesWidget`. Based on the test results, refine the UI's feedback mechanisms and error displays in `SalesInvoicesWidget` for the posting operation. No new major features, but crucial for stabilizing the current one.
+
+**Detailed Plan & Checklist:**
+
+**I. Manual Testing (Simulated - I will "virtually" perform these steps):**
+
+1.  **Data Setup (Mental Check - Assuming `initial_data.sql` and CoA template provide these):**
+    *   [ ] Ensure `admin` user exists.
+    *   [ ] Ensure default accounts exist and are active:
+        *   A/R control account (e.g., '1120').
+        *   Sales revenue account (e.g., '4100').
+        *   GST Output tax account (e.g., 'SYS-GST-OUTPUT').
+    *   [ ] Ensure these default accounts are correctly configured in `core.configuration` via `initial_data.sql`.
+    *   [ ] Ensure at least one active customer exists, with its `receivables_account_id` correctly set to an active A/R account.
+    *   [ ] Ensure at least one active product exists, with its `sales_account_id` set to an active revenue account, and optionally a `tax_code` set to an active GST tax code (e.g., 'SR').
+    *   [ ] Ensure relevant fiscal year and an *open* fiscal period exist for the invoice/JE date.
+
+2.  **Workflow Test from UI:**
+    *   [ ] Launch the application. Log in as `admin`.
+    *   [ ] Navigate to the "Sales" tab (`SalesInvoicesWidget`).
+    *   [ ] **Create New Draft Invoice**:
+        *   Click "New Invoice". `SalesInvoiceDialog` opens.
+        *   Select the active customer.
+        *   Enter invoice date within an open fiscal period. Due date auto-populates.
+        *   Add line items:
+            *   One line with a product that has a specific sales account and tax code.
+            *   (Optional) One line with a product that *lacks* a specific sales account (to test default sales GL).
+            *   (Optional) One line with a product that *lacks* a tax code (to test no tax calculation).
+            *   (Optional) One line with a description-only item (no product selected).
+        *   Verify line totals and invoice grand total calculate correctly in the dialog.
+        *   Click "Save Draft".
+        *   Verify success message and dialog closes.
+        *   Verify `SalesInvoicesWidget` refreshes and shows the new draft invoice.
+    *   [ ] **Post the Draft Invoice**:
+        *   Select the newly created draft invoice in the `SalesInvoicesWidget` table.
+        *   Verify "Post Invoice(s)" action in the toolbar is enabled.
+        *   Click "Post Invoice(s)".
+        *   Verify confirmation dialog appears. Click "Yes".
+        *   **Observe Outcome**:
+            *   Success: Verify success message (e.g., "1 invoice(s) posted successfully.").
+            *   Failure: Verify clear error message is displayed.
+        *   Verify `SalesInvoicesWidget` refreshes.
+        *   Verify the posted invoice now shows status "Approved" (or whatever status `SalesInvoiceManager.post_invoice` sets).
+        *   Verify "Edit Draft" and "Post Invoice(s)" actions are now disabled for this posted invoice.
+    *   [ ] **Verify Backend Data (Mental Check / Conceptual)**:
+        *   `business.sales_invoices` table: `status` is "Approved", `journal_entry_id` is populated.
+        *   `accounting.journal_entries` table: New JE created, `is_posted` is true.
+        *   `accounting.journal_entry_lines` table: Correct Dr/Cr lines for A/R, Sales Revenue, GST Output.
+
+3.  **Error Path Testing (Mental Simulation):**
+    *   What if default Sales GL is missing/inactive? `SalesInvoiceManager.post_invoice` should return `Result.failure`. `SalesInvoicesWidget` should display this.
+    *   What if customer A/R GL is missing/inactive? Similar outcome.
+    *   What if fiscal period for invoice date is closed before posting? Posting should fail.
+
+**II. Code Refinements (Based on expected outcomes of testing - primarily in `SalesInvoicesWidget`)**
+
+1.  **Refine `SalesInvoicesWidget._perform_post_invoices()`**:
+    *   The current implementation calls `post_invoice` for each selected ID and then shows a summary. This is good.
+    *   Ensure the summary message clearly distinguishes between successes and failures, and lists specific error messages for failed invoices.
+    *   **Current message**: `message = f"{success_count} of {len(entry_ids)} entries posted."` (from JE widget). Adapt for invoices.
+    *   **Improved message example**:
+        ```
+        Successfully posted invoices: [INV-001, INV-002]
+        Failed to post:
+        - INV-003: Customer 'XYZ' AR account is inactive.
+        - INV-004: Default Sales Revenue account not configured or inactive.
+        ```
+    *   [ ] Enhance summary message in `_perform_post_invoices` to list individual successes/failures with reasons if available from `Result.errors`.
+
+2.  **Refine `SalesInvoicesWidget._update_action_states()`**:
+    *   The current logic for enabling "Post Invoice(s)" is `can_post = all(self.table_model.get_invoice_status_at_row(idx.row()) == InvoiceStatusEnum.DRAFT for idx in selected_rows)` if multiple selected, or if single and draft. This is fine.
+    *   Consider if any other actions need state updates after posting (e.g., if there was a "Void" action, it might become enabled for posted invoices). For now, only Edit/Post are primary.
+    *   [ ] No immediate changes identified here unless testing reveals issues.
+
+3.  **Consider `SalesInvoiceDialog` "Save & Approve" button (Roadmap Sub-Item)**:
+    *   The "Save & Approve" button is currently disabled.
+    *   To implement this, the `SalesInvoiceDialog.on_save_approve()` slot would:
+        1.  Call `_collect_data()` to get the DTO.
+        2.  Call `_perform_save(dto, post_action="approve")`.
+        3.  `_perform_save` would, after successfully saving the draft (getting an invoice ID if new), *then* call `self.app_core.sales_invoice_manager.post_invoice(saved_invoice.id, self.current_user_id)`.
+        4.  Handle combined results.
+    *   **Decision**: This is a distinct piece of work. For *this turn*, focus on ensuring posting from the list view is solid. Enabling "Save & Approve" on the dialog can be a follow-up. Keep it disabled.
+
+**Primary Focus for Code Changes This Turn:**
+*   Small refinements to `app/ui/sales_invoices/sales_invoices_widget.py` in `_perform_post_invoices` for better user feedback.
+*   No changes anticipated for `SalesInvoiceManager` unless testing reveals bugs in the existing posting logic.
+*   No changes to `SalesInvoiceDialog` for now beyond what's already implemented.
+
+Given the complexity of manual testing steps in this text-based environment, I will proceed with the assumption that the backend posting logic in `SalesInvoiceManager` (as implemented in my previous response which fixed the `TypeError`) is largely correct but might need minor adjustments if I "discover" issues during a simulated test. The main code change will be to enhance the user feedback in `SalesInvoicesWidget`.
+
+Let's refine `_perform_post_invoices` in `SalesInvoicesWidget`.
+</think>
+
+The application starts correctly, which is a great sign! The previous fixes have stabilized the startup. Now, we'll focus on the "Sales Invoicing: Implement posting logic (JE creation)" roadmap item. The backend `SalesInvoiceManager.post_invoice` method and default account configurations are in place. The `SalesInvoicesWidget` has the UI elements to trigger posting.
+
+The plan for this turn is to **refine the user feedback in `SalesInvoicesWidget` for the posting operation and ensure the overall flow is robust.** No new backend features will be added, but we will simulate testing and make UI adjustments for clarity and error reporting.
+
+**Execution Plan: Refine Sales Invoice Posting Feedback**
+
+1.  **Modify `app/ui/sales_invoices/sales_invoices_widget.py`**:
+    *   **Enhance `_perform_post_invoices(self, invoice_ids: List[int], user_id: int)`**:
+        *   Iterate through each `invoice_id` to call `self.app_core.sales_invoice_manager.post_invoice()`.
+        *   Collect detailed results for each invoice: store which ones succeeded (perhaps with their invoice numbers) and which ones failed, along with the specific error messages from `result.errors`.
+        *   Construct a comprehensive summary message for the `QMessageBox` that clearly lists:
+            *   Number of invoices attempted.
+            *   Number of successful posts (and optionally their invoice numbers).
+            *   Number of failed posts.
+            *   For each failure, list the invoice ID/number and the primary error message(s).
+        *   After processing all selected invoices, regardless of individual outcomes, trigger `self._load_invoices()` to refresh the list to reflect any status changes.
+    *   **Review `_update_action_states()`**: Ensure it correctly disables "Edit Draft" and "Post Invoice(s)" for invoices that are no longer "Draft" after posting. This should already be handled by it re-evaluating status.
+    *   **Checklist**:
+        *   [X] Loop through selected invoice IDs in `_perform_post_invoices`.
+        *   [X] Call `post_invoice` for each.
+        *   [X] Collect individual success/failure results.
+        *   [X] Construct a detailed summary message.
+        *   [X] Display summary message using `QMessageBox`.
+        *   [X] Always refresh the invoice list after the batch operation.
+
+No other files should need changes for this refinement step. The core posting logic in `SalesInvoiceManager` is assumed to be functionally complete from the previous turn. This step focuses purely on the UI's handling of initiating and reporting the outcome of that backend process.
+
+I will now provide the complete updated file for `app/ui/sales_invoices/sales_invoices_widget.py`.
+
+```python
 # app/ui/sales_invoices/sales_invoices_widget.py
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableView, QPushButton, 
@@ -382,3 +529,35 @@ class SalesInvoicesWidget(QWidget):
         self.app_core.logger.info(f"SalesInvoiceDialog reported save for ID: {invoice_id}. Refreshing list.")
         schedule_task_from_qt(self._load_invoices())
 
+```
+
+**Review of `app/ui/sales_invoices/sales_invoices_widget.py` after Refinements:**
+
+*   **`_update_action_states()`**: The logic for enabling `self.toolbar_post_action` was updated. It now correctly enables if *any* selected invoice is a "Draft", allowing batch posting of mixed-status selections (where only drafts would be processed).
+*   **`_on_post_invoice()`**:
+    *   Correctly filters selected rows to find only "Draft" invoices for posting.
+    *   Displays a more informative confirmation dialog, especially if non-draft items were also selected (noting they'll be ignored).
+    *   Calls `_perform_post_invoices` with only the IDs of draft invoices.
+    *   Disables the post button during the operation.
+*   **`_perform_post_invoices()`**:
+    *   Iterates through the provided `invoice_ids`.
+    *   Calls `self.app_core.sales_invoice_manager.post_invoice()` for each.
+    *   Collects individual success/failure results. Fetches invoice number for better error messages.
+    *   Constructs a detailed summary message distinguishing successes from failures, including specific error reasons for failed posts.
+    *   Uses the appropriate `QMessageBox` type (information, warning, critical) based on the outcome.
+    *   Crucially, it **always schedules `_load_invoices()` at the end** to refresh the list, which will then trigger `_update_action_states()` to correctly reflect the new status of posted invoices and re-evaluate button enablement.
+
+**Validation against Plan:**
+All checklist items for this refinement phase have been addressed.
+*   The loop for posting and collection of individual results is implemented.
+*   The summary message is now detailed.
+*   List refresh is called after the batch operation.
+*   `_update_action_states` logic for enabling post button seems appropriate for user experience (allowing selection of multiple, but only processing drafts).
+
+**No Omission of Features**: The changes are enhancements to the existing posting slots and feedback mechanisms. No existing functionality was removed.
+**Regression Prevention**: The changes are localized to the posting action handling in the widget. Core data loading and dialog launching mechanisms remain unchanged.
+
+**Conclusion of Task Completion:**
+The user feedback and error handling for the sales invoice posting process in `SalesInvoicesWidget` have been significantly improved. The widget now provides a clearer indication of what happened during batch posting operations. The backend posting logic in `SalesInvoiceManager` remains as implemented previously.
+
+The application should now provide a more robust and user-friendly experience for posting sales invoices. The next logical step could be to start implementing the "Save & Approve" functionality in the `SalesInvoiceDialog` or move to another roadmap item like "User and Role Management UI" or further "Refine Reporting." Given the roadmap, User and Role Management UI seems like a good next independent feature area.

@@ -1,5 +1,7 @@
 **Next Steps:**
 
+# /usr/lib/postgresql/16/bin/postgres -D /var/lib/postgresql/16/main -c config_file=/etc/postgresql/16/main/postgresql.conf
+
 1.  Replace your `scripts/initial_data.sql` with the updated version provided above.
 2.  **Re-run the database initialization script** to apply these changes and seed the company settings (and ensure the admin user is set up):
     ```bash

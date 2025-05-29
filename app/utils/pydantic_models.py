@@ -1,10 +1,10 @@
-# app/utils/pydantic_models.py
+# File: app/utils/pydantic_models.py
 from pydantic import BaseModel, Field, validator, root_validator, EmailStr # type: ignore
 from typing import List, Optional, Union, Any, Dict 
 from datetime import date, datetime
 from decimal import Decimal
 
-from app.common.enums import ProductTypeEnum, InvoiceStatusEnum # Added InvoiceStatusEnum
+from app.common.enums import ProductTypeEnum, InvoiceStatusEnum
 
 class AppBaseModel(BaseModel):
     class Config:
@@ -17,25 +17,40 @@ class AppBaseModel(BaseModel):
 class UserAuditData(BaseModel):
     user_id: int
 
-# --- Account Related DTOs (existing, condensed) ---
-class AccountBaseData(AppBaseModel): # ...
-    code: str = Field(..., max_length=20); name: str = Field(..., max_length=100); account_type: str 
-    sub_type: Optional[str] = Field(None, max_length=30); tax_treatment: Optional[str] = Field(None, max_length=20)
-    gst_applicable: bool = False; description: Optional[str] = None; parent_id: Optional[int] = None
-    report_group: Optional[str] = Field(None, max_length=50); is_control_account: bool = False
-    is_bank_account: bool = False; opening_balance: Decimal = Field(Decimal(0))
-    opening_balance_date: Optional[date] = None; is_active: bool = True
+# --- Account Related DTOs ---
+class AccountBaseData(AppBaseModel):
+    code: str = Field(..., max_length=20)
+    name: str = Field(..., max_length=100)
+    account_type: str 
+    sub_type: Optional[str] = Field(None, max_length=30)
+    tax_treatment: Optional[str] = Field(None, max_length=20)
+    gst_applicable: bool = False
+    description: Optional[str] = None
+    parent_id: Optional[int] = None
+    report_group: Optional[str] = Field(None, max_length=50)
+    is_control_account: bool = False
+    is_bank_account: bool = False
+    opening_balance: Decimal = Field(Decimal(0))
+    opening_balance_date: Optional[date] = None
+    is_active: bool = True
     @validator('opening_balance', pre=True, always=True)
     def opening_balance_to_decimal(cls, v): return Decimal(str(v)) if v is not None else Decimal(0)
+
 class AccountCreateData(AccountBaseData, UserAuditData): pass
 class AccountUpdateData(AccountBaseData, UserAuditData): id: int
 
-# --- Journal Entry Related DTOs (existing, condensed) ---
-class JournalEntryLineData(AppBaseModel): # ...
-    account_id: int; description: Optional[str] = Field(None, max_length=200); debit_amount: Decimal = Field(Decimal(0))
-    credit_amount: Decimal = Field(Decimal(0)); currency_code: str = Field("SGD", max_length=3) 
-    exchange_rate: Decimal = Field(Decimal(1)); tax_code: Optional[str] = Field(None, max_length=20) 
-    tax_amount: Decimal = Field(Decimal(0)); dimension1_id: Optional[int] = None; dimension2_id: Optional[int] = None 
+# --- Journal Entry Related DTOs ---
+class JournalEntryLineData(AppBaseModel):
+    account_id: int
+    description: Optional[str] = Field(None, max_length=200)
+    debit_amount: Decimal = Field(Decimal(0))
+    credit_amount: Decimal = Field(Decimal(0))
+    currency_code: str = Field("SGD", max_length=3) 
+    exchange_rate: Decimal = Field(Decimal(1))
+    tax_code: Optional[str] = Field(None, max_length=20) 
+    tax_amount: Decimal = Field(Decimal(0))
+    dimension1_id: Optional[int] = None
+    dimension2_id: Optional[int] = None 
     @validator('debit_amount', 'credit_amount', 'exchange_rate', 'tax_amount', pre=True, always=True)
     def je_line_amounts_to_decimal(cls, v): return Decimal(str(v)) if v is not None else Decimal(0) 
     @root_validator(skip_on_failure=True)
@@ -43,11 +58,17 @@ class JournalEntryLineData(AppBaseModel): # ...
         debit = values.get('debit_amount', Decimal(0)); credit = values.get('credit_amount', Decimal(0))
         if debit > Decimal(0) and credit > Decimal(0): raise ValueError("Debit and Credit amounts cannot both be positive for a single line.")
         return values
-class JournalEntryData(AppBaseModel, UserAuditData): # ...
-    journal_type: str; entry_date: date; description: Optional[str] = Field(None, max_length=500)
-    reference: Optional[str] = Field(None, max_length=100); is_recurring: bool = False 
-    recurring_pattern_id: Optional[int] = None; source_type: Optional[str] = Field(None, max_length=50)
-    source_id: Optional[int] = None; lines: List[JournalEntryLineData]
+
+class JournalEntryData(AppBaseModel, UserAuditData):
+    journal_type: str
+    entry_date: date
+    description: Optional[str] = Field(None, max_length=500)
+    reference: Optional[str] = Field(None, max_length=100)
+    is_recurring: bool = False 
+    recurring_pattern_id: Optional[int] = None
+    source_type: Optional[str] = Field(None, max_length=50)
+    source_id: Optional[int] = None
+    lines: List[JournalEntryLineData]
     @validator('lines')
     def check_je_lines_not_empty(cls, v: List[JournalEntryLineData]) -> List[JournalEntryLineData]: 
         if not v: raise ValueError("Journal entry must have at least one line.")
@@ -58,23 +79,37 @@ class JournalEntryData(AppBaseModel, UserAuditData): # ...
         if abs(total_debits - total_credits) > Decimal("0.01"): raise ValueError(f"Journal entry must be balanced (Debits: {total_debits}, Credits: {total_credits}).")
         return values
 
-# --- GST Return Related DTOs (existing, condensed) ---
-class GSTReturnData(AppBaseModel, UserAuditData): # ... 
-    id: Optional[int] = None; return_period: str = Field(..., max_length=20); start_date: date; end_date: date; filing_due_date: Optional[date] = None 
-    standard_rated_supplies: Decimal = Field(Decimal(0)); zero_rated_supplies: Decimal = Field(Decimal(0)); exempt_supplies: Decimal = Field(Decimal(0)); total_supplies: Decimal = Field(Decimal(0)) 
-    taxable_purchases: Decimal = Field(Decimal(0)); output_tax: Decimal = Field(Decimal(0)); input_tax: Decimal = Field(Decimal(0)); tax_adjustments: Decimal = Field(Decimal(0)); tax_payable: Decimal = Field(Decimal(0)) 
-    status: str = Field("Draft", max_length=20); submission_date: Optional[date] = None; submission_reference: Optional[str] = Field(None, max_length=50); journal_entry_id: Optional[int] = None; notes: Optional[str] = None
+# --- GST Return Related DTOs ---
+class GSTReturnData(AppBaseModel, UserAuditData):
+    id: Optional[int] = None
+    return_period: str = Field(..., max_length=20)
+    start_date: date; end_date: date
+    filing_due_date: Optional[date] = None 
+    standard_rated_supplies: Decimal = Field(Decimal(0))
+    zero_rated_supplies: Decimal = Field(Decimal(0))
+    exempt_supplies: Decimal = Field(Decimal(0))
+    total_supplies: Decimal = Field(Decimal(0)) 
+    taxable_purchases: Decimal = Field(Decimal(0))
+    output_tax: Decimal = Field(Decimal(0))
+    input_tax: Decimal = Field(Decimal(0))
+    tax_adjustments: Decimal = Field(Decimal(0))
+    tax_payable: Decimal = Field(Decimal(0)) 
+    status: str = Field("Draft", max_length=20)
+    submission_date: Optional[date] = None
+    submission_reference: Optional[str] = Field(None, max_length=50)
+    journal_entry_id: Optional[int] = None
+    notes: Optional[str] = None
     @validator('standard_rated_supplies', 'zero_rated_supplies', 'exempt_supplies', 'total_supplies', 'taxable_purchases', 'output_tax', 'input_tax', 'tax_adjustments', 'tax_payable', pre=True, always=True)
     def gst_amounts_to_decimal(cls, v): return Decimal(str(v)) if v is not None else Decimal(0)
 
-# --- Tax Calculation DTOs (existing, condensed) ---
+# --- Tax Calculation DTOs ---
 class TaxCalculationResultData(AppBaseModel): tax_amount: Decimal; tax_account_id: Optional[int] = None; taxable_amount: Decimal
 class TransactionLineTaxData(AppBaseModel): amount: Decimal; tax_code: Optional[str] = None; account_id: Optional[int] = None; index: int 
 class TransactionTaxData(AppBaseModel): transaction_type: str; lines: List[TransactionLineTaxData]
 
-# --- Validation Result DTO (existing, condensed) ---
+# --- Validation Result DTO ---
 class AccountValidationResult(AppBaseModel): is_valid: bool; errors: List[str] = []
-class AccountValidator: # ... (existing logic)
+class AccountValidator: 
     def validate_common(self, account_data: AccountBaseData) -> List[str]:
         errors = []; 
         if not account_data.code: errors.append("Account code is required.")
@@ -91,12 +126,12 @@ class AccountValidator: # ... (existing logic)
         if not account_data.id: errors.append("Account ID is required for updates.")
         return AccountValidationResult(is_valid=not errors, errors=errors)
 
-# --- Company Setting DTO (existing, condensed) ---
-class CompanySettingData(AppBaseModel, UserAuditData): # ... 
+# --- Company Setting DTO ---
+class CompanySettingData(AppBaseModel, UserAuditData): 
     id: Optional[int] = None; company_name: str = Field(..., max_length=100); legal_name: Optional[str] = Field(None, max_length=200); uen_no: Optional[str] = Field(None, max_length=20); gst_registration_no: Optional[str] = Field(None, max_length=20); gst_registered: bool = False; address_line1: Optional[str] = Field(None, max_length=100); address_line2: Optional[str] = Field(None, max_length=100); postal_code: Optional[str] = Field(None, max_length=20); city: str = Field("Singapore", max_length=50); country: str = Field("Singapore", max_length=50); contact_person: Optional[str] = Field(None, max_length=100); phone: Optional[str] = Field(None, max_length=20); email: Optional[EmailStr] = None; website: Optional[str] = Field(None, max_length=100); logo: Optional[bytes] = None; fiscal_year_start_month: int = Field(1, ge=1, le=12); fiscal_year_start_day: int = Field(1, ge=1, le=31); base_currency: str = Field("SGD", max_length=3); tax_id_label: str = Field("UEN", max_length=50); date_format: str = Field("dd/MM/yyyy", max_length=20)
 
-# --- Fiscal Year Related DTOs (existing, condensed) ---
-class FiscalYearCreateData(AppBaseModel, UserAuditData): # ...
+# --- Fiscal Year Related DTOs ---
+class FiscalYearCreateData(AppBaseModel, UserAuditData): 
     year_name: str = Field(..., max_length=20); start_date: date; end_date: date; auto_generate_periods: Optional[str] = None
     @root_validator(skip_on_failure=True)
     def check_fy_dates(cls, values: Dict[str, Any]) -> Dict[str, Any]: 
@@ -106,8 +141,8 @@ class FiscalYearCreateData(AppBaseModel, UserAuditData): # ...
 class FiscalPeriodData(AppBaseModel): id: int; name: str; start_date: date; end_date: date; period_type: str; status: str; period_number: int; is_adjustment: bool
 class FiscalYearData(AppBaseModel): id: int; year_name: str; start_date: date; end_date: date; is_closed: bool; closed_date: Optional[datetime] = None; periods: List[FiscalPeriodData] = []
 
-# --- Customer Related DTOs (existing, condensed) ---
-class CustomerBaseData(AppBaseModel): # ... 
+# --- Customer Related DTOs ---
+class CustomerBaseData(AppBaseModel): 
     customer_code: str = Field(..., min_length=1, max_length=20); name: str = Field(..., min_length=1, max_length=100); legal_name: Optional[str] = Field(None, max_length=200); uen_no: Optional[str] = Field(None, max_length=20); gst_registered: bool = False; gst_no: Optional[str] = Field(None, max_length=20); contact_person: Optional[str] = Field(None, max_length=100); email: Optional[EmailStr] = None; phone: Optional[str] = Field(None, max_length=20); address_line1: Optional[str] = Field(None, max_length=100); address_line2: Optional[str] = Field(None, max_length=100); postal_code: Optional[str] = Field(None, max_length=20); city: Optional[str] = Field(None, max_length=50); country: str = Field("Singapore", max_length=50); credit_terms: int = Field(30, ge=0); credit_limit: Optional[Decimal] = Field(None, ge=Decimal(0)); currency_code: str = Field("SGD", min_length=3, max_length=3); is_active: bool = True; customer_since: Optional[date] = None; notes: Optional[str] = None; receivables_account_id: Optional[int] = None
     @validator('credit_limit', pre=True, always=True)
     def customer_credit_limit_to_decimal(cls, v): return Decimal(str(v)) if v is not None else None 
@@ -120,8 +155,8 @@ class CustomerUpdateData(CustomerBaseData, UserAuditData): id: int
 class CustomerData(CustomerBaseData): id: int; created_at: datetime; updated_at: datetime; created_by_user_id: int; updated_by_user_id: int
 class CustomerSummaryData(AppBaseModel): id: int; customer_code: str; name: str; email: Optional[EmailStr] = None; phone: Optional[str] = None; is_active: bool
 
-# --- Vendor Related DTOs (existing, condensed) ---
-class VendorBaseData(AppBaseModel): # ... 
+# --- Vendor Related DTOs ---
+class VendorBaseData(AppBaseModel): 
     vendor_code: str = Field(..., min_length=1, max_length=20); name: str = Field(..., min_length=1, max_length=100); legal_name: Optional[str] = Field(None, max_length=200); uen_no: Optional[str] = Field(None, max_length=20); gst_registered: bool = False; gst_no: Optional[str] = Field(None, max_length=20); withholding_tax_applicable: bool = False; withholding_tax_rate: Optional[Decimal] = Field(None, ge=Decimal(0), le=Decimal(100)); contact_person: Optional[str] = Field(None, max_length=100); email: Optional[EmailStr] = None; phone: Optional[str] = Field(None, max_length=20); address_line1: Optional[str] = Field(None, max_length=100); address_line2: Optional[str] = Field(None, max_length=100); postal_code: Optional[str] = Field(None, max_length=20); city: Optional[str] = Field(None, max_length=50); country: str = Field("Singapore", max_length=50); payment_terms: int = Field(30, ge=0); currency_code: str = Field("SGD", min_length=3, max_length=3); is_active: bool = True; vendor_since: Optional[date] = None; notes: Optional[str] = None; bank_account_name: Optional[str] = Field(None, max_length=100); bank_account_number: Optional[str] = Field(None, max_length=50); bank_name: Optional[str] = Field(None, max_length=100); bank_branch: Optional[str] = Field(None, max_length=100); bank_swift_code: Optional[str] = Field(None, max_length=20); payables_account_id: Optional[int] = None
     @validator('withholding_tax_rate', pre=True, always=True)
     def vendor_wht_rate_to_decimal(cls, v): return Decimal(str(v)) if v is not None else None 
@@ -138,13 +173,13 @@ class VendorUpdateData(VendorBaseData, UserAuditData): id: int
 class VendorData(VendorBaseData): id: int; created_at: datetime; updated_at: datetime; created_by_user_id: int; updated_by_user_id: int
 class VendorSummaryData(AppBaseModel): id: int; vendor_code: str; name: str; email: Optional[EmailStr] = None; phone: Optional[str] = None; is_active: bool
 
-# --- Product/Service Related DTOs (existing, condensed) ---
-class ProductBaseData(AppBaseModel): # ...
+# --- Product/Service Related DTOs ---
+class ProductBaseData(AppBaseModel): 
     product_code: str = Field(..., min_length=1, max_length=20); name: str = Field(..., min_length=1, max_length=100); description: Optional[str] = None; product_type: ProductTypeEnum; category: Optional[str] = Field(None, max_length=50); unit_of_measure: Optional[str] = Field(None, max_length=20); barcode: Optional[str] = Field(None, max_length=50); sales_price: Optional[Decimal] = Field(None, ge=Decimal(0)); purchase_price: Optional[Decimal] = Field(None, ge=Decimal(0)); sales_account_id: Optional[int] = None; purchase_account_id: Optional[int] = None; inventory_account_id: Optional[int] = None; tax_code: Optional[str] = Field(None, max_length=20); is_active: bool = True; min_stock_level: Optional[Decimal] = Field(None, ge=Decimal(0)); reorder_point: Optional[Decimal] = Field(None, ge=Decimal(0))
     @validator('sales_price', 'purchase_price', 'min_stock_level', 'reorder_point', pre=True, always=True)
     def product_decimal_fields(cls, v): return Decimal(str(v)) if v is not None else None
     @root_validator(skip_on_failure=True)
-    def check_inventory_fields_product(cls, values: Dict[str, Any]) -> Dict[str, Any]: # Renamed validator
+    def check_inventory_fields_product(cls, values: Dict[str, Any]) -> Dict[str, Any]: 
         product_type = values.get('product_type')
         if product_type == ProductTypeEnum.INVENTORY:
             if values.get('inventory_account_id') is None: raise ValueError("Inventory Account ID is required for 'Inventory' type products.")
@@ -157,72 +192,82 @@ class ProductUpdateData(ProductBaseData, UserAuditData): id: int
 class ProductData(ProductBaseData): id: int; created_at: datetime; updated_at: datetime; created_by_user_id: int; updated_by_user_id: int
 class ProductSummaryData(AppBaseModel): id: int; product_code: str; name: str; product_type: ProductTypeEnum; sales_price: Optional[Decimal] = None; purchase_price: Optional[Decimal] = None; is_active: bool
 
-# --- NEW: Sales Invoice Related DTOs ---
+# --- Sales Invoice Related DTOs ---
 class SalesInvoiceLineBaseData(AppBaseModel):
-    product_id: Optional[int] = None # Optional if it's a service line w/o specific product item
-    description: str = Field(..., min_length=1, max_length=200)
-    quantity: Decimal = Field(..., gt=Decimal(0))
-    unit_price: Decimal = Field(..., ge=Decimal(0))
-    discount_percent: Decimal = Field(Decimal(0), ge=Decimal(0), le=Decimal(100))
-    # discount_amount will be calculated
-    tax_code: Optional[str] = Field(None, max_length=20) # TaxCode.code
-    # line_subtotal, tax_amount, line_total will be calculated by manager/logic before saving to ORM
-
+    product_id: Optional[int] = None; description: str = Field(..., min_length=1, max_length=200); quantity: Decimal = Field(..., gt=Decimal(0)); unit_price: Decimal = Field(..., ge=Decimal(0)); discount_percent: Decimal = Field(Decimal(0), ge=Decimal(0), le=Decimal(100)); tax_code: Optional[str] = Field(None, max_length=20)
+    dimension1_id: Optional[int] = None 
+    dimension2_id: Optional[int] = None 
     @validator('quantity', 'unit_price', 'discount_percent', pre=True, always=True)
-    def sales_inv_line_decimals(cls, v):
-        return Decimal(str(v)) if v is not None else Decimal(0)
-
+    def sales_inv_line_decimals(cls, v): return Decimal(str(v)) if v is not None else Decimal(0)
 class SalesInvoiceBaseData(AppBaseModel):
-    customer_id: int
-    invoice_date: date
-    due_date: date
-    currency_code: str = Field("SGD", min_length=3, max_length=3)
-    exchange_rate: Decimal = Field(Decimal(1), ge=Decimal(0))
-    notes: Optional[str] = None
-    terms_and_conditions: Optional[str] = None
-    # subtotal, tax_amount, total_amount will be calculated by manager/logic before saving to ORM
-    # status will be set by manager (e.g., Draft)
-    
+    customer_id: int; invoice_date: date; due_date: date; currency_code: str = Field("SGD", min_length=3, max_length=3); exchange_rate: Decimal = Field(Decimal(1), ge=Decimal(0)); notes: Optional[str] = None; terms_and_conditions: Optional[str] = None
     @validator('exchange_rate', pre=True, always=True)
-    def sales_inv_hdr_decimals(cls, v):
-        return Decimal(str(v)) if v is not None else Decimal(1)
-
+    def sales_inv_hdr_decimals(cls, v): return Decimal(str(v)) if v is not None else Decimal(1)
     @root_validator(skip_on_failure=True)
     def check_due_date(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         invoice_date, due_date = values.get('invoice_date'), values.get('due_date')
-        if invoice_date and due_date and due_date < invoice_date:
-            raise ValueError("Due date cannot be before invoice date.")
+        if invoice_date and due_date and due_date < invoice_date: raise ValueError("Due date cannot be before invoice date.")
+        return values
+class SalesInvoiceCreateData(SalesInvoiceBaseData, UserAuditData): lines: List[SalesInvoiceLineBaseData] = Field(..., min_length=1)
+class SalesInvoiceUpdateData(SalesInvoiceBaseData, UserAuditData): id: int; lines: List[SalesInvoiceLineBaseData] = Field(..., min_length=1)
+class SalesInvoiceData(SalesInvoiceBaseData): id: int; invoice_no: str; subtotal: Decimal; tax_amount: Decimal; total_amount: Decimal; amount_paid: Decimal; status: InvoiceStatusEnum; journal_entry_id: Optional[int] = None; lines: List[SalesInvoiceLineBaseData]; created_at: datetime; updated_at: datetime; created_by_user_id: int; updated_by_user_id: int
+class SalesInvoiceSummaryData(AppBaseModel): id: int; invoice_no: str; invoice_date: date; due_date: date; customer_name: str; total_amount: Decimal; amount_paid: Decimal; status: InvoiceStatusEnum
+
+# --- User & Role Management DTOs ---
+class RoleData(AppBaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+
+class UserSummaryData(AppBaseModel):
+    id: int
+    username: str
+    full_name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    is_active: bool
+    last_login: Optional[datetime] = None
+    roles: List[str] = Field(default_factory=list) # List of role names
+
+class UserRoleAssignmentData(AppBaseModel): # For internal use when creating/updating user roles
+    role_id: int
+
+class UserBaseData(AppBaseModel):
+    username: str = Field(..., min_length=3, max_length=50)
+    full_name: Optional[str] = Field(None, max_length=100)
+    email: Optional[EmailStr] = None
+    is_active: bool = True
+
+class UserCreateInternalData(UserBaseData): # Used by SecurityManager internally for ORM mapping
+    password_hash: str 
+    assigned_roles: List[UserRoleAssignmentData] = Field(default_factory=list)
+
+class UserCreateData(UserBaseData, UserAuditData): # For UI -> Manager validation
+    password: str = Field(..., min_length=8)
+    confirm_password: str
+    assigned_role_ids: List[int] = Field(default_factory=list)
+
+    @root_validator(skip_on_failure=True)
+    def passwords_match(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        pw1, pw2 = values.get('password'), values.get('confirm_password')
+        if pw1 is not None and pw2 is not None and pw1 != pw2:
+            raise ValueError('Passwords do not match')
         return values
 
-class SalesInvoiceCreateData(SalesInvoiceBaseData, UserAuditData):
-    lines: List[SalesInvoiceLineBaseData] = Field(..., min_length=1) # Must have at least one line
-
-class SalesInvoiceUpdateData(SalesInvoiceBaseData, UserAuditData):
+class UserUpdateData(UserBaseData, UserAuditData): # For UI -> Manager validation
     id: int
-    lines: List[SalesInvoiceLineBaseData] = Field(..., min_length=1)
+    assigned_role_ids: List[int] = Field(default_factory=list)
+    # Password changes are handled by a separate DTO/endpoint for security
+    # Username change might be disallowed or handled with care due to uniqueness
 
-class SalesInvoiceData(SalesInvoiceBaseData): # For full representation
-    id: int
-    invoice_no: str
-    subtotal: Decimal
-    tax_amount: Decimal
-    total_amount: Decimal
-    amount_paid: Decimal
-    status: InvoiceStatusEnum # Use Enum
-    journal_entry_id: Optional[int] = None
-    lines: List[SalesInvoiceLineBaseData] # Or a more detailed SalesInvoiceLineData if needed
-    created_at: datetime
-    updated_at: datetime
-    created_by_user_id: int
-    updated_by_user_id: int
+class UserPasswordChangeData(AppBaseModel, UserAuditData):
+    user_id_to_change: int 
+    new_password: str = Field(..., min_length=8)
+    confirm_new_password: str
+    # old_password: Optional[str] = None # If user changes own, not for admin change
 
-class SalesInvoiceSummaryData(AppBaseModel): # For listing invoices
-    id: int
-    invoice_no: str
-    invoice_date: date
-    due_date: date
-    customer_name: str # To be joined/fetched
-    total_amount: Decimal
-    amount_paid: Decimal
-    status: InvoiceStatusEnum # Use Enum
-
+    @root_validator(skip_on_failure=True)
+    def new_passwords_match(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        pw1, pw2 = values.get('new_password'), values.get('confirm_new_password')
+        if pw1 is not None and pw2 is not None and pw1 != pw2:
+            raise ValueError('New passwords do not match')
+        return values
