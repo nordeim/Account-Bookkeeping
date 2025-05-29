@@ -2,9 +2,11 @@
 from .settings_widget import SettingsWidget
 from .user_management_widget import UserManagementWidget 
 from .user_table_model import UserTableModel 
+from .user_dialog import UserDialog # New Export
 
 __all__ = [
     "SettingsWidget",
     "UserManagementWidget", 
     "UserTableModel",       
+    "UserDialog", # New Export
 ]

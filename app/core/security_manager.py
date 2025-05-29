@@ -10,7 +10,7 @@ import datetime
 from app.utils.result import Result
 from app.utils.pydantic_models import (
     UserSummaryData, UserCreateInternalData, UserRoleAssignmentData,
-    UserUpdateData, UserPasswordChangeData 
+    UserCreateData, UserUpdateData, UserPasswordChangeData 
 )
 
 
@@ -82,12 +82,13 @@ class SecurityManager:
         return False
 
     async def create_user_from_internal_data(self, user_data: UserCreateInternalData) -> Result[User]:
+        """Creates a user from UserCreateInternalData (expects password_hash)."""
         async with self.db_manager.session() as session:
             stmt_exist = select(User).where(User.username == user_data.username)
             if (await session.execute(stmt_exist)).scalars().first():
                 return Result.failure([f"Username '{user_data.username}' already exists."])
             if user_data.email:
-                stmt_email_exist = select(User).where(User.email == user_data.email)
+                stmt_email_exist = select(User).where(User.email == str(user_data.email)) # Ensure email is string for query
                 if (await session.execute(stmt_email_exist)).scalars().first():
                     return Result.failure([f"Email '{user_data.email}' already registered."])
 
@@ -99,19 +100,44 @@ class SecurityManager:
             
             if user_data.assigned_roles:
                 role_ids = [r.role_id for r in user_data.assigned_roles]
-                if role_ids: # Only query if there are role_ids
+                if role_ids: 
                     roles_q = await session.execute(select(Role).where(Role.id.in_(role_ids))) # type: ignore
                     db_roles = roles_q.scalars().all()
-                    if len(db_roles) != len(role_ids):
-                        pass 
+                    if len(db_roles) != len(set(role_ids)): # Check if all requested roles were found
+                        found_role_ids = {r.id for r in db_roles}
+                        missing_roles = [r_id for r_id in role_ids if r_id not in found_role_ids]
+                        if hasattr(self.db_manager, 'logger') and self.db_manager.logger:
+                            self.db_manager.logger.warning(f"During user creation, roles with IDs not found: {missing_roles}")
                     new_user.roles.extend(db_roles) 
             
             session.add(new_user)
             await session.flush()
             await session.refresh(new_user)
-            if new_user.roles: # Eagerly load roles after creation if assigned
+            if new_user.roles: 
                  await session.refresh(new_user, attribute_names=['roles'])
             return Result.success(new_user)
+
+    async def create_user_with_roles(self, dto: UserCreateData) -> Result[User]:
+        """Handles UserCreateData from UI, hashes password, prepares internal DTO."""
+        # Username/email uniqueness will be checked by create_user_from_internal_data
+        # Password match is validated by UserCreateData DTO itself.
+        
+        hashed_password = self.hash_password(dto.password)
+        
+        role_assignments: List[UserRoleAssignmentData] = []
+        if dto.assigned_role_ids:
+            role_assignments = [UserRoleAssignmentData(role_id=r_id) for r_id in dto.assigned_role_ids]
+
+        internal_dto = UserCreateInternalData(
+            username=dto.username,
+            full_name=dto.full_name,
+            email=dto.email,
+            is_active=dto.is_active,
+            password_hash=hashed_password,
+            assigned_roles=role_assignments
+        )
+        # user_id from UserAuditData in dto is the creator, not used directly in User model fields
+        return await self.create_user_from_internal_data(internal_dto)
             
     async def get_all_users_summary(self) -> List[UserSummaryData]:
         async with self.db_manager.session() as session:
@@ -128,7 +154,7 @@ class SecurityManager:
                     email=user.email, 
                     is_active=user.is_active,
                     last_login=user.last_login,
-                    roles=[role.name for role in user.roles if role.name] # Ensure role.name is not None
+                    roles=[role.name for role in user.roles if role.name] 
                 ))
             return summaries
 
@@ -144,13 +170,13 @@ class SecurityManager:
             if not user_to_update:
                 return Result.failure([f"User with ID {dto.id} not found."])
 
-            if dto.username != user_to_update.username:
+            if dto.username != user_to_update.username: # Check only if username is changing
                 stmt_exist = select(User).where(User.username == dto.username, User.id != dto.id)
                 if (await session.execute(stmt_exist)).scalars().first():
                     return Result.failure([f"Username '{dto.username}' already exists for another user."])
             
-            if dto.email and dto.email != user_to_update.email:
-                stmt_email_exist = select(User).where(User.email == dto.email, User.id != dto.id)
+            if dto.email and dto.email != user_to_update.email: # Check only if email is changing and not None
+                stmt_email_exist = select(User).where(User.email == str(dto.email), User.id != dto.id) # Query with string
                 if (await session.execute(stmt_email_exist)).scalars().first():
                     return Result.failure([f"Email '{dto.email}' already registered by another user."])
 
@@ -158,7 +184,7 @@ class SecurityManager:
             user_to_update.full_name = dto.full_name
             user_to_update.email = str(dto.email) if dto.email else None
             user_to_update.is_active = dto.is_active
-            user_to_update.updated_at = datetime.datetime.now(datetime.timezone.utc) # Manually set if not using mixin on User
+            user_to_update.updated_at = datetime.datetime.now(datetime.timezone.utc) 
 
             if dto.assigned_role_ids is not None: 
                 new_roles_orm: List[Role] = []
@@ -172,19 +198,23 @@ class SecurityManager:
 
             await session.flush()
             await session.refresh(user_to_update)
-            if user_to_update.roles or not dto.assigned_role_ids : # Refresh roles if they were changed or cleared
-                await session.refresh(user_to_update, attribute_names=['roles'])
+            # Refresh roles if they were changed or cleared, or if they were potentially mutated by clear/append
+            await session.refresh(user_to_update, attribute_names=['roles'])
             return Result.success(user_to_update)
 
 
     async def toggle_user_active_status(self, user_id_to_toggle: int, current_admin_user_id: int) -> Result[User]:
+        # current_admin_user_id is the ID of the user performing the action
         if user_id_to_toggle == current_admin_user_id:
-            return Result.failure(["Cannot deactivate your own account."])
+            return Result.failure(["Cannot change the active status of your own account."])
 
         async with self.db_manager.session() as session:
-            user = await session.get(User, user_id_to_toggle, options=[selectinload(User.roles)]) # Eager load roles
+            user = await session.get(User, user_id_to_toggle, options=[selectinload(User.roles)]) 
             if not user:
                 return Result.failure([f"User with ID {user_id_to_toggle} not found."])
+            
+            if user.username == "system_init_user": # Prevent modification of system_init_user
+                 return Result.failure(["The 'system_init_user' status cannot be changed."])
 
             if user.is_active: # If trying to deactivate
                 is_admin = any(role.name == "Administrator" for role in user.roles)
@@ -210,23 +240,17 @@ class SecurityManager:
             return list(result.scalars().all())
 
     async def change_user_password(self, password_dto: UserPasswordChangeData) -> Result[None]:
-        # Password confirmation happens in DTO.
         async with self.db_manager.session() as session:
             user = await session.get(User, password_dto.user_id_to_change)
             if not user:
                 return Result.failure([f"User with ID {password_dto.user_id_to_change} not found."])
             
-            # Security check: only current user can change their own password, or admin can change others.
-            # This check needs current_user from app_core which is not directly available here.
-            # Assuming caller (e.g. a UserAccountManager) performs this check.
-            # For now, focusing on the password update itself.
-            # if self.current_user.id != password_dto.user_id_to_change and not self.has_permission("USER_MANAGE_PASSWORD"):
-            #    return Result.failure(["Permission denied to change this user's password."])
+            if user.username == "system_init_user":
+                 return Result.failure(["Password for 'system_init_user' cannot be changed."])
 
             user.password_hash = self.hash_password(password_dto.new_password)
             user.require_password_change = False 
             user.updated_at = datetime.datetime.now(datetime.timezone.utc)
-            # user.updated_by = password_dto.user_id # The user performing the change
             
             await session.flush()
             return Result.success(None)
