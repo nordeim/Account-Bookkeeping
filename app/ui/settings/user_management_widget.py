@@ -12,7 +12,8 @@ import json
 from app.core.application_core import ApplicationCore
 from app.main import schedule_task_from_qt
 from app.ui.settings.user_table_model import UserTableModel
-from app.ui.settings.user_dialog import UserDialog # Import UserDialog
+from app.ui.settings.user_dialog import UserDialog 
+from app.ui.settings.user_password_dialog import UserPasswordDialog # New import
 from app.utils.pydantic_models import UserSummaryData
 from app.utils.json_helpers import json_converter, json_date_hook 
 from app.utils.result import Result
@@ -49,7 +50,7 @@ class UserManagementWidget(QWidget):
         self.users_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.users_table.horizontalHeader().setStretchLastSection(True) 
         self.users_table.setSortingEnabled(True)
-        self.users_table.doubleClicked.connect(self._on_edit_user_double_click) # Connect double click
+        self.users_table.doubleClicked.connect(self._on_edit_user_double_click)
 
 
         self.table_model = UserTableModel()
@@ -158,23 +159,24 @@ class UserManagementWidget(QWidget):
         dialog.user_saved.connect(self._refresh_list_after_save)
         dialog.exec()
 
-    def _get_selected_user_id(self) -> Optional[int]:
+    def _get_selected_user_id_and_username(self) -> tuple[Optional[int], Optional[str]]: # Modified to return username too
         selected_rows = self.users_table.selectionModel().selectedRows()
-        if not selected_rows: # If called by action, message given by action handler
-             return None
-        if len(selected_rows) > 1:
-            return None # Action handler will show message if single selection required
-        return self.table_model.get_user_id_at_row(selected_rows[0].row())
+        if not selected_rows or len(selected_rows) > 1:
+            return None, None
+        row_index = selected_rows[0].row()
+        user_id = self.table_model.get_user_id_at_row(row_index)
+        username = self.table_model.get_username_at_row(row_index)
+        return user_id, username
+
 
     @Slot()
     def _on_edit_user(self):
-        user_id = self._get_selected_user_id()
+        user_id, username = self._get_selected_user_id_and_username()
         if user_id is None: 
             QMessageBox.information(self, "Selection", "Please select a single user to edit.")
             return
         
-        selected_username = self.table_model.get_username_at_row(self.users_table.currentIndex().row())
-        if selected_username == "system_init_user":
+        if username == "system_init_user":
             QMessageBox.warning(self, "Action Denied", "The 'system_init_user' cannot be edited from the UI.")
             return
 
@@ -187,10 +189,10 @@ class UserManagementWidget(QWidget):
     def _on_edit_user_double_click(self, index: QModelIndex):
         if not index.isValid(): return
         user_id = self.table_model.get_user_id_at_row(index.row())
+        username = self.table_model.get_username_at_row(index.row())
         if user_id is None: return
         
-        selected_username = self.table_model.get_username_at_row(index.row())
-        if selected_username == "system_init_user":
+        if username == "system_init_user":
             QMessageBox.warning(self, "Action Denied", "The 'system_init_user' cannot be edited from the UI.")
             return
 
@@ -202,7 +204,7 @@ class UserManagementWidget(QWidget):
 
     @Slot()
     def _on_toggle_active_status(self):
-        user_id = self._get_selected_user_id()
+        user_id, username = self._get_selected_user_id_and_username()
         if user_id is None: QMessageBox.information(self, "Selection", "Please select a single user to toggle status."); return
         
         if not self.app_core.current_user: QMessageBox.warning(self, "Auth Error", "Please log in."); return
@@ -210,17 +212,16 @@ class UserManagementWidget(QWidget):
             QMessageBox.warning(self, "Action Denied", "You cannot change the active status of your own account.")
             return
             
+        if username == "system_init_user":
+             QMessageBox.warning(self, "Action Denied", "The 'system_init_user' status cannot be modified from the UI.")
+             return
+
         current_row_idx = self.users_table.currentIndex().row()
         is_currently_active = self.table_model.get_user_active_status_at_row(current_row_idx)
         action_verb = "deactivate" if is_currently_active else "activate"
         
-        username_to_toggle = self.table_model.get_username_at_row(current_row_idx)
-        if username_to_toggle == "system_init_user":
-             QMessageBox.warning(self, "Action Denied", "The 'system_init_user' status cannot be modified from the UI.")
-             return
-
         reply = QMessageBox.question(self, f"Confirm {action_verb.capitalize()}",
-                                     f"Are you sure you want to {action_verb} this user account ('{username_to_toggle}')?",
+                                     f"Are you sure you want to {action_verb} user account '{username}'?",
                                      QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                                      QMessageBox.StandardButton.No)
         if reply == QMessageBox.StandardButton.No: return
@@ -247,17 +248,32 @@ class UserManagementWidget(QWidget):
 
     @Slot()
     def _on_change_password(self):
-        user_id = self._get_selected_user_id()
-        if user_id is None: QMessageBox.information(self, "Selection", "Please select a user to change password."); return
+        user_id, username = self._get_selected_user_id_and_username()
+        if user_id is None: 
+            QMessageBox.information(self, "Selection", "Please select a user to change password.")
+            return
         
-        username_to_change = self.table_model.get_username_at_row(self.users_table.currentIndex().row())
-        if username_to_change == "system_init_user":
+        if username == "system_init_user":
             QMessageBox.warning(self, "Action Denied", "Password for 'system_init_user' cannot be changed from the UI.")
             return
+        
+        if not self.app_core.current_user:
+            QMessageBox.warning(self, "Auth Error", "Please log in.")
+            return
 
-        QMessageBox.information(self, "Change Password", f"Password change dialog for user '{username_to_change}' (ID {user_id}) not yet implemented.")
+        dialog = UserPasswordDialog(
+            self.app_core, 
+            self.app_core.current_user.id, # User performing the change
+            user_id_to_change=user_id,
+            username_to_change=username if username else "Selected User", # Fallback for username
+            parent=self
+        )
+        # password_changed signal doesn't strictly need connection if just a success msg is enough
+        # If list needs refresh due to some password related field, connect it.
+        # dialog.password_changed.connect(lambda changed_user_id: self.app_core.logger.info(f"Password changed for user {changed_user_id}"))
+        dialog.exec()
     
     @Slot(int)
-    def _refresh_list_after_save(self, user_id: int):
+    def _refresh_list_after_save(self, user_id: int): # Renamed from on_user_saved
         self.app_core.logger.info(f"UserDialog reported save for User ID: {user_id}. Refreshing user list.")
         schedule_task_from_qt(self._load_users())
