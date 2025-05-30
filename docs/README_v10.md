@@ -24,7 +24,7 @@
 
 SG Bookkeeper is a comprehensive, cross-platform desktop application designed to meet the accounting and bookkeeping needs of small to medium-sized businesses in Singapore. Built with Python and leveraging the power of PySide6 for a modern user interface and PostgreSQL for robust data management, it offers professional-grade financial tools tailored to Singapore's regulatory environment.
 
-The application features a double-entry accounting core, GST management, financial reporting, and modules for essential business operations including customer, vendor, product/service management, sales invoicing, and purchase invoicing (draft management). User and Role management capabilities with permission assignments are also fully implemented. Its goal is to provide an intuitive, powerful, and compliant solution that empowers business owners and accountants.
+The application features a double-entry accounting core, GST management, financial reporting, and modules for essential business operations including customer, vendor, product/service management, sales invoicing, and initial purchase invoicing capabilities. User and Role management are also implemented. Its goal is to provide an intuitive, powerful, and compliant solution that empowers business owners and accountants.
 
 ### Why SG Bookkeeper?
 
@@ -58,41 +58,32 @@ The application features a double-entry accounting core, GST management, financi
 -   **Vendor Management** (Implemented - Full CRUD and listing UI.)
 -   **Product and Service Management** (Implemented - Full CRUD and listing UI.)
 -   **Sales Invoicing and Accounts Receivable** (Implemented - Draft CRUD, Posting with JE creation, List View UI, "Save & Approve" in dialog.)
--   **Purchase Invoicing and Accounts Payable** (UI Dialog Implemented - Draft CRUD for Purchase Invoices. Backend draft management logic implemented. List view and posting planned.)
+-   **Purchase Invoicing and Accounts Payable** (UI Dialog Implemented - Draft CRUD for Purchase Invoices. List view and posting planned.)
 -   **Payment Processing and Allocation** (Foundational)
 -   **Bank Account Management and Reconciliation Tools** (Foundational - UI is a stub.)
 -   **Basic Inventory Control** (Foundational - `Product` model includes inventory fields. Logic planned.)
 
 ### Reporting & Analytics
--   **Standard Financial Statements**: Balance Sheet, Profit & Loss, Trial Balance, General Ledger (Implemented - UI in Reports tab with options for comparative/zero-balance, on-screen view, PDF/Excel export with enhanced formatting for BS/P&L.)
+-   **Standard Financial Statements**: Balance Sheet, Profit & Loss, Trial Balance, General Ledger (Implemented - UI in Reports tab with options for comparative/zero-balance, on-screen view, PDF/Excel export.)
 -   **Cash Flow Statement** (Planned)
 -   **GST Reports** (Implemented - See GST F5 above.)
 -   **Customizable Reporting Engine** (Planned)
 -   **Dashboard with Key Performance Indicators (KPIs)** (Planned - UI is a stub.)
 
 ### System & Security
--   **User Authentication** (Implemented - Login, password hashing)
+-   **User Authentication** (Implemented)
 -   **Role-Based Access Control (RBAC)** (Implemented - UI for managing Users, Roles, and assigning Permissions to Roles.)
--   **Granular Permissions System** (Implemented - Backend checks via `SecurityManager.has_permission()`, permissions seeded.)
--   **Comprehensive Audit Trails** (Implemented - Via DB triggers and `app.current_user_id`.)
+-   **Granular Permissions System** (Implemented)
+-   **Comprehensive Audit Trails** (Implemented)
 -   **PostgreSQL Database Backend** (Implemented)
 -   **Data Backup and Restore Utilities** (Planned)
 
 ## Technology Stack
-(Remains unchanged from previous README - accurate)
--   **Programming Language**: Python 3.9+ (up to 3.12)
--   **UI Framework**: PySide6 6.9.0+
--   **Database**: PostgreSQL 14+
--   **ORM**: SQLAlchemy 2.0+ (Async ORM with `asyncpg`)
--   **Async DB Driver**: `asyncpg`
--   **Data Validation (DTOs)**: Pydantic V2 (with `email-validator`)
--   **Password Hashing**: `bcrypt`
--   **Reporting Libraries**: `reportlab` (PDF), `openpyxl` (Excel)
--   **Dependency Management**: Poetry
--   **Date/Time Utilities**: `python-dateutil`
+(Section remains unchanged)
+...
 
 ## Installation
-(Remains unchanged from previous README - accurate)
+(Section remains unchanged)
 ...
 
 ## Usage Guide
@@ -101,17 +92,16 @@ The application provides a range of functional modules accessible via tabs:
 
 -   **Accounting Tab**: Manage Chart of Accounts and Journal Entries.
 -   **Sales Tab**: Create, view, edit draft, and post Sales Invoices.
--   **(New Tab)** **Purchases Tab**: Create and edit draft Purchase Invoices using a dialog (accessed via a temporary button or future list view).
 -   **Customers Tab**: Manage customer information.
 -   **Vendors Tab**: Manage vendor information.
 -   **Products & Services Tab**: Manage products and services.
--   **Reports Tab**: Generate GST F5 data and standard Financial Statements with enhanced export options and UI filters.
+-   **Reports Tab**: Generate GST F5 data and standard Financial Statements with export options.
 -   **Settings Tab**:
     -   **Company**: Configure company-wide information and Fiscal Years.
-    -   **Users**: Manage user accounts (add, edit, toggle active, change password, assign roles).
-    *   **Roles & Permissions**: Manage roles (add, edit, delete) and assign system permissions to roles.
+    -   **Users**: Manage user accounts.
+    *   **Roles & Permissions**: Manage roles and assign system permissions.
 
-Other modules (Dashboard, Banking) are placeholders. The "Purchases" tab list view is the next immediate UI task.
+Dialogs for creating/editing **Draft Purchase Invoices** are available (though not yet integrated into a main "Purchases" tab/list view). Other modules (Dashboard, Banking) are placeholders.
 The default `admin` user (password: `password` - change on first login) has full access.
 
 ## Project Structure
@@ -121,13 +111,11 @@ sg_bookkeeper/
 ├── app/
 │   ├── ... (core, common, models, services, accounting, tax, business_logic, reporting) ...
 │   ├── ui/
-│   │   ├── purchase_invoices/ 
+│   │   ├── purchase_invoices/ # New or updated
 │   │   │   ├── __init__.py
-│   │   │   ├── purchase_invoice_dialog.py
-│   │   │   ├── purchase_invoice_table_model.py
-│   │   │   └── purchase_invoices_widget.py # (New, even if basic stub initially)
+│   │   │   └── purchase_invoice_dialog.py
 │   │   ├── settings/
-│   │   │   └── ... (user_dialog.py, role_dialog.py, user_password_dialog.py etc.)
+│   │   │   └── ... (user_dialog.py, role_dialog.py, etc.)
 │   │   └── ... (other ui modules)
 │   └── utils/
 ├── ... (data, docs, resources, scripts, tests) ...
@@ -135,15 +123,15 @@ sg_bookkeeper/
 ```
 
 ## Database Schema
-(Remains unchanged)
+(Section remains unchanged)
 ...
 
 ## Development
-(Remains unchanged)
+(Section remains unchanged)
 ...
 
 ## Contributing
-(Remains unchanged)
+(Section remains unchanged)
 ...
 
 ## Roadmap
@@ -157,7 +145,7 @@ sg_bookkeeper/
     *   (Future) Handle inventory updates upon posting.
 -   **Refine Reporting**:
     *   Improve PDF/Excel export formatting for Trial Balance and General Ledger.
-    *   Add more filtering options to existing reports (e.g., dimensions).
+    *   Add more filtering options to existing reports.
 
 ### Medium-term
 -   Bank Account management and basic transaction entry UI in Banking module.

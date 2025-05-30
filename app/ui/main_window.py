@@ -8,10 +8,11 @@ from PySide6.QtCore import Qt, QSettings, Signal, Slot, QCoreApplication, QSize
 
 from app.ui.dashboard.dashboard_widget import DashboardWidget
 from app.ui.accounting.accounting_widget import AccountingWidget
+from app.ui.sales_invoices.sales_invoices_widget import SalesInvoicesWidget
+from app.ui.purchase_invoices.purchase_invoices_widget import PurchaseInvoicesWidget # New Import
 from app.ui.customers.customers_widget import CustomersWidget
 from app.ui.vendors.vendors_widget import VendorsWidget
 from app.ui.products.products_widget import ProductsWidget
-from app.ui.sales_invoices.sales_invoices_widget import SalesInvoicesWidget # New Import
 from app.ui.banking.banking_widget import BankingWidget
 from app.ui.reports.reports_widget import ReportsWidget
 from app.ui.settings.settings_widget import SettingsWidget
@@ -79,9 +80,11 @@ class MainWindow(QMainWindow):
         self.accounting_widget = AccountingWidget(self.app_core)
         self.tab_widget.addTab(self.accounting_widget, QIcon(self.icon_path_prefix + "accounting.svg"), "Accounting")
         
-        # New Sales Invoices Tab
         self.sales_invoices_widget = SalesInvoicesWidget(self.app_core)
-        self.tab_widget.addTab(self.sales_invoices_widget, QIcon(self.icon_path_prefix + "transactions.svg"), "Sales") # Using transactions.svg for now
+        self.tab_widget.addTab(self.sales_invoices_widget, QIcon(self.icon_path_prefix + "transactions.svg"), "Sales") 
+
+        self.purchase_invoices_widget = PurchaseInvoicesWidget(self.app_core) # New Widget
+        self.tab_widget.addTab(self.purchase_invoices_widget, QIcon(self.icon_path_prefix + "vendors.svg"), "Purchases") # Using vendors.svg for now
 
         self.customers_widget = CustomersWidget(self.app_core)
         self.tab_widget.addTab(self.customers_widget, QIcon(self.icon_path_prefix + "customers.svg"), "Customers")
@@ -109,7 +112,6 @@ class MainWindow(QMainWindow):
         self.user_label = QLabel(user_text); self.status_bar.addPermanentWidget(self.user_label)
         self.version_label = QLabel(f"Version: {QCoreApplication.applicationVersion()}"); self.status_bar.addPermanentWidget(self.version_label)
 
-    
     def _create_actions(self):
         self.new_company_action = QAction(QIcon(self.icon_path_prefix + "new_company.svg"), "New Company...", self); self.new_company_action.setShortcut(QKeySequence(QKeySequence.StandardKey.New)); self.new_company_action.triggered.connect(self.on_new_company)
         self.open_company_action = QAction(QIcon(self.icon_path_prefix + "open_company.svg"), "Open Company...", self); self.open_company_action.setShortcut(QKeySequence(QKeySequence.StandardKey.Open)); self.open_company_action.triggered.connect(self.on_open_company)
