@@ -6,6 +6,6 @@ from .purchase_invoice_dialog import PurchaseInvoiceDialog
 __all__ = [
     "PurchaseInvoiceDialog",
     # "PurchaseInvoiceTableModel",
-    # "PurchaseInvoicesWidget",      
+    # "PurchaseInvoicesWidget",
 ]
 

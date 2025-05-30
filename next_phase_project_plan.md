@@ -1,3 +1,42 @@
+**Current Project Status Recap (Relevant for README/TDS updates):**
+
+*   **Purchase Invoicing**:
+    *   Backend for Draft Management (`PurchaseInvoiceManager`): Logic for creating/updating draft PIs is implemented. Posting logic is a stub.
+    *   `PurchaseInvoiceDialog`: Fully functional for creating/editing draft purchase invoices, including dynamic calculations and saving.
+    *   `PurchaseInvoicesWidget` (List View): Not yet created.
+*   **Sales Invoicing**: Fully functional (Draft CRUD, Posting with JE, List View, Dialog with "Save & Approve").
+*   **User and Role Management UI**: Fully functional.
+*   **Reporting**: BS/P&L on-screen display and export enhanced. TB/GL functional. Reporting options for BS/P&L (comparative, zero-balance) added.
+*   All previously implemented features (Core Accounting, Customer/Vendor/Product Management, GST F5) remain stable.
+
+The main change since the last README/TDS update (v9 of TDS) is the completion of draft management for Purchase Invoices via `PurchaseInvoiceDialog` and its backend manager.
+
+**Plan for Updating Documentation:** 
+
+1.  **Update `README.md`**:
+    *   **Key Features Section**: 
+        *   Update "Purchase Invoicing and Accounts Payable" status from "Foundational" to "UI Dialog Implemented - Draft CRUD for Purchase Invoices. List view and posting planned."
+    *   **Usage Guide**: Add a brief mention that a dialog for creating/editing draft Purchase Invoices is available (though the main list view widget is not yet present in a dedicated tab).
+    *   **Roadmap**:
+        *   Under "Current Focus / Short-term" for "Purchase Invoicing", update from "Begin implementation" to "Complete UI for listing, viewing, and managing Purchase Invoices. Implement posting logic (JE creation)."
+        
+2.  **Update `Technical_Design_Specification_Document.md` (to v10.0)**: 
+    *   **Version and Date**: Update to 10.0 and current date.
+    *   **1.1 Purpose / 1.2 Scope / 1.4 System Overview / Current Implementation Status**: Reflect the addition of draft management for Purchase Invoices (backend logic and `PurchaseInvoiceDialog`).
+    *   **2.2 Component Architecture**:
+        *   `PurchaseInvoiceManager`: Detail its implemented draft management logic (`_validate_and_prepare_pi_data`, `create_draft_purchase_invoice`, `update_draft_purchase_invoice`).
+        *   `UI Components (`app/ui/purchase_invoices/`)`: Detail the new `PurchaseInvoiceDialog` and its functionalities. Note that `PurchaseInvoicesWidget` is planned. 
+    *   **3.3 Data Transfer Objects (DTOs)**: Confirm `PurchaseInvoice` DTOs are listed and used.
+    *   **4. Module and Component Specifications**:
+        *   Add/Expand section for "Purchase Invoicing Module".
+        *   Detail `PurchaseInvoiceManager` methods for draft management.
+    *   **5. User Interface Implementation**:
+        *   Detail `PurchaseInvoiceDialog` (header fields, line item table, dynamic calculations, save draft functionality). Note its current invocation point (if any, or state it's ready for integration into a list widget).
+    *   **9. Conclusion**: Reflect the new capability for managing draft purchase invoices.
+
+This will bring both documents up to date with the latest major progress.
+
+---
 **Current Project Status Recap:**
 
 *   **Sales Invoicing**: Fully functional for draft CRUD, posting with JE, list view, dialog with "Save & Approve".
