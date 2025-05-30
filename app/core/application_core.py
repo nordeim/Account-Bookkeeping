@@ -1,4 +1,4 @@
-# app/core/application_core.py
+# File: app/core/application_core.py
 from typing import Optional, Any
 from app.core.config_manager import ConfigManager
 from app.core.database_manager import DatabaseManager 
@@ -16,6 +16,7 @@ from app.business_logic.customer_manager import CustomerManager
 from app.business_logic.vendor_manager import VendorManager 
 from app.business_logic.product_manager import ProductManager
 from app.business_logic.sales_invoice_manager import SalesInvoiceManager
+from app.business_logic.purchase_invoice_manager import PurchaseInvoiceManager 
 
 # Services
 from app.services.account_service import AccountService
@@ -24,7 +25,10 @@ from app.services.fiscal_period_service import FiscalPeriodService
 from app.services.core_services import SequenceService, CompanySettingsService, ConfigurationService
 from app.services.tax_service import TaxCodeService, GSTReturnService 
 from app.services.accounting_services import AccountTypeService, CurrencyService as CurrencyRepoService, ExchangeRateService, FiscalYearService
-from app.services.business_services import CustomerService, VendorService, ProductService, SalesInvoiceService
+from app.services.business_services import (
+    CustomerService, VendorService, ProductService, 
+    SalesInvoiceService, PurchaseInvoiceService 
+)
 
 # Utilities
 from app.utils.sequence_generator import SequenceGenerator 
@@ -68,6 +72,7 @@ class ApplicationCore:
         self._vendor_service_instance: Optional[VendorService] = None
         self._product_service_instance: Optional[ProductService] = None
         self._sales_invoice_service_instance: Optional[SalesInvoiceService] = None
+        self._purchase_invoice_service_instance: Optional[PurchaseInvoiceService] = None 
 
         # --- Manager Instance Placeholders ---
         self._coa_manager_instance: Optional[ChartOfAccountsManager] = None
@@ -82,6 +87,7 @@ class ApplicationCore:
         self._vendor_manager_instance: Optional[VendorManager] = None
         self._product_manager_instance: Optional[ProductManager] = None
         self._sales_invoice_manager_instance: Optional[SalesInvoiceManager] = None
+        self._purchase_invoice_manager_instance: Optional[PurchaseInvoiceManager] = None 
 
         self.logger.info("ApplicationCore initialized.")
 
@@ -112,6 +118,7 @@ class ApplicationCore:
         self._vendor_service_instance = VendorService(self.db_manager, self) 
         self._product_service_instance = ProductService(self.db_manager, self)
         self._sales_invoice_service_instance = SalesInvoiceService(self.db_manager, self)
+        self._purchase_invoice_service_instance = PurchaseInvoiceService(self.db_manager, self) 
 
         # Initialize Managers (dependencies should be initialized services)
         py_sequence_generator = SequenceGenerator(self.sequence_service, app_core_ref=self) 
@@ -155,7 +162,18 @@ class ApplicationCore:
             tax_calculator=self.tax_calculator, 
             sequence_service=self.sequence_service, 
             account_service=self.account_service,
-            configuration_service=self.configuration_service, # Corrected: Use configuration_service
+            configuration_service=self.configuration_service, 
+            app_core=self
+        )
+        self._purchase_invoice_manager_instance = PurchaseInvoiceManager( 
+            purchase_invoice_service=self.purchase_invoice_service,
+            vendor_service=self.vendor_service,
+            product_service=self.product_service,
+            tax_code_service=self.tax_code_service,
+            tax_calculator=self.tax_calculator,
+            sequence_service=self.sequence_service,
+            account_service=self.account_service,
+            configuration_service=self.configuration_service,
             app_core=self
         )
         
@@ -213,7 +231,7 @@ class ApplicationCore:
         if not self._currency_repo_service_instance: raise RuntimeError("CurrencyRepoService not initialized.")
         return self._currency_repo_service_instance 
     @property
-    def currency_service(self) -> CurrencyRepoService: # Alias for convenience
+    def currency_service(self) -> CurrencyRepoService: 
         if not self._currency_repo_service_instance: raise RuntimeError("CurrencyService (CurrencyRepoService) not initialized.")
         return self._currency_repo_service_instance
     @property
@@ -240,6 +258,10 @@ class ApplicationCore:
     def sales_invoice_service(self) -> SalesInvoiceService: 
         if not self._sales_invoice_service_instance: raise RuntimeError("SalesInvoiceService not initialized.")
         return self._sales_invoice_service_instance
+    @property
+    def purchase_invoice_service(self) -> PurchaseInvoiceService: 
+        if not self._purchase_invoice_service_instance: raise RuntimeError("PurchaseInvoiceService not initialized.")
+        return self._purchase_invoice_service_instance
 
     # --- Manager Properties ---
     @property
@@ -247,7 +269,7 @@ class ApplicationCore:
         if not self._coa_manager_instance: raise RuntimeError("ChartOfAccountsManager not initialized.")
         return self._coa_manager_instance
     @property
-    def accounting_service(self) -> ChartOfAccountsManager: # Alias for main_window.py usage
+    def accounting_service(self) -> ChartOfAccountsManager: 
         return self.chart_of_accounts_manager
     @property
     def journal_entry_manager(self) -> JournalEntryManager: 
@@ -293,4 +315,7 @@ class ApplicationCore:
     def sales_invoice_manager(self) -> SalesInvoiceManager: 
         if not self._sales_invoice_manager_instance: raise RuntimeError("SalesInvoiceManager not initialized.")
         return self._sales_invoice_manager_instance
-
+    @property
+    def purchase_invoice_manager(self) -> PurchaseInvoiceManager: 
+        if not self._purchase_invoice_manager_instance: raise RuntimeError("PurchaseInvoiceManager not initialized.")
+        return self._purchase_invoice_manager_instance

@@ -1,13 +1,14 @@
-# app/business_logic/__init__.py
+# File: app/business_logic/__init__.py
 from .customer_manager import CustomerManager
 from .vendor_manager import VendorManager
 from .product_manager import ProductManager
-from .sales_invoice_manager import SalesInvoiceManager # New import
+from .sales_invoice_manager import SalesInvoiceManager
+from .purchase_invoice_manager import PurchaseInvoiceManager 
 
 __all__ = [
     "CustomerManager",
     "VendorManager",
     "ProductManager",
-    "SalesInvoiceManager", # Added to __all__
+    "SalesInvoiceManager",
+    "PurchaseInvoiceManager", 
 ]
-

@@ -1,5 +1,40 @@
 **Current Project Status Recap:**
 
+*   **Sales Invoicing**: Fully functional for draft CRUD, posting with JE, list view, dialog with "Save & Approve".
+*   **User and Role Management UI**: Fully functional.
+*   **Reporting**:
+    *   `ReportsWidget` UI enhanced with options for comparative periods (BS/P&L) and zero-balance accounts (BS).
+    *   On-screen display for BS & P&L in `QTreeView` improved with better structure and formatting.
+    *   PDF/Excel export for BS & P&L has enhanced formatting.
+    *   TB & GL display/export are functional with simpler table views/exports.
+*   All previously implemented features remain stable.
+    
+**Next Step Identification (from Roadmap):**
+    
+Roadmap - "Current Focus / Short-term":
+1.  **Sales Invoicing**:
+    *   Implement "Save & Approve" button functionality in `SalesInvoiceDialog`. <-- DONE
+    *   Enhance line item entry (e.g., better product search/selection). <-- Basic enhancement done. Advanced popup search is still an option.
+    *   **(Future)** Handle inventory updates upon posting.
+2.  **Refine Reporting**:
+    *   Improve PDF/Excel export formatting and layout. <-- DONE for BS/P&L. Could extend to TB/GL.
+    *   Add more reporting options/filters. <-- DONE for BS/P&L comparative/zero-balance. Could add more dimension/status filters.
+3.  **Purchase Invoicing**: Begin implementation. <-- This is the next major new module.
+    
+Given the current state:
+*   Sales Invoicing is quite complete for its initial scope (drafts, posting). Inventory updates are explicitly marked "Future". Advanced product search is a "nice-to-have" polish for later.
+*   Reporting has seen significant refinement in display and export for key statements, and new options. Further refinements can be iterative.
+*   User/Role Management is complete.
+
+The most impactful next step according to the roadmap would be to **begin implementation of Purchase Invoicing**. This is a substantial new module.
+    
+**Plan for this Turn: Begin Purchase Invoicing - Part 1 (Models, DTOs, Service Interface, Basic Manager & Service Stubs).**
+
+This is analogous to how Sales Invoicing was started: laying the foundational backend structures.
+
+---
+**Current Project Status Recap:**
+
 *   **Sales Invoicing**: Fully functional (Draft CRUD, Posting with JE, List View, "Save & Approve" in dialog).
 *   **User and Role Management UI**: Fully functional (User CRUD, Role CRUD, Permission Assignment).
 *   **Reporting**:
@@ -40,40 +75,4 @@ Modify `app/ui/reports/reports_widget.py` to:
 3.  Pass these new options to the `FinancialStatementGenerator`.
         
 **Detailed Plan & Checklist for `app/ui/reports/reports_widget.py`:**
-            
----
-**Current Project Status Recap:**
-
-*   **Sales Invoicing**: 
-    *   `SalesInvoiceDialog`: Fully functional for creating/editing drafts, dynamic calculations, "Save Draft", and "Save & Approve" (which includes posting JE).
-    *   `SalesInvoicesWidget`: Lists invoices, allows opening dialog, and batch posting of drafts.
-    *   `SalesInvoiceManager`: Backend logic for draft CRUD and posting is complete.
-*   **User and Role Management UI**: Fully functional.
-*   All previously implemented features remain stable.
-
-**Next Step Identification (from Roadmap):**
-
-Roadmap - "Current Focus / Short-term":
-1.  **Sales Invoicing**:
-    *   Implement "Save & Approve" button functionality in `SalesInvoiceDialog`. <-- **DONE**
-    *   **Enhance line item entry (e.g., better product search/selection).** <-- Previously, I made minor enhancements to the product combo text. A more robust product search popup could still be an option.
-    *   (Future) Handle inventory updates upon posting.
-2.  **Refine Reporting**:
-    *   **Improve PDF/Excel export formatting and layout.** <-- This is a good candidate.
-    *   Add more reporting options/filters.
-3.  **Purchase Invoicing**: Begin implementation. 
-    
-Considering the options:
-*   Further enhancing product search in `SalesInvoiceDialog` (e.g., a popup search dialog) is a UX improvement but might be a larger piece of work than initially anticipated if done fully.
-*   Beginning Purchase Invoicing is a major new module.
-*   Improving PDF/Excel export formatting for the existing reports (BS, P&L, TB, GL) is a valuable refinement and builds on already functional reporting logic. It directly addresses a "Refine Reporting" roadmap item.
-        
-**Decision for this Turn: Refine Reporting - Improve PDF/Excel Export Formatting for Balance Sheet and Profit & Loss.**
-    
-The current `ReportEngine._export_to_pdf_generic` and `_export_to_excel_generic` methods produce very basic tabular layouts. We can make them more professional.
-    
-**Plan for this Turn: Enhance PDF/Excel Export for BS & P&L.**
-
-**Objective:**
-Improve the visual presentation and structure of Balance Sheet and Profit & Loss reports when exported to PDF and Excel via `ReportEngine`.
 

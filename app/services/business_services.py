@@ -1,7 +1,7 @@
-# app/services/business_services.py
+# File: app/services/business_services.py
 from typing import List, Optional, Any, TYPE_CHECKING, Dict
 from sqlalchemy import select, func, and_, or_
-from sqlalchemy.orm import selectinload, joinedload # Added joinedload
+from sqlalchemy.orm import selectinload, joinedload 
 from decimal import Decimal
 import logging 
 
@@ -9,20 +9,26 @@ from app.core.database_manager import DatabaseManager
 from app.models.business.customer import Customer
 from app.models.business.vendor import Vendor
 from app.models.business.product import Product
-from app.models.business.sales_invoice import SalesInvoice, SalesInvoiceLine # New Import
+from app.models.business.sales_invoice import SalesInvoice, SalesInvoiceLine
+from app.models.business.purchase_invoice import PurchaseInvoice, PurchaseInvoiceLine 
 from app.models.accounting.account import Account 
 from app.models.accounting.currency import Currency 
 from app.models.accounting.tax_code import TaxCode 
-from app.services import ICustomerRepository, IVendorRepository, IProductRepository, ISalesInvoiceRepository # New Import ISalesInvoiceRepository
-from app.utils.pydantic_models import CustomerSummaryData, VendorSummaryData, ProductSummaryData, SalesInvoiceSummaryData # New Import SalesInvoiceSummaryData
-from app.common.enums import ProductTypeEnum, InvoiceStatusEnum # New Import InvoiceStatusEnum
-from datetime import date # For date type hints
+from app.services import (
+    ICustomerRepository, IVendorRepository, IProductRepository, 
+    ISalesInvoiceRepository, IPurchaseInvoiceRepository 
+)
+from app.utils.pydantic_models import (
+    CustomerSummaryData, VendorSummaryData, ProductSummaryData, 
+    SalesInvoiceSummaryData, PurchaseInvoiceSummaryData 
+)
+from app.common.enums import ProductTypeEnum, InvoiceStatusEnum 
+from datetime import date 
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore
 
 class CustomerService(ICustomerRepository):
-    # ... (CustomerService implementation remains unchanged from previous version)
     def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
         self.db_manager = db_manager
         self.app_core = app_core
@@ -38,7 +44,7 @@ class CustomerService(ICustomerRepository):
         async with self.db_manager.session() as session:
             conditions = []; 
             if active_only: conditions.append(Customer.is_active == True)
-            if search_term: search_pattern = f"%{search_term}%"; conditions.append(or_(Customer.customer_code.ilike(search_pattern), Customer.name.ilike(search_pattern), Customer.email.ilike(search_pattern) ))
+            if search_term: search_pattern = f"%{search_term}%"; conditions.append(or_(Customer.customer_code.ilike(search_pattern), Customer.name.ilike(search_pattern), Customer.email.ilike(search_pattern) if Customer.email else False )) 
             stmt = select(Customer.id, Customer.customer_code, Customer.name, Customer.email, Customer.phone, Customer.is_active)
             if conditions: stmt = stmt.where(and_(*conditions))
             stmt = stmt.order_by(Customer.name)
@@ -59,7 +65,6 @@ class CustomerService(ICustomerRepository):
         raise NotImplementedError("Hard delete of customers is not supported. Use deactivation.")
 
 class VendorService(IVendorRepository):
-    # ... (VendorService implementation remains unchanged from previous version)
     def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
         self.db_manager = db_manager; self.app_core = app_core
         self.logger = app_core.logger if app_core and hasattr(app_core, 'logger') else logging.getLogger(self.__class__.__name__)
@@ -74,7 +79,7 @@ class VendorService(IVendorRepository):
         async with self.db_manager.session() as session:
             conditions = []; 
             if active_only: conditions.append(Vendor.is_active == True)
-            if search_term: search_pattern = f"%{search_term}%"; conditions.append(or_(Vendor.vendor_code.ilike(search_pattern), Vendor.name.ilike(search_pattern), Vendor.email.ilike(search_pattern)))
+            if search_term: search_pattern = f"%{search_term}%"; conditions.append(or_(Vendor.vendor_code.ilike(search_pattern), Vendor.name.ilike(search_pattern), Vendor.email.ilike(search_pattern) if Vendor.email else False))
             stmt = select(Vendor.id, Vendor.vendor_code, Vendor.name, Vendor.email, Vendor.phone, Vendor.is_active)
             if conditions: stmt = stmt.where(and_(*conditions))
             stmt = stmt.order_by(Vendor.name)
@@ -95,7 +100,6 @@ class VendorService(IVendorRepository):
         raise NotImplementedError("Hard delete of vendors is not supported. Use deactivation.")
 
 class ProductService(IProductRepository):
-    # ... (ProductService implementation remains unchanged from previous version)
     def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
         self.db_manager = db_manager; self.app_core = app_core
         self.logger = app_core.logger if app_core and hasattr(app_core, 'logger') else logging.getLogger(self.__class__.__name__)
@@ -111,7 +115,7 @@ class ProductService(IProductRepository):
             conditions = []; 
             if active_only: conditions.append(Product.is_active == True)
             if product_type_filter: conditions.append(Product.product_type == product_type_filter.value)
-            if search_term: search_pattern = f"%{search_term}%"; conditions.append(or_(Product.product_code.ilike(search_pattern), Product.name.ilike(search_pattern), Product.description.ilike(search_pattern)))
+            if search_term: search_pattern = f"%{search_term}%"; conditions.append(or_(Product.product_code.ilike(search_pattern), Product.name.ilike(search_pattern), Product.description.ilike(search_pattern) if Product.description else False ))
             stmt = select(Product.id, Product.product_code, Product.name, Product.product_type, Product.sales_price, Product.purchase_price, Product.is_active)
             if conditions: stmt = stmt.where(and_(*conditions))
             stmt = stmt.order_by(Product.product_type, Product.name)
@@ -131,109 +135,163 @@ class ProductService(IProductRepository):
         else: print(f"Warning: {log_msg}")
         raise NotImplementedError("Hard delete of products/services is not supported. Use deactivation.")
 
-
-# --- NEW: SalesInvoiceService Implementation ---
 class SalesInvoiceService(ISalesInvoiceRepository):
     def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
         self.db_manager = db_manager
         self.app_core = app_core
         self.logger = app_core.logger if app_core and hasattr(app_core, 'logger') else logging.getLogger(self.__class__.__name__)
-
     async def get_by_id(self, invoice_id: int) -> Optional[SalesInvoice]:
         async with self.db_manager.session() as session:
             stmt = select(SalesInvoice).options(
                 selectinload(SalesInvoice.lines).selectinload(SalesInvoiceLine.product),
                 selectinload(SalesInvoice.lines).selectinload(SalesInvoiceLine.tax_code_obj),
-                selectinload(SalesInvoice.customer),
-                selectinload(SalesInvoice.currency),
-                selectinload(SalesInvoice.journal_entry), # For posted invoices
-                selectinload(SalesInvoice.created_by_user),
-                selectinload(SalesInvoice.updated_by_user)
+                selectinload(SalesInvoice.customer), selectinload(SalesInvoice.currency),
+                selectinload(SalesInvoice.journal_entry), 
+                selectinload(SalesInvoice.created_by_user), selectinload(SalesInvoice.updated_by_user)
             ).where(SalesInvoice.id == invoice_id)
+            result = await session.execute(stmt); return result.scalars().first()
+    async def get_all(self) -> List[SalesInvoice]:
+        async with self.db_manager.session() as session:
+            stmt = select(SalesInvoice).order_by(SalesInvoice.invoice_date.desc(), SalesInvoice.invoice_no.desc()) # type: ignore
+            result = await session.execute(stmt); return list(result.scalars().all())
+    async def get_all_summary(self, customer_id: Optional[int] = None, status: Optional[InvoiceStatusEnum] = None, 
+                              start_date: Optional[date] = None, end_date: Optional[date] = None,
+                              page: int = 1, page_size: int = 50) -> List[SalesInvoiceSummaryData]:
+        async with self.db_manager.session() as session:
+            conditions = []
+            if customer_id is not None: conditions.append(SalesInvoice.customer_id == customer_id)
+            if status: conditions.append(SalesInvoice.status == status.value)
+            if start_date: conditions.append(SalesInvoice.invoice_date >= start_date)
+            if end_date: conditions.append(SalesInvoice.invoice_date <= end_date)
+            stmt = select( SalesInvoice.id, SalesInvoice.invoice_no, SalesInvoice.invoice_date, SalesInvoice.due_date,
+                Customer.name.label("customer_name"), SalesInvoice.total_amount, SalesInvoice.amount_paid, SalesInvoice.status
+            ).join(Customer, SalesInvoice.customer_id == Customer.id) 
+            if conditions: stmt = stmt.where(and_(*conditions))
+            stmt = stmt.order_by(SalesInvoice.invoice_date.desc(), SalesInvoice.invoice_no.desc()) # type: ignore
+            if page_size > 0 : stmt = stmt.limit(page_size).offset((page - 1) * page_size)
+            result = await session.execute(stmt); return [SalesInvoiceSummaryData.model_validate(row) for row in result.mappings().all()]
+    async def get_by_invoice_no(self, invoice_no: str) -> Optional[SalesInvoice]: 
+        async with self.db_manager.session() as session:
+            stmt = select(SalesInvoice).options(selectinload(SalesInvoice.lines)).where(SalesInvoice.invoice_no == invoice_no)
+            result = await session.execute(stmt); return result.scalars().first()
+    async def save(self, invoice: SalesInvoice) -> SalesInvoice:
+        async with self.db_manager.session() as session:
+            session.add(invoice); await session.flush(); await session.refresh(invoice)
+            if invoice.id and invoice.lines: 
+                await session.refresh(invoice, attribute_names=['lines'])
+            return invoice
+    async def add(self, entity: SalesInvoice) -> SalesInvoice: return await self.save(entity)
+    async def update(self, entity: SalesInvoice) -> SalesInvoice: return await self.save(entity)
+    async def delete(self, invoice_id: int) -> bool:
+        log_msg = f"Hard delete attempted for Sales Invoice ID {invoice_id}. Not implemented; use voiding/cancellation."
+        if self.logger: self.logger.warning(log_msg)
+        else: print(f"Warning: {log_msg}")
+        raise NotImplementedError("Hard delete of sales invoices is not supported. Use voiding/cancellation.")
+
+class PurchaseInvoiceService(IPurchaseInvoiceRepository):
+    def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
+        self.db_manager = db_manager
+        self.app_core = app_core
+        self.logger = app_core.logger if app_core and hasattr(app_core, 'logger') else logging.getLogger(self.__class__.__name__)
+
+    async def get_by_id(self, invoice_id: int) -> Optional[PurchaseInvoice]:
+        async with self.db_manager.session() as session:
+            stmt = select(PurchaseInvoice).options(
+                selectinload(PurchaseInvoice.lines).selectinload(PurchaseInvoiceLine.product),
+                selectinload(PurchaseInvoice.lines).selectinload(PurchaseInvoiceLine.tax_code_obj),
+                selectinload(PurchaseInvoice.vendor),
+                selectinload(PurchaseInvoice.currency),
+                selectinload(PurchaseInvoice.journal_entry),
+                selectinload(PurchaseInvoice.created_by_user),
+                selectinload(PurchaseInvoice.updated_by_user)
+            ).where(PurchaseInvoice.id == invoice_id)
             result = await session.execute(stmt)
             return result.scalars().first()
 
-    async def get_all(self) -> List[SalesInvoice]:
-        """ Fetches all sales invoice ORM objects. Use with caution for large datasets. """
+    async def get_all(self) -> List[PurchaseInvoice]:
         async with self.db_manager.session() as session:
-            stmt = select(SalesInvoice).order_by(SalesInvoice.invoice_date.desc(), SalesInvoice.invoice_no.desc()) # type: ignore
+            stmt = select(PurchaseInvoice).order_by(PurchaseInvoice.invoice_date.desc(), PurchaseInvoice.invoice_no.desc()) # type: ignore
             result = await session.execute(stmt)
-            # Eager load lines if this method is used broadly, otherwise expect N+1 for lines.
-            # For now, no explicit line loading here for performance on `get_all`.
             return list(result.scalars().all())
 
     async def get_all_summary(self, 
-                              customer_id: Optional[int] = None,
+                              vendor_id: Optional[int] = None,
                               status: Optional[InvoiceStatusEnum] = None, 
                               start_date: Optional[date] = None, 
                               end_date: Optional[date] = None,
                               page: int = 1, 
                               page_size: int = 50
-                             ) -> List[SalesInvoiceSummaryData]:
+                             ) -> List[PurchaseInvoiceSummaryData]:
         async with self.db_manager.session() as session:
             conditions = []
-            if customer_id is not None:
-                conditions.append(SalesInvoice.customer_id == customer_id)
+            if vendor_id is not None:
+                conditions.append(PurchaseInvoice.vendor_id == vendor_id)
             if status:
-                conditions.append(SalesInvoice.status == status.value)
+                conditions.append(PurchaseInvoice.status == status.value)
             if start_date:
-                conditions.append(SalesInvoice.invoice_date >= start_date)
+                conditions.append(PurchaseInvoice.invoice_date >= start_date)
             if end_date:
-                conditions.append(SalesInvoice.invoice_date <= end_date)
+                conditions.append(PurchaseInvoice.invoice_date <= end_date)
             
-            # Select specific columns for summary and join with Customer for customer_name
             stmt = select(
-                SalesInvoice.id, SalesInvoice.invoice_no, SalesInvoice.invoice_date, SalesInvoice.due_date,
-                Customer.name.label("customer_name"), # Label for DTO mapping
-                SalesInvoice.total_amount, SalesInvoice.amount_paid, SalesInvoice.status
-            ).join(Customer, SalesInvoice.customer_id == Customer.id) # Assuming Customer model is imported
+                PurchaseInvoice.id, PurchaseInvoice.invoice_no, PurchaseInvoice.vendor_invoice_no, 
+                PurchaseInvoice.invoice_date, Vendor.name.label("vendor_name"), 
+                PurchaseInvoice.total_amount, PurchaseInvoice.status
+            ).join(Vendor, PurchaseInvoice.vendor_id == Vendor.id)
             
             if conditions:
                 stmt = stmt.where(and_(*conditions))
             
-            stmt = stmt.order_by(SalesInvoice.invoice_date.desc(), SalesInvoice.invoice_no.desc()) # type: ignore
+            stmt = stmt.order_by(PurchaseInvoice.invoice_date.desc(), PurchaseInvoice.invoice_no.desc()) # type: ignore
             
-            if page_size > 0: # Enable pagination
+            if page_size > 0:
                 stmt = stmt.limit(page_size).offset((page - 1) * page_size)
             
             result = await session.execute(stmt)
-            # Map SQLAlchemy result (RowMapping) to Pydantic DTO
-            return [SalesInvoiceSummaryData.model_validate(row) for row in result.mappings().all()]
+            return [PurchaseInvoiceSummaryData.model_validate(row) for row in result.mappings().all()]
 
-    async def get_by_invoice_no(self, invoice_no: str) -> Optional[SalesInvoice]:
+    async def get_by_internal_ref_no(self, internal_ref_no: str) -> Optional[PurchaseInvoice]:
         async with self.db_manager.session() as session:
-            stmt = select(SalesInvoice).options(
-                selectinload(SalesInvoice.lines) # Load lines when fetching by specific number
-            ).where(SalesInvoice.invoice_no == invoice_no)
+            stmt = select(PurchaseInvoice).options(
+                selectinload(PurchaseInvoice.lines)
+            ).where(PurchaseInvoice.invoice_no == internal_ref_no) 
             result = await session.execute(stmt)
             return result.scalars().first()
 
-    async def save(self, invoice: SalesInvoice) -> SalesInvoice:
-        """ Handles both create and update for SalesInvoice ORM objects.
-            Assumes lines are managed via cascade on SalesInvoice.lines relationship.
-        """
+    async def get_by_vendor_and_vendor_invoice_no(self, vendor_id: int, vendor_invoice_no: str) -> Optional[PurchaseInvoice]:
+        async with self.db_manager.session() as session:
+            stmt = select(PurchaseInvoice).options(
+                selectinload(PurchaseInvoice.lines)
+            ).where(
+                PurchaseInvoice.vendor_id == vendor_id,
+                PurchaseInvoice.vendor_invoice_no == vendor_invoice_no
+            )
+            result = await session.execute(stmt)
+            return result.scalars().first() 
+
+    async def save(self, invoice: PurchaseInvoice) -> PurchaseInvoice:
         async with self.db_manager.session() as session:
             session.add(invoice)
-            await session.flush() # Populates IDs, processes cascades if lines are new
-            await session.refresh(invoice) # Get DB defaults like created_at
-            # Eager load lines after save to ensure they are part of the returned object graph
-            if invoice.id and invoice.lines: # Check if lines were part of the save graph
+            await session.flush()
+            await session.refresh(invoice)
+            if invoice.id and invoice.lines:
                 await session.refresh(invoice, attribute_names=['lines'])
-                # for line in invoice.lines: # Optionally refresh each line too
-                #     await session.refresh(line)
             return invoice
 
-    async def add(self, entity: SalesInvoice) -> SalesInvoice:
+    async def add(self, entity: PurchaseInvoice) -> PurchaseInvoice:
         return await self.save(entity)
 
-    async def update(self, entity: SalesInvoice) -> SalesInvoice:
+    async def update(self, entity: PurchaseInvoice) -> PurchaseInvoice:
         return await self.save(entity)
 
     async def delete(self, invoice_id: int) -> bool:
-        # Sales invoices are typically not hard-deleted, but voided or cancelled.
-        # This logic will be in the SalesInvoiceManager.
-        log_msg = f"Hard delete attempted for Sales Invoice ID {invoice_id}. Not implemented; use void/cancel."
-        if self.logger: self.logger.warning(log_msg)
-        else: print(f"Warning: {log_msg}")
-        raise NotImplementedError("Hard delete of sales invoices is not supported. Use voiding/cancellation.")
-
+        async with self.db_manager.session() as session:
+            pi = await session.get(PurchaseInvoice, invoice_id)
+            if pi and pi.status == InvoiceStatusEnum.DRAFT.value: # Only allow deleting drafts
+                await session.delete(pi)
+                return True
+            elif pi:
+                # Log or raise specific error that non-drafts cannot be hard-deleted
+                self.logger.warning(f"Attempt to delete non-draft Purchase Invoice ID {invoice_id} with status {pi.status}. Denied.")
+                raise ValueError(f"Cannot delete Purchase Invoice {pi.invoice_no} as its status is '{pi.status}'. Only Draft invoices can be deleted via this method.")
+        return False

@@ -1,17 +1,187 @@
-# File: app/utils/pydantic_models.py
+<think>
+The application launches successfully. The reporting options (comparative periods, zero-balance toggle) for BS/P&L in `ReportsWidget` are integrated. The on-screen display for BS/P&L via `QTreeView` has also been enhanced.
+
+**Current Project Status Recap:**
+
+*   **Sales Invoicing**: Fully functional for draft CRUD, posting with JE, list view, dialog with "Save & Approve".
+*   **User and Role Management UI**: Fully functional.
+*   **Reporting**:
+    *   `ReportsWidget` UI enhanced with options for comparative periods (BS/P&L) and zero-balance accounts (BS).
+    *   On-screen display for BS & P&L in `QTreeView` improved with better structure and formatting.
+    *   PDF/Excel export for BS & P&L has enhanced formatting.
+    *   TB & GL display/export are functional with simpler table views/exports.
+*   All previously implemented features remain stable.
+
+**Next Step Identification (from Roadmap):**
+
+Roadmap - "Current Focus / Short-term":
+1.  **Sales Invoicing**:
+    *   Implement "Save & Approve" button functionality in `SalesInvoiceDialog`. <-- DONE
+    *   Enhance line item entry (e.g., better product search/selection). <-- Basic enhancement done. Advanced popup search is still an option.
+    *   **(Future)** Handle inventory updates upon posting.
+2.  **Refine Reporting**:
+    *   Improve PDF/Excel export formatting and layout. <-- DONE for BS/P&L. Could extend to TB/GL.
+    *   Add more reporting options/filters. <-- DONE for BS/P&L comparative/zero-balance. Could add more dimension/status filters.
+3.  **Purchase Invoicing**: Begin implementation. <-- This is the next major new module.
+
+Given the current state:
+*   Sales Invoicing is quite complete for its initial scope (drafts, posting). Inventory updates are explicitly marked "Future". Advanced product search is a "nice-to-have" polish for later.
+*   Reporting has seen significant refinement in display and export for key statements, and new options. Further refinements can be iterative.
+*   User/Role Management is complete.
+
+The most impactful next step according to the roadmap would be to **begin implementation of Purchase Invoicing**. This is a substantial new module.
+
+**Plan for this Turn: Begin Purchase Invoicing - Part 1 (Models, DTOs, Service Interface, Basic Manager & Service Stubs).**
+
+This is analogous to how Sales Invoicing was started: laying the foundational backend structures.
+
+**Objective:**
+Create the necessary data models (SQLAlchemy), Data Transfer Objects (Pydantic), the repository interface for Purchase Invoices (`IPurchaseInvoiceRepository`), and initial stubs for `PurchaseInvoiceService` and `PurchaseInvoiceManager`.
+
+**Detailed Plan & Checklist:**
+
+**I. Models (`app/models/business/purchase_invoice.py` - already exists, review and confirm completeness):**
+    *   [ ] `PurchaseInvoice(Base, TimestampMixin)`:
+        *   Fields: `id`, `invoice_no` (vendor's), `our_ref_no` (our internal ref, maybe from sequence), `vendor_id`, `invoice_date`, `due_date`, `currency_code`, `exchange_rate`, `subtotal`, `tax_amount`, `total_amount`, `amount_paid`, `status` (enum: Draft, Approved, Paid, Voided etc.), `notes`, `journal_entry_id`, audit fields.
+        *   Relationships: `vendor`, `currency`, `journal_entry`, `lines` (cascade delete).
+    *   [ ] `PurchaseInvoiceLine(Base, TimestampMixin)`:
+        *   Fields: `id`, `invoice_id`, `line_number`, `product_id` (optional), `description`, `quantity`, `unit_price`, `discount_percent`, `discount_amount`, `line_subtotal`, `tax_code`, `tax_amount`, `line_total`, `dimension1_id`, `dimension2_id`.
+        *   Relationships: `invoice`, `product`, `tax_code_obj`, `dimension1`, `dimension2`.
+    *   **Self-Correction**: The existing `purchase_invoice.py` (from `project_codebase_files_set-4.md`) has `invoice_no` (our unique ref) and `vendor_invoice_no`. This is good. It needs `our_ref_no` to be managed by a sequence if `invoice_no` is strictly the vendor's. Let's assume `invoice_no` in the model is *our* unique internal number for now, and `vendor_invoice_no` is for the supplier's document number.
+    *   **Decision**: Review `app/models/business/purchase_invoice.py`. It seems well-defined already. No changes needed unless discrepancies found against `schema.sql`.
+
+**II. Data Transfer Objects (`app/utils/pydantic_models.py`)**:
+    *   [ ] Define `PurchaseInvoiceLineBaseData(AppBaseModel)`: Similar to `SalesInvoiceLineBaseData` (product_id, description, quantity, unit_price, discount_percent, tax_code, dimensions).
+    *   [ ] Define `PurchaseInvoiceBaseData(AppBaseModel)`: Similar to `SalesInvoiceBaseData` (vendor_id, vendor_invoice_no, invoice_date, due_date, currency_code, exchange_rate, notes).
+    *   [ ] Define `PurchaseInvoiceCreateData(PurchaseInvoiceBaseData, UserAuditData)`: Includes `lines: List[PurchaseInvoiceLineBaseData]`.
+    *   [ ] Define `PurchaseInvoiceUpdateData(PurchaseInvoiceBaseData, UserAuditData)`: Includes `id: int`, `lines`.
+    *   [ ] Define `PurchaseInvoiceSummaryData(AppBaseModel)`: For list views (id, our_invoice_no, vendor_invoice_no, invoice_date, vendor_name, total_amount, status).
+    *   [ ] Define `PurchaseInvoiceData(PurchaseInvoiceBaseData)`: For full representation including calculated fields and status.
+
+**III. Service Interface (`app/services/__init__.py`)**:
+    *   [ ] Define `IPurchaseInvoiceRepository(IRepository[PurchaseInvoice, int])`:
+        *   `get_by_our_ref_no(our_ref_no: str) -> Optional[PurchaseInvoice]`
+        *   `get_by_vendor_invoice_no(vendor_id: int, vendor_invoice_no: str) -> Optional[PurchaseInvoice]` (to check for duplicates from same vendor)
+        *   `get_all_summary(...) -> List[PurchaseInvoiceSummaryData]` (with filters for vendor, status, dates, pagination).
+
+**IV. Service Implementation (`app/services/business_services.py`)**:
+    *   [ ] Create `PurchaseInvoiceService(IPurchaseInvoiceRepository)`:
+        *   Implement `get_by_id` (eager load lines, vendor, currency, JE).
+        *   Implement `get_all_summary` (select specific columns, join with vendor, map to DTO).
+        *   Implement `get_by_our_ref_no` (or use `invoice_no` if that's our internal ref).
+        *   Implement `get_by_vendor_invoice_no`.
+        *   Implement `save` (for create/update).
+        *   Implement `add`, `update`, `delete` (delete should prevent if posted, defer to manager).
+
+**V. Manager Stub (`app/business_logic/purchase_invoice_manager.py` - New File)**:
+    *   [ ] Create `PurchaseInvoiceManager`:
+        *   `__init__` with dependencies: `PurchaseInvoiceService`, `VendorService`, `ProductService`, `TaxCodeService`, `TaxCalculator`, `SequenceService`, `AccountService`, `ConfigurationService`, `ApplicationCore`.
+        *   Stub methods like `create_draft_purchase_invoice`, `update_draft_purchase_invoice`, `post_purchase_invoice`, `get_invoice_for_dialog`, `get_invoices_for_listing`.
+
+**VI. Update `ApplicationCore` (`app/core/application_core.py`)**:
+    *   [ ] Import `PurchaseInvoiceService` and `PurchaseInvoiceManager`.
+    *   [ ] Add placeholders and properties for them.
+    *   [ ] Instantiate them in `startup()`.
+
+**VII. Update `__init__.py` files**:
+    *   [ ] `app/services/__init__.py`: Export `IPurchaseInvoiceRepository` and `PurchaseInvoiceService`.
+    *   [ ] `app/business_logic/__init__.py`: Export `PurchaseInvoiceManager`.
+
+This will lay all the necessary backend groundwork before any UI is created for Purchase Invoices. The model `app/models/business/purchase_invoice.py` exists and seems robust from set-4, so it mostly needs DTOs and service/manager structure.
+</think>
+
+The application is running well, and significant progress has been made on Sales Invoicing, User/Role Management, and Reporting.
+
+As per the roadmap, the next major undertaking is to **begin implementation of Purchase Invoicing**. This will follow a similar pattern to Sales Invoicing: first, lay the backend foundations (Models, DTOs, Service, Manager), then build the UI.
+
+**Plan for this Turn: Purchase Invoicing - Part 1 (Models Review, DTOs, Service Interface, Basic Service/Manager Stubs)**
+
+**Objective:**
+1.  Review the existing Purchase Invoice related ORM models for completeness.
+2.  Define Data Transfer Objects (DTOs) for purchase invoice data.
+3.  Define the `IPurchaseInvoiceRepository` interface.
+4.  Create initial implementations/stubs for `PurchaseInvoiceService` and `PurchaseInvoiceManager`.
+5.  Integrate these new components into `ApplicationCore` and relevant `__init__.py` files.
+
+**Execution Plan:**
+
+**I. Review ORM Models (`app/models/business/purchase_invoice.py`)**
+    *   The file `app/models/business/purchase_invoice.py` (from `project_codebase_files_set-4.md`) defines `PurchaseInvoice` and `PurchaseInvoiceLine`.
+    *   `PurchaseInvoice`: Includes `invoice_no` (which we'll use as our internal reference, generated by a sequence) and `vendor_invoice_no` (for the supplier's actual invoice number). This distinction is good. Other fields like `vendor_id`, dates, currency, totals, status, `journal_entry_id`, audit fields, and relationships seem appropriate.
+    *   `PurchaseInvoiceLine`: Similar to `SalesInvoiceLine`, with fields for product, description, qty, price, discount, tax, totals, and dimensions. Relationships to `PurchaseInvoice` and `Product` are present.
+    *   **Action**: No changes seem immediately necessary to the ORM models themselves based on the current definition. They appear suitable.
+    *   **Checklist**: [X] Models reviewed and deemed suitable.
+
+**II. Create Data Transfer Objects (DTOs) in `app/utils/pydantic_models.py`**
+    *   `PurchaseInvoiceLineBaseData`: Similar to `SalesInvoiceLineBaseData` (product_id, description, quantity, unit_price, discount_percent, tax_code, dimension1_id, dimension2_id).
+    *   `PurchaseInvoiceBaseData`: vendor_id, vendor_invoice_no (optional, as it might be entered later), invoice_date, due_date, currency_code, exchange_rate, notes.
+    *   `PurchaseInvoiceCreateData(PurchaseInvoiceBaseData, UserAuditData)`: Includes `lines: List[PurchaseInvoiceLineBaseData]`.
+    *   `PurchaseInvoiceUpdateData(PurchaseInvoiceBaseData, UserAuditData)`: Includes `id: int`, `lines`.
+    *   `PurchaseInvoiceData(PurchaseInvoiceBaseData)`: Full representation with our `invoice_no`, calculated totals, status, JE link, audit fields, and lines.
+    *   `PurchaseInvoiceSummaryData(AppBaseModel)`: For list views (id, our_invoice_no, vendor_invoice_no, invoice_date, vendor_name, total_amount, status).
+    *   **Checklist**: [X] All necessary Purchase Invoice DTOs defined.
+
+**III. Define Service Interface in `app/services/__init__.py`**
+    *   Define `IPurchaseInvoiceRepository(IRepository[PurchaseInvoice, int])`.
+    *   Abstract methods:
+        *   `get_by_internal_ref_no(internal_ref_no: str) -> Optional[PurchaseInvoice]` (corresponds to `invoice_no` in the model).
+        *   `get_by_vendor_and_vendor_invoice_no(vendor_id: int, vendor_invoice_no: str) -> Optional[PurchaseInvoice]` (for checking duplicates).
+        *   `get_all_summary(...) -> List[PurchaseInvoiceSummaryData]` (with filters for vendor, status, dates, pagination).
+    *   **Checklist**: [X] Interface defined with key methods.
+
+**IV. Implement Service Stubs/Basics in `app/services/business_services.py`**
+    *   Create `PurchaseInvoiceService(IPurchaseInvoiceRepository)`.
+    *   Implement `__init__`.
+    *   Implement `get_by_id` (eager loading lines, vendor, currency, etc.).
+    *   Implement `get_all_summary` (selecting specific columns, joining with `Vendor` for name, mapping to DTO, handling filters and pagination).
+    *   Implement `get_by_internal_ref_no`.
+    *   Implement `get_by_vendor_and_vendor_invoice_no`.
+    *   Implement `save` (generic create/update).
+    *   Implement `add`, `update`, `delete` (basic implementations, manager will add business rules).
+    *   **Checklist**: [X] Service class created. [X] Core data retrieval methods implemented. [X] Basic CUD methods implemented.
+
+**V. Create Manager Stub in `app/business_logic/purchase_invoice_manager.py` (New File)**
+    *   Create `PurchaseInvoiceManager`.
+    *   `__init__` with all necessary dependencies (similar to `SalesInvoiceManager` but with `VendorService`, `PurchaseInvoiceService`, and default A/P, Purchase Expense, GST Input accounts from config).
+    *   Stub out key methods:
+        *   `create_draft_purchase_invoice(dto: PurchaseInvoiceCreateData) -> Result[PurchaseInvoice]`
+        *   `update_draft_purchase_invoice(invoice_id: int, dto: PurchaseInvoiceUpdateData) -> Result[PurchaseInvoice]`
+        *   `post_purchase_invoice(invoice_id: int, user_id: int) -> Result[PurchaseInvoice]`
+        *   `get_invoice_for_dialog(invoice_id: int) -> Optional[PurchaseInvoice]`
+        *   `get_invoices_for_listing(...) -> Result[List[PurchaseInvoiceSummaryData]]`
+    *   **Checklist**: [X] Manager class created. [X] `__init__` defined with dependencies. [X] Key methods stubbed.
+
+**VI. Update `ApplicationCore` (`app/core/application_core.py`)**
+    *   Import `PurchaseInvoiceService` and `PurchaseInvoiceManager`.
+    *   Add service and manager instance placeholders and property getters for them.
+    *   Instantiate `PurchaseInvoiceService` and `PurchaseInvoiceManager` in the `startup()` method, injecting dependencies.
+    *   **Checklist**: [X] Imports added. [X] Placeholders and properties added. [X] Instances created in `startup`.
+
+**VII. Update `__init__.py` files**
+    *   `app/services/__init__.py`: Export `IPurchaseInvoiceRepository` and `PurchaseInvoiceService`.
+    *   `app/business_logic/__init__.py`: Export `PurchaseInvoiceManager`.
+    *   **Checklist**: [X] Exports added to relevant `__init__` files.
+
+This structured approach will establish the backend foundation for the Purchase Invoicing module.
+
+I will now generate the complete updated files.
+
+---
+**1. Update `app/utils/pydantic_models.py`**
+```python
+# app/utils/pydantic_models.py
 from pydantic import BaseModel, Field, validator, root_validator, EmailStr # type: ignore
 from typing import List, Optional, Union, Any, Dict 
 from datetime import date, datetime
 from decimal import Decimal
 
-from app.common.enums import ProductTypeEnum, InvoiceStatusEnum 
+from app.common.enums import ProductTypeEnum, InvoiceStatusEnum # Already includes InvoiceStatusEnum
 
 class AppBaseModel(BaseModel):
     class Config:
         from_attributes = True 
         json_encoders = {
-            Decimal: lambda v: float(v) if v is not None and v.is_finite() else None, 
-            EmailStr: lambda v: str(v) if v is not None else None,
+            Decimal: lambda v: float(v) if v is not None and v.is_finite() else None,
         }
         validate_assignment = True 
 
@@ -285,81 +455,4 @@ class UserPasswordChangeData(AppBaseModel, UserAuditData):
         return values
 
 class RoleCreateData(AppBaseModel): 
-    name: str = Field(..., min_length=3, max_length=50)
-    description: Optional[str] = Field(None, max_length=200)
-    permission_ids: List[int] = Field(default_factory=list)
-
-class RoleUpdateData(RoleCreateData):
-    id: int
-
-class PermissionData(AppBaseModel): 
-    id: int
-    code: str
-    description: Optional[str] = None
-    module: str
-
-# --- Purchase Invoice Related DTOs ---
-class PurchaseInvoiceLineBaseData(AppBaseModel):
-    product_id: Optional[int] = None
-    description: str = Field(..., min_length=1, max_length=200)
-    quantity: Decimal = Field(..., gt=Decimal(0))
-    unit_price: Decimal = Field(..., ge=Decimal(0))
-    discount_percent: Decimal = Field(Decimal(0), ge=Decimal(0), le=Decimal(100))
-    tax_code: Optional[str] = Field(None, max_length=20)
-    dimension1_id: Optional[int] = None
-    dimension2_id: Optional[int] = None
-
-    @validator('quantity', 'unit_price', 'discount_percent', pre=True, always=True)
-    def purch_inv_line_decimals(cls, v):
-        return Decimal(str(v)) if v is not None else Decimal(0)
-
-class PurchaseInvoiceBaseData(AppBaseModel):
-    vendor_id: int
-    vendor_invoice_no: Optional[str] = Field(None, max_length=50) 
-    invoice_date: date
-    due_date: date
-    currency_code: str = Field("SGD", min_length=3, max_length=3)
-    exchange_rate: Decimal = Field(Decimal(1), ge=Decimal(0))
-    notes: Optional[str] = None
-    
-    @validator('exchange_rate', pre=True, always=True)
-    def purch_inv_hdr_decimals(cls, v):
-        return Decimal(str(v)) if v is not None else Decimal(1)
-
-    @root_validator(skip_on_failure=True)
-    def check_pi_due_date(cls, values: Dict[str, Any]) -> Dict[str, Any]:
-        invoice_date, due_date = values.get('invoice_date'), values.get('due_date')
-        if invoice_date and due_date and due_date < invoice_date:
-            raise ValueError("Due date cannot be before invoice date.")
-        return values
-
-class PurchaseInvoiceCreateData(PurchaseInvoiceBaseData, UserAuditData):
-    lines: List[PurchaseInvoiceLineBaseData] = Field(..., min_length=1)
-
-class PurchaseInvoiceUpdateData(PurchaseInvoiceBaseData, UserAuditData):
-    id: int
-    lines: List[PurchaseInvoiceLineBaseData] = Field(..., min_length=1)
-
-class PurchaseInvoiceData(PurchaseInvoiceBaseData): 
-    id: int
-    invoice_no: str # Our internal reference number
-    subtotal: Decimal
-    tax_amount: Decimal
-    total_amount: Decimal
-    amount_paid: Decimal
-    status: InvoiceStatusEnum 
-    journal_entry_id: Optional[int] = None
-    lines: List[PurchaseInvoiceLineBaseData] 
-    created_at: datetime
-    updated_at: datetime
-    created_by_user_id: int
-    updated_by_user_id: int
-
-class PurchaseInvoiceSummaryData(AppBaseModel): 
-    id: int
-    invoice_no: str 
-    vendor_invoice_no: Optional[str] = None
-    invoice_date: date
-    vendor_name: str 
-    total_amount: Decimal
-    status: InvoiceStatusEnum
+    name: str = Field(..., min_
