@@ -1,32 +1,47 @@
-**Current Project Status Recap (Relevant for README/TDS updates):**
-    
-*   **User Management UI**: Fully functional (CRUD, role assignment, password change, status toggle).
-*   **Role Management UI**: Fully functional (CRUD for roles, assignment of permissions to roles).
-*   **Sales Invoicing**: Draft management, posting with JE creation, list view UI are functional. "Save & Approve" in dialog is a minor pending UI polish.
-*   **Core Accounting, Customer/Vendor/Product Management, GST F5, Reporting**: Stable and functional as per previous updates. 
-    
----
 **Current Project Status Recap:**
-            
-*   **User Management UI**: Functional for CRUD, role assignment, password changes, status toggling.
-*   **Role Management UI (Part 1)**:
-    *   `RoleManagementWidget`: Lists roles; Add/Edit actions launch `RoleDialog`; Delete action is functional with checks.
-    *   `RoleDialog`: Supports creating/editing role name and description. Permission assignment UI is a placeholder.
-    *   `SecurityManager`: Backend methods for role CRUD (name/description) and permission listing are in place.
-*   All previously implemented features (Sales Invoicing drafts & posting, Core Accounting, etc.) remain stable.
+                
+*   **Sales Invoicing**:
+    *   `SalesInvoiceDialog`: Fully functional for creating/editing drafts, including dynamic calculations and the "Save & Approve" workflow (draft save then post).
+    *   `SalesInvoicesWidget`: Lists invoices, allows opening dialog for new/edit/view, and has a "Post Invoice(s)" action for batch posting drafts.
+    *   `SalesInvoiceManager`: Backend logic for draft CRUD and posting (including JE creation) is complete.
+*   **User and Role Management UI**: Fully functional for managing users, roles, and permissions between them.
+*   All previously implemented features (Core Accounting, Customer/Vendor/Product Management, GST F5, Basic Reporting) remain stable.
+                
+**Next Step Identification (from Roadmap):**
 
-**Next Step Identification (from Roadmap & previous plan):**
-            
-Roadmap Item: **"User and Role Management UI**: Add UI in Settings for managing users, roles, and permissions."
-We've done User Management and basic Role CRUD. The next step is **Part 2 of Role Management: Implementing Permission Assignment within `RoleDialog`**.
+Roadmap - "Current Focus / Short-term":
+1.  **Sales Invoicing**:
+    *   Implement "Save & Approve" button functionality in `SalesInvoiceDialog`. <-- **DONE**
+    *   **Enhance line item entry (e.g., better product search/selection).** <-- This is a good candidate.
+    *   (Future) Handle inventory updates upon posting.
+2.  **Refine Reporting**:
+    *   **Improve PDF/Excel export formatting and layout.**
+    *   Add more reporting options/filters.
+3.  **Purchase Invoicing**: Begin implementation.
+                
+From the remaining short-term items, enhancing the line item entry in `SalesInvoiceDialog` or improving PDF/Excel export formatting are both viable. Let's prioritize a UI/UX improvement within the already functional `SalesInvoiceDialog`.   
+    
+**Plan for this Turn: Enhance `SalesInvoiceDialog` Line Item Product Selection.**
+        
+**Current Product Selection in `SalesInvoiceDialog` Lines:**
+*   A `QComboBox` is used for "Product/Service".
+*   It's populated with all active products/services.
+*   It has an editable text field and a completer for basic searching within the combo list.
+    
+**Potential Enhancements & Options for "Better Product Search/Selection":**
+        
+1.  **Improved `QComboBox` Completer**:
+    *   Ensure the completer is case-insensitive and matches substrings effectively. (Already uses `MatchContains`).
+    *   Display more info in the completer popup (e.g., "Code - Name - Price"). This requires a custom completer model.
+2.  **Dedicated Product Search Button/Popup**:
+    *   Next to the product combo (or instead of it), have a "Search" button.
+    *   Clicking it opens a small dialog with a search field and a table/list view of products, allowing for more advanced filtering (e.g., by category, type) and selection.
+    *   Selected product from this popup then populates the invoice line.
+3.  **Type-Ahead with Server-Side/Manager-Side Filtering (for very large product lists)**:
+    *   As the user types in the product field, asynchronously query the `ProductManager` for matching products and update a popup list. This is more complex and likely overkill for now given the current architecture.
 
-**Plan for this Turn: Role Management UI - Part 2 (Permission Assignment in `RoleDialog`).**
-            
-**Objective:**  
-Enhance `RoleDialog` to:
-1.  Display all available system permissions (already fetched by `SecurityManager.get_all_permissions()`).
-2.  Allow users to select/deselect multiple permissions to be assigned to the role being created or edited.
-3.  When editing a role, pre-select the permissions currently assigned to it.
-4.  Collect the selected permission IDs and include them in the DTO sent to the `SecurityManager`.
-5.  Ensure `SecurityManager` methods for `create_role` and `update_role` correctly handle saving these permission assignments.
+**Chosen Approach for this Turn:**
+Option 1: **Improved `QComboBox` Completer**. This is a non-intrusive enhancement that improves usability without major structural changes to the dialog. We can make the product combo display more information in its dropdown list if we use a `QStandardItemModel` for it, rather than just `addItem()`.
+
+**Detailed Plan & Checklist for Improving Product Selection in `SalesInvoiceDialog`:**
 
