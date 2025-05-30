@@ -1,4 +1,40 @@
 **Current Project Status Recap:**
+
+*   **Sales Invoicing**: 
+    *   `SalesInvoiceDialog`: Fully functional for creating/editing drafts, dynamic calculations, "Save Draft", and "Save & Approve" (which includes posting JE).
+    *   `SalesInvoicesWidget`: Lists invoices, allows opening dialog, and batch posting of drafts.
+    *   `SalesInvoiceManager`: Backend logic for draft CRUD and posting is complete.
+*   **User and Role Management UI**: Fully functional.
+*   All previously implemented features remain stable.
+
+**Next Step Identification (from Roadmap):**
+
+Roadmap - "Current Focus / Short-term":
+1.  **Sales Invoicing**:
+    *   Implement "Save & Approve" button functionality in `SalesInvoiceDialog`. <-- **DONE**
+    *   **Enhance line item entry (e.g., better product search/selection).** <-- Previously, I made minor enhancements to the product combo text. A more robust product search popup could still be an option.
+    *   (Future) Handle inventory updates upon posting.
+2.  **Refine Reporting**:
+    *   **Improve PDF/Excel export formatting and layout.** <-- This is a good candidate.
+    *   Add more reporting options/filters.
+3.  **Purchase Invoicing**: Begin implementation. 
+    
+Considering the options:
+*   Further enhancing product search in `SalesInvoiceDialog` (e.g., a popup search dialog) is a UX improvement but might be a larger piece of work than initially anticipated if done fully.
+*   Beginning Purchase Invoicing is a major new module.
+*   Improving PDF/Excel export formatting for the existing reports (BS, P&L, TB, GL) is a valuable refinement and builds on already functional reporting logic. It directly addresses a "Refine Reporting" roadmap item.
+        
+**Decision for this Turn: Refine Reporting - Improve PDF/Excel Export Formatting for Balance Sheet and Profit & Loss.**
+    
+The current `ReportEngine._export_to_pdf_generic` and `_export_to_excel_generic` methods produce very basic tabular layouts. We can make them more professional.
+    
+**Plan for this Turn: Enhance PDF/Excel Export for BS & P&L.**
+
+**Objective:**
+Improve the visual presentation and structure of Balance Sheet and Profit & Loss reports when exported to PDF and Excel via `ReportEngine`.
+        
+---
+**Current Project Status Recap:**
                 
 *   **Sales Invoicing**:
     *   `SalesInvoiceDialog`: Fully functional for creating/editing drafts, including dynamic calculations and the "Save & Approve" workflow (draft save then post).

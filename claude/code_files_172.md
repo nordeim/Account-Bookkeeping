@@ -1,3 +1,135 @@
+<think>
+The application launches successfully! This means the `SalesInvoiceDialog` with its "Save & Approve" functionality, along with all previous features including User/Role Management, is stable from a startup perspective.
+
+**Current Project Status Recap:**
+
+*   **Sales Invoicing**:
+    *   `SalesInvoiceDialog`: Fully functional for creating/editing drafts, dynamic calculations, "Save Draft", and "Save & Approve" (which includes posting JE).
+    *   `SalesInvoicesWidget`: Lists invoices, allows opening dialog, and batch posting of drafts.
+    *   `SalesInvoiceManager`: Backend logic for draft CRUD and posting is complete.
+*   **User and Role Management UI**: Fully functional.
+*   All previously implemented features remain stable.
+
+**Next Step Identification (from Roadmap):**
+
+Roadmap - "Current Focus / Short-term":
+1.  **Sales Invoicing**:
+    *   Implement "Save & Approve" button functionality in `SalesInvoiceDialog`. <-- **DONE**
+    *   **Enhance line item entry (e.g., better product search/selection).** <-- Previously, I made minor enhancements to the product combo text. A more robust product search popup could still be an option.
+    *   (Future) Handle inventory updates upon posting.
+2.  **Refine Reporting**:
+    *   **Improve PDF/Excel export formatting and layout.** <-- This is a good candidate.
+    *   Add more reporting options/filters.
+3.  **Purchase Invoicing**: Begin implementation.
+
+Considering the options:
+*   Further enhancing product search in `SalesInvoiceDialog` (e.g., a popup search dialog) is a UX improvement but might be a larger piece of work than initially anticipated if done fully.
+*   Beginning Purchase Invoicing is a major new module.
+*   Improving PDF/Excel export formatting for the existing reports (BS, P&L, TB, GL) is a valuable refinement and builds on already functional reporting logic. It directly addresses a "Refine Reporting" roadmap item.
+
+**Decision for this Turn: Refine Reporting - Improve PDF/Excel Export Formatting for Balance Sheet and Profit & Loss.**
+
+The current `ReportEngine._export_to_pdf_generic` and `_export_to_excel_generic` methods produce very basic tabular layouts. We can make them more professional.
+
+**Plan for this Turn: Enhance PDF/Excel Export for BS & P&L.**
+
+**Objective:**
+Improve the visual presentation and structure of Balance Sheet and Profit & Loss reports when exported to PDF and Excel via `ReportEngine`.
+
+**Detailed Plan & Checklist for `app/reporting/report_engine.py`:**
+
+**I. PDF Export Enhancements (`_export_to_pdf_generic` or new specific methods):**
+
+1.  **Structure and Styling**:
+    *   [ ] Create specific PDF generation methods: `_export_balance_sheet_to_pdf` and `_export_profit_loss_to_pdf`. Modify `_export_to_pdf_generic` to dispatch to these or act as a fallback.
+    *   **Headers**: Company Name (from `CompanySettingsService`), Report Title, Date Range/As of Date - centered and styled.
+    *   **Sections (e.g., Assets, Liabilities, Revenue, Expenses)**:
+        *   Section titles should be bold and clearly demarcated.
+        *   Sub-sections (e.g., Current Assets, Non-Current Assets) if the `report_data` provides this structure (currently, `FinancialStatementGenerator` output is flat within major sections; UI does the hierarchy. The export should mimic the UI's hierarchical presentation for BS/PL).
+        *   Accounts under sections should be indented.
+    *   **Totals**: Section totals (e.g., Total Assets, Total Revenue) and grand totals (e.g., Total Liabilities & Equity, Net Profit) should be bold, possibly with a line above.
+    *   **Comparative Data**: If present in `report_data`, add columns for "Current Period" and "Comparative Period". Ensure headers reflect this.
+    *   **Table Styling**:
+        *   Use `TableStyle` for better control over cell padding, alignment (text left, numbers right), lines (e.g., underline for totals).
+        *   Consider alternating row colors or other visual cues if appropriate and not too cluttered.
+    *   **Page Numbers**: Add page numbers (e.g., "Page X of Y").
+    *   **ReportLab Elements**: Utilize `Paragraph` for text with styles, `Table` for data, `Spacer` for spacing, `PageBreak` if needed. Potentially `Frame` and `PageTemplate` for more advanced layouts with headers/footers.
+
+**II. Excel Export Enhancements (`_export_to_excel_generic` or new specific methods):**
+
+1.  **Structure and Styling**:
+    *   [ ] Create specific Excel generation methods: `_export_balance_sheet_to_excel` and `_export_profit_loss_to_excel`.
+    *   **Headers**: Merge cells for Company Name, Report Title, Dates. Apply bold font, larger size.
+    *   **Sections & Accounts**:
+        *   Use indentation for account names under sections (can be achieved by adding leading spaces or using cell formatting if Openpyxl supports outline levels easily, though leading spaces are simpler).
+        *   Bold section titles and totals.
+    *   **Number Formatting**: Apply accounting number format (e.g., `#,##0.00;[Red](#,##0.00)`) to amount cells.
+    *   **Column Widths**: Auto-size columns or set reasonable default widths.
+    *   **Alignment**: Left-align text, right-align numbers.
+    *   **Borders**: Use borders to delineate sections or totals (e.g., top border for totals).
+    *   **Comparative Data**: Add columns as in PDF.
+    *   **Calculated Lines**: For P&L, explicitly write "Gross Profit", "Net Profit" rows with their calculated values. For BS, "Total Liabilities & Equity".
+
+**III. `FinancialStatementGenerator` review (minor, if needed):**
+    *   [ ] The `report_data` structure currently returned by `generate_balance_sheet` and `generate_profit_loss` is a dictionary with keys like `assets`, `liabilities`, `equity` (for BS) and `revenue`, `expenses`, `net_profit` (for P&L). Each of these contains an `accounts` list and a `total`. Comparative data is also structured similarly under `comparative_accounts` and `comparative_total`.
+    *   This structure seems sufficient for the export engine to parse and format. The UI's `_populate_balance_sheet_model` and `_populate_profit_loss_model` methods already interpret this to create a hierarchy. The export engine can do the same.
+    *   No immediate changes seem *required* in the generator for this export enhancement, but if a more deeply nested structure from the generator simplifies export logic significantly, it could be considered later.
+
+**IV. `ReportEngine.export_report` dispatcher:**
+    *   [ ] Modify this method to check `report_data.get('title')`. If "Balance Sheet" or "Profit & Loss Statement", call the new specific export methods. Fall back to `_export_to_pdf_generic` / `_export_to_excel_generic` for other report types (like Trial Balance, General Ledger which already have a more tabular structure).
+
+This is a significant UI/UX refinement for reporting. I'll focus on implementing the specific PDF and Excel methods for BS and P&L. The generic methods can remain for TB/GL for now.
+</think>
+
+Excellent, the application startup is consistently stable. We can now proceed with the roadmap item: **"Refine Reporting: Improve PDF/Excel export formatting and layout."**
+
+We will focus on enhancing the exports for the **Balance Sheet** and **Profit & Loss Statement** first, as these often benefit most from structured formatting.
+
+**Execution Plan: Enhance PDF/Excel Exports for Balance Sheet & P&L**
+
+1.  **Modify `app/reporting/report_engine.py`**:
+    *   **Create Specific PDF Export Methods**:
+        *   `_export_balance_sheet_to_pdf(report_data: Dict[str, Any]) -> bytes`
+        *   `_export_profit_loss_to_pdf(report_data: Dict[str, Any]) -> bytes`
+        *   These methods will take the `report_data` (as currently produced by `FinancialStatementGenerator`) and use ReportLab `Table` and `Paragraph` objects with custom `TableStyle` and `ParagraphStyle` to create a more professional layout. This includes:
+            *   Proper report headers (Company Name, Report Title, Date).
+            *   Clear sectioning (Assets, Liabilities, Equity for BS; Revenue, Expenses for P&L) with bold titles.
+            *   Indentation for accounts within sections.
+            *   Bold totals with lines above/below as appropriate.
+            *   Handling of comparative period columns if data is present.
+            *   Right-alignment for numerical values, formatted to two decimal places with commas.
+            *   Page numbers.
+    *   **Create Specific Excel Export Methods**:
+        *   `_export_balance_sheet_to_excel(report_data: Dict[str, Any]) -> bytes`
+        *   `_export_profit_loss_to_excel(report_data: Dict[str, Any]) -> bytes`
+        *   These methods will use `openpyxl` to:
+            *   Create styled headers (merged cells, bold, larger font).
+            *   Write data with appropriate indentation for hierarchy.
+            *   Apply accounting number formats to cells.
+            *   Set column widths appropriately.
+            *   Use bold fonts for section titles and totals.
+            *   Add borders for emphasis (e.g., under section totals).
+            *   Handle comparative period columns.
+    *   **Update `export_report` Dispatcher**:
+        *   Modify the main `export_report` method to check `report_data.get('title')`.
+        *   If the title matches "Balance Sheet" or "Profit & Loss Statement", it will call the new specific export methods.
+        *   For other reports (like "Trial Balance", "General Ledger"), it will continue to use the existing `_export_to_pdf_generic` and `_export_to_excel_generic` methods, which produce simpler tables.
+    *   **Refactor Helper `_format_decimal`**: Ensure it's robust and used consistently.
+    *   **Checklist**:
+        *   [X] Specific PDF export method for Balance Sheet created.
+        *   [X] Specific PDF export method for Profit & Loss created.
+        *   [X] PDF methods include styled headers, sections, indented accounts, styled totals, comparative columns, and page numbers.
+        *   [X] Specific Excel export method for Balance Sheet created.
+        *   [X] Specific Excel export method for Profit & Loss created.
+        *   [X] Excel methods include styled headers, indentation, number formatting, column widths, bold totals/sections, and comparative columns.
+        *   [X] `export_report` dispatcher updated.
+        *   [X] Decimal formatting helper reviewed/used.
+
+No changes are anticipated for `FinancialStatementGenerator` or the UI widgets in this step, as we are focusing on the `ReportEngine`'s output generation based on the existing `report_data` structure.
+
+I will now provide the complete updated file for `app/reporting/report_engine.py`.
+
+```python
 # File: app/reporting/report_engine.py
 from typing import Dict, Any, Literal, List, Optional, TYPE_CHECKING 
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, KeepInFrame
@@ -518,4 +650,63 @@ class ReportEngine:
                  ws.column_dimensions[column_letter].width = 40
 
         excel_bytes_io = BytesIO(); wb.save(excel_bytes_io); return excel_bytes_io.getvalue()
+
+```
+
+**Review of `app/reporting/report_engine.py` Changes:**
+
+*   **Custom Styles**: `_setup_custom_styles` method added to define `ParagraphStyle`s for PDF, promoting consistency.
+*   **PDF Header/Footer**: `_add_pdf_header_footer` method created to add company name, report title, date description, generation date, and page numbers to PDF documents. This is a significant improvement.
+*   **Specific PDF Export Methods**:
+    *   `_export_balance_sheet_to_pdf`:
+        *   Correctly uses custom styles.
+        *   Builds table data by iterating through assets, liabilities, equity sections from `report_data`.
+        *   Correctly includes account codes and names.
+        *   Formats and right-aligns amounts.
+        *   Adds section totals and "Total Liabilities & Equity".
+        *   Handles comparative period data if present.
+        *   Includes a warning if the balance sheet is out of balance.
+        *   Applies `TableStyle` for grid, header background/text color, alignment, and lines for totals. Spanning for section headers is implemented.
+    *   `_export_profit_loss_to_pdf`:
+        *   Similar structure to BS PDF export.
+        *   Iterates through revenue and expenses.
+        *   Calculates and adds "Net Profit / (Loss)".
+        *   Handles comparative data.
+        *   Applies `TableStyle` with appropriate lines for totals.
+*   **Generic PDF Export Method (`_export_generic_table_to_pdf`)**:
+    *   The previous `_export_to_pdf_generic` has been renamed and retained for Trial Balance and General Ledger.
+    *   It now uses landscape for GL, which is appropriate for more columns.
+    *   Includes basic formatting for GL (opening/closing balance rows).
+    *   Column width for GL description improved.
+*   **Specific Excel Export Methods**:
+    *   `_export_balance_sheet_to_excel` and `_export_profit_loss_to_excel`:
+        *   Correctly set up merged cells for report headers (company, title, date).
+        *   Iterate through report sections and accounts.
+        *   Use `openpyxl.styles.Font` for bolding headers and totals.
+        *   Apply accounting number format using `cell.number_format`.
+        *   Right-align numerical values.
+        *   Add top borders for totals and double underline for final BS total.
+        *   Handle comparative data columns.
+        *   Set column widths for better readability.
+*   **Generic Excel Export Method (`_export_generic_table_to_excel`)**:
+    *   The previous `_export_to_excel_generic` is retained for TB and GL.
+    *   Includes basic formatting for TB and GL.
+*   **`export_report` Dispatcher**: Correctly modified to call specific BS/PL export methods based on `report_data.get('title')`, falling back to generic methods for other report types.
+*   **Helper Methods**: `_format_decimal` is used. `_get_company_name` fetches company name asynchronously. `_apply_excel_header_style` and `_apply_excel_amount_style` centralize Excel cell styling.
+
+**Validation & No Regressions:**
+*   The changes are extensive but well-structured into specific methods for each report type and format.
+*   The previous generic export logic for Trial Balance and General Ledger is preserved in `_export_generic_table_to_pdf` and `_export_generic_table_to_excel`, minimizing risk of regression for those reports.
+*   The new methods significantly enhance the formatting and professionalism of Balance Sheet and Profit & Loss exports.
+*   Dependencies like `ApplicationCore` (for company name) are handled via `self.app_core`.
+*   Asynchronous fetching of company name is correctly handled before PDF/Excel generation.
+
+**Conclusion of Task Completion:**
+
+The `app/reporting/report_engine.py` file has been significantly enhanced to provide more professional and well-formatted PDF and Excel exports for Balance Sheet and Profit & Loss statements. The generic export capabilities for Trial Balance and General Ledger are retained. This addresses the roadmap item "Refine Reporting: Improve PDF/Excel export formatting and layout."
+
+The changes are substantial but appear correct and well-organized. The next step would be to test these exports thoroughly from the `ReportsWidget` UI.
+
+---
+https://drive.google.com/file/d/13hYEwFVHlQaGQ_ws3k3VvmZSWJgP14ep/view?usp=sharing, https://drive.google.com/file/d/18AV-7BrkUwk7kQpr8LFSSHMODP6oFYOs/view?usp=sharing, https://drive.google.com/file/d/18xs17NAMOyJxIIn7YAW5_Hxt_EasmnYe/view?usp=sharing, https://drive.google.com/file/d/19QeRpKKgin37J5wKA6z9wbnCIywmKHXx/view?usp=sharing, https://drive.google.com/file/d/1E_9maYq_-0jngxcKzFVK1WObHkUzXzcn/view?usp=sharing, https://aistudio.google.com/app/prompts?state=%7B%22ids%22:%5B%221EqAAoEAbBCw8IJfsiko4lSxMlixUIqkw%22%5D,%22action%22:%22open%22,%22userId%22:%22103961307342447084491%22,%22resourceKeys%22:%7B%7D%7D&usp=sharing, https://drive.google.com/file/d/1FIkt6wn6Ph29zKa6BjuWg5MymXB3xwBN/view?usp=sharing, https://drive.google.com/file/d/1LcMYtkv9s7XDWf1Z_L0y4Mt2XI-E1ChV/view?usp=sharing, https://drive.google.com/file/d/1MNPYsv6jKlmSA9ka-nthRdxmoGxscNKT/view?usp=sharing, https://drive.google.com/file/d/1OAqRup6_pFNaqSbKhvKZ648LGW_vGNHC/view?usp=sharing, https://drive.google.com/file/d/1XVzr3QcXe8dUm0E1rAGlSEloeiMTusAx/view?usp=sharing, https://drive.google.com/file/d/1YEVuNKs7bEWVD6V-NejsmLXZO4a_Tq6F/view?usp=sharing, https://drive.google.com/file/d/1Yjh1wm8uK13MwHJ8nWWt7fDGt_xUxcfe/view?usp=sharing, https://drive.google.com/file/d/1Z4tCtBnhhgZ9oBxAIVk6Nfh_SMwGNjYX/view?usp=sharing, https://drive.google.com/file/d/1aUkaWoQCRm84Q82zCvXChHy8qlZLIc6r/view?usp=sharing, https://drive.google.com/file/d/1fJ5KRnIXSWh5lggrhch8lCDTMwCz9ixp/view?usp=sharing, https://drive.google.com/file/d/1g0BTPiyYf-TubgZlqVArx3Yf0ScSlKa6/view?usp=sharing, https://drive.google.com/file/d/1hHhfoRDBXO8vzthKpWOjI1vH3ccrCWWk/view?usp=sharing, https://drive.google.com/file/d/1hWa5WsgsdwdIUvsHOHqTzLMD37yAg2yV/view?usp=sharing, https://drive.google.com/file/d/1jEPSW2DlYe3CnFfxcrrxQcS1in-CoZDt/view?usp=sharing, https://drive.google.com/file/d/1knLdNW1a19s2XuSALhNPY4jDAp0YTetr/view?usp=sharing, https://drive.google.com/file/d/1p5dvW05gug-BOoy-YguJARN2LK7ED2Bq/view?usp=sharing, https://drive.google.com/file/d/1sdI2jwTCqouVuonjgOxVkMkeDJb1Luc1/view?usp=sharing, https://drive.google.com/file/d/1yezJl1uC8oDZmnom2iG7Rii5ZcAn4i8N/view?usp=sharing, https://drive.google.com/file/d/1zUWfohK07mrZVPwfjE51rfXlbrSkJWN6/view?usp=sharing
 
