@@ -1,3 +1,145 @@
+<think>
+The application is launching successfully. The foundational backend structures for Purchase Invoicing (Models, DTOs, Service Interface, basic Service implementation, Manager stub, and ApplicationCore integration) are in place and stable. The log message "PurchaseInvoiceManager initialized (stubs)" confirms it's being created.
+
+**Current Project Status Recap:**
+
+*   **Purchase Invoicing (Backend Foundations)**:
+    *   Models: `PurchaseInvoice`, `PurchaseInvoiceLine` reviewed and suitable.
+    *   DTOs: All necessary DTOs for Purchase Invoices created.
+    *   Service: `IPurchaseInvoiceRepository` defined; `PurchaseInvoiceService` implemented with core data access methods.
+    *   Manager: `PurchaseInvoiceManager` created with stubbed methods.
+    *   `ApplicationCore`: Instantiates and provides access to the new service and manager.
+*   All previously implemented features (Sales Invoicing, User/Role Management, etc.) remain stable.
+
+**Next Step Identification (from Roadmap):**
+
+Roadmap - "Current Focus / Short-term":
+1.  **Sales Invoicing**:
+    *   Enhance line item entry (e.g., better product search/selection). <-- *Still a polish item for later.*
+    *   (Future) Handle inventory updates upon posting.
+2.  **Refine Reporting**:
+    *   Improve PDF/Excel export formatting and layout. <-- *Done for BS/P&L. Could extend to TB/GL.*
+    *   Add more reporting options/filters. <-- *Done for BS/P&L comparative/zero-balance. Could add more.*
+3.  **Purchase Invoicing**: **Begin implementation.** <-- We've started the backend. The next step is to implement the core logic in `PurchaseInvoiceManager` for draft management.
+
+**Plan for this Turn: Implement Purchase Invoice Manager Logic - Part 1 (Draft Management).**
+
+This is analogous to how `SalesInvoiceManager` was developed: first the logic for creating and updating drafts, then the posting logic.
+
+**Objective:**
+Flesh out the methods in `PurchaseInvoiceManager` for creating and updating DRAFT purchase invoices. This includes:
+1.  Validating input DTOs.
+2.  Interacting with services to fetch related data (Vendor, Products, Tax Codes).
+3.  Calculating line item amounts and overall invoice totals.
+4.  Generating an internal reference number for new purchase invoices.
+5.  Saving the draft `PurchaseInvoice` ORM object.
+
+**Detailed Plan & Checklist for `app/business_logic/purchase_invoice_manager.py`:**
+
+1.  **Implement `_validate_and_prepare_pi_data(...)`**:
+    *   [ ] This method will be very similar to `_validate_and_prepare_invoice_data` in `SalesInvoiceManager`.
+    *   Input: `dto: Union[PurchaseInvoiceCreateData, PurchaseInvoiceUpdateData]`.
+    *   Fetch `Vendor` using `dto.vendor_id`. Validate vendor exists and is active.
+    *   Validate `currency_code` using `CurrencyManager`.
+    *   Loop through `dto.lines`:
+        *   Fetch `Product` if `product_id` provided. Validate product exists and is active.
+        *   If product found and line DTO lacks description/price, use product's `name` and `purchase_price`.
+        *   Store `product.purchase_account_id` for later JE use.
+        *   Validate quantity, unit price, discount percent (similar to sales invoice).
+        *   Calculate `discount_amount` and `line_subtotal_before_tax`.
+        *   If `tax_code` provided on line:
+            *   Use `TaxCalculator.calculate_line_tax()` for `line_tax_amount_calc`.
+            *   Store `tax_calc_result.tax_account_id` for later JE use.
+            *   Validate tax code if `TaxCalculator` indicates an issue (e.g., tax calculated but no account ID returned).
+        *   Accumulate `invoice_subtotal_calc` and `invoice_total_tax_calc`.
+    *   [ ] If any validation errors, return `Result.failure(errors)`.
+    *   [ ] Calculate `invoice_grand_total`.
+    *   [ ] Return `Result.success` with a dictionary containing: `header_dto`, `vendor_orm`, `calculated_lines_for_orm` (list of dicts with all line data including temporary `_line_purchase_account_id`, `_line_tax_account_id`), `invoice_subtotal`, `invoice_total_tax`, `invoice_grand_total`.
+
+2.  **Implement `create_draft_purchase_invoice(dto: PurchaseInvoiceCreateData)`**:
+    *   [ ] Call `_validate_and_prepare_pi_data(dto)`. If fails, return failure.
+    *   [ ] Generate `invoice_no` (our internal reference) using `self.app_core.db_manager.execute_scalar("SELECT core.get_next_sequence_value($1);", "purchase_invoice")`.
+    *   [ ] Create `PurchaseInvoice` ORM object using data from `header_dto` and calculated totals from `prepared_data`. Set `status` to `InvoiceStatusEnum.DRAFT.value`.
+    *   [ ] Create `PurchaseInvoiceLine` ORM objects from `prepared_data["calculated_lines_for_orm"]` (stripping temporary underscore-prefixed keys) and append to `invoice_orm.lines`.
+    *   [ ] Call `self.purchase_invoice_service.save(invoice_orm)`.
+    *   [ ] Return `Result.success(saved_invoice)`.
+
+3.  **Implement `update_draft_purchase_invoice(invoice_id: int, dto: PurchaseInvoiceUpdateData)`**:
+    *   [ ] Wrap in `async with self.app_core.db_manager.session() as session:` for transaction.
+    *   [ ] Fetch `existing_invoice` by `invoice_id` (eager load lines). Validate it exists and is a "Draft".
+    *   [ ] Call `_validate_and_prepare_pi_data(dto, is_update=True)`. If fails, return failure.
+    *   [ ] Update header fields of `existing_invoice` from `header_dto` and calculated totals.
+    *   [ ] Delete old lines from `existing_invoice.lines` using `session.delete()`. Flush.
+    *   [ ] Create new `PurchaseInvoiceLine` ORM objects from `prepared_data["calculated_lines_for_orm"]` and assign to `existing_invoice.lines`.
+    *   [ ] Flush and refresh `existing_invoice`.
+    *   [ ] Return `Result.success(existing_invoice)`.
+
+4.  **Review Stub Methods**:
+    *   `get_invoice_for_dialog()`: Can now be fully implemented to call `self.purchase_invoice_service.get_by_id(invoice_id)`.
+    *   `get_invoices_for_listing()`: Can be fully implemented to call `self.purchase_invoice_service.get_all_summary(...)`.
+    *   `post_purchase_invoice()`: Remains a stub for Part 2 of Purchase Invoice implementation.
+
+This plan focuses on the draft management capabilities of purchase invoices.
+</think>
+
+The application is launching correctly, indicating that the foundational backend work for Purchase Invoicing (models, DTOs, service interface/stubs, manager stub, ApplicationCore integration) was successful.
+
+The next step, as per the roadmap to "Begin implementation" of Purchase Invoicing, is to flesh out the core logic within `PurchaseInvoiceManager` for managing **draft** purchase invoices. This will mirror the capabilities already implemented for `SalesInvoiceManager` regarding drafts.
+
+**Plan for this Turn: Implement Purchase Invoice Manager Logic - Part 1 (Draft Management)**
+
+**Objective:**
+Implement the methods in `PurchaseInvoiceManager` necessary for creating, updating, and retrieving draft purchase invoices. This includes input validation, calculation of totals, and interaction with the `PurchaseInvoiceService`.
+
+**Execution Plan:**
+
+1.  **Implement `app/business_logic/purchase_invoice_manager.py`**:
+    *   **`_validate_and_prepare_pi_data(...)` method**:
+        *   This private helper will be very similar to `_validate_and_prepare_invoice_data` in `SalesInvoiceManager`.
+        *   Validate `vendor_id` (exists, active) using `VendorService`.
+        *   Validate `currency_code` using `CurrencyManager`.
+        *   Iterate through `dto.lines`:
+            *   Validate `product_id` (if provided, exists, active) using `ProductService`.
+            *   If product is found, use its `name` and `purchase_price` as defaults if not provided in the line DTO. Store `product.purchase_account_id` (for later JE use).
+            *   Validate quantity (>0), unit_price (>=0), discount_percent (0-100).
+            *   Calculate `discount_amount` and `line_subtotal_before_tax`.
+            *   If `tax_code` is on the line: use `TaxCalculator` to get `line_tax_amount_calc` and `line_tax_account_id` (for later JE use for Input GST). Validate the tax code.
+            *   Accumulate `invoice_subtotal_calc` and `invoice_total_tax_calc`.
+        *   Handle and return any validation errors using `Result.failure()`.
+        *   Calculate `invoice_grand_total`.
+        *   Return `Result.success()` with a dictionary containing prepared data (header DTO, vendor ORM, list of calculated line data for ORM creation, and invoice totals).
+    *   **`create_draft_purchase_invoice(dto: PurchaseInvoiceCreateData)` method**:
+        *   Call `_validate_and_prepare_pi_data()`.
+        *   Generate `invoice_no` (our internal reference) using `self.app_core.db_manager.execute_scalar("SELECT core.get_next_sequence_value($1);", "purchase_invoice")`.
+        *   Create `PurchaseInvoice` ORM: map `header_dto`, `vendor_invoice_no`, calculated totals, set status to `DRAFT`.
+        *   Create `PurchaseInvoiceLine` ORMs from `prepared_data["calculated_lines_for_orm"]` (stripping temporary underscore-prefixed keys) and add to the invoice.
+        *   Save via `self.purchase_invoice_service.save()`.
+    *   **`update_draft_purchase_invoice(invoice_id: int, dto: PurchaseInvoiceUpdateData)` method**:
+        *   Wrap in `async with self.app_core.db_manager.session() as session:`.
+        *   Fetch existing invoice, validate it's a draft.
+        *   Call `_validate_and_prepare_pi_data()`.
+        *   Update header fields and calculated totals on the `existing_invoice` ORM.
+        *   Delete old lines from `existing_invoice.lines` using `session.delete()` and `session.flush()`.
+        *   Create new `PurchaseInvoiceLine` ORMs and assign to `existing_invoice.lines`.
+        *   Flush and refresh.
+    *   **`get_invoice_for_dialog(invoice_id: int)` method**:
+        *   Implement fully by calling `self.purchase_invoice_service.get_by_id(invoice_id)`.
+    *   **`get_invoices_for_listing(...)` method**:
+        *   Implement fully by calling `self.purchase_invoice_service.get_all_summary(...)`.
+    *   **`post_purchase_invoice(...)` method**: Will remain a stub for now.
+    *   **Checklist**:
+        *   [X] `_validate_and_prepare_pi_data` implemented for purchases.
+        *   [X] `create_draft_purchase_invoice` implemented.
+        *   [X] `update_draft_purchase_invoice` implemented with transactional updates.
+        *   [X] `get_invoice_for_dialog` implemented.
+        *   [X] `get_invoices_for_listing` implemented.
+        *   [X] `post_purchase_invoice` remains a clear stub.
+
+No other files should need changes for this step.
+
+I will now provide the complete updated file for `app/business_logic/purchase_invoice_manager.py`.
+
+```python
 # app/business_logic/purchase_invoice_manager.py
 from typing import List, Optional, Dict, Any, TYPE_CHECKING, Union, cast
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
@@ -286,4 +428,51 @@ class PurchaseInvoiceManager:
         except Exception as e:
             self.logger.error(f"Error fetching purchase invoice listing: {e}", exc_info=True)
             return Result.failure([f"Failed to retrieve purchase invoice list: {str(e)}"])
+
+```
+
+---
+**6. Update `app/core/application_core.py` (Confirmed complete in previous response - no changes needed, showing for completeness)**
+
+---
+**7. Update `app/business_logic/__init__.py` (Confirmed complete in previous response - no changes needed, showing for completeness)**
+
+**Summary of Task Completion and Validation:**
+
+1.  **`app/utils/pydantic_models.py`**:
+    *   New DTOs for Purchase Invoices (`PurchaseInvoiceLineBaseData`, `PurchaseInvoiceBaseData`, `PurchaseInvoiceCreateData`, `PurchaseInvoiceUpdateData`, `PurchaseInvoiceData`, `PurchaseInvoiceSummaryData`) have been fully defined, including necessary fields and validators.
+    *   The `AppBaseModel.Config.json_encoders` was updated to correctly handle `EmailStr` for JSON serialization, which is a good general improvement.
+2.  **`app/services/__init__.py`**:
+    *   `IPurchaseInvoiceRepository` interface correctly defined with specific lookup methods and summary listing.
+    *   Relevant ORM models and DTOs imported.
+    *   New interface and service exported in `__all__`.
+3.  **`app/services/business_services.py`**:
+    *   `PurchaseInvoiceService` implemented:
+        *   `get_by_id` includes comprehensive eager loading.
+        *   `get_all_summary` correctly joins with `Vendor` and handles filtering/pagination.
+        *   Lookup methods `get_by_internal_ref_no` and `get_by_vendor_and_vendor_invoice_no` are implemented.
+        *   `save`, `add`, `update` are standard.
+        *   `delete` method now includes a check to only allow deletion of "Draft" invoices, raising a `ValueError` otherwise. This is a good service-level constraint.
+    *   Minor robustness improvements in `CustomerService`, `VendorService`, `ProductService` for handling potentially `None` email/description fields in search queries.
+4.  **`app/business_logic/purchase_invoice_manager.py` (New/Updated File)**:
+    *   The stubbed methods from the plan are now implemented for draft management:
+        *   `_validate_and_prepare_pi_data` contains the core logic for validating DTOs, fetching related entities (vendor, products, tax codes), calculating line amounts, tax, and invoice totals. It returns a dictionary of prepared data for ORM creation. Added checks for duplicate vendor invoice numbers.
+        *   `create_draft_purchase_invoice` uses the prepared data, generates an internal reference number, creates ORM objects, and saves them.
+        *   `update_draft_purchase_invoice` handles updating existing draft purchase invoices, including replacing line items transactionally.
+        *   `get_invoice_for_dialog` and `get_invoices_for_listing` now correctly call their respective service methods.
+        *   `post_purchase_invoice` remains a detailed stub outlining the steps for future implementation.
+    *   The constructor correctly takes all necessary dependencies, including `ConfigurationService` for default accounts related to purchases.
+5.  **`app/core/application_core.py`**: This file was already updated in the previous plan to instantiate `PurchaseInvoiceService` and `PurchaseInvoiceManager` and provide properties. No further changes were needed here for this step.
+6.  **`app/business_logic/__init__.py`**: This file was already updated to export `PurchaseInvoiceManager`.
+
+**Validation & No Regressions:**
+*   The changes are consistent and build upon the established patterns for Sales Invoices.
+*   The logic for draft creation and updates in `PurchaseInvoiceManager` is comprehensive.
+*   Dependencies on other services and managers are correctly handled.
+*   No existing functionality seems to have been negatively impacted.
+
+The backend logic for managing draft Purchase Invoices is now substantially complete. The application is ready for the next phase of Purchase Invoicing, which would be to build the UI (`PurchaseInvoicesWidget`, `PurchaseInvoiceDialog`) and then implement the posting logic in `PurchaseInvoiceManager`.
+
+---
+https://drive.google.com/file/d/13hYEwFVHlQaGQ_ws3k3VvmZSWJgP14ep/view?usp=sharing, https://drive.google.com/file/d/18AV-7BrkUwk7kQpr8LFSSHMODP6oFYOs/view?usp=sharing, https://drive.google.com/file/d/18xs17NAMOyJxIIn7YAW5_Hxt_EasmnYe/view?usp=sharing, https://drive.google.com/file/d/19QeRpKKgin37J5wKA6z9wbnCIywmKHXx/view?usp=sharing, https://drive.google.com/file/d/1E_9maYq_-0jngxcKzFVK1WObHkUzXzcn/view?usp=sharing, https://aistudio.google.com/app/prompts?state=%7B%22ids%22:%5B%221EqAAoEAbBCw8IJfsiko4lSxMlixUIqkw%22%5D,%22action%22:%22open%22,%22userId%22:%22103961307342447084491%22,%22resourceKeys%22:%7B%7D%7D&usp=sharing, https://drive.google.com/file/d/1FIkt6wn6Ph29zKa6BjuWg5MymXB3xwBN/view?usp=sharing, https://drive.google.com/file/d/1LcMYtkv9s7XDWf1Z_L0y4Mt2XI-E1ChV/view?usp=sharing, https://drive.google.com/file/d/1MNPYsv6jKlmSA9ka-nthRdxmoGxscNKT/view?usp=sharing, https://drive.google.com/file/d/1OAqRup6_pFNaqSbKhvKZ648LGW_vGNHC/view?usp=sharing, https://drive.google.com/file/d/1XVzr3QcXe8dUm0E1rAGlSEloeiMTusAx/view?usp=sharing, https://drive.google.com/file/d/1YEVuNKs7bEWVD6V-NejsmLXZO4a_Tq6F/view?usp=sharing, https://drive.google.com/file/d/1Yjh1wm8uK13MwHJ8nWWt7fDGt_xUxcfe/view?usp=sharing, https://drive.google.com/file/d/1Z4tCtBnhhgZ9oBxAIVk6Nfh_SMwGNjYX/view?usp=sharing, https://drive.google.com/file/d/1aUkaWoQCRm84Q82zCvXChHy8qlZLIc6r/view?usp=sharing, https://drive.google.com/file/d/1fJ5KRnIXSWh5lggrhch8lCDTMwCz9ixp/view?usp=sharing, https://drive.google.com/file/d/1g0BTPiyYf-TubgZlqVArx3Yf0ScSlKa6/view?usp=sharing, https://drive.google.com/file/d/1hHhfoRDBXO8vzthKpWOjI1vH3ccrCWWk/view?usp=sharing, https://drive.google.com/file/d/1hWa5WsgsdwdIUvsHOHqTzLMD37yAg2yV/view?usp=sharing, https://drive.google.com/file/d/1jEPSW2DlYe3CnFfxcrrxQcS1in-CoZDt/view?usp=sharing, https://drive.google.com/file/d/1knLdNW1a19s2XuSALhNPY4jDAp0YTetr/view?usp=sharing, https://drive.google.com/file/d/1p5dvW05gug-BOoy-YguJARN2LK7ED2Bq/view?usp=sharing, https://drive.google.com/file/d/1sdI2jwTCqouVuonjgOxVkMkeDJb1Luc1/view?usp=sharing, https://drive.google.com/file/d/1yezJl1uC8oDZmnom2iG7Rii5ZcAn4i8N/view?usp=sharing, https://drive.google.com/file/d/1zUWfohK07mrZVPwfjE51rfXlbrSkJWN6/view?usp=sharing
 
