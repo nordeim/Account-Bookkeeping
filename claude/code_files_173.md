@@ -1,10 +1,133 @@
+<think>
+The application is launching successfully. The enhanced PDF/Excel export formatting for Balance Sheet and Profit & Loss in `ReportEngine` is integrated.
+
+**Current Project Status Recap:**
+
+*   **Sales Invoicing**: Fully functional (Draft CRUD, Posting with JE, List View, "Save & Approve" in dialog).
+*   **User and Role Management UI**: Fully functional (User CRUD, Role CRUD, Permission Assignment).
+*   **Reporting**:
+    *   On-screen display for BS, P&L, TB, GL is functional.
+    *   PDF/Excel export for BS & P&L has enhanced formatting.
+    *   PDF/Excel export for TB & GL uses a simpler, generic table format.
+*   All previously implemented features remain stable.
+
+**Next Step Identification (from Roadmap):**
+
+Roadmap - "Current Focus / Short-term":
+1.  **Sales Invoicing**:
+    *   Implement "Save & Approve" button functionality in `SalesInvoiceDialog`. <-- DONE
+    *   **Enhance line item entry (e.g., better product search/selection).** <-- Did basic enhancement. Advanced popup search is still an option.
+    *   (Future) Handle inventory updates upon posting.
+2.  **Refine Reporting**:
+    *   Improve PDF/Excel export formatting and layout. <-- DONE for BS/P&L. Could extend to TB/GL.
+    *   **Add more reporting options/filters.** <-- This is a good candidate.
+3.  **Purchase Invoicing**: Begin implementation. <-- Major new module.
+
+Let's consider the remaining "Refine Reporting" items.
+*   **"Improve PDF/Excel export formatting and layout" for TB/GL**: While possible, the current generic table export for TB/GL is functional. The BS/P&L improvements were higher impact. This can be a polish item later.
+*   **"Add more reporting options/filters"**: This is a good area for enhancement. Currently, `ReportsWidget` has basic date pickers. We could add:
+    *   Comparative period selection for BS/P&L (the generator supports it, UI needs to pass the dates).
+    *   Dimension filtering for reports (major, requires generator changes).
+    *   Option to include/exclude zero-balance accounts (generator supports it for BS, UI needs checkbox).
+    *   Specific filters for GL (e.g., transaction type, reference).
+
+The "Purchase Invoicing" module is the next large, new functional area.
+Before diving into a new major module like Purchase Invoicing, it might be good to add some smaller, valuable enhancements to existing features. Adding comparative period selection and zero-balance account toggles to the BS/P&L reports in `ReportsWidget` seems like a good, contained next step.
+
+**Plan for this Turn: Enhance Reporting Options in `ReportsWidget` for BS & P&L.**
+
+**Objective:**
+Modify `app/ui/reports/reports_widget.py` to:
+1.  Allow users to select a comparative period for Balance Sheet and Profit & Loss reports.
+2.  Provide an option to include/exclude zero-balance accounts in the Balance Sheet.
+3.  Pass these new options to the `FinancialStatementGenerator`.
+
+**Detailed Plan & Checklist for `app/ui/reports/reports_widget.py`:**
+
+1.  **UI Enhancements for Financial Statements Tab**:
+    *   [ ] **Comparative Period Selection (for BS & P&L)**:
+        *   Add a `QCheckBox` "Include Comparative Period".
+        *   If checked, show `QDateEdit` for "Comparative As of Date" (for BS) or "Comparative Start Date" & "Comparative End Date" (for P&L). These should be hidden by default.
+        *   The visibility of these date editors will be toggled by the checkbox state and also by the selected report type (only for BS/P&L).
+    *   [ ] **Zero-Balance Account Option (for BS)**:
+        *   Add a `QCheckBox` "Include Zero-Balance Accounts". This should only be visible when "Balance Sheet" is selected.
+    *   [ ] Adjust layout (`self.fs_params_form`) to accommodate new controls neatly.
+
+2.  **Logic Updates in `_on_fs_report_type_changed()`**:
+    *   [ ] Control visibility of "Include Comparative Period" checkbox (visible for BS, P&L; hidden for TB, GL).
+    *   [ ] Control visibility of "Include Zero-Balance Accounts" checkbox (visible for BS; hidden for others).
+    *   [ ] Ensure visibility of comparative date editors is correctly handled when report type changes *and* when the "Include Comparative Period" checkbox state changes.
+
+3.  **Logic Updates in `_on_generate_financial_report_clicked()`**:
+    *   [ ] When "Balance Sheet" is selected:
+        *   Get the state of "Include Zero-Balance Accounts" checkbox.
+        *   If "Include Comparative Period" is checked, get the "Comparative As of Date".
+        *   Pass `include_zero_balances` and `comparative_date` to `generate_balance_sheet`.
+    *   [ ] When "Profit & Loss Statement" is selected:
+        *   If "Include Comparative Period" is checked, get "Comparative Start Date" and "Comparative End Date". Validate these dates.
+        *   Pass `comparative_start` and `comparative_end` to `generate_profit_loss`.
+    *   [ ] For TB and GL, no changes to generator calls for now.
+
+4.  **`FinancialStatementGenerator` and `ReportEngine`**:
+    *   The `FinancialStatementGenerator` methods (`generate_balance_sheet`, `generate_profit_loss`) already accept comparative date parameters and `include_zero_balances` for BS.
+    *   The `ReportEngine` specific methods for BS/P&L (`_export_balance_sheet_to_pdf`, etc.) also already handle the presence of comparative data in `report_data`.
+    *   **Therefore, no backend changes are expected in these two files for this specific UI enhancement.**
+
+This plan focuses solely on `app/ui/reports/reports_widget.py`.
+</think>
+
+Excellent! The application is stable and the key modules, including Sales Invoicing (drafts, posting) and User/Role Management, are functional.
+
+As per the roadmap, "Refine Reporting" is a current focus. We've already enhanced the PDF/Excel export formats for BS & P&L. The next logical step is to **"Add more reporting options/filters"** to the UI, specifically for the Balance Sheet and Profit & Loss reports.
+
+**Execution Plan: Enhance Reporting Options in `ReportsWidget`**
+
+1.  **Modify `app/ui/reports/reports_widget.py`**:
+    *   **UI Additions to Financial Statements Tab**:
+        *   Add a `QCheckBox` named `self.fs_include_comparative_check` ("Include Comparative Period").
+        *   Add `QDateEdit` widgets for comparative period dates:
+            *   `self.fs_comparative_as_of_date_edit` (for Balance Sheet).
+            *   `self.fs_comparative_start_date_edit` and `self.fs_comparative_end_date_edit` (for Profit & Loss).
+            *   These should initially be hidden.
+        *   Add a `QCheckBox` named `self.fs_include_zero_balance_check` ("Include Zero-Balance Accounts") for the Balance Sheet. Initially hidden.
+        *   Adjust the `self.fs_params_form` layout to include these new controls, possibly grouping comparative date edits.
+    *   **Logic for Dynamic UI Control in `_on_fs_report_type_changed(report_type: str)`**:
+        *   Show/hide `self.fs_include_comparative_check` based on whether `report_type` is "Balance Sheet" or "Profit & Loss Statement".
+        *   Show/hide `self.fs_include_zero_balance_check` only if `report_type` is "Balance Sheet".
+        *   Connect `self.fs_include_comparative_check.stateChanged` to a new slot `_on_comparative_check_changed()`.
+    *   **New Slot `_on_comparative_check_changed(state: int)`**:
+        *   Based on the currently selected `report_type` and the checkbox `state`:
+            *   If "Balance Sheet" is selected and checkbox is checked, show `self.fs_comparative_as_of_date_edit`. Hide P&L comparative dates.
+            *   If "Profit & Loss Statement" is selected and checkbox is checked, show `self.fs_comparative_start_date_edit` and `self.fs_comparative_end_date_edit`. Hide BS comparative date.
+            *   If checkbox is unchecked, hide all comparative date editors.
+    *   **Modify `_on_generate_financial_report_clicked()`**:
+        *   When calling `generate_balance_sheet`:
+            *   Get `include_zero_balances = self.fs_include_zero_balance_check.isChecked()` (if BS is selected).
+            *   If `self.fs_include_comparative_check.isChecked()`, get `comparative_date = self.fs_comparative_as_of_date_edit.date().toPython()`.
+            *   Pass these to the generator.
+        *   When calling `generate_profit_loss`:
+            *   If `self.fs_include_comparative_check.isChecked()`, get `comparative_start = self.fs_comparative_start_date_edit.date().toPython()` and `comparative_end = self.fs_comparative_end_date_edit.date().toPython()`. Validate these dates.
+            *   Pass these to the generator.
+    *   **Set Initial State**: In `_create_financial_statements_tab` or after `_on_fs_report_type_changed` is first called, ensure the initial visibility of new checkboxes and date editors is correct based on the default selected report.
+    *   **Checklist**:
+        *   [X] New QCheckBoxes and QDateEdits added to UI form.
+        *   [X] Initial visibility of new controls is correct.
+        *   [X] `_on_fs_report_type_changed` correctly shows/hides checkboxes based on report type.
+        *   [X] `_on_comparative_check_changed` slot implemented and correctly shows/hides relevant comparative date editors.
+        *   [X] `_on_generate_financial_report_clicked` passes new options (comparative dates, include zero balance) to `FinancialStatementGenerator` methods.
+
+No changes are needed for `FinancialStatementGenerator` or `ReportEngine` as they already support these parameters.
+
+I will now provide the complete updated file for `app/ui/reports/reports_widget.py`.
+
+```python
 # app/ui/reports/reports_widget.py
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QDateEdit, QPushButton, QFormLayout, 
     QLineEdit, QGroupBox, QHBoxLayout, QMessageBox, QSpacerItem, QSizePolicy,
     QTabWidget, QTextEdit, QComboBox, QFileDialog, QInputDialog, QCompleter,
     QStackedWidget, QTreeView, QTableView, 
-    QAbstractItemView, QCheckBox 
+    QAbstractItemView, QCheckBox # Added QCheckBox
 )
 from PySide6.QtCore import Qt, Slot, QDate, QTimer, QMetaObject, Q_ARG, QStandardPaths
 from PySide6.QtGui import QIcon, QStandardItemModel, QStandardItem, QFont, QColor
@@ -66,6 +189,7 @@ class ReportsWidget(QWidget):
             return "Error"
 
     def _create_gst_f5_tab(self):
+        # ... (GST F5 tab UI - no changes from previous version) ...
         gst_f5_widget = QWidget()
         gst_f5_main_layout = QVBoxLayout(gst_f5_widget)
         gst_f5_group = QGroupBox("GST F5 Return Data Preparation")
@@ -95,7 +219,7 @@ class ReportsWidget(QWidget):
         self.gst_taxable_purchases_display = QLineEdit(); self.gst_taxable_purchases_display.setReadOnly(True)
         self.gst_output_tax_display = QLineEdit(); self.gst_output_tax_display.setReadOnly(True)
         self.gst_input_tax_display = QLineEdit(); self.gst_input_tax_display.setReadOnly(True)
-        self.gst_adjustments_display = QLineEdit("0.00"); self.gst_adjustments_display.setReadOnly(True) # Default to 0.00
+        self.gst_adjustments_display = QLineEdit("0.00"); self.gst_adjustments_display.setReadOnly(True)
         self.gst_net_payable_display = QLineEdit(); self.gst_net_payable_display.setReadOnly(True); self.gst_net_payable_display.setStyleSheet("font-weight: bold;")
         self.gst_filing_due_date_display = QLineEdit(); self.gst_filing_due_date_display.setReadOnly(True)
         self.gst_display_form.addRow("1. Standard-Rated Supplies:", self.gst_std_rated_supplies_display); self.gst_display_form.addRow("2. Zero-Rated Supplies:", self.gst_zero_rated_supplies_display); self.gst_display_form.addRow("3. Exempt Supplies:", self.gst_exempt_supplies_display); self.gst_display_form.addRow("4. Total Supplies (1+2+3):", self.gst_total_supplies_display); self.gst_display_form.addRow("5. Taxable Purchases:", self.gst_taxable_purchases_display); self.gst_display_form.addRow("6. Output Tax Due:", self.gst_output_tax_display); self.gst_display_form.addRow("7. Input Tax and Refunds Claimed:", self.gst_input_tax_display); self.gst_display_form.addRow("8. GST Adjustments:", self.gst_adjustments_display); self.gst_display_form.addRow("9. Net GST Payable / (Claimable):", self.gst_net_payable_display); self.gst_display_form.addRow("Filing Due Date:", self.gst_filing_due_date_display)
@@ -116,6 +240,7 @@ class ReportsWidget(QWidget):
         fs_group = QGroupBox("Financial Statements")
         fs_group_layout = QVBoxLayout(fs_group) 
         
+        # --- Main Controls Layout ---
         controls_layout = QHBoxLayout()
         self.fs_params_form = QFormLayout() 
         
@@ -123,6 +248,7 @@ class ReportsWidget(QWidget):
         self.fs_report_type_combo.addItems(["Balance Sheet", "Profit & Loss Statement", "Trial Balance", "General Ledger"])
         self.fs_params_form.addRow("Report Type:", self.fs_report_type_combo)
 
+        # GL Account Selection (for GL Report)
         self.fs_gl_account_label = QLabel("Account for GL:")
         self.fs_gl_account_combo = QComboBox(); self.fs_gl_account_combo.setMinimumWidth(250); self.fs_gl_account_combo.setEditable(True)
         completer = QCompleter([f"{item.get('code')} - {item.get('name')}" for item in self._gl_accounts_cache]) 
@@ -130,6 +256,7 @@ class ReportsWidget(QWidget):
         self.fs_gl_account_combo.setCompleter(completer)
         self.fs_params_form.addRow(self.fs_gl_account_label, self.fs_gl_account_combo)
 
+        # Primary Date Pickers
         self.fs_as_of_date_edit = QDateEdit(QDate.currentDate()); self.fs_as_of_date_edit.setCalendarPopup(True); self.fs_as_of_date_edit.setDisplayFormat("dd/MM/yyyy")
         self.fs_params_form.addRow("As of Date:", self.fs_as_of_date_edit)
         
@@ -139,12 +266,14 @@ class ReportsWidget(QWidget):
         self.fs_end_date_edit = QDateEdit(QDate.currentDate().addDays(-QDate.currentDate().day())); self.fs_end_date_edit.setCalendarPopup(True); self.fs_end_date_edit.setDisplayFormat("dd/MM/yyyy")
         self.fs_params_form.addRow("Period End Date:", self.fs_end_date_edit)
 
+        # --- New Options ---
         self.fs_include_zero_balance_check = QCheckBox("Include Zero-Balance Accounts")
-        self.fs_params_form.addRow(self.fs_include_zero_balance_check) 
+        self.fs_params_form.addRow(self.fs_include_zero_balance_check) # Label handled by checkbox text
         
         self.fs_include_comparative_check = QCheckBox("Include Comparative Period")
         self.fs_params_form.addRow(self.fs_include_comparative_check)
 
+        # Comparative Date Pickers (initially hidden)
         self.fs_comparative_as_of_date_label = QLabel("Comparative As of Date:")
         self.fs_comparative_as_of_date_edit = QDateEdit(QDate.currentDate().addYears(-1))
         self.fs_comparative_as_of_date_edit.setCalendarPopup(True); self.fs_comparative_as_of_date_edit.setDisplayFormat("dd/MM/yyyy")
@@ -168,6 +297,7 @@ class ReportsWidget(QWidget):
         controls_layout.addLayout(generate_fs_button_layout); controls_layout.addStretch(1)
         fs_group_layout.addLayout(controls_layout)
         
+        # ... (Rest of fs_display_stack and export buttons remain the same) ...
         self.fs_display_stack = QStackedWidget()
         fs_group_layout.addWidget(self.fs_display_stack, 1)
         self.bs_tree_view = QTreeView(); self.bs_tree_view.setAlternatingRowColors(True); self.bs_tree_view.setHeaderHidden(False); self.bs_tree_view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -212,11 +342,13 @@ class ReportsWidget(QWidget):
         fs_main_layout.addWidget(fs_group)
         self.tab_widget.addTab(fs_widget, "Financial Statements")
         
+        # Connect signals for new controls
         self.fs_report_type_combo.currentTextChanged.connect(self._on_fs_report_type_changed)
         self.fs_include_comparative_check.stateChanged.connect(self._on_comparative_check_changed)
         
-        self._on_fs_report_type_changed(self.fs_report_type_combo.currentText()) 
+        self._on_fs_report_type_changed(self.fs_report_type_combo.currentText()) # Set initial visibility
 
+    # ... (GST F5 Slots: _on_prepare_gst_f5_clicked, _handle_prepare_gst_f5_result, _update_gst_f5_display, _clear_gst_display_fields, _on_save_draft_gst_return_clicked, _handle_save_draft_gst_result, _on_finalize_gst_return_clicked, _handle_finalize_gst_result - unchanged)
     @Slot()
     def _on_prepare_gst_f5_clicked(self):
         start_date = self.gst_start_date_edit.date().toPython(); end_date = self.gst_end_date_edit.date().toPython()
@@ -353,17 +485,21 @@ class ReportsWidget(QWidget):
         is_gl = (report_type == "General Ledger")
         is_tb = (report_type == "Trial Balance")
 
+        # Date pickers
         self.fs_as_of_date_edit.setVisible(is_bs or is_tb)
         self.fs_start_date_edit.setVisible(is_pl or is_gl)
         self.fs_end_date_edit.setVisible(is_pl or is_gl)
         
+        # GL Account selection
         self.fs_gl_account_combo.setVisible(is_gl)
         self.fs_gl_account_label.setVisible(is_gl)
 
+        # New Option Checkboxes & Comparative Date Editors
         self.fs_include_zero_balance_check.setVisible(is_bs)
         self.fs_include_comparative_check.setVisible(is_bs or is_pl)
-        self._on_comparative_check_changed(self.fs_include_comparative_check.checkState().value) 
+        self._on_comparative_check_changed(self.fs_include_comparative_check.checkState().value) # Update visibility of comparative dates
         
+        # Update labels for date pickers
         if hasattr(self, 'fs_params_form') and self.fs_params_form:
             for i in range(self.fs_params_form.rowCount()):
                 widget_item = self.fs_params_form.itemAt(i, QFormLayout.ItemRole.FieldRole)
@@ -371,11 +507,10 @@ class ReportsWidget(QWidget):
                 if widget_item and label_item:
                     field_widget = widget_item.widget()
                     label_widget = label_item.widget()
-                    if label_widget: 
+                    if label_widget: # Ensure label_widget is not None
                         if field_widget == self.fs_as_of_date_edit: label_widget.setVisible(is_bs or is_tb)
                         elif field_widget == self.fs_start_date_edit: label_widget.setVisible(is_pl or is_gl)
                         elif field_widget == self.fs_end_date_edit: label_widget.setVisible(is_pl or is_gl)
-                        elif field_widget == self.fs_gl_account_combo: self.fs_gl_account_label.setVisible(is_gl) # Special handling for GL label
                         # Visibility for comparative labels handled by _on_comparative_check_changed
 
         if is_gl:
@@ -402,7 +537,7 @@ class ReportsWidget(QWidget):
         self.fs_comparative_end_date_label.setVisible(is_pl and is_checked)
         self.fs_comparative_end_date_edit.setVisible(is_pl and is_checked)
 
-    async def _load_gl_accounts_for_combo(self):
+    async def _load_gl_accounts_for_combo(self): # ... (unchanged)
         if not self.app_core.chart_of_accounts_manager: self.app_core.logger.error("ChartOfAccountsManager not available for GL account combo."); return
         try:
             accounts_orm: List[Account] = await self.app_core.chart_of_accounts_manager.get_accounts_for_selection(active_only=True)
@@ -412,13 +547,13 @@ class ReportsWidget(QWidget):
         except Exception as e: self.app_core.logger.error(f"Error loading accounts for GL combo: {e}", exc_info=True); QMessageBox.warning(self, "Account Load Error", "Could not load accounts for General Ledger selection.")
 
     @Slot(str)
-    def _populate_gl_account_combo_slot(self, accounts_json_str: str):
+    def _populate_gl_account_combo_slot(self, accounts_json_str: str): # ... (unchanged)
         self.fs_gl_account_combo.clear()
         try:
             accounts_data = json.loads(accounts_json_str); self._gl_accounts_cache = accounts_data if accounts_data else []
             self.fs_gl_account_combo.addItem("-- Select Account --", 0) 
             for acc_data in self._gl_accounts_cache: self.fs_gl_account_combo.addItem(f"{acc_data['code']} - {acc_data['name']}", acc_data['id'])
-            if isinstance(self.fs_gl_account_combo.completer(), QCompleter): 
+            if isinstance(self.fs_gl_account_combo.completer(), QCompleter): # Ensure completer uses the new model
                 self.fs_gl_account_combo.completer().setModel(self.fs_gl_account_combo.model())
         except json.JSONDecodeError: self.app_core.logger.error("Failed to parse accounts JSON for GL combo."); self.fs_gl_account_combo.addItem("Error loading accounts", 0)
 
@@ -430,7 +565,7 @@ class ReportsWidget(QWidget):
             if isinstance(model, QStandardItemModel): model.clear()
         elif isinstance(current_view, QTableView):
             model = current_view.model()
-            if hasattr(model, 'update_data'): model.update_data({}) 
+            if hasattr(model, 'update_data'): model.update_data({}) # For custom models
         elif current_view == self.gl_widget_container :
              self.gl_model.update_data({}) 
              self.gl_summary_label_account.setText("Account: N/A")
@@ -438,12 +573,13 @@ class ReportsWidget(QWidget):
              self.gl_summary_label_ob.setText("Opening Balance: 0.00")
              self.gl_summary_label_cb.setText("Closing Balance: 0.00")
 
+
     @Slot()
     def _on_generate_financial_report_clicked(self):
         report_type = self.fs_report_type_combo.currentText()
         if not self.app_core.financial_statement_generator: QMessageBox.critical(self, "Error", "Financial Statement Generator not available."); return
         
-        self._clear_current_financial_report_display() 
+        self._clear_current_financial_report_display() # Clear previous report first
         self.generate_fs_button.setEnabled(False); self.generate_fs_button.setText("Generating...")
         self.export_pdf_button.setEnabled(False); self.export_excel_button.setEnabled(False); 
         
@@ -499,7 +635,7 @@ class ReportsWidget(QWidget):
             QMessageBox.warning(self, "Selection Error", "Invalid report type selected or parameters missing.")
             self.generate_fs_button.setEnabled(True); self.generate_fs_button.setText("Generate Report")
 
-    def _handle_financial_report_result(self, future):
+    def _handle_financial_report_result(self, future): # ... (unchanged)
         self.generate_fs_button.setEnabled(True); self.generate_fs_button.setText("Generate Report")
         if future is None: QMessageBox.critical(self, "Task Error", "Failed to schedule report generation."); return
         try:
@@ -512,14 +648,14 @@ class ReportsWidget(QWidget):
         model.clear()
         has_comparative = bool(report_data.get('comparative_date'))
         headers = ["Description", "Amount"]
-        if has_comparative: headers.append(f"Comparative ({report_data.get('comparative_date','Prev').strftime('%d/%m/%Y') if isinstance(report_data.get('comparative_date'), python_date) else 'Prev'})")
+        if has_comparative: headers.append(f"Comparative ({report_data.get('comparative_date','Prev')})")
         model.setHorizontalHeaderLabels(headers)
         root_node = model.invisibleRootItem()
         bold_font = QFont(); bold_font.setBold(True)
 
         def add_account_rows(parent_item: QStandardItem, accounts: List[Dict[str,Any]], comparative_accounts: Optional[List[Dict[str,Any]]]):
             for acc_dict in accounts:
-                desc_item = QStandardItem(f"  {acc_dict.get('code','')} - {acc_dict.get('name','')}") 
+                desc_item = QStandardItem(f"  {acc_dict.get('code','')} - {acc_dict.get('name','')}") # Indent accounts
                 amount_item = QStandardItem(self._format_decimal_for_display(acc_dict.get('balance')))
                 amount_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 row_items = [desc_item, amount_item]
@@ -551,12 +687,13 @@ class ReportsWidget(QWidget):
             if has_comparative:
                 comp_total_item = QStandardItem(self._format_decimal_for_display(section_data.get("comparative_total"))); comp_total_item.setFont(bold_font); comp_total_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 total_row_items.append(comp_total_item)
-            root_node.appendRow(total_row_items) 
-            if section_key != 'equity': 
+            root_node.appendRow(total_row_items) # Add total under root for clear separation
+            if section_key != 'equity': # Add spacer after Assets and Liabilities totals
                  root_node.appendRow([QStandardItem(""), QStandardItem("")] + ([QStandardItem("")] if has_comparative else []))
 
+
         if 'total_liabilities_equity' in report_data:
-            root_node.appendRow([QStandardItem(""), QStandardItem("")] + ([QStandardItem("")] if has_comparative else [])) 
+            root_node.appendRow([QStandardItem(""), QStandardItem("")] + ([QStandardItem("")] if has_comparative else [])) # Spacer
             tle_desc = QStandardItem("Total Liabilities & Equity"); tle_desc.setFont(bold_font)
             tle_amount = QStandardItem(self._format_decimal_for_display(report_data.get('total_liabilities_equity'))); tle_amount.setFont(bold_font); tle_amount.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             tle_row = [tle_desc, tle_amount]
@@ -571,17 +708,12 @@ class ReportsWidget(QWidget):
             if has_comparative: warning_row.append(QStandardItem(""))
             root_node.appendRow(warning_row)
 
+
     def _populate_profit_loss_model(self, model: QStandardItemModel, report_data: Dict[str, Any]):
         model.clear()
         has_comparative = bool(report_data.get('comparative_start'))
-        comp_header_text = "Comparative"
-        if has_comparative and report_data.get('comparative_start') and report_data.get('comparative_end'):
-            comp_start_str = report_data['comparative_start'].strftime('%d/%m/%y')
-            comp_end_str = report_data['comparative_end'].strftime('%d/%m/%y')
-            comp_header_text = f"Comp. ({comp_start_str}-{comp_end_str})"
-
         headers = ["Description", "Amount"]
-        if has_comparative: headers.append(comp_header_text) 
+        if has_comparative: headers.append(f"Comparative") # Add date range to header later if needed
         model.setHorizontalHeaderLabels(headers)
         root_node = model.invisibleRootItem()
         bold_font = QFont(); bold_font.setBold(True)
@@ -602,7 +734,7 @@ class ReportsWidget(QWidget):
                     row_items.append(comp_amount_item)
                 parent_item.appendRow(row_items)
 
-        for section_key, section_title_display in [('revenue', "Revenue"), ('expenses', "Operating Expenses")]: 
+        for section_key, section_title_display in [('revenue', "Revenue"), ('expenses', "Operating Expenses")]: # Add Cost of Sales later if structured
             section_data = report_data.get(section_key)
             if not section_data or not isinstance(section_data, dict): continue
 
@@ -621,7 +753,7 @@ class ReportsWidget(QWidget):
                 comp_total_item = QStandardItem(self._format_decimal_for_display(section_data.get("comparative_total"))); comp_total_item.setFont(bold_font); comp_total_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 total_row_items.append(comp_total_item)
             root_node.appendRow(total_row_items)
-            root_node.appendRow([QStandardItem(""), QStandardItem("")] + ([QStandardItem("")] if has_comparative else [])) 
+            root_node.appendRow([QStandardItem(""), QStandardItem("")] + ([QStandardItem("")] if has_comparative else [])) # Spacer
 
         if 'net_profit' in report_data:
             np_desc = QStandardItem("Net Profit / (Loss)"); np_desc.setFont(bold_font)
@@ -631,6 +763,7 @@ class ReportsWidget(QWidget):
                 comp_np_amount = QStandardItem(self._format_decimal_for_display(report_data.get('comparative_net_profit'))); comp_np_amount.setFont(bold_font); comp_np_amount.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 np_row.append(comp_np_amount)
             root_node.appendRow(np_row)
+
 
     def _display_financial_report(self, report_data: Dict[str, Any]):
         report_title = report_data.get('title', '')
@@ -645,11 +778,11 @@ class ReportsWidget(QWidget):
             self._populate_profit_loss_model(self.pl_model, report_data)
             self.pl_tree_view.expandAll()
             for i in range(self.pl_model.columnCount()): self.pl_tree_view.resizeColumnToContents(i)
-        elif report_title == "Trial Balance": 
+        elif report_title == "Trial Balance": # Uses existing TableModel
             self.fs_display_stack.setCurrentWidget(self.tb_table_view)
             self.tb_model.update_data(report_data)
             for i in range(self.tb_model.columnCount()): self.tb_table_view.resizeColumnToContents(i)
-        elif report_title == "General Ledger": 
+        elif report_title == "General Ledger": # Uses existing TableModel
             self.fs_display_stack.setCurrentWidget(self.gl_widget_container)
             self.gl_model.update_data(report_data) 
             gl_summary_data = self.gl_model.get_report_summary() 
@@ -664,7 +797,7 @@ class ReportsWidget(QWidget):
             QMessageBox.warning(self, "Display Error", f"Display format for '{report_title}' is not fully implemented in this view.")
 
     @Slot(str)
-    def _on_export_report_clicked(self, format_type: str):
+    def _on_export_report_clicked(self, format_type: str): # ... (unchanged)
         if not self._current_financial_report_data: QMessageBox.warning(self, "No Report", "Please generate a report first before exporting."); return
         report_title = self._current_financial_report_data.get('title', 'FinancialReport').replace(' ', '_').replace('&', 'And').replace('/', '-').replace(':', '') 
         default_filename = f"{report_title}_{python_date.today().strftime('%Y%m%d')}.{format_type}"
@@ -677,7 +810,7 @@ class ReportsWidget(QWidget):
             if future: future.add_done_callback(lambda f, fp=file_path, ft=format_type: self._handle_export_result(f, fp, ft))
             else: self._handle_export_result(None, file_path, format_type)
 
-    def _handle_export_result(self, future, file_path: str, format_type: str):
+    def _handle_export_result(self, future, file_path: str, format_type: str): # ... (unchanged)
         self.export_pdf_button.setEnabled(True); self.export_excel_button.setEnabled(True)
         if future is None: QMessageBox.critical(self, "Task Error", "Failed to schedule report export."); return
         try:
@@ -688,3 +821,4 @@ class ReportsWidget(QWidget):
             else: QMessageBox.warning(self, "Export Failed", f"Failed to generate report bytes for {format_type.upper()}.")
         except Exception as e: self.app_core.logger.error(f"Exception handling report export result: {e}", exc_info=True); QMessageBox.critical(self, "Export Error", f"An error occurred during export: {str(e)}")
 
+```

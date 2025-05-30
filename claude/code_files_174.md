@@ -1,3 +1,118 @@
+<think>
+The user has provided a `diff` for `app/ui/reports/reports_widget.py`. I need to review this diff to ensure the changes for enhancing reporting options (comparative periods, zero-balance accounts) are correctly implemented and that no existing functionality has been unintentionally broken or omitted.
+
+**Diff Analysis - Key Changes Highlighted by the Diff:**
+
+*   **Line 7 (Imports)**: `QCheckBox` added to `PySide6.QtWidgets` imports. **VALID**.
+*   **Line 9 (Imports)**: `QColor` added to `PySide6.QtGui` imports. **VALID** (used later for warning text).
+*   **Line 45 (`_format_decimal_for_display`)**: Changed `d_value == Decimal(0)` to `d_value.is_zero()`. **VALID** and preferred for `Decimal` objects.
+*   **Line 53 (`_create_gst_f5_tab`)**: Logic for setting `gst_end_date_edit` if it's before `gst_start_date_edit` is added. This is a minor robustness improvement. **VALID**.
+*   **`_create_financial_statements_tab()` (Lines 105-181 in new)**: This method has significant additions for new filter options.
+    *   **Lines 126-129 (New Options)**: `self.fs_include_zero_balance_check` (QCheckBox) and `self.fs_include_comparative_check` (QCheckBox) are created and added to `self.fs_params_form`. **VALID**.
+    *   **Lines 131-142 (Comparative Date Editors)**: `QLabel`s and `QDateEdit`s for "Comparative As of Date", "Comparative Start Date", and "Comparative End Date" are created and added to `self.fs_params_form`. These will be shown/hidden dynamically. **VALID**.
+    *   **Line 179-180 (Signal Connections)**: `self.fs_report_type_combo.currentTextChanged.connect(self._on_fs_report_type_changed)` and `self.fs_include_comparative_check.stateChanged.connect(self._on_comparative_check_changed)` are correctly connected.
+    *   **Line 181 (Initial Call)**: `self._on_fs_report_type_changed(self.fs_report_type_combo.currentText())` correctly called to set initial visibility of controls. **VALID**.
+*   **`_on_fs_report_type_changed(self, report_type: str)` (Lines 236-268 in new)**:
+    *   Correctly sets visibility for primary date editors (`fs_as_of_date_edit`, `fs_start_date_edit`, `fs_end_date_edit`) and their labels based on `report_type`.
+    *   Correctly sets visibility for `fs_gl_account_combo` and its label.
+    *   Correctly sets visibility for `fs_include_zero_balance_check` (only for BS).
+    *   Correctly sets visibility for `fs_include_comparative_check` (only for BS & P&L).
+    *   Calls `self._on_comparative_check_changed()` to update visibility of comparative date editors.
+    *   Calls `self._clear_current_financial_report_display()` to clear previous report output. **VALID**.
+*   **`_on_comparative_check_changed(self, state: int)` (New Slot, Lines 271-282 in new)**:
+    *   Correctly shows/hides `fs_comparative_as_of_date_edit` (and its label) if "Balance Sheet" is selected and the comparative checkbox is checked.
+    *   Correctly shows/hides `fs_comparative_start_date_edit` & `fs_comparative_end_date_edit` (and their labels) if "Profit & Loss Statement" is selected and checkbox is checked.
+    *   Hides all comparative date editors if checkbox is unchecked. **VALID**.
+*   **`_clear_current_financial_report_display()` (New Helper Method, Lines 296-310 in new)**:
+    *   Factor out logic to clear the report display area (`QStandardItemModel.clear()` for TreeViews, `model.update_data({})` for TableViews, clearing GL summary labels). This improves code organization. **VALID**.
+*   **`_on_generate_financial_report_clicked()` (Lines 313-353 in new)**:
+    *   Calls `self._clear_current_financial_report_display()` at the beginning. **GOOD**.
+    *   Correctly retrieves values for `comparative_date_bs`, `comparative_start_pl`, `comparative_end_pl` if the "Include Comparative Period" checkbox is checked and visible for the current report type. Validates P&L comparative dates.
+    *   Correctly retrieves `include_zero_bal_bs` from the checkbox if "Balance Sheet" is selected.
+    *   Passes these new parameters to the respective `FinancialStatementGenerator` methods. **VALID**.
+*   **`_populate_balance_sheet_model()` & `_populate_profit_loss_model()` (Lines 365-503 in new)**:
+    *   These are the new methods for rendering BS and P&L into `QStandardItemModel` for `QTreeView`.
+    *   They correctly set headers, including a comparative period header if `has_comparative` is true.
+    *   Loop through sections (assets, liabilities, equity for BS; revenue, expenses for P&L).
+    *   Add section title items with bold font.
+    *   Add indented account items (`f"  {code} - {name}"`).
+    *   Format and right-align amounts.
+    *   Correctly access and display comparative account balances if available.
+    *   Add section totals and grand totals (Total L+E, Net Profit) with bold font.
+    *   BS model includes a warning if `is_balanced` is false.
+    *   **VALID**: This is a significant improvement in report presentation structure.
+*   **`_display_financial_report(self, report_data: Dict[str, Any])` (Lines 506-532 in new)**:
+    *   Correctly dispatches to `_populate_balance_sheet_model` or `_populate_profit_loss_model` for BS/P&L reports.
+    *   Keeps existing logic for Trial Balance and General Ledger (which use `QTableView` and custom table models).
+    *   Calls `tree_view.expandAll()` and `resizeColumnToContents()` for better initial display of tree-based reports. **VALID**.
+
+**Overall Assessment of the Diff:**
+
+1.  **Validity**: All changes are syntactically correct and use PySide6 features appropriately.
+2.  **Alignment with Plan**: The changes directly implement the planned enhancements for reporting options:
+    *   UI controls for comparative periods and zero-balance options are added.
+    *   Dynamic visibility logic for these controls is implemented.
+    *   Generator methods are called with the new parameters.
+    *   On-screen display for BS and P&L using `QTreeView` is significantly restructured for clarity and standard financial statement layout.
+3.  **Loss of Original Features/Functions**:
+    *   The GST F5 tab functionality is untouched and preserved.
+    *   The core logic for generating report data via `FinancialStatementGenerator` is unchanged, only the parameters passed to it are new.
+    *   The existing display mechanisms for Trial Balance and General Ledger (using `QTableView` and their specific models) are preserved.
+    *   The export functionality calls (`_on_export_report_clicked`, `_handle_export_result`) are preserved. `ReportEngine` was already updated to handle comparative data in its BS/P&L specific export methods.
+    *   The old generic `_populate_hierarchical_model` was removed as it's replaced by more specific and improved `_populate_balance_sheet_model` and `_populate_profit_loss_model`. This is an intended replacement, not an omission.
+4.  **Advisability of Changes**:
+    *   **Highly Advisable.** These changes significantly enhance the user's ability to customize Balance Sheet and P&L reports and improve the on-screen presentation of these key financial statements, making them more professional and easier to read.
+
+**Conclusion:**
+The proposed changes in the diff are valid and correctly implement the planned enhancements for the `ReportsWidget`. Existing functionalities are preserved, and the new reporting options and display logic are well-integrated. The application should now offer a more flexible and visually clearer reporting experience for Balance Sheet and Profit & Loss statements.
+
+I will now generate the complete updated `app/ui/reports/reports_widget.py` file.
+</think>
+
+Excellent! The application is stable after the User and Role Management UI implementation.
+
+As per the roadmap, we'll now proceed with **"Refine Reporting"**, specifically by **"Adding more reporting options/filters"** to the `ReportsWidget` for the Balance Sheet and Profit & Loss statements. This involves allowing users to select comparative periods and an option to include/exclude zero-balance accounts for the Balance Sheet.
+
+**Execution Plan: Enhance Reporting Options in `ReportsWidget`**
+
+1.  **Modify `app/ui/reports/reports_widget.py`**:
+    *   **UI Additions**:
+        *   In `_create_financial_statements_tab`, add:
+            *   A `QCheckBox` (`self.fs_include_zero_balance_check`) for "Include Zero-Balance Accounts", initially hidden.
+            *   A `QCheckBox` (`self.fs_include_comparative_check`) for "Include Comparative Period", initially hidden.
+            *   `QLabel` and `QDateEdit` for "Comparative As of Date" (`self.fs_comparative_as_of_date_edit`) for Balance Sheet, initially hidden.
+            *   `QLabel`s and `QDateEdit`s for "Comparative Start Date" (`self.fs_comparative_start_date_edit`) and "Comparative End Date" (`self.fs_comparative_end_date_edit`) for Profit & Loss, initially hidden.
+    *   **Dynamic UI Logic**:
+        *   In `_on_fs_report_type_changed()`:
+            *   Control visibility of `fs_include_zero_balance_check` (visible only for Balance Sheet).
+            *   Control visibility of `fs_include_comparative_check` (visible for Balance Sheet and Profit & Loss).
+            *   Trigger an update of comparative date field visibility.
+        *   Create a new slot `_on_comparative_check_changed(state)`:
+            *   Connected to `fs_include_comparative_check.stateChanged`.
+            *   Shows/hides the appropriate comparative date editors based on the current `fs_report_type_combo` selection and the checkbox state.
+    *   **Data Collection in `_on_generate_financial_report_clicked()`**:
+        *   If "Balance Sheet" is selected:
+            *   Get `include_zero_balances` state from `fs_include_zero_balance_check`.
+            *   If `fs_include_comparative_check` is checked, get `comparative_date` from `fs_comparative_as_of_date_edit`.
+            *   Pass these to `generate_balance_sheet`.
+        *   If "Profit & Loss Statement" is selected:
+            *   If `fs_include_comparative_check` is checked, get `comparative_start` and `comparative_end` dates. Validate them.
+            *   Pass these to `generate_profit_loss`.
+    *   **Update Report Display Logic**:
+        *   Create new methods `_populate_balance_sheet_model` and `_populate_profit_loss_model` to replace the generic `_populate_hierarchical_model`. These new methods will:
+            *   Set appropriate column headers in the `QStandardItemModel` (e.g., "Description", "Current Period", "Comparative Period").
+            *   Structure the data more like standard financial statements (clear sections, totals, calculated lines like "Total Liabilities & Equity", "Net Profit").
+            *   Display comparative figures in the new column if available in `report_data`.
+            *   Use bold fonts for section titles and totals.
+        *   Modify `_display_financial_report` to call these new specific methods.
+        *   Remove the old `_populate_hierarchical_model`.
+    *   **Checklist**: [X] New UI controls added. [X] Dynamic visibility logic for controls implemented. [X] New options passed to generator methods. [X] New `_populate_balance_sheet_model` created. [X] New `_populate_profit_loss_model` created. [X] `_display_financial_report` calls new populating methods. [X] Old hierarchical populator removed.
+
+No changes are needed for `FinancialStatementGenerator` or `ReportEngine` as they already have the capability to handle comparative dates and the zero-balance option (for BS in generator, and for display in engine).
+
+I will now provide the complete updated file for `app/ui/reports/reports_widget.py`.
+
+```python
 # app/ui/reports/reports_widget.py
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QDateEdit, QPushButton, QFormLayout, 
@@ -688,3 +803,4 @@ class ReportsWidget(QWidget):
             else: QMessageBox.warning(self, "Export Failed", f"Failed to generate report bytes for {format_type.upper()}.")
         except Exception as e: self.app_core.logger.error(f"Exception handling report export result: {e}", exc_info=True); QMessageBox.critical(self, "Export Error", f"An error occurred during export: {str(e)}")
 
+```
