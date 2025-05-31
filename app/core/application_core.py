@@ -27,7 +27,7 @@ from app.services.tax_service import TaxCodeService, GSTReturnService
 from app.services.accounting_services import AccountTypeService, CurrencyService as CurrencyRepoService, ExchangeRateService, FiscalYearService
 from app.services.business_services import (
     CustomerService, VendorService, ProductService, 
-    SalesInvoiceService, PurchaseInvoiceService 
+    SalesInvoiceService, PurchaseInvoiceService, InventoryMovementService # Added InventoryMovementService
 )
 
 # Utilities
@@ -73,6 +73,7 @@ class ApplicationCore:
         self._product_service_instance: Optional[ProductService] = None
         self._sales_invoice_service_instance: Optional[SalesInvoiceService] = None
         self._purchase_invoice_service_instance: Optional[PurchaseInvoiceService] = None 
+        self._inventory_movement_service_instance: Optional[InventoryMovementService] = None # New
 
         # --- Manager Instance Placeholders ---
         self._coa_manager_instance: Optional[ChartOfAccountsManager] = None
@@ -119,6 +120,7 @@ class ApplicationCore:
         self._product_service_instance = ProductService(self.db_manager, self)
         self._sales_invoice_service_instance = SalesInvoiceService(self.db_manager, self)
         self._purchase_invoice_service_instance = PurchaseInvoiceService(self.db_manager, self) 
+        self._inventory_movement_service_instance = InventoryMovementService(self.db_manager, self) # New
 
         # Initialize Managers (dependencies should be initialized services)
         py_sequence_generator = SequenceGenerator(self.sequence_service, app_core_ref=self) 
@@ -163,7 +165,8 @@ class ApplicationCore:
             sequence_service=self.sequence_service, 
             account_service=self.account_service,
             configuration_service=self.configuration_service, 
-            app_core=self
+            app_core=self,
+            inventory_movement_service=self.inventory_movement_service # New dependency
         )
         self._purchase_invoice_manager_instance = PurchaseInvoiceManager( 
             purchase_invoice_service=self.purchase_invoice_service,
@@ -174,7 +177,8 @@ class ApplicationCore:
             sequence_service=self.sequence_service,
             account_service=self.account_service,
             configuration_service=self.configuration_service,
-            app_core=self
+            app_core=self,
+            inventory_movement_service=self.inventory_movement_service # New dependency
         )
         
         self.module_manager.load_all_modules() 
@@ -190,6 +194,12 @@ class ApplicationCore:
         return self.security_manager.get_current_user()
 
     # --- Service Properties ---
+    # ... (existing service properties) ...
+    @property
+    def inventory_movement_service(self) -> InventoryMovementService: # New Property
+        if not self._inventory_movement_service_instance: raise RuntimeError("InventoryMovementService not initialized.")
+        return self._inventory_movement_service_instance
+
     @property
     def account_service(self) -> AccountService: 
         if not self._account_service_instance: raise RuntimeError("AccountService not initialized.")
@@ -264,6 +274,7 @@ class ApplicationCore:
         return self._purchase_invoice_service_instance
 
     # --- Manager Properties ---
+    # ... (existing manager properties) ...
     @property
     def chart_of_accounts_manager(self) -> ChartOfAccountsManager: 
         if not self._coa_manager_instance: raise RuntimeError("ChartOfAccountsManager not initialized.")

@@ -38,6 +38,7 @@ from app.models.business.vendor import Vendor
 from app.models.business.product import Product
 from app.models.business.sales_invoice import SalesInvoice
 from app.models.business.purchase_invoice import PurchaseInvoice
+from app.models.business.inventory_movement import InventoryMovement # New Import
 
 # --- DTO Imports (for return types in interfaces) ---
 from app.utils.pydantic_models import (
@@ -197,10 +198,8 @@ class ISalesInvoiceRepository(IRepository[SalesInvoice, int]):
 class IPurchaseInvoiceRepository(IRepository[PurchaseInvoice, int]):
     @abstractmethod
     async def get_by_internal_ref_no(self, internal_ref_no: str) -> Optional[PurchaseInvoice]: pass 
-    
     @abstractmethod
     async def get_by_vendor_and_vendor_invoice_no(self, vendor_id: int, vendor_invoice_no: str) -> Optional[PurchaseInvoice]: pass
-    
     @abstractmethod
     async def get_all_summary(self, 
                               vendor_id: Optional[int] = None,
@@ -211,6 +210,11 @@ class IPurchaseInvoiceRepository(IRepository[PurchaseInvoice, int]):
                               page_size: int = 50
                              ) -> List[PurchaseInvoiceSummaryData]: pass
 
+# --- New Interface for Inventory Movement ---
+class IInventoryMovementRepository(IRepository[InventoryMovement, int]):
+    @abstractmethod
+    async def save(self, entity: InventoryMovement) -> InventoryMovement: pass
+    # Add other specific methods if needed, e.g., get_movements_for_product, etc.
 
 # --- Service Implementations ---
 from .account_service import AccountService
@@ -221,7 +225,7 @@ from .core_services import SequenceService, ConfigurationService, CompanySetting
 from .accounting_services import AccountTypeService, CurrencyService, ExchangeRateService, FiscalYearService
 from .business_services import (
     CustomerService, VendorService, ProductService, 
-    SalesInvoiceService, PurchaseInvoiceService 
+    SalesInvoiceService, PurchaseInvoiceService, InventoryMovementService # Added InventoryMovementService
 )
 
 __all__ = [
@@ -232,10 +236,12 @@ __all__ = [
     "ISequenceRepository", "IConfigurationRepository", 
     "ICustomerRepository", "IVendorRepository", "IProductRepository",
     "ISalesInvoiceRepository", "IPurchaseInvoiceRepository", 
+    "IInventoryMovementRepository", # New export
     "AccountService", "JournalService", "FiscalPeriodService", "FiscalYearService",
     "TaxCodeService", "GSTReturnService",
     "SequenceService", "ConfigurationService", "CompanySettingsService",
     "AccountTypeService", "CurrencyService", "ExchangeRateService",
     "CustomerService", "VendorService", "ProductService", 
     "SalesInvoiceService", "PurchaseInvoiceService", 
+    "InventoryMovementService", # New export
 ]

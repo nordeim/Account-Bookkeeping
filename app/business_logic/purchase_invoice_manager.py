@@ -10,8 +10,9 @@ from app.models.business.vendor import Vendor
 from app.models.business.product import Product
 from app.models.accounting.tax_code import TaxCode
 from app.models.accounting.journal_entry import JournalEntry 
+from app.models.business.inventory_movement import InventoryMovement # New import
 
-from app.services.business_services import PurchaseInvoiceService, VendorService, ProductService
+from app.services.business_services import PurchaseInvoiceService, VendorService, ProductService, InventoryMovementService # Added InventoryMovementService
 from app.services.core_services import SequenceService, ConfigurationService
 from app.services.tax_service import TaxCodeService
 from app.services.account_service import AccountService
@@ -22,7 +23,7 @@ from app.utils.pydantic_models import (
     JournalEntryData, JournalEntryLineData 
 )
 from app.tax.tax_calculator import TaxCalculator
-from app.common.enums import InvoiceStatusEnum, ProductTypeEnum, JournalTypeEnum
+from app.common.enums import InvoiceStatusEnum, ProductTypeEnum, JournalTypeEnum, InventoryMovementTypeEnum # Added InventoryMovementTypeEnum
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore
@@ -34,10 +35,11 @@ class PurchaseInvoiceManager:
                  product_service: ProductService,
                  tax_code_service: TaxCodeService,
                  tax_calculator: TaxCalculator,
-                 sequence_service: SequenceService, # Kept for potential direct use, though DB func is preferred
+                 sequence_service: SequenceService, 
                  account_service: AccountService,
                  configuration_service: ConfigurationService,
-                 app_core: "ApplicationCore"):
+                 app_core: "ApplicationCore",
+                 inventory_movement_service: InventoryMovementService): # New dependency
         self.purchase_invoice_service = purchase_invoice_service
         self.vendor_service = vendor_service
         self.product_service = product_service
@@ -48,6 +50,7 @@ class PurchaseInvoiceManager:
         self.configuration_service = configuration_service
         self.app_core = app_core
         self.logger = app_core.logger
+        self.inventory_movement_service = inventory_movement_service # New dependency
         
     # ... (_validate_and_prepare_pi_data, create_draft_purchase_invoice, update_draft_purchase_invoice - unchanged from file set 7)
     async def _validate_and_prepare_pi_data(
@@ -94,6 +97,8 @@ class PurchaseInvoiceManager:
             unit_price = line_dto.unit_price
             line_purchase_account_id: Optional[int] = None 
             line_tax_account_id: Optional[int] = None
+            product_type_for_line: Optional[ProductTypeEnum] = None
+
 
             if line_dto.product_id:
                 product = await self.product_service.get_by_id(line_dto.product_id)
@@ -102,7 +107,8 @@ class PurchaseInvoiceManager:
                 if product: 
                     if not line_description: line_description = product.name
                     if (unit_price is None or unit_price == Decimal(0)) and product.purchase_price is not None: unit_price = product.purchase_price
-                    line_purchase_account_id = product.purchase_account_id 
+                    line_purchase_account_id = product.purchase_account_id
+                    product_type_for_line = ProductTypeEnum(product.product_type) 
             
             if not line_description: line_errors_current_line.append(f"Description is required on line {i+1}.")
             if unit_price is None: line_errors_current_line.append(f"Unit price is required on line {i+1}."); unit_price = Decimal(0) 
@@ -133,7 +139,7 @@ class PurchaseInvoiceManager:
                 "tax_code": line_dto.tax_code, "tax_amount": line_tax_amount_calc.quantize(Decimal("0.01"), ROUND_HALF_UP), 
                 "line_total": (line_subtotal_before_tax + line_tax_amount_calc).quantize(Decimal("0.01"), ROUND_HALF_UP),
                 "dimension1_id": line_dto.dimension1_id, "dimension2_id": line_dto.dimension2_id,
-                "_line_purchase_account_id": line_purchase_account_id, "_line_tax_account_id": line_tax_account_id, "_product_type": product.product_type if product else None
+                "_line_purchase_account_id": line_purchase_account_id, "_line_tax_account_id": line_tax_account_id, "_product_type": product_type_for_line
             })
 
         if errors: return Result.failure(errors)
@@ -222,7 +228,7 @@ class PurchaseInvoiceManager:
                 ap_account_final_id: Optional[int] = None
 
                 if ap_account_id_from_vendor:
-                    ap_acc_orm = await self.account_service.get_by_id(ap_account_id_from_vendor) # Use account_service for potentially out-of-session reads
+                    ap_acc_orm = await self.account_service.get_by_id(ap_account_id_from_vendor) 
                     if ap_acc_orm and ap_acc_orm.is_active: ap_account_final_id = ap_acc_orm.id
                     else: self.logger.warning(f"Vendor AP account ID {ap_account_id_from_vendor} is invalid/inactive for PI {invoice_to_post.invoice_no}. Falling back.")
                 
@@ -234,20 +240,15 @@ class PurchaseInvoiceManager:
                     return Result.failure([f"Could not determine a valid Accounts Payable account for PI {invoice_to_post.invoice_no}."])
 
                 default_purchase_expense_code = await self.configuration_service.get_config_value("SysAcc_DefaultPurchaseExpense", "5100")
-                default_inventory_asset_code = await self.configuration_service.get_config_value("SysAcc_DefaultInventoryAsset", "1130") # Assuming key exists
+                default_inventory_asset_code = await self.configuration_service.get_config_value("SysAcc_DefaultInventoryAsset", "1130") 
                 default_gst_input_acc_code = await self.configuration_service.get_config_value("SysAcc_DefaultGSTInput", "SYS-GST-INPUT")
                 
                 je_lines_data: List[JournalEntryLineData] = []
                 
-                # Credit Accounts Payable
                 je_lines_data.append(JournalEntryLineData(
-                    account_id=ap_account_final_id,
-                    debit_amount=Decimal(0), 
-                    credit_amount=invoice_to_post.total_amount,
+                    account_id=ap_account_final_id, debit_amount=Decimal(0), credit_amount=invoice_to_post.total_amount,
                     description=f"A/P for P.Inv {invoice_to_post.invoice_no} from {invoice_to_post.vendor.name}",
-                    currency_code=invoice_to_post.currency_code, 
-                    exchange_rate=invoice_to_post.exchange_rate
-                ))
+                    currency_code=invoice_to_post.currency_code, exchange_rate=invoice_to_post.exchange_rate ))
 
                 for line in invoice_to_post.lines:
                     debit_account_id_for_line: Optional[int] = None
@@ -257,15 +258,14 @@ class PurchaseInvoiceManager:
                     if product_type_for_line == ProductTypeEnum.INVENTORY and line.product and line.product.inventory_account:
                         if line.product.inventory_account.is_active: debit_account_id_for_line = line.product.inventory_account.id
                         else: self.logger.warning(f"Product '{line.product.name}' inventory account '{line.product.inventory_account.code}' is inactive for PI {invoice_to_post.invoice_no}.")
-                    elif line.product and line.product.purchase_account:
+                    elif line.product and line.product.purchase_account: # For Service, Non-Inventory, or Inventory if inventory_acc not set
                          if line.product.purchase_account.is_active: debit_account_id_for_line = line.product.purchase_account.id
                          else: self.logger.warning(f"Product '{line.product.name}' purchase account '{line.product.purchase_account.code}' is inactive for PI {invoice_to_post.invoice_no}.")
                     
-                    if not debit_account_id_for_line: # Fallback
+                    if not debit_account_id_for_line: 
                         fallback_code = default_inventory_asset_code if product_type_for_line == ProductTypeEnum.INVENTORY else default_purchase_expense_code
                         fallback_acc = await self.account_service.get_by_code(fallback_code)
-                        if not fallback_acc or not fallback_acc.is_active:
-                            return Result.failure([f"Default debit account '{fallback_code}' for line '{line.description}' is invalid or inactive."])
+                        if not fallback_acc or not fallback_acc.is_active: return Result.failure([f"Default debit account '{fallback_code}' for line '{line.description}' is invalid/inactive."])
                         debit_account_id_for_line = fallback_acc.id
                     
                     if not debit_account_id_for_line: return Result.failure([f"Could not determine Debit GL account for line: {line.description}"])
@@ -273,8 +273,7 @@ class PurchaseInvoiceManager:
                     je_lines_data.append(JournalEntryLineData(
                         account_id=debit_account_id_for_line, debit_amount=line.line_subtotal, credit_amount=Decimal(0), 
                         description=f"Purchase: {line.description[:100]} (P.Inv {invoice_to_post.invoice_no})",
-                        currency_code=invoice_to_post.currency_code, exchange_rate=invoice_to_post.exchange_rate
-                    ))
+                        currency_code=invoice_to_post.currency_code, exchange_rate=invoice_to_post.exchange_rate ))
 
                     if line.tax_amount and line.tax_amount != Decimal(0) and line.tax_code:
                         gst_gl_id_for_line: Optional[int] = None
@@ -293,8 +292,7 @@ class PurchaseInvoiceManager:
                         je_lines_data.append(JournalEntryLineData(
                             account_id=gst_gl_id_for_line, debit_amount=line.tax_amount, credit_amount=Decimal(0),
                             description=f"GST Input ({line.tax_code}) for P.Inv {invoice_to_post.invoice_no}",
-                            currency_code=invoice_to_post.currency_code, exchange_rate=invoice_to_post.exchange_rate
-                        ))
+                            currency_code=invoice_to_post.currency_code, exchange_rate=invoice_to_post.exchange_rate ))
                 
                 je_dto = JournalEntryData(
                     journal_type=JournalTypeEnum.PURCHASE.value, entry_date=invoice_to_post.invoice_date,
@@ -302,29 +300,35 @@ class PurchaseInvoiceManager:
                     source_type="PurchaseInvoice", source_id=invoice_to_post.id, user_id=user_id, lines=je_lines_data
                 )
 
-                create_je_result = await self.app_core.journal_entry_manager.create_journal_entry(je_dto, session=session) # Pass session
-                if not create_je_result.is_success or not create_je_result.value:
-                    return Result.failure(["Failed to create JE for purchase invoice."] + create_je_result.errors)
+                create_je_result = await self.app_core.journal_entry_manager.create_journal_entry(je_dto, session=session)
+                if not create_je_result.is_success or not create_je_result.value: return Result.failure(["Failed to create JE for PI."] + create_je_result.errors)
                 
                 created_je: JournalEntry = create_je_result.value
-                post_je_result = await self.app_core.journal_entry_manager.post_journal_entry(created_je.id, user_id, session=session) # Pass session
-                if not post_je_result.is_success:
-                    return Result.failure([f"JE (ID: {created_je.id}) created but failed to post."] + post_je_result.errors)
+                post_je_result = await self.app_core.journal_entry_manager.post_journal_entry(created_je.id, user_id, session=session)
+                if not post_je_result.is_success: return Result.failure([f"JE (ID: {created_je.id}) created but failed to post."] + post_je_result.errors)
 
+                # Create InventoryMovements
+                for line in invoice_to_post.lines:
+                    if line.product and ProductTypeEnum(line.product.product_type) == ProductTypeEnum.INVENTORY:
+                        inv_movement = InventoryMovement(
+                            product_id=line.product_id, movement_date=invoice_to_post.invoice_date,
+                            movement_type=InventoryMovementTypeEnum.PURCHASE.value,
+                            quantity=line.quantity, unit_cost=(line.line_subtotal / line.quantity if line.quantity else Decimal(0)),
+                            total_cost=line.line_subtotal, reference_type='PurchaseInvoiceLine', reference_id=line.id,
+                            created_by_user_id=user_id
+                        )
+                        await self.inventory_movement_service.save(inv_movement, session=session)
+                
                 invoice_to_post.status = InvoiceStatusEnum.APPROVED.value 
                 invoice_to_post.journal_entry_id = created_je.id
                 invoice_to_post.updated_by_user_id = user_id
                 
                 session.add(invoice_to_post) 
-                await session.flush() 
-                await session.refresh(invoice_to_post)
-                
+                await session.flush(); await session.refresh(invoice_to_post)
                 self.logger.info(f"PI {invoice_to_post.invoice_no} (ID: {invoice_id}) posted. JE ID: {created_je.id}")
                 return Result.success(invoice_to_post)
 
-            except Exception as e:
-                self.logger.error(f"Error posting PI ID {invoice_id}: {e}", exc_info=True)
-                return Result.failure([f"Unexpected error posting PI: {str(e)}"])
+            except Exception as e: self.logger.error(f"Error posting PI ID {invoice_id}: {e}", exc_info=True); return Result.failure([f"Unexpected error posting PI: {str(e)}"])
 
     async def get_invoice_for_dialog(self, invoice_id: int) -> Optional[PurchaseInvoice]:
         try: return await self.purchase_invoice_service.get_by_id(invoice_id)

@@ -1,6 +1,7 @@
 # File: app/services/business_services.py
 from typing import List, Optional, Any, TYPE_CHECKING, Dict
 from sqlalchemy import select, func, and_, or_
+from sqlalchemy.ext.asyncio import AsyncSession # Added for type hint in InventoryMovementService
 from sqlalchemy.orm import selectinload, joinedload 
 from decimal import Decimal
 import logging 
@@ -11,12 +12,13 @@ from app.models.business.vendor import Vendor
 from app.models.business.product import Product
 from app.models.business.sales_invoice import SalesInvoice, SalesInvoiceLine
 from app.models.business.purchase_invoice import PurchaseInvoice, PurchaseInvoiceLine 
+from app.models.business.inventory_movement import InventoryMovement # New Import
 from app.models.accounting.account import Account 
 from app.models.accounting.currency import Currency 
 from app.models.accounting.tax_code import TaxCode 
 from app.services import (
     ICustomerRepository, IVendorRepository, IProductRepository, 
-    ISalesInvoiceRepository, IPurchaseInvoiceRepository 
+    ISalesInvoiceRepository, IPurchaseInvoiceRepository, IInventoryMovementRepository # Added IInventoryMovementRepository
 )
 from app.utils.pydantic_models import (
     CustomerSummaryData, VendorSummaryData, ProductSummaryData, 
@@ -28,6 +30,7 @@ from datetime import date
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore
 
+# ... (CustomerService, VendorService, ProductService, SalesInvoiceService, PurchaseInvoiceService remain unchanged from file set 5)
 class CustomerService(ICustomerRepository):
     def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
         self.db_manager = db_manager
@@ -193,105 +196,111 @@ class PurchaseInvoiceService(IPurchaseInvoiceRepository):
         self.db_manager = db_manager
         self.app_core = app_core
         self.logger = app_core.logger if app_core and hasattr(app_core, 'logger') else logging.getLogger(self.__class__.__name__)
-
     async def get_by_id(self, invoice_id: int) -> Optional[PurchaseInvoice]:
         async with self.db_manager.session() as session:
             stmt = select(PurchaseInvoice).options(
                 selectinload(PurchaseInvoice.lines).selectinload(PurchaseInvoiceLine.product),
                 selectinload(PurchaseInvoice.lines).selectinload(PurchaseInvoiceLine.tax_code_obj),
-                selectinload(PurchaseInvoice.vendor),
-                selectinload(PurchaseInvoice.currency),
+                selectinload(PurchaseInvoice.vendor), selectinload(PurchaseInvoice.currency),
                 selectinload(PurchaseInvoice.journal_entry),
-                selectinload(PurchaseInvoice.created_by_user),
-                selectinload(PurchaseInvoice.updated_by_user)
+                selectinload(PurchaseInvoice.created_by_user), selectinload(PurchaseInvoice.updated_by_user)
             ).where(PurchaseInvoice.id == invoice_id)
-            result = await session.execute(stmt)
-            return result.scalars().first()
-
+            result = await session.execute(stmt); return result.scalars().first()
     async def get_all(self) -> List[PurchaseInvoice]:
         async with self.db_manager.session() as session:
             stmt = select(PurchaseInvoice).order_by(PurchaseInvoice.invoice_date.desc(), PurchaseInvoice.invoice_no.desc()) # type: ignore
-            result = await session.execute(stmt)
-            return list(result.scalars().all())
-
-    async def get_all_summary(self, 
-                              vendor_id: Optional[int] = None,
-                              status: Optional[InvoiceStatusEnum] = None, 
-                              start_date: Optional[date] = None, 
-                              end_date: Optional[date] = None,
-                              page: int = 1, 
-                              page_size: int = 50
-                             ) -> List[PurchaseInvoiceSummaryData]:
+            result = await session.execute(stmt); return list(result.scalars().all())
+    async def get_all_summary(self, vendor_id: Optional[int] = None, status: Optional[InvoiceStatusEnum] = None, 
+                              start_date: Optional[date] = None, end_date: Optional[date] = None,
+                              page: int = 1, page_size: int = 50) -> List[PurchaseInvoiceSummaryData]:
         async with self.db_manager.session() as session:
             conditions = []
-            if vendor_id is not None:
-                conditions.append(PurchaseInvoice.vendor_id == vendor_id)
-            if status:
-                conditions.append(PurchaseInvoice.status == status.value)
-            if start_date:
-                conditions.append(PurchaseInvoice.invoice_date >= start_date)
-            if end_date:
-                conditions.append(PurchaseInvoice.invoice_date <= end_date)
-            
-            stmt = select(
-                PurchaseInvoice.id, PurchaseInvoice.invoice_no, PurchaseInvoice.vendor_invoice_no, 
+            if vendor_id is not None: conditions.append(PurchaseInvoice.vendor_id == vendor_id)
+            if status: conditions.append(PurchaseInvoice.status == status.value)
+            if start_date: conditions.append(PurchaseInvoice.invoice_date >= start_date)
+            if end_date: conditions.append(PurchaseInvoice.invoice_date <= end_date)
+            stmt = select( PurchaseInvoice.id, PurchaseInvoice.invoice_no, PurchaseInvoice.vendor_invoice_no, 
                 PurchaseInvoice.invoice_date, Vendor.name.label("vendor_name"), 
                 PurchaseInvoice.total_amount, PurchaseInvoice.status
             ).join(Vendor, PurchaseInvoice.vendor_id == Vendor.id)
-            
-            if conditions:
-                stmt = stmt.where(and_(*conditions))
-            
+            if conditions: stmt = stmt.where(and_(*conditions))
             stmt = stmt.order_by(PurchaseInvoice.invoice_date.desc(), PurchaseInvoice.invoice_no.desc()) # type: ignore
-            
-            if page_size > 0:
-                stmt = stmt.limit(page_size).offset((page - 1) * page_size)
-            
-            result = await session.execute(stmt)
-            return [PurchaseInvoiceSummaryData.model_validate(row) for row in result.mappings().all()]
-
-    async def get_by_internal_ref_no(self, internal_ref_no: str) -> Optional[PurchaseInvoice]:
+            if page_size > 0: stmt = stmt.limit(page_size).offset((page - 1) * page_size)
+            result = await session.execute(stmt); return [PurchaseInvoiceSummaryData.model_validate(row) for row in result.mappings().all()]
+    async def get_by_internal_ref_no(self, internal_ref_no: str) -> Optional[PurchaseInvoice]: 
         async with self.db_manager.session() as session:
-            stmt = select(PurchaseInvoice).options(
-                selectinload(PurchaseInvoice.lines)
-            ).where(PurchaseInvoice.invoice_no == internal_ref_no) 
-            result = await session.execute(stmt)
-            return result.scalars().first()
-
+            stmt = select(PurchaseInvoice).options(selectinload(PurchaseInvoice.lines)).where(PurchaseInvoice.invoice_no == internal_ref_no) 
+            result = await session.execute(stmt); return result.scalars().first()
     async def get_by_vendor_and_vendor_invoice_no(self, vendor_id: int, vendor_invoice_no: str) -> Optional[PurchaseInvoice]:
         async with self.db_manager.session() as session:
-            stmt = select(PurchaseInvoice).options(
-                selectinload(PurchaseInvoice.lines)
-            ).where(
-                PurchaseInvoice.vendor_id == vendor_id,
-                PurchaseInvoice.vendor_invoice_no == vendor_invoice_no
-            )
-            result = await session.execute(stmt)
-            return result.scalars().first() 
-
+            stmt = select(PurchaseInvoice).options(selectinload(PurchaseInvoice.lines)).where(PurchaseInvoice.vendor_id == vendor_id, PurchaseInvoice.vendor_invoice_no == vendor_invoice_no)
+            result = await session.execute(stmt); return result.scalars().first() 
     async def save(self, invoice: PurchaseInvoice) -> PurchaseInvoice:
         async with self.db_manager.session() as session:
-            session.add(invoice)
-            await session.flush()
-            await session.refresh(invoice)
-            if invoice.id and invoice.lines:
-                await session.refresh(invoice, attribute_names=['lines'])
+            session.add(invoice); await session.flush(); await session.refresh(invoice)
+            if invoice.id and invoice.lines: await session.refresh(invoice, attribute_names=['lines'])
             return invoice
-
-    async def add(self, entity: PurchaseInvoice) -> PurchaseInvoice:
-        return await self.save(entity)
-
-    async def update(self, entity: PurchaseInvoice) -> PurchaseInvoice:
-        return await self.save(entity)
-
+    async def add(self, entity: PurchaseInvoice) -> PurchaseInvoice: return await self.save(entity)
+    async def update(self, entity: PurchaseInvoice) -> PurchaseInvoice: return await self.save(entity)
     async def delete(self, invoice_id: int) -> bool:
         async with self.db_manager.session() as session:
             pi = await session.get(PurchaseInvoice, invoice_id)
-            if pi and pi.status == InvoiceStatusEnum.DRAFT.value: # Only allow deleting drafts
-                await session.delete(pi)
-                return True
-            elif pi:
-                # Log or raise specific error that non-drafts cannot be hard-deleted
-                self.logger.warning(f"Attempt to delete non-draft Purchase Invoice ID {invoice_id} with status {pi.status}. Denied.")
-                raise ValueError(f"Cannot delete Purchase Invoice {pi.invoice_no} as its status is '{pi.status}'. Only Draft invoices can be deleted via this method.")
+            if pi and pi.status == InvoiceStatusEnum.DRAFT.value: 
+                await session.delete(pi); return True
+            elif pi: self.logger.warning(f"Attempt to delete non-draft PI ID {invoice_id} with status {pi.status}. Denied."); raise ValueError(f"Cannot delete PI {pi.invoice_no} as its status is '{pi.status}'. Only Draft invoices can be deleted.")
         return False
+
+class InventoryMovementService(IInventoryMovementRepository):
+    def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
+        self.db_manager = db_manager
+        self.app_core = app_core
+        self.logger = app_core.logger if app_core and hasattr(app_core, 'logger') else logging.getLogger(self.__class__.__name__)
+
+    async def get_by_id(self, id_val: int) -> Optional[InventoryMovement]:
+        async with self.db_manager.session() as session:
+            return await session.get(InventoryMovement, id_val)
+
+    async def get_all(self) -> List[InventoryMovement]:
+        async with self.db_manager.session() as session:
+            stmt = select(InventoryMovement).order_by(InventoryMovement.movement_date.desc(), InventoryMovement.id.desc()) # type: ignore
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+    
+    async def save(self, entity: InventoryMovement, session: Optional[AsyncSession] = None) -> InventoryMovement:
+        """Saves an InventoryMovement, optionally using a provided session."""
+        
+        async def _save_logic(current_session: AsyncSession):
+            # User audit field (created_by_user_id) is expected to be set on 'entity' by manager/caller
+            current_session.add(entity)
+            await current_session.flush()
+            await current_session.refresh(entity)
+            return entity
+
+        if session: # Use provided session
+            return await _save_logic(session)
+        else: # Create new session
+            async with self.db_manager.session() as new_session: # type: ignore
+                return await _save_logic(new_session)
+
+    async def add(self, entity: InventoryMovement) -> InventoryMovement:
+        # For IRepository compliance, this method usually creates its own session if not passed one.
+        # However, inventory movements are almost always part of a larger transaction (invoice posting).
+        # The manager should explicitly pass a session to save().
+        # If called directly, it will create a new session.
+        return await self.save(entity) 
+
+    async def update(self, entity: InventoryMovement) -> InventoryMovement:
+        # Inventory movements are typically immutable once created. Updates might imply corrections.
+        # For now, assume save handles it, but this might need specific logic if updates are allowed.
+        self.logger.warning(f"Update called on InventoryMovementService for ID {entity.id}. Typically movements are immutable.")
+        return await self.save(entity)
+
+    async def delete(self, id_val: int) -> bool:
+        # Deleting inventory movements can be risky; usually done via reversals or adjustments.
+        self.logger.warning(f"Hard delete attempted for InventoryMovement ID {id_val}. This is generally not recommended.")
+        async with self.db_manager.session() as session:
+            entity = await session.get(InventoryMovement, id_val)
+            if entity:
+                await session.delete(entity)
+                return True
+            return False
