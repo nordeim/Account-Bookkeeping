@@ -210,12 +210,12 @@ class JournalEntriesWidget(QWidget):
             status_filter = status_text if status_text != "All" else None
             entry_no_filter_text = self.entry_no_filter_edit.text().strip()
             description_filter_text = self.description_filter_edit.text().strip()
-            journal_type_filter_val = self.journal_type_filter_combo.currentData() # Get enum value from currentData
+            journal_type_filter_val = self.journal_type_filter_combo.currentData() 
 
             filters = {"start_date": start_date, "end_date": end_date, "status": status_filter,
                        "entry_no": entry_no_filter_text or None, 
                        "description": description_filter_text or None,
-                       "journal_type": journal_type_filter_val # Pass enum value
+                       "journal_type": journal_type_filter_val 
                        }
             
             result: Result[List[Dict[str, Any]]] = await self.app_core.journal_entry_manager.get_journal_entries_for_listing(filters=filters)

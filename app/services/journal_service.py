@@ -187,7 +187,7 @@ class JournalService(IJournalEntryRepository):
             
     async def get_posted_lines_for_account_in_range(self, account_id: int, start_date: date, end_date: date, 
                                                     dimension1_id: Optional[int] = None, dimension2_id: Optional[int] = None
-                                                    ) -> List[JournalEntryLine]: # Added dimension filters
+                                                    ) -> List[JournalEntryLine]: 
         async with self.db_manager.session() as session:
             conditions = [
                 JournalEntryLine.account_id == account_id,

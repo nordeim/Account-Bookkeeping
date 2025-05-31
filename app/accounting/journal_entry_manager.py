@@ -1,4 +1,4 @@
-# app/accounting/journal_entry_manager.py
+# File: app/accounting/journal_entry_manager.py
 from typing import List, Optional, Any, Dict, TYPE_CHECKING
 from decimal import Decimal
 from datetime import date, datetime, timedelta
@@ -16,7 +16,7 @@ from app.services.fiscal_period_service import FiscalPeriodService
 from app.utils.sequence_generator import SequenceGenerator
 from app.utils.result import Result
 from app.utils.pydantic_models import JournalEntryData, JournalEntryLineData 
-from app.common.enums import JournalTypeEnum
+from app.common.enums import JournalTypeEnum 
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore
@@ -34,7 +34,8 @@ class JournalEntryManager:
         self.sequence_generator = sequence_generator
         self.app_core = app_core
 
-    # ... (create_journal_entry, update_journal_entry, post_journal_entry, reverse_journal_entry - unchanged from previous validated version)
+    # ... (create_journal_entry, update_journal_entry, post_journal_entry, reverse_journal_entry, 
+    #      _calculate_next_generation_date, generate_recurring_entries, get_journal_entry_for_dialog - unchanged from previous file set 2)
     async def create_journal_entry(self, entry_data: JournalEntryData, session: Optional[AsyncSession] = None) -> Result[JournalEntry]:
         async def _create_je_logic(current_session: AsyncSession):
             fiscal_period_stmt = select(FiscalPeriod).where(FiscalPeriod.start_date <= entry_data.entry_date, FiscalPeriod.end_date >= entry_data.entry_date, FiscalPeriod.status == 'Open')
@@ -136,24 +137,19 @@ class JournalEntryManager:
             if day_of_month:
                 try:
                     next_date = next_date.replace(day=day_of_month)
-                except ValueError: # Handles cases like trying to set day 31 in a 30-day month
-                    # Move to the end of the month if day_of_month is invalid for that month
-                    next_date = next_date + relativedelta(day=31) # relativedelta clamps to actual month end
+                except ValueError: 
+                    next_date = next_date + relativedelta(day=31) 
         elif frequency == 'Yearly':
             next_date = last_date + relativedelta(years=interval)
             if day_of_month:
                 try:
-                    # Ensure month is also considered for yearly recurrence if day_of_month is specific
                     next_date = next_date.replace(day=day_of_month, month=last_date.month)
                 except ValueError:
                     next_date = next_date.replace(month=last_date.month) + relativedelta(day=31)
         elif frequency == 'Weekly':
             next_date = last_date + relativedelta(weeks=interval)
-            # Note: Specific day_of_week alignment (e.g., "next Monday") would require more complex logic
-            # if interval > 1 week and a specific day_of_week is desired.
-            # For now, it's just interval weeks from last_date.
-            if day_of_week is not None: # If a specific day of week is required for the next occurrence
-                 current_weekday = next_date.weekday() # Monday is 0 and Sunday is 6
+            if day_of_week is not None: 
+                 current_weekday = next_date.weekday() 
                  days_to_add = (day_of_week - current_weekday + 7) % 7
                  next_date += timedelta(days=days_to_add)
         elif frequency == 'Daily':
@@ -211,4 +207,3 @@ class JournalEntryManager:
         except Exception as e:
             self.app_core.logger.error(f"Error fetching JE summaries for listing: {e}", exc_info=True) 
             return Result.failure([f"Failed to retrieve journal entry summaries: {str(e)}"])
-
