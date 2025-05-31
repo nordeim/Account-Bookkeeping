@@ -1509,7 +1509,8 @@ from app.models.business.product import Product
 from app.common.enums import InvoiceStatusEnum, ProductTypeEnum
 from app.utils.result import Result
 from app.utils.json_helpers import json_converter, json_date_hook
-from app.ui.sales_invoices.sales_invoice_dialog import LineItemNumericDelegate 
+from app.ui.sales_invoices.sales_invoice_dialog import LineItemNumericDelegate # Re-use delegate
+from app.ui.shared.product_search_dialog import ProductSearchDialog
 
 if TYPE_CHECKING:
     from PySide6.QtGui import QPaintDevice, QAbstractItemModel 
@@ -1529,6 +1530,7 @@ class PurchaseInvoiceDialog(QDialog):
         self.invoice_id = invoice_id; self.view_only_mode = view_only
         self.loaded_invoice_orm: Optional[PurchaseInvoice] = None
         self.loaded_invoice_data_dict: Optional[Dict[str, Any]] = None
+        self._current_search_target_row: Optional[int] = None 
 
         self._vendors_cache: List[Dict[str, Any]] = []
         self._products_cache: List[Dict[str, Any]] = [] 
@@ -1774,13 +1776,20 @@ class PurchaseInvoiceDialog(QDialog):
 
         self.save_draft_button.setVisible(can_edit_or_create)
         self.save_approve_button.setVisible(can_edit_or_create)
-        self.save_approve_button.setEnabled(False) 
+        self.save_approve_button.setEnabled(False) # Always false for PI for now
 
         edit_trigger = QAbstractItemView.EditTrigger.NoEditTriggers if read_only else QAbstractItemView.EditTrigger.AllInputs
         self.lines_table.setEditTriggers(edit_trigger)
         for r in range(self.lines_table.rowCount()):
             del_btn_widget = self.lines_table.cellWidget(r, self.COL_DEL)
             if del_btn_widget: del_btn_widget.setEnabled(not read_only)
+            
+            prod_cell_widget = self.lines_table.cellWidget(r, self.COL_PROD)
+            if isinstance(prod_cell_widget, QWidget):
+                search_button = prod_cell_widget.findChild(QPushButton)
+                if search_button: search_button.setEnabled(not read_only)
+                combo = prod_cell_widget.findChild(QComboBox)
+                if combo: combo.setEnabled(not read_only)
 
     def _add_new_invoice_line(self, line_data: Optional[Dict[str, Any]] = None):
         row = self.lines_table.rowCount()
@@ -1790,11 +1799,17 @@ class PurchaseInvoiceDialog(QDialog):
         del_btn.clicked.connect(lambda _, r=row: self._remove_specific_invoice_line(r))
         self.lines_table.setCellWidget(row, self.COL_DEL, del_btn)
 
+        prod_cell_widget = QWidget()
+        prod_cell_layout = QHBoxLayout(prod_cell_widget)
+        prod_cell_layout.setContentsMargins(0,0,0,0); prod_cell_layout.setSpacing(2)
         prod_combo = QComboBox(); prod_combo.setEditable(True); prod_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         prod_completer = QCompleter(); prod_completer.setFilterMode(Qt.MatchFlag.MatchContains); prod_completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
         prod_combo.setCompleter(prod_completer)
         prod_combo.setMaxVisibleItems(15) 
-        self.lines_table.setCellWidget(row, self.COL_PROD, prod_combo)
+        prod_search_btn = QPushButton("..."); prod_search_btn.setFixedSize(24,24); prod_search_btn.setToolTip("Search Product/Service")
+        prod_search_btn.clicked.connect(lambda _, r=row: self._on_open_product_search(r))
+        prod_cell_layout.addWidget(prod_combo, 1); prod_cell_layout.addWidget(prod_search_btn)
+        self.lines_table.setCellWidget(row, self.COL_PROD, prod_cell_widget)
         
         desc_item = QTableWidgetItem(line_data.get("description", "") if line_data else "")
         self.lines_table.setItem(row, self.COL_DESC, desc_item) 
@@ -1824,29 +1839,32 @@ class PurchaseInvoiceDialog(QDialog):
         self._update_invoice_totals()
 
     def _populate_line_combos(self, row: int, line_data: Optional[Dict[str, Any]] = None):
-        prod_combo = cast(QComboBox, self.lines_table.cellWidget(row, self.COL_PROD))
-        prod_combo.clear(); prod_combo.addItem("-- Select Product/Service --", 0)
-        current_prod_id = line_data.get("product_id") if line_data else None
-        selected_prod_idx = 0 
-        for i, prod_dict in enumerate(self._products_cache):
-            price_val = prod_dict.get('purchase_price') 
-            price_str = f"{Decimal(str(price_val)):.2f}" if price_val is not None else "N/A"
-            prod_type_val = prod_dict.get('product_type')
-            type_str = prod_type_val if isinstance(prod_type_val, str) else (prod_type_val.value if isinstance(prod_type_val, ProductTypeEnum) else "Unknown")
-            display_text = f"{prod_dict['product_code']} - {prod_dict['name']} (Cost: {price_str})"
-            prod_combo.addItem(display_text, prod_dict['id'])
-            if prod_dict['id'] == current_prod_id: selected_prod_idx = i + 1
-        prod_combo.setCurrentIndex(selected_prod_idx)
-        if isinstance(prod_combo.completer(), QCompleter): prod_combo.completer().setModel(prod_combo.model())
+        prod_cell_widget = self.lines_table.cellWidget(row, self.COL_PROD)
+        prod_combo = prod_cell_widget.findChild(QComboBox) if prod_cell_widget else None
+        if prod_combo:
+            prod_combo.clear(); prod_combo.addItem("-- Select Product/Service --", 0)
+            current_prod_id = line_data.get("product_id") if line_data else None
+            selected_prod_idx = 0 
+            for i, prod_dict in enumerate(self._products_cache):
+                price_val = prod_dict.get('purchase_price') 
+                price_str = f"{Decimal(str(price_val)):.2f}" if price_val is not None else "N/A"
+                prod_type_val = prod_dict.get('product_type')
+                type_str = prod_type_val if isinstance(prod_type_val, str) else (prod_type_val.value if isinstance(prod_type_val, ProductTypeEnum) else "Unknown")
+                display_text = f"{prod_dict['product_code']} - {prod_dict['name']} (Cost: {price_str})"
+                prod_combo.addItem(display_text, prod_dict['id'])
+                if prod_dict['id'] == current_prod_id: selected_prod_idx = i + 1
+            prod_combo.setCurrentIndex(selected_prod_idx)
+            if isinstance(prod_combo.completer(), QCompleter): prod_combo.completer().setModel(prod_combo.model())
         
         tax_combo = cast(QComboBox, self.lines_table.cellWidget(row, self.COL_TAX_CODE))
-        tax_combo.clear(); tax_combo.addItem("None", "") 
-        current_tax_code_str = line_data.get("tax_code") if line_data else None
-        selected_tax_idx = 0 
-        for i, tc_dict in enumerate(self._tax_codes_cache):
-            tax_combo.addItem(tc_dict['description'], tc_dict['code']) 
-            if tc_dict['code'] == current_tax_code_str: selected_tax_idx = i + 1
-        tax_combo.setCurrentIndex(selected_tax_idx)
+        if tax_combo:
+            tax_combo.clear(); tax_combo.addItem("None", "") 
+            current_tax_code_str = line_data.get("tax_code") if line_data else None
+            selected_tax_idx = 0 
+            for i, tc_dict in enumerate(self._tax_codes_cache):
+                tax_combo.addItem(tc_dict['description'], tc_dict['code']) 
+                if tc_dict['code'] == current_tax_code_str: selected_tax_idx = i + 1
+            tax_combo.setCurrentIndex(selected_tax_idx)
 
     @Slot(int)
     def _on_line_product_changed(self, row:int, product_id_data: Any): 
@@ -1858,13 +1876,21 @@ class PurchaseInvoiceDialog(QDialog):
         
         if product_detail:
             desc_item = self.lines_table.item(row, self.COL_DESC)
-            if desc_item and (not desc_item.text().strip() or "-- Select Product/Service --" in cast(QComboBox, self.lines_table.cellWidget(row,self.COL_PROD)).itemText(0)):
+            prod_cell_widget = self.lines_table.cellWidget(row, self.COL_PROD)
+            prod_combo = prod_cell_widget.findChild(QComboBox) if prod_cell_widget else None
+
+            if desc_item and prod_combo and (not desc_item.text().strip() or "-- Select Product/Service --" in prod_combo.itemText(0)):
                 desc_item.setText(product_detail.get('name', ''))
             
             price_widget = cast(QDoubleSpinBox, self.lines_table.cellWidget(row, self.COL_PRICE))
             if price_widget and price_widget.value() == 0.0 and product_detail.get('purchase_price') is not None: 
                 try: price_widget.setValue(float(Decimal(str(product_detail['purchase_price']))))
                 except: pass 
+            
+            tax_combo = cast(QComboBox, self.lines_table.cellWidget(row, self.COL_TAX_CODE))
+            if tax_combo and product_detail.get('tax_code'): 
+                tax_idx = tax_combo.findData(product_detail['tax_code'])
+                if tax_idx != -1: tax_combo.setCurrentIndex(tax_idx)
         self._calculate_line_item_totals(row)
 
     def _remove_selected_invoice_line(self):
@@ -1888,7 +1914,11 @@ class PurchaseInvoiceDialog(QDialog):
             if sender_widget and isinstance(sender_widget, QWidget):
                 for r in range(self.lines_table.rowCount()):
                     for c in [self.COL_QTY, self.COL_PRICE, self.COL_DISC_PCT, self.COL_TAX_CODE, self.COL_PROD]:
-                        if self.lines_table.cellWidget(r,c) == sender_widget: current_row = r; break
+                        cell_w = self.lines_table.cellWidget(r,c)
+                        if isinstance(cell_w, QWidget) and cell_w.isAncestorOf(sender_widget): 
+                            current_row = r; break
+                        elif cell_w == sender_widget:
+                            current_row = r; break
                     if current_row is not None: break
         if current_row is not None: self._calculate_line_item_totals(current_row)
 
@@ -1903,59 +1933,40 @@ class PurchaseInvoiceDialog(QDialog):
             price_w = cast(QDoubleSpinBox, self.lines_table.cellWidget(row, self.COL_PRICE))
             disc_pct_w = cast(QDoubleSpinBox, self.lines_table.cellWidget(row, self.COL_DISC_PCT))
             tax_combo_w = cast(QComboBox, self.lines_table.cellWidget(row, self.COL_TAX_CODE))
-
-            qty = Decimal(str(qty_w.value())) if qty_w else Decimal(0)
-            price = Decimal(str(price_w.value())) if price_w else Decimal(0)
+            qty = Decimal(str(qty_w.value())) if qty_w else Decimal(0); price = Decimal(str(price_w.value())) if price_w else Decimal(0)
             disc_pct = Decimal(str(disc_pct_w.value())) if disc_pct_w else Decimal(0)
-            
             discount_amount = (qty * price * (disc_pct / Decimal(100))).quantize(Decimal("0.0001"), ROUND_HALF_UP)
             line_subtotal_before_tax = (qty * price) - discount_amount
-            
             tax_code_str = tax_combo_w.currentData() if tax_combo_w and tax_combo_w.currentIndex() > 0 else None
             line_tax_amount = Decimal(0)
-            
             if tax_code_str and line_subtotal_before_tax != Decimal(0):
                 tax_code_detail = next((tc for tc in self._tax_codes_cache if tc.get("code") == tax_code_str), None)
                 if tax_code_detail and tax_code_detail.get("rate") is not None:
                     rate = Decimal(str(tax_code_detail["rate"]))
                     line_tax_amount = (line_subtotal_before_tax * (rate / Decimal(100))).quantize(Decimal("0.01"), ROUND_HALF_UP)
-            
             line_total = line_subtotal_before_tax + line_tax_amount
-
-            subtotal_item = self.lines_table.item(row, self.COL_SUBTOTAL)
+            subtotal_item = self.lines_table.item(row, self.COL_SUBTOTAL); tax_amt_item = self.lines_table.item(row, self.COL_TAX_AMT); total_item = self.lines_table.item(row, self.COL_TOTAL)
             if not subtotal_item: subtotal_item = QTableWidgetItem(); self.lines_table.setItem(row, self.COL_SUBTOTAL, subtotal_item)
             subtotal_item.setText(self._format_decimal_for_cell(line_subtotal_before_tax.quantize(Decimal("0.01")), False))
-            
-            tax_amt_item = self.lines_table.item(row, self.COL_TAX_AMT)
             if not tax_amt_item: tax_amt_item = QTableWidgetItem(); self.lines_table.setItem(row, self.COL_TAX_AMT, tax_amt_item)
             tax_amt_item.setText(self._format_decimal_for_cell(line_tax_amount, True))
-            
-            total_item = self.lines_table.item(row, self.COL_TOTAL)
             if not total_item: total_item = QTableWidgetItem(); self.lines_table.setItem(row, self.COL_TOTAL, total_item)
             total_item.setText(self._format_decimal_for_cell(line_total.quantize(Decimal("0.01")), False))
-
         except Exception as e:
             self.app_core.logger.error(f"Error calculating PI line totals for row {row}: {e}", exc_info=True)
             for col_idx in [self.COL_SUBTOTAL, self.COL_TAX_AMT, self.COL_TOTAL]:
-                item = self.lines_table.item(row, col_idx)
+                item = self.lines_table.item(row, col_idx); 
                 if item: item.setText("Error")
-        finally:
-            self._update_invoice_totals()
+        finally: self._update_invoice_totals()
 
     def _update_invoice_totals(self):
-        invoice_subtotal_agg = Decimal(0)
-        total_tax_agg = Decimal(0)
+        invoice_subtotal_agg = Decimal(0); total_tax_agg = Decimal(0)
         for r in range(self.lines_table.rowCount()):
             try:
-                sub_item = self.lines_table.item(r, self.COL_SUBTOTAL)
-                tax_item = self.lines_table.item(r, self.COL_TAX_AMT)
-                if sub_item and sub_item.text() and sub_item.text() != "Error": 
-                    invoice_subtotal_agg += Decimal(sub_item.text().replace(',',''))
-                if tax_item and tax_item.text() and tax_item.text() != "Error": 
-                    total_tax_agg += Decimal(tax_item.text().replace(',',''))
-            except (InvalidOperation, AttributeError) as e:
-                 self.app_core.logger.warning(f"Could not parse amount from PI line {r} during total update: {e}")
-        
+                sub_item = self.lines_table.item(r, self.COL_SUBTOTAL); tax_item = self.lines_table.item(r, self.COL_TAX_AMT)
+                if sub_item and sub_item.text() and sub_item.text() != "Error": invoice_subtotal_agg += Decimal(sub_item.text().replace(',',''))
+                if tax_item and tax_item.text() and tax_item.text() != "Error": total_tax_agg += Decimal(tax_item.text().replace(',',''))
+            except (InvalidOperation, AttributeError) as e: self.app_core.logger.warning(f"Could not parse amount from PI line {r} during total update: {e}")
         grand_total_agg = invoice_subtotal_agg + total_tax_agg
         self.subtotal_display.setText(self._format_decimal_for_cell(invoice_subtotal_agg, False))
         self.total_tax_display.setText(self._format_decimal_for_cell(total_tax_agg, False))
@@ -1963,136 +1974,74 @@ class PurchaseInvoiceDialog(QDialog):
         
     def _collect_data(self) -> Optional[Union[PurchaseInvoiceCreateData, PurchaseInvoiceUpdateData]]:
         vendor_id_data = self.vendor_combo.currentData()
-        if not vendor_id_data or vendor_id_data == 0:
-            QMessageBox.warning(self, "Validation Error", "Vendor must be selected.")
-            return None
+        if not vendor_id_data or vendor_id_data == 0: QMessageBox.warning(self, "Validation Error", "Vendor must be selected."); return None
         vendor_id = int(vendor_id_data)
-
         vendor_invoice_no_str = self.vendor_invoice_no_edit.text().strip() or None
-        if not vendor_invoice_no_str: # Vendor invoice number is generally mandatory for PI
-            QMessageBox.warning(self, "Validation Error", "Vendor Invoice No. is required.")
-            return None
-
-
-        invoice_date_py = self.invoice_date_edit.date().toPython()
-        due_date_py = self.due_date_edit.date().toPython()
-        if due_date_py < invoice_date_py:
-            QMessageBox.warning(self, "Validation Error", "Due date cannot be before invoice date.")
-            return None
-        
+        if not vendor_invoice_no_str: QMessageBox.warning(self, "Validation Error", "Vendor Invoice No. is required."); return None
+        invoice_date_py = self.invoice_date_edit.date().toPython(); due_date_py = self.due_date_edit.date().toPython()
+        if due_date_py < invoice_date_py: QMessageBox.warning(self, "Validation Error", "Due date cannot be before invoice date."); return None
         line_dtos: List[PurchaseInvoiceLineBaseData] = []
         for r in range(self.lines_table.rowCount()):
             try:
-                prod_combo = cast(QComboBox, self.lines_table.cellWidget(r, self.COL_PROD))
-                desc_item = self.lines_table.item(r, self.COL_DESC)
-                qty_spin = cast(QDoubleSpinBox, self.lines_table.cellWidget(r, self.COL_QTY))
-                price_spin = cast(QDoubleSpinBox, self.lines_table.cellWidget(r, self.COL_PRICE))
-                disc_pct_spin = cast(QDoubleSpinBox, self.lines_table.cellWidget(r, self.COL_DISC_PCT))
+                prod_cell_widget = self.lines_table.cellWidget(r, self.COL_PROD)
+                prod_combo = prod_cell_widget.findChild(QComboBox) if prod_cell_widget else None
+                desc_item = self.lines_table.item(r, self.COL_DESC); qty_spin = cast(QDoubleSpinBox, self.lines_table.cellWidget(r, self.COL_QTY))
+                price_spin = cast(QDoubleSpinBox, self.lines_table.cellWidget(r, self.COL_PRICE)); disc_pct_spin = cast(QDoubleSpinBox, self.lines_table.cellWidget(r, self.COL_DISC_PCT))
                 tax_combo = cast(QComboBox, self.lines_table.cellWidget(r, self.COL_TAX_CODE))
-
                 product_id_data = prod_combo.currentData() if prod_combo else None
                 product_id = int(product_id_data) if product_id_data and product_id_data != 0 else None
-                
-                description = desc_item.text().strip() if desc_item else ""
-                quantity = Decimal(str(qty_spin.value()))
-                unit_price = Decimal(str(price_spin.value()))
-                discount_percent = Decimal(str(disc_pct_spin.value()))
+                description = desc_item.text().strip() if desc_item else ""; quantity = Decimal(str(qty_spin.value()))
+                unit_price = Decimal(str(price_spin.value())); discount_percent = Decimal(str(disc_pct_spin.value()))
                 tax_code_str = tax_combo.currentData() if tax_combo and tax_combo.currentData() else None
-
                 if not description and not product_id: continue 
-                if quantity <= 0:
-                    QMessageBox.warning(self, "Validation Error", f"Quantity must be positive on line {r+1}.")
-                    return None
-                if unit_price < 0: # For PI, unit price from vendor can be anything, but usually >=0
-                     pass # Allow negative for credit notes from vendor, but usually not on PI
-
-                line_dtos.append(PurchaseInvoiceLineBaseData(
-                    product_id=product_id, description=description, quantity=quantity,
-                    unit_price=unit_price, discount_percent=discount_percent, tax_code=tax_code_str
-                    # Dimensions not yet handled in this dialog
-                ))
-            except Exception as e:
-                QMessageBox.warning(self, "Input Error", f"Error processing line {r + 1}: {str(e)}"); return None
-        
-        if not line_dtos:
-            QMessageBox.warning(self, "Input Error", "Purchase invoice must have at least one valid line item."); return None
-
-        common_data = {
-            "vendor_id": vendor_id, 
-            "vendor_invoice_no": vendor_invoice_no_str,
-            "invoice_date": invoice_date_py, "due_date": due_date_py,
-            "currency_code": self.currency_combo.currentData() or self._base_currency,
-            "exchange_rate": Decimal(str(self.exchange_rate_spin.value())),
-            "notes": self.notes_edit.toPlainText().strip() or None,
-            "user_id": self.current_user_id, "lines": line_dtos
-        }
+                if quantity <= 0: QMessageBox.warning(self, "Validation Error", f"Quantity must be positive on line {r+1}."); return None
+                line_dtos.append(PurchaseInvoiceLineBaseData(product_id=product_id, description=description, quantity=quantity, unit_price=unit_price, discount_percent=discount_percent, tax_code=tax_code_str))
+            except Exception as e: QMessageBox.warning(self, "Input Error", f"Error processing line {r + 1}: {str(e)}"); return None
+        if not line_dtos: QMessageBox.warning(self, "Input Error", "Purchase invoice must have at least one valid line item."); return None
+        common_data = { "vendor_id": vendor_id, "vendor_invoice_no": vendor_invoice_no_str, "invoice_date": invoice_date_py, "due_date": due_date_py, "currency_code": self.currency_combo.currentData() or self._base_currency, "exchange_rate": Decimal(str(self.exchange_rate_spin.value())), "notes": self.notes_edit.toPlainText().strip() or None, "user_id": self.current_user_id, "lines": line_dtos }
         try:
             if self.invoice_id: return PurchaseInvoiceUpdateData(id=self.invoice_id, **common_data) 
             else: return PurchaseInvoiceCreateData(**common_data) 
-        except ValueError as ve: 
-            QMessageBox.warning(self, "Validation Error", f"Data validation failed:\n{str(ve)}"); return None
+        except ValueError as ve: QMessageBox.warning(self, "Validation Error", f"Data validation failed:\n{str(ve)}"); return None
 
     @Slot()
     def on_save_draft(self):
-        if self.view_only_mode or (self.loaded_invoice_orm and self.loaded_invoice_orm.status != InvoiceStatusEnum.DRAFT.value):
-             QMessageBox.information(self, "Info", "Cannot save. Invoice is not a draft or in view-only mode.")
-             return
-        
+        if self.view_only_mode or (self.loaded_invoice_orm and self.loaded_invoice_orm.status != InvoiceStatusEnum.DRAFT.value): QMessageBox.information(self, "Info", "Cannot save. Invoice is not a draft or in view-only mode."); return
         dto = self._collect_data()
-        if dto:
+        if dto: 
             self._set_buttons_for_async_operation(True)
             future = schedule_task_from_qt(self._perform_save(dto, post_invoice_after=False))
-            if future: future.add_done_callback(lambda _: self._set_buttons_for_async_operation(False))
-            else: self._set_buttons_for_async_operation(False) 
+            if future:
+                future.add_done_callback(
+                    lambda res: QMetaObject.invokeMethod(
+                        self, "_safe_set_buttons_for_async_operation_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(bool, False)
+                    )
+                )
+            else:
+                self.app_core.logger.error("Failed to schedule _perform_save task in on_save_draft for Purchase Invoice.")
+                self._set_buttons_for_async_operation(False) # Re-enable buttons if scheduling failed
+
 
     @Slot()
-    def on_save_and_approve(self):
-        QMessageBox.information(self, "Not Implemented", "Save & Approve for Purchase Invoices is not yet available.")
+    def on_save_and_approve(self): QMessageBox.information(self, "Not Implemented", "Save & Approve for Purchase Invoices is not yet available.")
+
+    @Slot(bool)
+    def _safe_set_buttons_for_async_operation_slot(self, busy: bool):
+        self._set_buttons_for_async_operation(busy)
 
     def _set_buttons_for_async_operation(self, busy: bool):
         self.save_draft_button.setEnabled(not busy)
-        self.save_approve_button.setEnabled(False) # Always disabled for PI for now
+        self.save_approve_button.setEnabled(False) 
 
     async def _perform_save(self, dto: Union[PurchaseInvoiceCreateData, PurchaseInvoiceUpdateData], post_invoice_after: bool):
-        if not self.app_core.purchase_invoice_manager:
-            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
-                Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str, "Purchase Invoice Manager not available."))
-            return
-
-        save_result: Result[PurchaseInvoice]
-        is_update = isinstance(dto, PurchaseInvoiceUpdateData)
-        action_verb_past = "updated" if is_update else "created"
-
-        if is_update:
-            save_result = await self.app_core.purchase_invoice_manager.update_draft_purchase_invoice(dto.id, dto) 
-        else:
-            save_result = await self.app_core.purchase_invoice_manager.create_draft_purchase_invoice(dto) 
-
-        if not save_result.is_success or not save_result.value:
-            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "warning", Qt.ConnectionType.QueuedConnection,
-                Q_ARG(QWidget, self), Q_ARG(str, "Save Error"), 
-                Q_ARG(str, f"Failed to {('update' if is_update else 'create')} purchase invoice draft:\n{', '.join(save_result.errors)}"))
-            return 
-
-        saved_invoice = save_result.value
-        self.invoice_saved.emit(saved_invoice.id) 
-        self.invoice_id = saved_invoice.id 
-        self.loaded_invoice_orm = saved_invoice 
-        self.setWindowTitle(self._get_window_title()) 
-        self.our_ref_no_label.setText(saved_invoice.invoice_no) 
-        self.our_ref_no_label.setStyleSheet("font-style: normal; color: black;")
-
-        if not post_invoice_after: 
-            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "information", Qt.ConnectionType.QueuedConnection,
-                Q_ARG(QWidget, self), Q_ARG(str, "Success"), 
-                Q_ARG(str, f"Purchase Invoice draft {action_verb_past} successfully (ID: {saved_invoice.id}, Our Ref: {saved_invoice.invoice_no})."))
-            self._set_read_only_state(self.view_only_mode or (saved_invoice.status != InvoiceStatusEnum.DRAFT.value)) 
-            # For PI draft, we typically close the dialog after saving.
-            QMetaObject.invokeMethod(self, "accept", Qt.ConnectionType.QueuedConnection)
-            return
-        
-        # PI Posting logic would be here, currently unreachable
-        # ...
+        if not self.app_core.purchase_invoice_manager: QMessageBox.critical(self, "Error", "Purchase Invoice Manager not available."); return
+        save_result: Result[PurchaseInvoice]; is_update = isinstance(dto, PurchaseInvoiceUpdateData); action_verb_past = "updated" if is_update else "created"
+        if is_update: save_result = await self.app_core.purchase_invoice_manager.update_draft_purchase_invoice(dto.id, dto) 
+        else: save_result = await self.app_core.purchase_invoice_manager.create_draft_purchase_invoice(dto) 
+        if not save_result.is_success or not save_result.value: QMessageBox.warning(self, "Save Error", f"Failed to {('update' if is_update else 'create')} purchase invoice draft:\n{', '.join(save_result.errors)}"); return 
+        saved_invoice = save_result.value; self.invoice_saved.emit(saved_invoice.id); self.invoice_id = saved_invoice.id; self.loaded_invoice_orm = saved_invoice; self.setWindowTitle(self._get_window_title()); self.our_ref_no_label.setText(saved_invoice.invoice_no); self.our_ref_no_label.setStyleSheet("font-style: normal; color: black;")
+        if not post_invoice_after: QMessageBox.information(self, "Success", f"Purchase Invoice draft {action_verb_past} successfully (ID: {saved_invoice.id}, Our Ref: {saved_invoice.invoice_no})."); self._set_read_only_state(self.view_only_mode or (saved_invoice.status != InvoiceStatusEnum.DRAFT.value)); self.accept(); return
+        # PI Posting logic here if post_invoice_after is True
 
     @Slot(int)
     def _on_vendor_changed(self, index: int):
@@ -2102,21 +2051,17 @@ class PurchaseInvoiceDialog(QDialog):
             if vendor_data and vendor_data.get("currency_code"):
                 curr_idx = self.currency_combo.findData(vendor_data["currency_code"])
                 if curr_idx != -1: self.currency_combo.setCurrentIndex(curr_idx)
-            if vendor_data and vendor_data.get("payment_terms") is not None:
-                self.due_date_edit.setDate(self.invoice_date_edit.date().addDays(int(vendor_data["payment_terms"])))
+            if vendor_data and vendor_data.get("payment_terms") is not None: self.due_date_edit.setDate(self.invoice_date_edit.date().addDays(int(vendor_data["payment_terms"])))
 
     @Slot(int)
     def _on_currency_changed(self, index: int):
-        currency_code = self.currency_combo.currentData()
-        is_base = (currency_code == self._base_currency)
-        self.exchange_rate_spin.setEnabled(not is_base and not self.view_only_mode) 
-        self.exchange_rate_spin.setReadOnly(is_base or self.view_only_mode) 
+        currency_code = self.currency_combo.currentData(); is_base = (currency_code == self._base_currency)
+        self.exchange_rate_spin.setEnabled(not is_base and not self.view_only_mode); self.exchange_rate_spin.setReadOnly(is_base or self.view_only_mode); 
         if is_base: self.exchange_rate_spin.setValue(1.0)
 
     @Slot(QDate)
     def _on_invoice_date_changed(self, new_date: QDate):
-        vendor_id = self.vendor_combo.currentData()
-        terms = 30 
+        vendor_id = self.vendor_combo.currentData(); terms = 30 
         if vendor_id and vendor_id != 0 and self._vendors_cache:
             vendor_data = next((v for v in self._vendors_cache if v.get("id") == vendor_id), None)
             if vendor_data and vendor_data.get("payment_terms") is not None:
@@ -2124,19 +2069,44 @@ class PurchaseInvoiceDialog(QDialog):
                 except: pass
         self.due_date_edit.setDate(new_date.addDays(terms))
 
+    @Slot(int)
+    def _on_open_product_search(self, row: int):
+        self._current_search_target_row = row
+        search_dialog = ProductSearchDialog(self.app_core, self)
+        search_dialog.product_selected.connect(self._handle_product_selected_from_search)
+        search_dialog.exec()
+
+    @Slot(object)
+    def _handle_product_selected_from_search(self, product_summary_dict_obj: object):
+        if self._current_search_target_row is None: return
+        target_row = self._current_search_target_row
+        try:
+            product_data_dict = cast(Dict[str, Any], product_summary_dict_obj)
+            product_id = product_data_dict.get("id")
+            if product_id is None: return
+            prod_cell_widget = self.lines_table.cellWidget(target_row, self.COL_PROD)
+            prod_combo = prod_cell_widget.findChild(QComboBox) if prod_cell_widget else None
+            if prod_combo:
+                found_idx = prod_combo.findData(product_id)
+                if found_idx != -1: prod_combo.setCurrentIndex(found_idx) 
+                else: self.app_core.logger.warning(f"Product ID {product_id} from search not in line combo for PI row {target_row}. Forcing."); self._on_line_product_changed(target_row, product_id) 
+            else: self.app_core.logger.error(f"Product combo not found for PI row {target_row}.")
+        except Exception as e: self.app_core.logger.error(f"Error handling product selected from search for PI: {e}", exc_info=True); QMessageBox.warning(self, "Product Selection Error", f"Could not apply product: {str(e)}")
+        finally: self._current_search_target_row = None
+
 
 ```
 
 # app/ui/purchase_invoices/purchase_invoices_widget.py
 ```py
-# app/ui/purchase_invoices/purchase_invoices_widget.py
+# File: app/ui/purchase_invoices/purchase_invoices_widget.py
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableView, QPushButton, 
     QToolBar, QMenu, QHeaderView, QAbstractItemView, QMessageBox,
-    QLabel, QLineEdit, QCheckBox, QComboBox, QDateEdit, QCompleter # QCompleter added here
+    QLabel, QLineEdit, QCheckBox, QComboBox, QDateEdit, QCompleter
 )
 from PySide6.QtCore import Qt, Slot, QTimer, QMetaObject, Q_ARG, QModelIndex, QSize, QDate
-from PySide6.QtGui import QIcon, QAction # QCompleter removed from here
+from PySide6.QtGui import QIcon, QAction
 from typing import Optional, List, Dict, Any, TYPE_CHECKING
 
 import json
@@ -2237,7 +2207,7 @@ class PurchaseInvoicesWidget(QWidget):
         
         self.toolbar_post_action = QAction(QIcon(self.icon_path_prefix + "post.svg"), "Post P.Invoice(s)", self)
         self.toolbar_post_action.triggered.connect(self._on_post_invoice) 
-        self.toolbar_post_action.setEnabled(False) 
+        # self.toolbar_post_action.setEnabled(False) # Now managed by _update_action_states
         self.toolbar.addAction(self.toolbar_post_action)
 
         self.toolbar.addSeparator()
@@ -2245,46 +2215,34 @@ class PurchaseInvoicesWidget(QWidget):
         self.toolbar_refresh_action.triggered.connect(lambda: schedule_task_from_qt(self._load_invoices()))
         self.toolbar.addAction(self.toolbar_refresh_action)
 
+    # ... (_create_filter_area, _load_vendors_for_filter_combo, _populate_vendors_filter_slot, _clear_filters_and_load - unchanged from file set 3)
     def _create_filter_area(self):
         self.filter_layout = QHBoxLayout() 
-        
         self.filter_layout.addWidget(QLabel("Vendor:"))
-        self.vendor_filter_combo = QComboBox()
-        self.vendor_filter_combo.setMinimumWidth(200)
-        self.vendor_filter_combo.addItem("All Vendors", 0) 
-        self.vendor_filter_combo.setEditable(True) # Make editable for completer
+        self.vendor_filter_combo = QComboBox(); self.vendor_filter_combo.setMinimumWidth(200)
+        self.vendor_filter_combo.addItem("All Vendors", 0); self.vendor_filter_combo.setEditable(True) 
         self.vendor_filter_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
-        vend_completer = QCompleter(self) # Pass self as parent
-        vend_completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        vend_completer = QCompleter(self); vend_completer.setFilterMode(Qt.MatchFlag.MatchContains)
         vend_completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
-        self.vendor_filter_combo.setCompleter(vend_completer)
-        self.filter_layout.addWidget(self.vendor_filter_combo)
-
+        self.vendor_filter_combo.setCompleter(vend_completer); self.filter_layout.addWidget(self.vendor_filter_combo)
         self.filter_layout.addWidget(QLabel("Status:"))
-        self.status_filter_combo = QComboBox()
-        self.status_filter_combo.addItem("All Statuses", None) 
-        for status_enum in InvoiceStatusEnum: 
-            self.status_filter_combo.addItem(status_enum.value, status_enum)
+        self.status_filter_combo = QComboBox(); self.status_filter_combo.addItem("All Statuses", None) 
+        for status_enum in InvoiceStatusEnum: self.status_filter_combo.addItem(status_enum.value, status_enum)
         self.filter_layout.addWidget(self.status_filter_combo)
-
         self.filter_layout.addWidget(QLabel("From:"))
         self.start_date_filter_edit = QDateEdit(QDate.currentDate().addMonths(-3))
         self.start_date_filter_edit.setCalendarPopup(True); self.start_date_filter_edit.setDisplayFormat("dd/MM/yyyy")
         self.filter_layout.addWidget(self.start_date_filter_edit)
-
         self.filter_layout.addWidget(QLabel("To:"))
         self.end_date_filter_edit = QDateEdit(QDate.currentDate())
         self.end_date_filter_edit.setCalendarPopup(True); self.end_date_filter_edit.setDisplayFormat("dd/MM/yyyy")
         self.filter_layout.addWidget(self.end_date_filter_edit)
-
         self.apply_filter_button = QPushButton(QIcon(self.icon_path_prefix + "filter.svg"), "Apply")
         self.apply_filter_button.clicked.connect(lambda: schedule_task_from_qt(self._load_invoices()))
         self.filter_layout.addWidget(self.apply_filter_button)
-        
         self.clear_filter_button = QPushButton(QIcon(self.icon_path_prefix + "refresh.svg"), "Clear")
         self.clear_filter_button.clicked.connect(self._clear_filters_and_load)
-        self.filter_layout.addWidget(self.clear_filter_button)
-        self.filter_layout.addStretch()
+        self.filter_layout.addWidget(self.clear_filter_button); self.filter_layout.addStretch()
 
     async def _load_vendors_for_filter_combo(self):
         if not self.app_core.vendor_manager: return
@@ -2294,83 +2252,70 @@ class PurchaseInvoicesWidget(QWidget):
                 self._vendors_cache_for_filter = result.value
                 vendors_json = json.dumps([v.model_dump() for v in result.value], default=json_converter)
                 QMetaObject.invokeMethod(self, "_populate_vendors_filter_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, vendors_json))
-        except Exception as e:
-            self.app_core.logger.error(f"Error loading vendors for filter: {e}", exc_info=True)
+        except Exception as e: self.app_core.logger.error(f"Error loading vendors for filter: {e}", exc_info=True)
 
     @Slot(str)
     def _populate_vendors_filter_slot(self, vendors_json_str: str):
-        current_selection_data = self.vendor_filter_combo.currentData()
-        self.vendor_filter_combo.clear()
+        current_selection_data = self.vendor_filter_combo.currentData(); self.vendor_filter_combo.clear()
         self.vendor_filter_combo.addItem("All Vendors", 0) 
         try:
             vendors_data = json.loads(vendors_json_str)
             self._vendors_cache_for_filter = [VendorSummaryData.model_validate(v) for v in vendors_data]
-            for vend_summary in self._vendors_cache_for_filter:
-                self.vendor_filter_combo.addItem(f"{vend_summary.vendor_code} - {vend_summary.name}", vend_summary.id)
-            
-            # Restore selection if possible
+            for vend_summary in self._vendors_cache_for_filter: self.vendor_filter_combo.addItem(f"{vend_summary.vendor_code} - {vend_summary.name}", vend_summary.id)
             idx = self.vendor_filter_combo.findData(current_selection_data)
-            if idx != -1:
-                self.vendor_filter_combo.setCurrentIndex(idx)
-            
-            if isinstance(self.vendor_filter_combo.completer(), QCompleter): # Update completer model
-                 self.vendor_filter_combo.completer().setModel(self.vendor_filter_combo.model())
-        except json.JSONDecodeError as e:
-            self.app_core.logger.error(f"Failed to parse vendors JSON for filter: {e}")
+            if idx != -1: self.vendor_filter_combo.setCurrentIndex(idx)
+            if isinstance(self.vendor_filter_combo.completer(), QCompleter): self.vendor_filter_combo.completer().setModel(self.vendor_filter_combo.model())
+        except json.JSONDecodeError as e: self.app_core.logger.error(f"Failed to parse vendors JSON for filter: {e}")
 
     @Slot()
     def _clear_filters_and_load(self):
-        self.vendor_filter_combo.setCurrentIndex(0) 
-        self.status_filter_combo.setCurrentIndex(0)   
-        self.start_date_filter_edit.setDate(QDate.currentDate().addMonths(-3))
-        self.end_date_filter_edit.setDate(QDate.currentDate())
+        self.vendor_filter_combo.setCurrentIndex(0); self.status_filter_combo.setCurrentIndex(0)   
+        self.start_date_filter_edit.setDate(QDate.currentDate().addMonths(-3)); self.end_date_filter_edit.setDate(QDate.currentDate())
         schedule_task_from_qt(self._load_invoices())
-
+        
     @Slot()
     def _update_action_states(self):
         selected_rows = self.invoices_table.selectionModel().selectedRows()
         single_selection = len(selected_rows) == 1
         can_edit_draft = False
-        
+        can_post_any_selected = False
+
         if single_selection:
             row = selected_rows[0].row()
             status = self.table_model.get_invoice_status_at_row(row)
             if status == InvoiceStatusEnum.DRAFT:
                 can_edit_draft = True
+        
+        if selected_rows:
+            can_post_any_selected = any(
+                self.table_model.get_invoice_status_at_row(idx.row()) == InvoiceStatusEnum.DRAFT
+                for idx in selected_rows
+            )
             
         self.toolbar_edit_action.setEnabled(can_edit_draft)
         self.toolbar_view_action.setEnabled(single_selection)
-        self.toolbar_post_action.setEnabled(False) 
+        self.toolbar_post_action.setEnabled(can_post_any_selected) 
 
     async def _load_invoices(self):
-        if not self.app_core.purchase_invoice_manager:
-            self.app_core.logger.error("PurchaseInvoiceManager not available."); return
+        if not self.app_core.purchase_invoice_manager: self.app_core.logger.error("PurchaseInvoiceManager not available."); return
         try:
             vend_id_data = self.vendor_filter_combo.currentData()
             vendor_id_filter = int(vend_id_data) if vend_id_data and vend_id_data != 0 else None
-            
             status_enum_data = self.status_filter_combo.currentData()
             status_filter_val: Optional[InvoiceStatusEnum] = status_enum_data if isinstance(status_enum_data, InvoiceStatusEnum) else None
-            
-            start_date_filter = self.start_date_filter_edit.date().toPython()
-            end_date_filter = self.end_date_filter_edit.date().toPython()
-
+            start_date_filter = self.start_date_filter_edit.date().toPython(); end_date_filter = self.end_date_filter_edit.date().toPython()
             result: Result[List[PurchaseInvoiceSummaryData]] = await self.app_core.purchase_invoice_manager.get_invoices_for_listing(
-                vendor_id=vendor_id_filter, status=status_filter_val,
-                start_date=start_date_filter, end_date=end_date_filter,
-                page=1, page_size=200 
-            )
-            
+                vendor_id=vendor_id_filter, status=status_filter_val, start_date=start_date_filter, end_date=end_date_filter, page=1, page_size=200)
             if result.is_success:
                 data_for_table = result.value if result.value is not None else []
                 json_data = json.dumps([dto.model_dump() for dto in data_for_table], default=json_converter)
                 QMetaObject.invokeMethod(self, "_update_table_model_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, json_data))
             else:
                 QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "warning", Qt.ConnectionType.QueuedConnection,
-                    Q_ARG(QWidget, self), Q_ARG(str, "Load Error"), Q_ARG(str, f"Failed to load purchase invoices: {', '.join(result.errors)}"))
+                    Q_ARG(QWidget, self), Q_ARG(str, "Load Error"), Q_ARG(str, f"Failed to load PIs: {', '.join(result.errors)}"))
         except Exception as e:
             QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
-                Q_ARG(QWidget, self), Q_ARG(str, "Load Error"), Q_ARG(str, f"Unexpected error loading purchase invoices: {str(e)}"))
+                Q_ARG(QWidget, self), Q_ARG(str, "Load Error"), Q_ARG(str, f"Unexpected error loading PIs: {str(e)}"))
 
     @Slot(str)
     def _update_table_model_slot(self, json_data_str: str):
@@ -2378,10 +2323,8 @@ class PurchaseInvoicesWidget(QWidget):
             list_of_dicts = json.loads(json_data_str, object_hook=json_date_hook)
             invoice_summaries: List[PurchaseInvoiceSummaryData] = [PurchaseInvoiceSummaryData.model_validate(item) for item in list_of_dicts]
             self.table_model.update_data(invoice_summaries)
-        except Exception as e: 
-            QMessageBox.critical(self, "Data Error", f"Failed to parse/validate purchase invoice data: {e}")
-        finally:
-            self._update_action_states()
+        except Exception as e: QMessageBox.critical(self, "Data Error", f"Failed to parse/validate PI data: {e}")
+        finally: self._update_action_states()
 
     @Slot()
     def _on_new_invoice(self):
@@ -2392,8 +2335,7 @@ class PurchaseInvoicesWidget(QWidget):
 
     def _get_selected_invoice_id_and_status(self) -> tuple[Optional[int], Optional[InvoiceStatusEnum]]:
         selected_rows = self.invoices_table.selectionModel().selectedRows()
-        if not selected_rows or len(selected_rows) > 1:
-            return None, None
+        if not selected_rows or len(selected_rows) > 1: return None, None
         row = selected_rows[0].row()
         inv_id = self.table_model.get_invoice_id_at_row(row)
         inv_status = self.table_model.get_invoice_status_at_row(row)
@@ -2402,10 +2344,9 @@ class PurchaseInvoicesWidget(QWidget):
     @Slot()
     def _on_edit_draft_invoice(self):
         invoice_id, status = self._get_selected_invoice_id_and_status()
-        if invoice_id is None: QMessageBox.information(self, "Selection", "Please select a single purchase invoice to edit."); return
-        if status != InvoiceStatusEnum.DRAFT: QMessageBox.warning(self, "Edit Error", "Only Draft purchase invoices can be edited."); return
+        if invoice_id is None: QMessageBox.information(self, "Selection", "Please select a single PI to edit."); return
+        if status != InvoiceStatusEnum.DRAFT: QMessageBox.warning(self, "Edit Error", "Only Draft PIs can be edited."); return
         if not self.app_core.current_user: QMessageBox.warning(self, "Auth Error", "Please log in."); return
-        
         dialog = PurchaseInvoiceDialog(self.app_core, self.app_core.current_user.id, invoice_id=invoice_id, parent=self)
         dialog.invoice_saved.connect(self._refresh_list_after_save)
         dialog.exec()
@@ -2413,7 +2354,7 @@ class PurchaseInvoicesWidget(QWidget):
     @Slot()
     def _on_view_invoice_toolbar(self):
         invoice_id, _ = self._get_selected_invoice_id_and_status()
-        if invoice_id is None: QMessageBox.information(self, "Selection", "Please select a single purchase invoice to view."); return
+        if invoice_id is None: QMessageBox.information(self, "Selection", "Please select a single PI to view."); return
         self._show_view_invoice_dialog(invoice_id)
 
     @Slot(QModelIndex)
@@ -2430,13 +2371,65 @@ class PurchaseInvoicesWidget(QWidget):
         
     @Slot()
     def _on_post_invoice(self):
-        QMessageBox.information(self, "Post Purchase Invoice", "Posting purchase invoice functionality is not yet implemented.")
+        selected_rows = self.invoices_table.selectionModel().selectedRows()
+        if not selected_rows: QMessageBox.information(self, "Selection", "Please select one or more Draft PIs to post."); return
+        if not self.app_core.current_user: QMessageBox.warning(self, "Auth Error", "Please log in to post PIs."); return
+        
+        draft_invoice_ids_to_post: List[int] = []
+        non_draft_selected_count = 0
+        for index in selected_rows:
+            inv_id = self.table_model.get_invoice_id_at_row(index.row())
+            status = self.table_model.get_invoice_status_at_row(index.row())
+            if inv_id and status == InvoiceStatusEnum.DRAFT: draft_invoice_ids_to_post.append(inv_id)
+            elif inv_id: non_draft_selected_count += 1
+        
+        if not draft_invoice_ids_to_post: QMessageBox.information(self, "Selection", "No Draft PIs selected for posting."); return
+        
+        warning_message = f"\n\nNote: {non_draft_selected_count} selected PIs are not 'Draft' and will be ignored." if non_draft_selected_count > 0 else ""
+        reply = QMessageBox.question(self, "Confirm Posting", 
+                                     f"Are you sure you want to post {len(draft_invoice_ids_to_post)} selected draft PIs?\nThis will create JEs and change status to 'Approved'.{warning_message}",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.No: return
+            
+        self.toolbar_post_action.setEnabled(False)
+        schedule_task_from_qt(self._perform_post_invoices(draft_invoice_ids_to_post, self.app_core.current_user.id))
+
+    async def _perform_post_invoices(self, invoice_ids: List[int], user_id: int):
+        if not self.app_core.purchase_invoice_manager:
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str, "Purchase Invoice Manager not available."))
+            self._update_action_states(); return
+
+        success_count = 0; failed_posts: List[str] = []
+        for inv_id_to_post in invoice_ids:
+            invoice_orm_for_no = await self.app_core.purchase_invoice_manager.get_invoice_for_dialog(inv_id_to_post)
+            inv_no_str = invoice_orm_for_no.invoice_no if invoice_orm_for_no else f"ID {inv_id_to_post}"
+            result: Result[PurchaseInvoice] = await self.app_core.purchase_invoice_manager.post_purchase_invoice(inv_id_to_post, user_id)
+            if result.is_success: success_count += 1
+            else: failed_posts.append(f"PI {inv_no_str}: {', '.join(result.errors)}")
+        
+        summary_message_parts = []
+        if success_count > 0: summary_message_parts.append(f"{success_count} PIs posted successfully.")
+        if failed_posts:
+            summary_message_parts.append(f"{len(failed_posts)} PIs failed to post:")
+            summary_message_parts.extend([f"  - {err}" for err in failed_posts])
+        final_message = "\n".join(summary_message_parts) if summary_message_parts else "No PIs were processed."
+        
+        msg_box_method = QMessageBox.information
+        title = "Posting Complete"
+        if failed_posts and success_count == 0: msg_box_method = QMessageBox.critical; title = "Posting Failed"
+        elif failed_posts: msg_box_method = QMessageBox.warning; title = "Posting Partially Successful"
+        
+        QMetaObject.invokeMethod(msg_box_method, "", Qt.ConnectionType.QueuedConnection, 
+            Q_ARG(QWidget, self), Q_ARG(str, title), Q_ARG(str, final_message))
+        
+        schedule_task_from_qt(self._load_invoices())
+
 
     @Slot(int)
     def _refresh_list_after_save(self, invoice_id: int):
         self.app_core.logger.info(f"PurchaseInvoiceDialog reported save for ID: {invoice_id}. Refreshing list.")
         schedule_task_from_qt(self._load_invoices())
-
 
 ```
 

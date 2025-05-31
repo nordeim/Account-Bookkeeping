@@ -1,7 +1,7 @@
 # find pyvenv.cfg pyproject.toml ~/.config/SGBookkeeper/config.ini app data scripts resources tests README.md Technical_Design_Specification_Document.md -type f
 pyvenv.cfg
 pyproject.toml
-~/.config/SGBookkeeper/config.ini
+/home/pete/.config/SGBookkeeper/config.ini
 app/main.py
 app/__init__.py
 app/tax/__init__.py
@@ -92,6 +92,10 @@ app/ui/reports/__pycache__/reports_widget.cpython-312.pyc
 app/ui/reports/__pycache__/trial_balance_table_model.cpython-312.pyc
 app/ui/__pycache__/__init__.cpython-312.pyc
 app/ui/__pycache__/main_window.cpython-312.pyc
+app/ui/shared/__init__.py
+app/ui/shared/product_search_dialog.py
+app/ui/shared/__pycache__/__init__.cpython-312.pyc
+app/ui/shared/__pycache__/product_search_dialog.cpython-312.pyc
 app/ui/accounting/journal_entry_table_model.py
 app/ui/accounting/__init__.py
 app/ui/accounting/chart_of_accounts_widget.py
@@ -158,7 +162,6 @@ app/models/core/__init__.py
 app/models/core/configuration.py
 app/models/core/company_setting.py
 app/models/core/sequence.py
-app/models/core/dimension.py.bak
 app/models/core/user.py
 app/models/core/__pycache__/__init__.cpython-312.pyc
 app/models/core/__pycache__/company_setting.cpython-312.pyc
