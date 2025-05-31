@@ -38,7 +38,8 @@ from app.models.business.vendor import Vendor
 from app.models.business.product import Product
 from app.models.business.sales_invoice import SalesInvoice
 from app.models.business.purchase_invoice import PurchaseInvoice
-from app.models.business.inventory_movement import InventoryMovement # New Import
+from app.models.business.inventory_movement import InventoryMovement
+from app.models.accounting.dimension import Dimension # New Import
 
 # --- DTO Imports (for return types in interfaces) ---
 from app.utils.pydantic_models import (
@@ -89,7 +90,8 @@ class IJournalEntryRepository(IRepository[JournalEntry, int]):
                               end_date_filter: Optional[date] = None, 
                               status_filter: Optional[str] = None,
                               entry_no_filter: Optional[str] = None,
-                              description_filter: Optional[str] = None
+                              description_filter: Optional[str] = None,
+                              journal_type_filter: Optional[str] = None
                              ) -> List[Dict[str, Any]]: pass
 
 class IFiscalPeriodRepository(IRepository[FiscalPeriod, int]): 
@@ -210,11 +212,19 @@ class IPurchaseInvoiceRepository(IRepository[PurchaseInvoice, int]):
                               page_size: int = 50
                              ) -> List[PurchaseInvoiceSummaryData]: pass
 
-# --- New Interface for Inventory Movement ---
 class IInventoryMovementRepository(IRepository[InventoryMovement, int]):
     @abstractmethod
     async def save(self, entity: InventoryMovement) -> InventoryMovement: pass
-    # Add other specific methods if needed, e.g., get_movements_for_product, etc.
+
+# --- New Interface for Dimensions ---
+class IDimensionRepository(IRepository[Dimension, int]):
+    @abstractmethod
+    async def get_distinct_dimension_types(self) -> List[str]: pass
+    @abstractmethod
+    async def get_dimensions_by_type(self, dim_type: str, active_only: bool = True) -> List[Dimension]: pass
+    @abstractmethod
+    async def get_by_type_and_code(self, dim_type: str, code: str) -> Optional[Dimension]: pass
+
 
 # --- Service Implementations ---
 from .account_service import AccountService
@@ -222,10 +232,10 @@ from .journal_service import JournalService
 from .fiscal_period_service import FiscalPeriodService
 from .tax_service import TaxCodeService, GSTReturnService 
 from .core_services import SequenceService, ConfigurationService, CompanySettingsService 
-from .accounting_services import AccountTypeService, CurrencyService, ExchangeRateService, FiscalYearService
+from .accounting_services import AccountTypeService, CurrencyService, ExchangeRateService, FiscalYearService, DimensionService # Added DimensionService
 from .business_services import (
     CustomerService, VendorService, ProductService, 
-    SalesInvoiceService, PurchaseInvoiceService, InventoryMovementService # Added InventoryMovementService
+    SalesInvoiceService, PurchaseInvoiceService, InventoryMovementService
 )
 
 __all__ = [
@@ -236,12 +246,13 @@ __all__ = [
     "ISequenceRepository", "IConfigurationRepository", 
     "ICustomerRepository", "IVendorRepository", "IProductRepository",
     "ISalesInvoiceRepository", "IPurchaseInvoiceRepository", 
-    "IInventoryMovementRepository", # New export
+    "IInventoryMovementRepository", 
+    "IDimensionRepository", # New export
     "AccountService", "JournalService", "FiscalPeriodService", "FiscalYearService",
     "TaxCodeService", "GSTReturnService",
     "SequenceService", "ConfigurationService", "CompanySettingsService",
-    "AccountTypeService", "CurrencyService", "ExchangeRateService",
+    "AccountTypeService", "CurrencyService", "ExchangeRateService", "DimensionService", # New export
     "CustomerService", "VendorService", "ProductService", 
     "SalesInvoiceService", "PurchaseInvoiceService", 
-    "InventoryMovementService", # New export
+    "InventoryMovementService", 
 ]

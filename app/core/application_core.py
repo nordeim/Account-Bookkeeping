@@ -24,10 +24,13 @@ from app.services.journal_service import JournalService
 from app.services.fiscal_period_service import FiscalPeriodService
 from app.services.core_services import SequenceService, CompanySettingsService, ConfigurationService
 from app.services.tax_service import TaxCodeService, GSTReturnService 
-from app.services.accounting_services import AccountTypeService, CurrencyService as CurrencyRepoService, ExchangeRateService, FiscalYearService
+from app.services.accounting_services import (
+    AccountTypeService, CurrencyService as CurrencyRepoService, 
+    ExchangeRateService, FiscalYearService, DimensionService # Added DimensionService
+)
 from app.services.business_services import (
     CustomerService, VendorService, ProductService, 
-    SalesInvoiceService, PurchaseInvoiceService, InventoryMovementService # Added InventoryMovementService
+    SalesInvoiceService, PurchaseInvoiceService, InventoryMovementService
 )
 
 # Utilities
@@ -68,12 +71,13 @@ class ApplicationCore:
         self._account_type_service_instance: Optional[AccountTypeService] = None
         self._currency_repo_service_instance: Optional[CurrencyRepoService] = None
         self._exchange_rate_service_instance: Optional[ExchangeRateService] = None
+        self._dimension_service_instance: Optional[DimensionService] = None # New
         self._customer_service_instance: Optional[CustomerService] = None
         self._vendor_service_instance: Optional[VendorService] = None
         self._product_service_instance: Optional[ProductService] = None
         self._sales_invoice_service_instance: Optional[SalesInvoiceService] = None
         self._purchase_invoice_service_instance: Optional[PurchaseInvoiceService] = None 
-        self._inventory_movement_service_instance: Optional[InventoryMovementService] = None # New
+        self._inventory_movement_service_instance: Optional[InventoryMovementService] = None
 
         # --- Manager Instance Placeholders ---
         self._coa_manager_instance: Optional[ChartOfAccountsManager] = None
@@ -109,6 +113,7 @@ class ApplicationCore:
         self._account_type_service_instance = AccountTypeService(self.db_manager, self) 
         self._currency_repo_service_instance = CurrencyRepoService(self.db_manager, self)
         self._exchange_rate_service_instance = ExchangeRateService(self.db_manager, self)
+        self._dimension_service_instance = DimensionService(self.db_manager, self) # New
         
         # Initialize Tax Services
         self._tax_code_service_instance = TaxCodeService(self.db_manager, self)
@@ -120,7 +125,7 @@ class ApplicationCore:
         self._product_service_instance = ProductService(self.db_manager, self)
         self._sales_invoice_service_instance = SalesInvoiceService(self.db_manager, self)
         self._purchase_invoice_service_instance = PurchaseInvoiceService(self.db_manager, self) 
-        self._inventory_movement_service_instance = InventoryMovementService(self.db_manager, self) # New
+        self._inventory_movement_service_instance = InventoryMovementService(self.db_manager, self) 
 
         # Initialize Managers (dependencies should be initialized services)
         py_sequence_generator = SequenceGenerator(self.sequence_service, app_core_ref=self) 
@@ -166,7 +171,7 @@ class ApplicationCore:
             account_service=self.account_service,
             configuration_service=self.configuration_service, 
             app_core=self,
-            inventory_movement_service=self.inventory_movement_service # New dependency
+            inventory_movement_service=self.inventory_movement_service 
         )
         self._purchase_invoice_manager_instance = PurchaseInvoiceManager( 
             purchase_invoice_service=self.purchase_invoice_service,
@@ -178,7 +183,7 @@ class ApplicationCore:
             account_service=self.account_service,
             configuration_service=self.configuration_service,
             app_core=self,
-            inventory_movement_service=self.inventory_movement_service # New dependency
+            inventory_movement_service=self.inventory_movement_service 
         )
         
         self.module_manager.load_all_modules() 
@@ -196,10 +201,14 @@ class ApplicationCore:
     # --- Service Properties ---
     # ... (existing service properties) ...
     @property
-    def inventory_movement_service(self) -> InventoryMovementService: # New Property
+    def dimension_service(self) -> DimensionService: # New Property
+        if not self._dimension_service_instance: raise RuntimeError("DimensionService not initialized.")
+        return self._dimension_service_instance
+
+    @property
+    def inventory_movement_service(self) -> InventoryMovementService: 
         if not self._inventory_movement_service_instance: raise RuntimeError("InventoryMovementService not initialized.")
         return self._inventory_movement_service_instance
-
     @property
     def account_service(self) -> AccountService: 
         if not self._account_service_instance: raise RuntimeError("AccountService not initialized.")

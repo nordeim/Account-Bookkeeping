@@ -24,25 +24,25 @@
 
 SG Bookkeeper is a comprehensive, cross-platform desktop application designed to meet the accounting and bookkeeping needs of small to medium-sized businesses (SMBs) in Singapore. Built with Python and leveraging the power of PySide6 for a modern user interface and PostgreSQL for robust data management, it offers professional-grade financial tools tailored to Singapore's regulatory environment.
 
-The application features a double-entry accounting core, GST management, interactive financial reporting, modules for essential business operations (Customer, Vendor, Product/Service Management, Sales & Purchase Invoicing), and comprehensive User/Role/Permission administration. Its goal is to provide an intuitive, powerful, and compliant solution that empowers business owners and accountants.
+The application features a double-entry accounting core, GST management, interactive financial reporting, modules for essential business operations (Customer, Vendor, Product/Service Management, Sales Invoicing, Purchase Invoice draft management), and comprehensive User/Role/Permission administration. Its goal is to provide an intuitive, powerful, and compliant solution that empowers business owners and accountants.
 
 ### Why SG Bookkeeper?
 
 -   **Singapore-Centric**: Designed with Singapore Financial Reporting Standards (SFRS), GST regulations (including the 9% rate), and IRAS compliance considerations at its core.
 -   **Professional Grade**: Implements a full double-entry system, detailed audit trails (via database triggers), and robust data validation using Pydantic DTOs.
--   **User-Friendly Interface**: Aims for an intuitive experience for users who may not be accounting experts, while providing depth for professionals. Most core modules have functional UIs with features like advanced product search in invoices.
+-   **User-Friendly Interface**: Aims for an intuitive experience for users who may not be accounting experts, while providing depth for professionals. Most core modules have functional UIs.
 -   **Open Source & Local First**: Transparent development. Your financial data stays on your local machine or private server, ensuring privacy and control. No subscription fees.
 -   **Modern & Performant**: Utilizes asynchronous operations for a responsive UI and efficient database interactions, with a dedicated asyncio event loop.
 
 ## Key Features
 
-*(Status: Implemented, UI Implemented, Backend Implemented, Foundational (DB/Models ready), Planned)*
+*(Status: Implemented, Backend Implemented, UI Implemented, Foundational (DB/Models ready), Planned)*
 
 ### Core Accounting
 -   **Comprehensive Double-Entry Bookkeeping** (Implemented)
 -   **Customizable Hierarchical Chart of Accounts** (Implemented - UI for CRUD)
--   **General Ledger with detailed transaction history** (Implemented - Report generation, on-screen view, export, with dimension filtering options)
--   **Journal Entry System** (Implemented - UI for General Journal with Journal Type filter; transaction-specific JEs generated on posting of source documents)
+-   **General Ledger with detailed transaction history** (Implemented - Report generation, on-screen view, export)
+-   **Journal Entry System** (Implemented - UI for General Journal; transaction-specific JEs generated on posting of source documents)
 -   **Multi-Currency Support** (Foundational - Models, CurrencyManager exist. UI integration in transactions pending.)
 -   **Fiscal Year and Period Management** (Implemented - UI in Settings for FY creation and period auto-generation.)
 -   **Budgeting and Variance Analysis** (Foundational - Models exist. UI/Logic planned.)
@@ -57,17 +57,17 @@ The application features a double-entry accounting core, GST management, interac
 -   **Customer Management** (Implemented - Full CRUD and listing UI.)
 -   **Vendor Management** (Implemented - Full CRUD and listing UI.)
 -   **Product and Service Management** (Implemented - Full CRUD and listing UI.)
--   **Sales Invoicing and Accounts Receivable** (Implemented - Draft CRUD, Posting with financial JE & inventory (WAC) JE creation, List View UI, Dialog with "Save & Approve" and advanced product search.)
--   **Purchase Invoicing and Accounts Payable** (Implemented - Draft CRUD, Posting with financial JE & inventory (WAC based on purchase cost) JE creation, List View UI, Dialog with advanced product search.)
+-   **Sales Invoicing and Accounts Receivable** (Implemented - Draft CRUD, Posting with JE creation, List View UI, "Save & Approve" in dialog.)
+-   **Purchase Invoicing and Accounts Payable** (UI Implemented - Full Draft CRUD for Purchase Invoices via Dialog and List View. Backend draft management logic implemented. Posting planned.)
 -   **Payment Processing and Allocation** (Foundational)
 -   **Bank Account Management and Reconciliation Tools** (Foundational - UI is a stub.)
--   **Inventory Control (Weighted Average Cost)** (Implemented - `InventoryMovement` records created on posting Sales/Purchase invoices for 'Inventory' type products; COGS JEs for sales.)
+-   **Basic Inventory Control** (Foundational - `Product` model includes inventory fields. Logic planned.)
 
 ### Reporting & Analytics
--   **Standard Financial Statements**: Balance Sheet, Profit & Loss, Trial Balance, General Ledger (Implemented - UI in Reports tab with options for comparative/zero-balance, on-screen view, PDF/Excel export with enhanced formatting for all four statements. GL includes dimension filtering.)
+-   **Standard Financial Statements**: Balance Sheet, Profit & Loss, Trial Balance, General Ledger (Implemented - UI in Reports tab with options for comparative/zero-balance, on-screen view, PDF/Excel export with enhanced formatting for BS/P&L.)
 -   **Cash Flow Statement** (Planned)
 -   **GST Reports** (Implemented - See GST F5 above.)
--   **Customizable Reporting Engine** (Planned - `ReportEngine` has enhanced exports; further customization planned)
+-   **Customizable Reporting Engine** (Planned - `ReportEngine` has enhanced BS/P&L exports; further customization planned)
 -   **Dashboard with Key Performance Indicators (KPIs)** (Planned - UI is a stub.)
 
 ### System & Security
@@ -185,6 +185,7 @@ This guide is for developers setting up the application from source. End-user in
         GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA accounting TO sgbookkeeper_user;
         GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA audit TO sgbookkeeper_user;
 
+        -- For future tables created by the admin role (e.g., during migrations)
         ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA core GRANT ALL ON TABLES TO sgbookkeeper_user;
         ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA accounting GRANT ALL ON TABLES TO sgbookkeeper_user;
         ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA business GRANT ALL ON TABLES TO sgbookkeeper_user;
@@ -215,16 +216,16 @@ The application provides a range of functional modules accessible via tabs in th
 -   **Dashboard Tab**: (Placeholder) Intended for an overview of financial health.
 -   **Accounting Tab**:
     -   **Chart of Accounts**: View, add, edit, and (de)activate accounts.
-    -   **Journal Entries**: List, filter (including by Journal Type), create, edit drafts, view, post, and reverse general journal entries.
--   **Sales Tab**: Create, view, filter, edit draft, post Sales Invoices (with financial and inventory JEs), and use advanced product search.
--   **Purchases Tab**: Create, view, filter, edit draft, and post Purchase Invoices (with financial and inventory JEs), and use advanced product search.
+    -   **Journal Entries**: List, filter, create, edit drafts, view, post, and reverse general journal entries.
+-   **Sales Tab**: Create, view, filter, edit draft, and post Sales Invoices.
+-   **Purchases Tab**: Create, view, filter, and edit draft Purchase Invoices. (Posting is planned).
 -   **Customers Tab**: View, search, filter, add, edit, and toggle active status for customers.
 -   **Vendors Tab**: View, search, filter, add, edit, and toggle active status for vendors.
 -   **Products & Services Tab**: Manage products and services (Inventory, Non-Inventory, Service types) with list view, filters, add/edit dialog.
 -   **Banking Tab**: (Placeholder) For bank account management and reconciliation.
 -   **Reports Tab**:
     -   **GST F5 Preparation**: Prepare, view, save draft, and finalize GST F5 returns.
-    *   **Financial Statements**: Generate Balance Sheet, Profit & Loss, Trial Balance, or General Ledger. View in structured tables/trees. Export to PDF/Excel with enhanced formatting. GL reports support filtering by up to two dimensions. BS/P&L reports support comparative periods and zero-balance account options.
+    *   **Financial Statements**: Generate Balance Sheet, Profit & Loss, Trial Balance, or General Ledger. View in structured tables/trees. Export to PDF/Excel with enhanced formatting for BS/P&L and new UI options (comparative periods, zero-balance accounts).
 -   **Settings Tab**:
     -   **Company**: Configure company-wide information.
     -   **Fiscal Years**: Manage Fiscal Years and their periods.
@@ -254,10 +255,9 @@ sg_bookkeeper/
 │   │   ├── vendors/
 │   │   ├── products/
 │   │   ├── sales_invoices/
-│   │   ├── purchase_invoices/
+│   │   ├── purchase_invoices/      # UI for Purchase Invoices (widget, dialog, table model)
 │   │   ├── reports/
-│   │   ├── settings/
-│   │   ├── shared/                 # Shared UI components like ProductSearchDialog
+│   │   ├── settings/               # Includes User/Role management UI
 │   │   └── ... (other ui modules)
 │   ├── utils/                      # General utility functions, Pydantic DTOs, helpers
 │   └── resources_rc.py             # Compiled Qt resources (if generated)
@@ -296,28 +296,26 @@ Please adhere to standard coding practices and ensure your contributions align w
 
 ## Roadmap
 
-### Recently Completed
--   Implemented full posting logic (Financial JE & Inventory Movements using WAC) for Purchase Invoices.
--   Enhanced Sales & Purchase Invoice dialogs with an advanced product search popup.
--   Improved PDF/Excel export formatting for Trial Balance and General Ledger reports.
--   Added Journal Type filter to Journal Entries list and Dimension filters to General Ledger report.
+### Current Focus / Short-term
+-   **Purchase Invoicing**:
+    *   Implement posting logic (JE creation) for Purchase Invoices.
+-   **Sales Invoicing & Purchase Invoicing**:
+    *   Enhance line item entry (e.g., more advanced product search/selection in dialogs).
+    *   Handle inventory updates upon posting (for 'Inventory' type products).
+-   **Refine Reporting**:
+    *   Improve PDF/Excel export formatting for Trial Balance and General Ledger.
+    *   Add more filtering options to existing reports (e.g., dimensions, transaction status).
 
-### Current Focus / Next Steps (Previously Medium-Term)
--   **Banking Module**:
-    *   Implement UI for Bank Account management (CRUD operations).
-    *   Develop functionality for basic bank transaction entry.
--   **Payments Module**:
-    *   Implement UI and backend logic for recording customer and vendor payments.
-    *   Develop functionality for allocating payments to sales and purchase invoices.
--   **GST F5 Enhancements**:
-    *   Improve export options for GST F5 data (e.g., consider IAF format for IRAS).
--   **Audit Log UI**:
-    *   Implement a UI section (likely in Settings or a dedicated Audit tab) to view and filter the `audit.audit_log` and `audit.data_change_history`.
+### Medium-term
+-   Bank Account management and basic transaction entry UI in Banking module.
+-   Payment recording and allocation to Sales and Purchase invoices.
+-   Enhance GST F5 report export options (e.g., consider IAF format for IRAS).
+-   Implement full audit log viewing capabilities in the UI.
 
 ### Long-term
 -   Bank Reconciliation features.
 -   Advanced reporting and analytics, dashboard KPIs.
--   Inventory Control enhancements (e.g., stock movements beyond invoicing, valuation methods like FIFO/Weighted Avg if WAC proves insufficient).
+-   Inventory Control enhancements (e.g., stock movements, valuation methods like FIFO/Weighted Avg).
 -   Multi-company support (major architectural consideration).
 -   Cloud synchronization options (optional).
 

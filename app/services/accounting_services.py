@@ -1,17 +1,19 @@
 # File: app/services/accounting_services.py
 from typing import List, Optional, Any, TYPE_CHECKING
 from datetime import date
-from sqlalchemy import select, and_, or_ # Added or_
+from sqlalchemy import select, and_, or_, distinct # Added distinct
 from app.models.accounting.account_type import AccountType
 from app.models.accounting.currency import Currency
 from app.models.accounting.exchange_rate import ExchangeRate
 from app.models.accounting.fiscal_year import FiscalYear 
+from app.models.accounting.dimension import Dimension # New import
 from app.core.database_manager import DatabaseManager
 from app.services import (
     IAccountTypeRepository, 
     ICurrencyRepository, 
     IExchangeRateRepository,
-    IFiscalYearRepository 
+    IFiscalYearRepository,
+    IDimensionRepository # New import
 )
 
 if TYPE_CHECKING:
@@ -46,7 +48,7 @@ class AccountTypeService(IAccountTypeRepository):
             await session.flush()
             await session.refresh(entity)
             return entity
-
+            
     async def delete(self, id_val: int) -> bool:
         async with self.db_manager.session() as session:
             entity = await session.get(AccountType, id_val)
@@ -198,7 +200,6 @@ class FiscalYearService(IFiscalYearRepository):
         return await self.save(entity)
     
     async def save(self, entity: FiscalYear) -> FiscalYear:
-        # User audit fields are directly on FiscalYear model and should be set by manager
         async with self.db_manager.session() as session:
             session.add(entity)
             await session.flush()
@@ -206,12 +207,9 @@ class FiscalYearService(IFiscalYearRepository):
             return entity
 
     async def delete(self, id_val: int) -> bool:
-        # Implement checks: e.g., cannot delete if periods exist or year is not closed.
-        # For MVP, direct delete after confirmation by manager.
         async with self.db_manager.session() as session:
             entity = await session.get(FiscalYear, id_val)
             if entity:
-                # Add check for associated fiscal periods
                 if entity.fiscal_periods:
                      raise ValueError(f"Cannot delete fiscal year '{entity.year_name}' as it has associated fiscal periods.")
                 await session.delete(entity)
@@ -227,7 +225,6 @@ class FiscalYearService(IFiscalYearRepository):
     async def get_by_date_overlap(self, start_date: date, end_date: date, exclude_id: Optional[int] = None) -> Optional[FiscalYear]:
         async with self.db_manager.session() as session:
             conditions = [
-                # ExistingStart <= NewEnd AND ExistingEnd >= NewStart
                 FiscalYear.start_date <= end_date,
                 FiscalYear.end_date >= start_date
             ]
@@ -235,5 +232,71 @@ class FiscalYearService(IFiscalYearRepository):
                 conditions.append(FiscalYear.id != exclude_id)
             
             stmt = select(FiscalYear).where(and_(*conditions))
+            result = await session.execute(stmt)
+            return result.scalars().first()
+
+# --- New DimensionService ---
+class DimensionService(IDimensionRepository):
+    def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
+        self.db_manager = db_manager
+        self.app_core = app_core
+
+    async def get_by_id(self, id_val: int) -> Optional[Dimension]:
+        async with self.db_manager.session() as session:
+            return await session.get(Dimension, id_val)
+
+    async def get_all(self) -> List[Dimension]:
+        async with self.db_manager.session() as session:
+            stmt = select(Dimension).order_by(Dimension.dimension_type, Dimension.code)
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+
+    async def add(self, entity: Dimension) -> Dimension:
+        # User audit fields are on UserAuditMixin, assumed to be set by manager
+        async with self.db_manager.session() as session:
+            session.add(entity)
+            await session.flush()
+            await session.refresh(entity)
+            return entity
+
+    async def update(self, entity: Dimension) -> Dimension:
+        # User audit fields are on UserAuditMixin, assumed to be set by manager
+        async with self.db_manager.session() as session:
+            session.add(entity)
+            await session.flush()
+            await session.refresh(entity)
+            return entity
+
+    async def delete(self, id_val: int) -> bool:
+        # Add checks if dimension is in use before deleting
+        async with self.db_manager.session() as session:
+            entity = await session.get(Dimension, id_val)
+            if entity:
+                await session.delete(entity)
+                return True
+            return False
+
+    async def get_distinct_dimension_types(self) -> List[str]:
+        async with self.db_manager.session() as session:
+            stmt = select(distinct(Dimension.dimension_type)).where(Dimension.is_active == True).order_by(Dimension.dimension_type)
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+
+    async def get_dimensions_by_type(self, dim_type: str, active_only: bool = True) -> List[Dimension]:
+        async with self.db_manager.session() as session:
+            conditions = [Dimension.dimension_type == dim_type]
+            if active_only:
+                conditions.append(Dimension.is_active == True)
+            stmt = select(Dimension).where(and_(*conditions)).order_by(Dimension.code)
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+
+    async def get_by_type_and_code(self, dim_type: str, code: str) -> Optional[Dimension]:
+        async with self.db_manager.session() as session:
+            stmt = select(Dimension).where(
+                Dimension.dimension_type == dim_type,
+                Dimension.code == code,
+                Dimension.is_active == True
+            )
             result = await session.execute(stmt)
             return result.scalars().first()
