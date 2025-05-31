@@ -1,2825 +1,2040 @@
-# app/accounting/__init__.py
+# app/utils/result.py
 ```py
-# File: app/accounting/__init__.py
+# File: app/utils/result.py
 # (Content as previously generated, verified)
-from .chart_of_accounts_manager import ChartOfAccountsManager
-from .journal_entry_manager import JournalEntryManager
-from .fiscal_period_manager import FiscalPeriodManager
-from .currency_manager import CurrencyManager
+from typing import TypeVar, Generic, List, Any, Optional
+
+T = TypeVar('T')
+
+class Result(Generic[T]):
+    def __init__(self, is_success: bool, value: Optional[T] = None, errors: Optional[List[str]] = None):
+        self.is_success = is_success
+        self.value = value
+        self.errors = errors if errors is not None else []
+
+    @staticmethod
+    def success(value: Optional[T] = None) -> 'Result[T]':
+        return Result(is_success=True, value=value)
+
+    @staticmethod
+    def failure(errors: List[str]) -> 'Result[Any]': 
+        return Result(is_success=False, errors=errors)
+
+    def __repr__(self):
+        if self.is_success:
+            return f"<Result success={True} value='{str(self.value)[:50]}'>"
+        else:
+            return f"<Result success={False} errors={self.errors}>"
+
+```
+
+# app/utils/__init__.py
+```py
+# File: app/utils/__init__.py
+from .converters import to_decimal
+from .formatting import format_currency, format_date, format_datetime
+from .json_helpers import json_converter, json_date_hook # Added
+from .pydantic_models import (
+    AppBaseModel, UserAuditData, 
+    AccountBaseData, AccountCreateData, AccountUpdateData,
+    JournalEntryLineData, JournalEntryData,
+    GSTReturnData, TaxCalculationResultData,
+    TransactionLineTaxData, TransactionTaxData,
+    AccountValidationResult, AccountValidator, CompanySettingData,
+    FiscalYearCreateData, FiscalYearData, FiscalPeriodData # Added Fiscal DTOs
+)
+from .result import Result
+from .sequence_generator import SequenceGenerator
+from .validation import is_valid_uen
 
 __all__ = [
-    "ChartOfAccountsManager",
-    "JournalEntryManager",
-    "FiscalPeriodManager",
-    "CurrencyManager",
+    "to_decimal", "format_currency", "format_date", "format_datetime",
+    "json_converter", "json_date_hook", # Added
+    "AppBaseModel", "UserAuditData", 
+    "AccountBaseData", "AccountCreateData", "AccountUpdateData",
+    "JournalEntryLineData", "JournalEntryData",
+    "GSTReturnData", "TaxCalculationResultData",
+    "TransactionLineTaxData", "TransactionTaxData",
+    "AccountValidationResult", "AccountValidator", "CompanySettingData",
+    "FiscalYearCreateData", "FiscalYearData", "FiscalPeriodData", # Added Fiscal DTOs
+    "Result", "SequenceGenerator", "is_valid_uen"
 ]
 
 ```
 
-# app/accounting/journal_entry_manager.py
+# app/utils/pydantic_models.py
 ```py
-# File: app/accounting/journal_entry_manager.py
-from typing import List, Optional, Any, Dict, TYPE_CHECKING
+# File: app/utils/pydantic_models.py
+from pydantic import BaseModel, Field, validator, root_validator, EmailStr # type: ignore
+from typing import List, Optional, Union, Any, Dict 
+from datetime import date, datetime
 from decimal import Decimal
-from datetime import date, datetime, timedelta
-from dateutil.relativedelta import relativedelta 
 
-from app.models import JournalEntry, JournalEntryLine, RecurringPattern, FiscalPeriod, Account
-from app.services.journal_service import JournalService
-from app.services.account_service import AccountService
-from app.services.fiscal_period_service import FiscalPeriodService
-from app.utils.sequence_generator import SequenceGenerator
+from app.common.enums import ProductTypeEnum, InvoiceStatusEnum 
+
+class AppBaseModel(BaseModel):
+    class Config:
+        from_attributes = True 
+        json_encoders = {
+            Decimal: lambda v: float(v) if v is not None and v.is_finite() else None, 
+            EmailStr: lambda v: str(v) if v is not None else None,
+        }
+        validate_assignment = True 
+
+class UserAuditData(BaseModel):
+    user_id: int
+
+# --- Account Related DTOs ---
+class AccountBaseData(AppBaseModel):
+    code: str = Field(..., max_length=20)
+    name: str = Field(..., max_length=100)
+    account_type: str 
+    sub_type: Optional[str] = Field(None, max_length=30)
+    tax_treatment: Optional[str] = Field(None, max_length=20)
+    gst_applicable: bool = False
+    description: Optional[str] = None
+    parent_id: Optional[int] = None
+    report_group: Optional[str] = Field(None, max_length=50)
+    is_control_account: bool = False
+    is_bank_account: bool = False
+    opening_balance: Decimal = Field(Decimal(0))
+    opening_balance_date: Optional[date] = None
+    is_active: bool = True
+    @validator('opening_balance', pre=True, always=True)
+    def opening_balance_to_decimal(cls, v): return Decimal(str(v)) if v is not None else Decimal(0)
+
+class AccountCreateData(AccountBaseData, UserAuditData): pass
+class AccountUpdateData(AccountBaseData, UserAuditData): id: int
+
+# --- Journal Entry Related DTOs ---
+class JournalEntryLineData(AppBaseModel):
+    account_id: int
+    description: Optional[str] = Field(None, max_length=200)
+    debit_amount: Decimal = Field(Decimal(0))
+    credit_amount: Decimal = Field(Decimal(0))
+    currency_code: str = Field("SGD", max_length=3) 
+    exchange_rate: Decimal = Field(Decimal(1))
+    tax_code: Optional[str] = Field(None, max_length=20) 
+    tax_amount: Decimal = Field(Decimal(0))
+    dimension1_id: Optional[int] = None
+    dimension2_id: Optional[int] = None 
+    @validator('debit_amount', 'credit_amount', 'exchange_rate', 'tax_amount', pre=True, always=True)
+    def je_line_amounts_to_decimal(cls, v): return Decimal(str(v)) if v is not None else Decimal(0) 
+    @root_validator(skip_on_failure=True)
+    def check_je_line_debit_credit_exclusive(cls, values: Dict[str, Any]) -> Dict[str, Any]: 
+        debit = values.get('debit_amount', Decimal(0)); credit = values.get('credit_amount', Decimal(0))
+        if debit > Decimal(0) and credit > Decimal(0): raise ValueError("Debit and Credit amounts cannot both be positive for a single line.")
+        return values
+
+class JournalEntryData(AppBaseModel, UserAuditData):
+    journal_type: str
+    entry_date: date
+    description: Optional[str] = Field(None, max_length=500)
+    reference: Optional[str] = Field(None, max_length=100)
+    is_recurring: bool = False 
+    recurring_pattern_id: Optional[int] = None
+    source_type: Optional[str] = Field(None, max_length=50)
+    source_id: Optional[int] = None
+    lines: List[JournalEntryLineData]
+    @validator('lines')
+    def check_je_lines_not_empty(cls, v: List[JournalEntryLineData]) -> List[JournalEntryLineData]: 
+        if not v: raise ValueError("Journal entry must have at least one line.")
+        return v
+    @root_validator(skip_on_failure=True)
+    def check_je_balanced_entry(cls, values: Dict[str, Any]) -> Dict[str, Any]: 
+        lines = values.get('lines', []); total_debits = sum(l.debit_amount for l in lines); total_credits = sum(l.credit_amount for l in lines)
+        if abs(total_debits - total_credits) > Decimal("0.01"): raise ValueError(f"Journal entry must be balanced (Debits: {total_debits}, Credits: {total_credits}).")
+        return values
+
+# --- GST Return Related DTOs ---
+class GSTReturnData(AppBaseModel, UserAuditData):
+    id: Optional[int] = None
+    return_period: str = Field(..., max_length=20)
+    start_date: date; end_date: date
+    filing_due_date: Optional[date] = None 
+    standard_rated_supplies: Decimal = Field(Decimal(0))
+    zero_rated_supplies: Decimal = Field(Decimal(0))
+    exempt_supplies: Decimal = Field(Decimal(0))
+    total_supplies: Decimal = Field(Decimal(0)) 
+    taxable_purchases: Decimal = Field(Decimal(0))
+    output_tax: Decimal = Field(Decimal(0))
+    input_tax: Decimal = Field(Decimal(0))
+    tax_adjustments: Decimal = Field(Decimal(0))
+    tax_payable: Decimal = Field(Decimal(0)) 
+    status: str = Field("Draft", max_length=20)
+    submission_date: Optional[date] = None
+    submission_reference: Optional[str] = Field(None, max_length=50)
+    journal_entry_id: Optional[int] = None
+    notes: Optional[str] = None
+    @validator('standard_rated_supplies', 'zero_rated_supplies', 'exempt_supplies', 'total_supplies', 'taxable_purchases', 'output_tax', 'input_tax', 'tax_adjustments', 'tax_payable', pre=True, always=True)
+    def gst_amounts_to_decimal(cls, v): return Decimal(str(v)) if v is not None else Decimal(0)
+
+# --- Tax Calculation DTOs ---
+class TaxCalculationResultData(AppBaseModel): tax_amount: Decimal; tax_account_id: Optional[int] = None; taxable_amount: Decimal
+class TransactionLineTaxData(AppBaseModel): amount: Decimal; tax_code: Optional[str] = None; account_id: Optional[int] = None; index: int 
+class TransactionTaxData(AppBaseModel): transaction_type: str; lines: List[TransactionLineTaxData]
+
+# --- Validation Result DTO ---
+class AccountValidationResult(AppBaseModel): is_valid: bool; errors: List[str] = []
+class AccountValidator: 
+    def validate_common(self, account_data: AccountBaseData) -> List[str]:
+        errors = []; 
+        if not account_data.code: errors.append("Account code is required.")
+        if not account_data.name: errors.append("Account name is required.")
+        if not account_data.account_type: errors.append("Account type is required.")
+        if account_data.is_bank_account and account_data.account_type != 'Asset': errors.append("Bank accounts must be of type 'Asset'.")
+        if account_data.opening_balance_date and account_data.opening_balance == Decimal(0): errors.append("Opening balance date provided but opening balance is zero.")
+        if account_data.opening_balance != Decimal(0) and not account_data.opening_balance_date: errors.append("Opening balance provided but opening balance date is missing.")
+        return errors
+    def validate_create(self, account_data: AccountCreateData) -> AccountValidationResult:
+        errors = self.validate_common(account_data); return AccountValidationResult(is_valid=not errors, errors=errors)
+    def validate_update(self, account_data: AccountUpdateData) -> AccountValidationResult:
+        errors = self.validate_common(account_data)
+        if not account_data.id: errors.append("Account ID is required for updates.")
+        return AccountValidationResult(is_valid=not errors, errors=errors)
+
+# --- Company Setting DTO ---
+class CompanySettingData(AppBaseModel, UserAuditData): 
+    id: Optional[int] = None; company_name: str = Field(..., max_length=100); legal_name: Optional[str] = Field(None, max_length=200); uen_no: Optional[str] = Field(None, max_length=20); gst_registration_no: Optional[str] = Field(None, max_length=20); gst_registered: bool = False; address_line1: Optional[str] = Field(None, max_length=100); address_line2: Optional[str] = Field(None, max_length=100); postal_code: Optional[str] = Field(None, max_length=20); city: str = Field("Singapore", max_length=50); country: str = Field("Singapore", max_length=50); contact_person: Optional[str] = Field(None, max_length=100); phone: Optional[str] = Field(None, max_length=20); email: Optional[EmailStr] = None; website: Optional[str] = Field(None, max_length=100); logo: Optional[bytes] = None; fiscal_year_start_month: int = Field(1, ge=1, le=12); fiscal_year_start_day: int = Field(1, ge=1, le=31); base_currency: str = Field("SGD", max_length=3); tax_id_label: str = Field("UEN", max_length=50); date_format: str = Field("dd/MM/yyyy", max_length=20)
+
+# --- Fiscal Year Related DTOs ---
+class FiscalYearCreateData(AppBaseModel, UserAuditData): 
+    year_name: str = Field(..., max_length=20); start_date: date; end_date: date; auto_generate_periods: Optional[str] = None
+    @root_validator(skip_on_failure=True)
+    def check_fy_dates(cls, values: Dict[str, Any]) -> Dict[str, Any]: 
+        start, end = values.get('start_date'), values.get('end_date');
+        if start and end and start >= end: raise ValueError("End date must be after start date.")
+        return values
+class FiscalPeriodData(AppBaseModel): id: int; name: str; start_date: date; end_date: date; period_type: str; status: str; period_number: int; is_adjustment: bool
+class FiscalYearData(AppBaseModel): id: int; year_name: str; start_date: date; end_date: date; is_closed: bool; closed_date: Optional[datetime] = None; periods: List[FiscalPeriodData] = []
+
+# --- Customer Related DTOs ---
+class CustomerBaseData(AppBaseModel): 
+    customer_code: str = Field(..., min_length=1, max_length=20); name: str = Field(..., min_length=1, max_length=100); legal_name: Optional[str] = Field(None, max_length=200); uen_no: Optional[str] = Field(None, max_length=20); gst_registered: bool = False; gst_no: Optional[str] = Field(None, max_length=20); contact_person: Optional[str] = Field(None, max_length=100); email: Optional[EmailStr] = None; phone: Optional[str] = Field(None, max_length=20); address_line1: Optional[str] = Field(None, max_length=100); address_line2: Optional[str] = Field(None, max_length=100); postal_code: Optional[str] = Field(None, max_length=20); city: Optional[str] = Field(None, max_length=50); country: str = Field("Singapore", max_length=50); credit_terms: int = Field(30, ge=0); credit_limit: Optional[Decimal] = Field(None, ge=Decimal(0)); currency_code: str = Field("SGD", min_length=3, max_length=3); is_active: bool = True; customer_since: Optional[date] = None; notes: Optional[str] = None; receivables_account_id: Optional[int] = None
+    @validator('credit_limit', pre=True, always=True)
+    def customer_credit_limit_to_decimal(cls, v): return Decimal(str(v)) if v is not None else None 
+    @root_validator(skip_on_failure=True)
+    def check_gst_no_if_registered_customer(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        if values.get('gst_registered') and not values.get('gst_no'): raise ValueError("GST No. is required if customer is GST registered.")
+        return values
+class CustomerCreateData(CustomerBaseData, UserAuditData): pass
+class CustomerUpdateData(CustomerBaseData, UserAuditData): id: int
+class CustomerData(CustomerBaseData): id: int; created_at: datetime; updated_at: datetime; created_by_user_id: int; updated_by_user_id: int
+class CustomerSummaryData(AppBaseModel): id: int; customer_code: str; name: str; email: Optional[EmailStr] = None; phone: Optional[str] = None; is_active: bool
+
+# --- Vendor Related DTOs ---
+class VendorBaseData(AppBaseModel): 
+    vendor_code: str = Field(..., min_length=1, max_length=20); name: str = Field(..., min_length=1, max_length=100); legal_name: Optional[str] = Field(None, max_length=200); uen_no: Optional[str] = Field(None, max_length=20); gst_registered: bool = False; gst_no: Optional[str] = Field(None, max_length=20); withholding_tax_applicable: bool = False; withholding_tax_rate: Optional[Decimal] = Field(None, ge=Decimal(0), le=Decimal(100)); contact_person: Optional[str] = Field(None, max_length=100); email: Optional[EmailStr] = None; phone: Optional[str] = Field(None, max_length=20); address_line1: Optional[str] = Field(None, max_length=100); address_line2: Optional[str] = Field(None, max_length=100); postal_code: Optional[str] = Field(None, max_length=20); city: Optional[str] = Field(None, max_length=50); country: str = Field("Singapore", max_length=50); payment_terms: int = Field(30, ge=0); currency_code: str = Field("SGD", min_length=3, max_length=3); is_active: bool = True; vendor_since: Optional[date] = None; notes: Optional[str] = None; bank_account_name: Optional[str] = Field(None, max_length=100); bank_account_number: Optional[str] = Field(None, max_length=50); bank_name: Optional[str] = Field(None, max_length=100); bank_branch: Optional[str] = Field(None, max_length=100); bank_swift_code: Optional[str] = Field(None, max_length=20); payables_account_id: Optional[int] = None
+    @validator('withholding_tax_rate', pre=True, always=True)
+    def vendor_wht_rate_to_decimal(cls, v): return Decimal(str(v)) if v is not None else None 
+    @root_validator(skip_on_failure=True)
+    def check_gst_no_if_registered_vendor(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        if values.get('gst_registered') and not values.get('gst_no'): raise ValueError("GST No. is required if vendor is GST registered.")
+        return values
+    @root_validator(skip_on_failure=True)
+    def check_wht_rate_if_applicable_vendor(cls, values: Dict[str, Any]) -> Dict[str, Any]: 
+        if values.get('withholding_tax_applicable') and values.get('withholding_tax_rate') is None: raise ValueError("Withholding Tax Rate is required if Withholding Tax is applicable.")
+        return values
+class VendorCreateData(VendorBaseData, UserAuditData): pass
+class VendorUpdateData(VendorBaseData, UserAuditData): id: int
+class VendorData(VendorBaseData): id: int; created_at: datetime; updated_at: datetime; created_by_user_id: int; updated_by_user_id: int
+class VendorSummaryData(AppBaseModel): id: int; vendor_code: str; name: str; email: Optional[EmailStr] = None; phone: Optional[str] = None; is_active: bool
+
+# --- Product/Service Related DTOs ---
+class ProductBaseData(AppBaseModel): 
+    product_code: str = Field(..., min_length=1, max_length=20)
+    name: str = Field(..., min_length=1, max_length=100)
+    description: Optional[str] = None
+    product_type: ProductTypeEnum
+    category: Optional[str] = Field(None, max_length=50)
+    unit_of_measure: Optional[str] = Field(None, max_length=20)
+    barcode: Optional[str] = Field(None, max_length=50)
+    sales_price: Optional[Decimal] = Field(None, ge=Decimal(0))       
+    purchase_price: Optional[Decimal] = Field(None, ge=Decimal(0))    
+    sales_account_id: Optional[int] = None
+    purchase_account_id: Optional[int] = None
+    inventory_account_id: Optional[int] = None
+    tax_code: Optional[str] = Field(None, max_length=20)
+    is_active: bool = True
+    min_stock_level: Optional[Decimal] = Field(None, ge=Decimal(0))   
+    reorder_point: Optional[Decimal] = Field(None, ge=Decimal(0))     
+    @validator('sales_price', 'purchase_price', 'min_stock_level', 'reorder_point', pre=True, always=True)
+    def product_decimal_fields(cls, v): return Decimal(str(v)) if v is not None else None
+    @root_validator(skip_on_failure=True)
+    def check_inventory_fields_product(cls, values: Dict[str, Any]) -> Dict[str, Any]: 
+        product_type = values.get('product_type')
+        if product_type == ProductTypeEnum.INVENTORY:
+            if values.get('inventory_account_id') is None: raise ValueError("Inventory Account ID is required for 'Inventory' type products.")
+        else: 
+            if values.get('inventory_account_id') is not None: raise ValueError("Inventory Account ID should only be set for 'Inventory' type products.")
+            if values.get('min_stock_level') is not None or values.get('reorder_point') is not None: raise ValueError("Stock levels are only applicable for 'Inventory' type products.")
+        return values
+class ProductCreateData(ProductBaseData, UserAuditData): pass
+class ProductUpdateData(ProductBaseData, UserAuditData): id: int
+class ProductData(ProductBaseData): id: int; created_at: datetime; updated_at: datetime; created_by_user_id: int; updated_by_user_id: int
+class ProductSummaryData(AppBaseModel): id: int; product_code: str; name: str; product_type: ProductTypeEnum; sales_price: Optional[Decimal] = None; purchase_price: Optional[Decimal] = None; is_active: bool
+
+# --- Sales Invoice Related DTOs ---
+class SalesInvoiceLineBaseData(AppBaseModel):
+    product_id: Optional[int] = None; description: str = Field(..., min_length=1, max_length=200); quantity: Decimal = Field(..., gt=Decimal(0)); unit_price: Decimal = Field(..., ge=Decimal(0)); discount_percent: Decimal = Field(Decimal(0), ge=Decimal(0), le=Decimal(100)); tax_code: Optional[str] = Field(None, max_length=20)
+    dimension1_id: Optional[int] = None 
+    dimension2_id: Optional[int] = None 
+    @validator('quantity', 'unit_price', 'discount_percent', pre=True, always=True)
+    def sales_inv_line_decimals(cls, v): return Decimal(str(v)) if v is not None else Decimal(0)
+class SalesInvoiceBaseData(AppBaseModel):
+    customer_id: int; invoice_date: date; due_date: date; currency_code: str = Field("SGD", min_length=3, max_length=3); exchange_rate: Decimal = Field(Decimal(1), ge=Decimal(0)); notes: Optional[str] = None; terms_and_conditions: Optional[str] = None
+    @validator('exchange_rate', pre=True, always=True)
+    def sales_inv_hdr_decimals(cls, v): return Decimal(str(v)) if v is not None else Decimal(1)
+    @root_validator(skip_on_failure=True)
+    def check_due_date(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        invoice_date, due_date = values.get('invoice_date'), values.get('due_date')
+        if invoice_date and due_date and due_date < invoice_date: raise ValueError("Due date cannot be before invoice date.")
+        return values
+class SalesInvoiceCreateData(SalesInvoiceBaseData, UserAuditData): lines: List[SalesInvoiceLineBaseData] = Field(..., min_length=1)
+class SalesInvoiceUpdateData(SalesInvoiceBaseData, UserAuditData): id: int; lines: List[SalesInvoiceLineBaseData] = Field(..., min_length=1)
+class SalesInvoiceData(SalesInvoiceBaseData): id: int; invoice_no: str; subtotal: Decimal; tax_amount: Decimal; total_amount: Decimal; amount_paid: Decimal; status: InvoiceStatusEnum; journal_entry_id: Optional[int] = None; lines: List[SalesInvoiceLineBaseData]; created_at: datetime; updated_at: datetime; created_by_user_id: int; updated_by_user_id: int
+class SalesInvoiceSummaryData(AppBaseModel): id: int; invoice_no: str; invoice_date: date; due_date: date; customer_name: str; total_amount: Decimal; amount_paid: Decimal; status: InvoiceStatusEnum
+
+# --- User & Role Management DTOs ---
+class RoleData(AppBaseModel): 
+    id: int
+    name: str
+    description: Optional[str] = None
+
+class UserSummaryData(AppBaseModel): 
+    id: int
+    username: str
+    full_name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    is_active: bool
+    last_login: Optional[datetime] = None
+    roles: List[str] = Field(default_factory=list) 
+
+class UserRoleAssignmentData(AppBaseModel): 
+    role_id: int
+
+class UserBaseData(AppBaseModel): 
+    username: str = Field(..., min_length=3, max_length=50)
+    full_name: Optional[str] = Field(None, max_length=100)
+    email: Optional[EmailStr] = None
+    is_active: bool = True
+
+class UserCreateInternalData(UserBaseData): 
+    password_hash: str 
+    assigned_roles: List[UserRoleAssignmentData] = Field(default_factory=list)
+
+class UserCreateData(UserBaseData, UserAuditData): 
+    password: str = Field(..., min_length=8)
+    confirm_password: str
+    assigned_role_ids: List[int] = Field(default_factory=list)
+
+    @root_validator(skip_on_failure=True)
+    def passwords_match(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        pw1, pw2 = values.get('password'), values.get('confirm_password')
+        if pw1 is not None and pw2 is not None and pw1 != pw2:
+            raise ValueError('Passwords do not match')
+        return values
+
+class UserUpdateData(UserBaseData, UserAuditData): 
+    id: int
+    assigned_role_ids: List[int] = Field(default_factory=list)
+
+class UserPasswordChangeData(AppBaseModel, UserAuditData): 
+    user_id_to_change: int 
+    new_password: str = Field(..., min_length=8)
+    confirm_new_password: str
+    @root_validator(skip_on_failure=True)
+    def new_passwords_match(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        pw1, pw2 = values.get('new_password'), values.get('confirm_new_password')
+        if pw1 is not None and pw2 is not None and pw1 != pw2:
+            raise ValueError('New passwords do not match')
+        return values
+
+class RoleCreateData(AppBaseModel): 
+    name: str = Field(..., min_length=3, max_length=50)
+    description: Optional[str] = Field(None, max_length=200)
+    permission_ids: List[int] = Field(default_factory=list)
+
+class RoleUpdateData(RoleCreateData):
+    id: int
+
+class PermissionData(AppBaseModel): 
+    id: int
+    code: str
+    description: Optional[str] = None
+    module: str
+
+# --- Purchase Invoice Related DTOs ---
+class PurchaseInvoiceLineBaseData(AppBaseModel):
+    product_id: Optional[int] = None
+    description: str = Field(..., min_length=1, max_length=200)
+    quantity: Decimal = Field(..., gt=Decimal(0))
+    unit_price: Decimal = Field(..., ge=Decimal(0))
+    discount_percent: Decimal = Field(Decimal(0), ge=Decimal(0), le=Decimal(100))
+    tax_code: Optional[str] = Field(None, max_length=20)
+    dimension1_id: Optional[int] = None
+    dimension2_id: Optional[int] = None
+
+    @validator('quantity', 'unit_price', 'discount_percent', pre=True, always=True)
+    def purch_inv_line_decimals(cls, v):
+        return Decimal(str(v)) if v is not None else Decimal(0)
+
+class PurchaseInvoiceBaseData(AppBaseModel):
+    vendor_id: int
+    vendor_invoice_no: Optional[str] = Field(None, max_length=50) 
+    invoice_date: date
+    due_date: date
+    currency_code: str = Field("SGD", min_length=3, max_length=3)
+    exchange_rate: Decimal = Field(Decimal(1), ge=Decimal(0))
+    notes: Optional[str] = None
+    
+    @validator('exchange_rate', pre=True, always=True)
+    def purch_inv_hdr_decimals(cls, v):
+        return Decimal(str(v)) if v is not None else Decimal(1)
+
+    @root_validator(skip_on_failure=True)
+    def check_pi_due_date(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        invoice_date, due_date = values.get('invoice_date'), values.get('due_date')
+        if invoice_date and due_date and due_date < invoice_date:
+            raise ValueError("Due date cannot be before invoice date.")
+        return values
+
+class PurchaseInvoiceCreateData(PurchaseInvoiceBaseData, UserAuditData):
+    lines: List[PurchaseInvoiceLineBaseData] = Field(..., min_length=1)
+
+class PurchaseInvoiceUpdateData(PurchaseInvoiceBaseData, UserAuditData):
+    id: int
+    lines: List[PurchaseInvoiceLineBaseData] = Field(..., min_length=1)
+
+class PurchaseInvoiceData(PurchaseInvoiceBaseData): 
+    id: int
+    invoice_no: str # Our internal reference number
+    subtotal: Decimal
+    tax_amount: Decimal
+    total_amount: Decimal
+    amount_paid: Decimal
+    status: InvoiceStatusEnum 
+    journal_entry_id: Optional[int] = None
+    lines: List[PurchaseInvoiceLineBaseData] 
+    created_at: datetime
+    updated_at: datetime
+    created_by_user_id: int
+    updated_by_user_id: int
+
+class PurchaseInvoiceSummaryData(AppBaseModel): 
+    id: int
+    invoice_no: str 
+    vendor_invoice_no: Optional[str] = None
+    invoice_date: date
+    vendor_name: str 
+    total_amount: Decimal
+    status: InvoiceStatusEnum
+
+```
+
+# app/utils/validation.py
+```py
+# File: app/utils/validation.py
+# (Content as previously generated, verified)
+def is_valid_uen(uen: str) -> bool:
+    if not uen: return True 
+    return len(uen) >= 9 and len(uen) <= 10 
+
+```
+
+# app/utils/sequence_generator.py
+```py
+# File: app/utils/sequence_generator.py
+import asyncio
+from typing import Optional, TYPE_CHECKING
+from app.models.core.sequence import Sequence # Still needed if we fallback or for other methods
+from app.services.core_services import SequenceService 
+
+if TYPE_CHECKING:
+    from app.core.application_core import ApplicationCore # For db_manager access if needed
+
+class SequenceGenerator:
+    def __init__(self, sequence_service: SequenceService, app_core_ref: Optional["ApplicationCore"] = None):
+        self.sequence_service = sequence_service
+        # Store app_core to access db_manager for calling the DB function
+        self.app_core = app_core_ref 
+        if self.app_core is None and hasattr(sequence_service, 'app_core'): # Fallback if service has it
+            self.app_core = sequence_service.app_core
+
+
+    async def next_sequence(self, sequence_name: str, prefix_override: Optional[str] = None) -> str:
+        """
+        Generates the next number in a sequence.
+        Primarily tries to use the PostgreSQL function core.get_next_sequence_value().
+        Falls back to Python-based logic if DB function call fails or app_core is not available for DB manager.
+        """
+        if self.app_core and hasattr(self.app_core, 'db_manager'):
+            try:
+                # The DB function `core.get_next_sequence_value(p_sequence_name VARCHAR)`
+                # already handles prefix, suffix, formatting and returns the final string.
+                # It does NOT take prefix_override. If prefix_override is needed,
+                # this DB function strategy needs re-evaluation or the DB func needs an update.
+                # For now, assume prefix_override is not used with DB function or is handled by template in DB.
+                
+                # If prefix_override is essential, we might need to:
+                # 1. Modify DB function to accept it.
+                # 2. Fetch numeric value from DB, then format in Python with override. (More complex)
+
+                # Current DB function `core.get_next_sequence_value` uses the prefix stored in the table.
+                # If prefix_override is provided, the Python fallback might be necessary.
+                # Let's assume for now, if prefix_override is given, we must use Python logic.
+                
+                if prefix_override is None: # Only use DB function if no override, as DB func uses its stored prefix
+                    db_func_call = f"SELECT core.get_next_sequence_value('{sequence_name}');"
+                    generated_value = await self.app_core.db_manager.execute_scalar(db_func_call) # type: ignore
+                    if generated_value:
+                        return str(generated_value)
+                    else:
+                        # Log this failure to use DB func
+                        if hasattr(self.app_core.db_manager, 'logger') and self.app_core.db_manager.logger:
+                            self.app_core.db_manager.logger.warning(f"DB function core.get_next_sequence_value for '{sequence_name}' returned None. Falling back to Python logic.")
+                        else:
+                            print(f"Warning: DB function for sequence '{sequence_name}' failed. Falling back.")
+                else:
+                    if hasattr(self.app_core.db_manager, 'logger') and self.app_core.db_manager.logger:
+                        self.app_core.db_manager.logger.info(f"Prefix override for '{sequence_name}' provided. Using Python sequence logic.") # type: ignore
+                    else:
+                        print(f"Info: Prefix override for '{sequence_name}' provided. Using Python sequence logic.")
+
+
+            except Exception as e:
+                # Log this failure to use DB func
+                if hasattr(self.app_core.db_manager, 'logger') and self.app_core.db_manager.logger:
+                     self.app_core.db_manager.logger.error(f"Error calling DB sequence function for '{sequence_name}': {e}. Falling back to Python logic.", exc_info=True) # type: ignore
+                else:
+                    print(f"Error calling DB sequence function for '{sequence_name}': {e}. Falling back.")
+        
+        # Fallback to Python-based logic (less robust for concurrency)
+        sequence_obj = await self.sequence_service.get_sequence_by_name(sequence_name)
+
+        if not sequence_obj:
+            # Fallback creation if not found - ensure this is atomic or a rare case
+            print(f"Sequence '{sequence_name}' not found in DB, creating with defaults via Python logic.")
+            default_actual_prefix = prefix_override if prefix_override is not None else sequence_name.upper()[:3]
+            sequence_obj = Sequence(
+                sequence_name=sequence_name, next_value=1, increment_by=1,
+                min_value=1, max_value=2147483647, prefix=default_actual_prefix,
+                format_template=f"{{PREFIX}}-{{VALUE:06d}}" # Ensure d for integer formatting
+            )
+            # This save should happen in its own transaction managed by sequence_service.
+            await self.sequence_service.save_sequence(sequence_obj) 
+
+        current_value = sequence_obj.next_value
+        sequence_obj.next_value += sequence_obj.increment_by
+        
+        if sequence_obj.cycle and sequence_obj.next_value > sequence_obj.max_value:
+            sequence_obj.next_value = sequence_obj.min_value
+        elif not sequence_obj.cycle and sequence_obj.next_value > sequence_obj.max_value:
+            # This is a critical error for non-cycling sequences
+            raise ValueError(f"Sequence '{sequence_name}' has reached its maximum value ({sequence_obj.max_value}) and cannot cycle.")
+
+        await self.sequence_service.save_sequence(sequence_obj) 
+
+        actual_prefix_for_format = prefix_override if prefix_override is not None else (sequence_obj.prefix or '')
+        
+        # Refined formatting logic
+        template = sequence_obj.format_template
+        
+        # Handle common padding formats like {VALUE:06} or {VALUE:06d}
+        import re
+        match = re.search(r"\{VALUE:0?(\d+)[d]?\}", template)
+        value_str: str
+        if match:
+            padding = int(match.group(1))
+            value_str = str(current_value).zfill(padding)
+            template = template.replace(match.group(0), value_str) # Replace the whole placeholder
+        else: # Fallback for simple {VALUE}
+            value_str = str(current_value)
+            template = template.replace('{VALUE}', value_str)
+
+        template = template.replace('{PREFIX}', actual_prefix_for_format)
+        template = template.replace('{SUFFIX}', sequence_obj.suffix or '')
+            
+        return template
+
+```
+
+# app/utils/formatting.py
+```py
+# File: app/utils/formatting.py
+# (Content as previously generated, verified)
+from decimal import Decimal
+from datetime import date, datetime
+
+def format_currency(amount: Decimal, currency_code: str = "SGD") -> str:
+    return f"{currency_code} {amount:,.2f}"
+
+def format_date(d: date, fmt_str: str = "%d %b %Y") -> str: 
+    return d.strftime(fmt_str) 
+
+def format_datetime(dt: datetime, fmt_str: str = "%d %b %Y %H:%M:%S") -> str: 
+    return dt.strftime(fmt_str)
+
+```
+
+# app/utils/converters.py
+```py
+# File: app/utils/converters.py
+# (Content as previously generated, verified)
+from decimal import Decimal, InvalidOperation
+
+def to_decimal(value: any, default: Decimal = Decimal(0)) -> Decimal:
+    if isinstance(value, Decimal):
+        return value
+    if value is None: 
+        return default
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError): 
+        return default
+
+```
+
+# app/services/journal_service.py
+```py
+# File: app/services/journal_service.py
+from typing import List, Optional, Any, TYPE_CHECKING, Dict
+from datetime import date, datetime, timedelta # Added timedelta
+from decimal import Decimal
+from sqlalchemy import select, func, and_, or_, literal_column, case, text
+from sqlalchemy.orm import aliased, selectinload, joinedload # Added joinedload
+from app.models.accounting.journal_entry import JournalEntry, JournalEntryLine 
+from app.models.accounting.account import Account 
+from app.models.accounting.recurring_pattern import RecurringPattern 
+from app.core.database_manager import DatabaseManager
+from app.services import IJournalEntryRepository
 from app.utils.result import Result
-from app.utils.pydantic_models import JournalEntryData, JournalEntryLineData 
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore
 
-class JournalEntryManager:
-    def __init__(self, 
-                 journal_service: JournalService, 
-                 account_service: AccountService, 
-                 fiscal_period_service: FiscalPeriodService, 
-                 sequence_generator: SequenceGenerator,
-                 app_core: "ApplicationCore"):
-        self.journal_service = journal_service
-        self.account_service = account_service
-        self.fiscal_period_service = fiscal_period_service
-        self.sequence_generator = sequence_generator
+class JournalService(IJournalEntryRepository):
+    def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
+        self.db_manager = db_manager
         self.app_core = app_core
 
-    async def create_journal_entry(self, entry_data: JournalEntryData) -> Result[JournalEntry]:
-        # Pydantic model JournalEntryData already validates balanced lines and non-empty lines
-        
-        fiscal_period = await self.fiscal_period_service.get_by_date(entry_data.entry_date)
-        if not fiscal_period or fiscal_period.status != 'Open':
-            return Result.failure([f"No open fiscal period found for the entry date {entry_data.entry_date} or period is not open."])
-        
-        # Consider using core.get_next_sequence_value DB function via db_manager.execute_scalar
-        # for better atomicity if SequenceGenerator's Python logic is a concern.
-        # For now, assuming SequenceGenerator is sufficient for desktop app context.
-        entry_no_str = await self.sequence_generator.next_sequence("journal_entry") 
-        
-        current_user_id = entry_data.user_id
+    async def get_by_id(self, journal_id: int) -> Optional[JournalEntry]:
+        async with self.db_manager.session() as session:
+            stmt = select(JournalEntry).options(
+                selectinload(JournalEntry.lines).selectinload(JournalEntryLine.account),
+                selectinload(JournalEntry.lines).selectinload(JournalEntryLine.tax_code_obj), 
+                selectinload(JournalEntry.lines).selectinload(JournalEntryLine.currency),
+                selectinload(JournalEntry.lines).selectinload(JournalEntryLine.dimension1),
+                selectinload(JournalEntry.lines).selectinload(JournalEntryLine.dimension2),
+                selectinload(JournalEntry.fiscal_period), 
+                selectinload(JournalEntry.created_by_user), 
+                selectinload(JournalEntry.updated_by_user)  
+            ).where(JournalEntry.id == journal_id)
+            result = await session.execute(stmt)
+            return result.scalars().first()
 
-        journal_entry_orm = JournalEntry(
-            entry_no=entry_no_str,
-            journal_type=entry_data.journal_type,
-            entry_date=entry_data.entry_date,
-            fiscal_period_id=fiscal_period.id,
-            description=entry_data.description,
-            reference=entry_data.reference,
-            is_recurring=entry_data.is_recurring,
-            recurring_pattern_id=entry_data.recurring_pattern_id,
-            is_posted=False, # New entries are always drafts
-            source_type=entry_data.source_type,
-            source_id=entry_data.source_id,
-            created_by_user_id=current_user_id,
-            updated_by_user_id=current_user_id
-        )
-        
-        for i, line_dto in enumerate(entry_data.lines, 1):
-            account = await self.account_service.get_by_id(line_dto.account_id)
-            if not account or not account.is_active:
-                return Result.failure([f"Invalid or inactive account ID {line_dto.account_id} on line {i}."])
-            
-            # TODO: Add validation for tax_code, currency_code, dimension_ids existence if provided from their respective services.
-
-            line_orm = JournalEntryLine(
-                line_number=i,
-                account_id=line_dto.account_id,
-                description=line_dto.description,
-                debit_amount=line_dto.debit_amount,
-                credit_amount=line_dto.credit_amount,
-                currency_code=line_dto.currency_code,
-                exchange_rate=line_dto.exchange_rate,
-                tax_code=line_dto.tax_code,
-                tax_amount=line_dto.tax_amount,
-                dimension1_id=line_dto.dimension1_id,
-                dimension2_id=line_dto.dimension2_id
-            )
-            journal_entry_orm.lines.append(line_orm)
-        
-        try:
-            saved_entry = await self.journal_service.save(journal_entry_orm)
-            return Result.success(saved_entry)
-        except Exception as e:
-            self.app_core.db_manager.logger.error(f"Error saving journal entry: {e}", exc_info=True) # type: ignore
-            return Result.failure([f"Failed to save journal entry: {str(e)}"])
-
-    async def update_journal_entry(self, entry_id: int, entry_data: JournalEntryData) -> Result[JournalEntry]:
-        async with self.app_core.db_manager.session() as session: # Use a single session for atomicity
-            existing_entry = await session.get(JournalEntry, entry_id, options=[selectinload(JournalEntry.lines)]) # Eager load lines
-            if not existing_entry:
-                return Result.failure([f"Journal entry ID {entry_id} not found for update."])
-            if existing_entry.is_posted:
-                return Result.failure([f"Cannot update a posted journal entry: {existing_entry.entry_no}."])
-
-            fiscal_period = await self.fiscal_period_service.get_by_date(entry_data.entry_date) # This might use a different session if not passed
-            if not fiscal_period or fiscal_period.status != 'Open': # Re-check fiscal period for new date
-                fp_check_stmt = select(FiscalPeriod).where(FiscalPeriod.start_date <= entry_data.entry_date, FiscalPeriod.end_date >= entry_data.entry_date, FiscalPeriod.status == 'Open')
-                fp_res = await session.execute(fp_check_stmt)
-                fiscal_period_in_session = fp_res.scalars().first()
-                if not fiscal_period_in_session:
-                     return Result.failure([f"No open fiscal period found for the new entry date {entry_data.entry_date} or period is not open."])
-                fiscal_period_id = fiscal_period_in_session.id
-            else:
-                fiscal_period_id = fiscal_period.id
-
-
-            current_user_id = entry_data.user_id
-
-            # Update header fields
-            existing_entry.journal_type = entry_data.journal_type
-            existing_entry.entry_date = entry_data.entry_date
-            existing_entry.fiscal_period_id = fiscal_period_id
-            existing_entry.description = entry_data.description
-            existing_entry.reference = entry_data.reference
-            existing_entry.is_recurring = entry_data.is_recurring
-            existing_entry.recurring_pattern_id = entry_data.recurring_pattern_id
-            existing_entry.source_type = entry_data.source_type
-            existing_entry.source_id = entry_data.source_id
-            existing_entry.updated_by_user_id = current_user_id
-            
-            # Line Handling: Clear existing lines and add new ones
-            # SQLAlchemy's cascade="all, delete-orphan" will handle DB deletions on flush/commit
-            # if the lines are removed from the collection.
-            for line in list(existing_entry.lines): # Iterate over a copy for safe removal
-                session.delete(line) # Explicitly delete old lines from session
-            existing_entry.lines.clear() # Clear the collection itself
-            
-            await session.flush() # Flush deletions of old lines
-
-            new_lines_orm: List[JournalEntryLine] = []
-            for i, line_dto in enumerate(entry_data.lines, 1):
-                # Account validation (ensure account_service uses the same session or is session-agnostic for reads)
-                # For simplicity, assume account_service can be called outside this transaction for validation reads.
-                account = await self.account_service.get_by_id(line_dto.account_id) 
-                if not account or not account.is_active:
-                    # This will cause the outer session to rollback due to exception
-                    raise ValueError(f"Invalid or inactive account ID {line_dto.account_id} on line {i} during update.")
-                
-                new_lines_orm.append(JournalEntryLine(
-                    # journal_entry_id is set by relationship backref
-                    line_number=i,
-                    account_id=line_dto.account_id,
-                    description=line_dto.description,
-                    debit_amount=line_dto.debit_amount,
-                    credit_amount=line_dto.credit_amount,
-                    currency_code=line_dto.currency_code,
-                    exchange_rate=line_dto.exchange_rate,
-                    tax_code=line_dto.tax_code,
-                    tax_amount=line_dto.tax_amount,
-                    dimension1_id=line_dto.dimension1_id,
-                    dimension2_id=line_dto.dimension2_id
-                ))
-            existing_entry.lines.extend(new_lines_orm)
-            session.add(existing_entry) # Re-add to session if it became detached, or ensure it's managed
-            
-            try:
-                await session.commit() # Commit changes for header and new lines
-                await session.refresh(existing_entry) # Refresh to get any DB-generated values or ensure state
-                if existing_entry.lines: await session.refresh(existing_entry, attribute_names=['lines'])
-                return Result.success(existing_entry)
-            except Exception as e:
-                # Session context manager handles rollback
-                self.app_core.db_manager.logger.error(f"Error updating journal entry ID {entry_id}: {e}", exc_info=True) # type: ignore
-                return Result.failure([f"Failed to update journal entry: {str(e)}"])
-
-
-    async def post_journal_entry(self, entry_id: int, user_id: int) -> Result[JournalEntry]:
-        async with self.app_core.db_manager.session() as session: # type: ignore
-            entry = await session.get(JournalEntry, entry_id) # Fetch within current session
-            if not entry:
-                return Result.failure([f"Journal entry ID {entry_id} not found."])
-            
-            if entry.is_posted:
-                return Result.failure([f"Journal entry '{entry.entry_no}' is already posted."])
-            
-            # Fetch fiscal period within the same session
-            fiscal_period = await session.get(FiscalPeriod, entry.fiscal_period_id)
-            if not fiscal_period or fiscal_period.status != 'Open': 
-                return Result.failure([f"Cannot post. Fiscal period for entry date is not open. Current status: {fiscal_period.status if fiscal_period else 'Unknown'}."])
-            
-            entry.is_posted = True
-            entry.updated_by_user_id = user_id
-            session.add(entry)
-            
-            try:
-                await session.commit()
-                await session.refresh(entry)
-                return Result.success(entry)
-            except Exception as e:
-                self.app_core.db_manager.logger.error(f"Error posting journal entry ID {entry_id}: {e}", exc_info=True) # type: ignore
-                return Result.failure([f"Failed to post journal entry: {str(e)}"])
-
-    async def reverse_journal_entry(self, entry_id: int, reversal_date: date, description: Optional[str], user_id: int) -> Result[JournalEntry]:
-        # This method performs multiple DB operations and should be transactional.
-        async with self.app_core.db_manager.session() as session: # type: ignore
-            original_entry = await session.get(JournalEntry, entry_id, options=[selectinload(JournalEntry.lines)]) # Fetch within session
-            if not original_entry:
-                return Result.failure([f"Journal entry ID {entry_id} not found for reversal."])
-            if not original_entry.is_posted:
-                return Result.failure(["Only posted entries can be reversed."])
-            if original_entry.is_reversed or original_entry.reversing_entry_id is not None:
-                return Result.failure([f"Entry '{original_entry.entry_no}' is already reversed."])
-
-            # Fetch reversal fiscal period within the same session
-            reversal_fp_stmt = select(FiscalPeriod).where(
-                FiscalPeriod.start_date <= reversal_date, 
-                FiscalPeriod.end_date >= reversal_date, 
-                FiscalPeriod.status == 'Open'
-            )
-            reversal_fp_res = await session.execute(reversal_fp_stmt)
-            reversal_fiscal_period = reversal_fp_res.scalars().first()
-
-            if not reversal_fiscal_period:
-                return Result.failure([f"No open fiscal period found for reversal date {reversal_date} or period is not open."])
-
-            # Call DB function for sequence if preferred, or Python SequenceGenerator
-            # Assuming Python SequenceGenerator for now
-            reversal_entry_no = await self.sequence_generator.next_sequence("journal_entry", prefix="RJE-")
-            
-            reversal_lines_orm: List[JournalEntryLine] = []
-            for orig_line in original_entry.lines:
-                reversal_lines_orm.append(JournalEntryLine(
-                    account_id=orig_line.account_id, description=f"Reversal: {orig_line.description or ''}",
-                    debit_amount=orig_line.credit_amount, credit_amount=orig_line.debit_amount, 
-                    currency_code=orig_line.currency_code, exchange_rate=orig_line.exchange_rate,
-                    tax_code=orig_line.tax_code, 
-                    tax_amount=-orig_line.tax_amount if orig_line.tax_amount is not None else Decimal(0), 
-                    dimension1_id=orig_line.dimension1_id, dimension2_id=orig_line.dimension2_id
-                ))
-            
-            reversal_je_orm = JournalEntry(
-                entry_no=reversal_entry_no, journal_type=original_entry.journal_type,
-                entry_date=reversal_date, fiscal_period_id=reversal_fiscal_period.id,
-                description=description or f"Reversal of entry {original_entry.entry_no}",
-                reference=f"REV:{original_entry.entry_no}",
-                is_posted=False, # Reversal is initially a draft, can be auto-posted if needed
-                source_type="JournalEntryReversalSource", source_id=original_entry.id,
-                created_by_user_id=user_id, updated_by_user_id=user_id,
-                lines=reversal_lines_orm # Associate lines directly
-            )
-            session.add(reversal_je_orm)
-            
-            original_entry.is_reversed = True
-            # We need the ID of reversal_je_orm, so flush to get it.
-            await session.flush() # This will assign ID to reversal_je_orm
-            original_entry.reversing_entry_id = reversal_je_orm.id
-            original_entry.updated_by_user_id = user_id
-            session.add(original_entry) # Add original_entry back to session if it wasn't already managed or to mark it dirty
-            
-            try:
-                await session.commit()
-                await session.refresh(reversal_je_orm) # Refresh to get all attributes after commit
-                if reversal_je_orm.lines: await session.refresh(reversal_je_orm, attribute_names=['lines'])
-                return Result.success(reversal_je_orm)
-            except Exception as e:
-                # Session context manager handles rollback
-                self.app_core.db_manager.logger.error(f"Error reversing journal entry ID {entry_id}: {e}", exc_info=True) # type: ignore
-                return Result.failure([f"Failed to reverse journal entry: {str(e)}"])
-
-
-    def _calculate_next_generation_date(self, last_date: date, frequency: str, interval: int, day_of_month: Optional[int] = None, day_of_week: Optional[int] = None) -> date:
-        # (Logic from previous version is mostly fine, minor refinement if needed)
-        next_date = last_date
-        # ... (same logic as before, ensure relativedelta is imported and used)
-        if frequency == 'Monthly':
-            next_date = last_date + relativedelta(months=interval)
-            if day_of_month:
-                try: next_date = next_date.replace(day=day_of_month)
-                except ValueError: next_date = next_date + relativedelta(day=31) 
-        elif frequency == 'Yearly':
-            next_date = last_date + relativedelta(years=interval)
-            if day_of_month: 
-                 try: next_date = next_date.replace(day=day_of_month, month=last_date.month)
-                 except ValueError: next_date = next_date.replace(month=last_date.month) + relativedelta(day=31)
-        elif frequency == 'Weekly':
-            next_date = last_date + relativedelta(weeks=interval)
-            # Specific day_of_week logic with relativedelta can be complex, e.g. relativedelta(weekday=MO(+1))
-            # For now, simple interval is used.
-        elif frequency == 'Daily':
-            next_date = last_date + relativedelta(days=interval)
-        elif frequency == 'Quarterly':
-            next_date = last_date + relativedelta(months=interval * 3)
-            if day_of_month:
-                 try: next_date = next_date.replace(day=day_of_month)
-                 except ValueError: next_date = next_date + relativedelta(day=31)
-        else:
-            raise NotImplementedError(f"Frequency '{frequency}' not supported for next date calculation.")
-        return next_date
-
-
-    async def generate_recurring_entries(self, as_of_date: date, user_id: int) -> List[Result[JournalEntry]]:
-        patterns_due: List[RecurringPattern] = await self.journal_service.get_recurring_patterns_due(as_of_date)
-        generated_results: List[Result[JournalEntry]] = []
-
-        for pattern in patterns_due:
-            if not pattern.template_journal_entry: # Due to joinedload, this should be populated
-                self.app_core.db_manager.logger.error(f"Template JE not loaded for pattern ID {pattern.id}. Skipping.") # type: ignore
-                generated_results.append(Result.failure([f"Template JE not loaded for pattern '{pattern.name}'."]))
-                continue
-            
-            # Ensure next_generation_date is valid
-            entry_date_for_new_je = pattern.next_generation_date
-            if not entry_date_for_new_je : continue # Should have been filtered by service
-
-            template_entry = pattern.template_journal_entry
-            
-            new_je_lines_data = [
-                JournalEntryLineData(
-                    account_id=line.account_id, description=line.description,
-                    debit_amount=line.debit_amount, credit_amount=line.credit_amount,
-                    currency_code=line.currency_code, exchange_rate=line.exchange_rate,
-                    tax_code=line.tax_code, tax_amount=line.tax_amount,
-                    dimension1_id=line.dimension1_id, dimension2_id=line.dimension2_id
-                ) for line in template_entry.lines
-            ]
-            
-            new_je_data = JournalEntryData(
-                journal_type=template_entry.journal_type, entry_date=entry_date_for_new_je,
-                description=f"{pattern.description or template_entry.description or ''} (Recurring - {pattern.name})",
-                reference=template_entry.reference, user_id=user_id, lines=new_je_lines_data,
-                recurring_pattern_id=pattern.id, source_type="RecurringPattern", source_id=pattern.id
-            )
-            
-            create_result = await self.create_journal_entry(new_je_data)
-            generated_results.append(create_result)
-            
-            if create_result.is_success:
-                async with self.app_core.db_manager.session() as session: # type: ignore
-                    # Re-fetch pattern in this session to update it
-                    pattern_to_update = await session.get(RecurringPattern, pattern.id)
-                    if pattern_to_update:
-                        pattern_to_update.last_generated_date = entry_date_for_new_je
-                        try:
-                            next_gen = self._calculate_next_generation_date(
-                                pattern_to_update.last_generated_date, pattern_to_update.frequency, 
-                                pattern_to_update.interval_value, pattern_to_update.day_of_month, 
-                                pattern_to_update.day_of_week
-                            )
-                            if pattern_to_update.end_date and next_gen > pattern_to_update.end_date:
-                                pattern_to_update.next_generation_date = None 
-                                pattern_to_update.is_active = False 
-                            else:
-                                pattern_to_update.next_generation_date = next_gen
-                        except NotImplementedError:
-                            pattern_to_update.next_generation_date = None
-                            pattern_to_update.is_active = False 
-                            self.app_core.db_manager.logger.warning(f"Next gen date calc not implemented for pattern {pattern_to_update.name}, deactivating.") # type: ignore
-                        
-                        pattern_to_update.updated_by_user_id = user_id 
-                        session.add(pattern_to_update)
-                        await session.commit()
-                    else:
-                        self.app_core.db_manager.logger.error(f"Failed to re-fetch pattern ID {pattern.id} for update after recurring JE generation.") # type: ignore
-        return generated_results
-
-    async def get_journal_entry_for_dialog(self, entry_id: int) -> Optional[JournalEntry]:
-        return await self.journal_service.get_by_id(entry_id)
-
-    async def get_journal_entries_for_listing(self, filters: Optional[Dict[str, Any]] = None) -> Result[List[Dict[str, Any]]]:
-        filters = filters or {}
-        try:
-            summary_data = await self.journal_service.get_all_summary(
-                start_date_filter=filters.get("start_date"),
-                end_date_filter=filters.get("end_date"),
-                status_filter=filters.get("status"),
-                entry_no_filter=filters.get("entry_no"),
-                description_filter=filters.get("description")
-            )
-            return Result.success(summary_data)
-        except Exception as e:
-            self.app_core.db_manager.logger.error(f"Error fetching JE summaries for listing: {e}", exc_info=True) # type: ignore
-            return Result.failure([f"Failed to retrieve journal entry summaries: {str(e)}"])
-
-```
-
-# app/accounting/currency_manager.py
-```py
-# File: app/accounting/currency_manager.py
-# (Content as previously generated, verified - needs TYPE_CHECKING for ApplicationCore)
-# from app.core.application_core import ApplicationCore # Removed direct import
-from app.services.accounting_services import CurrencyService, ExchangeRateService 
-from typing import Optional, List, Any, TYPE_CHECKING
-from datetime import date
-from decimal import Decimal
-from app.models.accounting.currency import Currency 
-from app.models.accounting.exchange_rate import ExchangeRate
-from app.utils.result import Result
-
-if TYPE_CHECKING:
-    from app.core.application_core import ApplicationCore # For type hinting
-
-class CurrencyManager:
-    def __init__(self, app_core: "ApplicationCore"): 
-        self.app_core = app_core
-        # Assuming these service properties exist on app_core and are correctly typed there
-        self.currency_service: CurrencyService = app_core.currency_repo_service # type: ignore 
-        self.exchange_rate_service: ExchangeRateService = app_core.exchange_rate_service # type: ignore
+    async def get_all(self) -> List[JournalEntry]:
+        async with self.db_manager.session() as session:
+            stmt = select(JournalEntry).options(
+                selectinload(JournalEntry.lines) 
+            ).order_by(JournalEntry.entry_date.desc(), JournalEntry.entry_no.desc())
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
     
-    async def get_active_currencies(self) -> List[Currency]:
-        return await self.currency_service.get_all_active()
+    async def get_all_summary(self, 
+                              start_date_filter: Optional[date] = None, 
+                              end_date_filter: Optional[date] = None, 
+                              status_filter: Optional[str] = None,
+                              entry_no_filter: Optional[str] = None,
+                              description_filter: Optional[str] = None
+                             ) -> List[Dict[str, Any]]:
+        async with self.db_manager.session() as session:
+            conditions = []
+            if start_date_filter:
+                conditions.append(JournalEntry.entry_date >= start_date_filter)
+            if end_date_filter:
+                conditions.append(JournalEntry.entry_date <= end_date_filter)
+            if status_filter:
+                if status_filter.lower() == "draft":
+                    conditions.append(JournalEntry.is_posted == False)
+                elif status_filter.lower() == "posted":
+                    conditions.append(JournalEntry.is_posted == True)
+            if entry_no_filter:
+                conditions.append(JournalEntry.entry_no.ilike(f"%{entry_no_filter}%")) 
+            if description_filter:
+                conditions.append(JournalEntry.description.ilike(f"%{description_filter}%"))
+            
+            stmt = select(
+                JournalEntry.id, JournalEntry.entry_no, JournalEntry.entry_date,
+                JournalEntry.description, JournalEntry.journal_type, JournalEntry.is_posted,
+                func.sum(JournalEntryLine.debit_amount).label("total_debits") # Used for JE list total
+            ).join(JournalEntryLine, JournalEntry.id == JournalEntryLine.journal_entry_id, isouter=True)
+            
+            if conditions:
+                stmt = stmt.where(and_(*conditions))
+            
+            stmt = stmt.group_by(
+                JournalEntry.id, JournalEntry.entry_no, JournalEntry.entry_date, 
+                JournalEntry.description, JournalEntry.journal_type, JournalEntry.is_posted
+            ).order_by(JournalEntry.entry_date.desc(), JournalEntry.entry_no.desc())
+            
+            result = await session.execute(stmt)
+            
+            summaries: List[Dict[str, Any]] = []
+            for row in result.mappings().all(): 
+                summaries.append({
+                    "id": row.id, "entry_no": row.entry_no, "date": row.entry_date, 
+                    "description": row.description, "type": row.journal_type,
+                    "total_amount": row.total_debits if row.total_debits is not None else Decimal(0), 
+                    "status": "Posted" if row.is_posted else "Draft"
+                })
+            return summaries
+            
+    async def get_by_entry_no(self, entry_no: str) -> Optional[JournalEntry]:
+        async with self.db_manager.session() as session:
+            stmt = select(JournalEntry).options(selectinload(JournalEntry.lines)).where(JournalEntry.entry_no == entry_no)
+            result = await session.execute(stmt)
+            return result.scalars().first()
 
-    async def get_exchange_rate(self, from_currency_code: str, to_currency_code: str, rate_date: date) -> Optional[Decimal]:
-        rate_obj = await self.exchange_rate_service.get_rate_for_date(from_currency_code, to_currency_code, rate_date)
-        return rate_obj.exchange_rate_value if rate_obj else None
+    async def get_by_date_range(self, start_date: date, end_date: date) -> List[JournalEntry]:
+        async with self.db_manager.session() as session:
+            stmt = select(JournalEntry).options(selectinload(JournalEntry.lines)).where(
+                JournalEntry.entry_date >= start_date,
+                JournalEntry.entry_date <= end_date
+            ).order_by(JournalEntry.entry_date, JournalEntry.entry_no)
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
 
-    async def update_exchange_rate(self, from_code:str, to_code:str, r_date:date, rate:Decimal, user_id:int) -> Result[ExchangeRate]:
-        existing_rate = await self.exchange_rate_service.get_rate_for_date(from_code, to_code, r_date)
-        orm_object: ExchangeRate
-        if existing_rate:
-            existing_rate.exchange_rate_value = rate
-            existing_rate.updated_by_user_id = user_id
-            orm_object = existing_rate
-        else:
-            orm_object = ExchangeRate(
-                from_currency_code=from_code, to_currency_code=to_code, rate_date=r_date,
-                exchange_rate_value=rate, 
-                created_by_user_id=user_id, updated_by_user_id=user_id 
-            )
-        
-        saved_obj = await self.exchange_rate_service.save(orm_object)
-        return Result.success(saved_obj)
+    async def get_posted_entries_by_date_range(self, start_date: date, end_date: date) -> List[JournalEntry]:
+        async with self.db_manager.session() as session:
+            stmt = select(JournalEntry).options(
+                selectinload(JournalEntry.lines).selectinload(JournalEntryLine.account),
+                selectinload(JournalEntry.lines).selectinload(JournalEntryLine.tax_code_obj) 
+            ).where(
+                JournalEntry.is_posted == True,
+                JournalEntry.entry_date >= start_date,
+                JournalEntry.entry_date <= end_date
+            ).order_by(JournalEntry.entry_date, JournalEntry.entry_no)
+            result = await session.execute(stmt)
+            return list(result.unique().scalars().all())
 
-    async def get_all_currencies(self) -> List[Currency]:
-        return await self.currency_service.get_all()
+    async def save(self, journal_entry: JournalEntry) -> JournalEntry:
+        async with self.db_manager.session() as session:
+            session.add(journal_entry)
+            await session.flush() 
+            await session.refresh(journal_entry)
+            if journal_entry.lines is not None: 
+                await session.refresh(journal_entry, attribute_names=['lines'])
+            return journal_entry
+            
+    async def add(self, entity: JournalEntry) -> JournalEntry:
+        return await self.save(entity)
 
-    async def get_currency_by_code(self, code: str) -> Optional[Currency]:
-        return await self.currency_service.get_by_id(code)
+    async def update(self, entity: JournalEntry) -> JournalEntry:
+        return await self.save(entity)
+
+    async def delete(self, id_val: int) -> bool:
+        async with self.db_manager.session() as session:
+            entry = await session.get(JournalEntry, id_val)
+            if entry:
+                if entry.is_posted:
+                    self.app_core.logger.warning(f"JournalService: Deletion of posted journal entry ID {id_val} prevented.") # type: ignore
+                    return False 
+                await session.delete(entry) 
+                return True
+        return False
+    
+    async def get_account_balance(self, account_id: int, as_of_date: date) -> Decimal:
+        async with self.db_manager.session() as session:
+            acc_stmt = select(Account.opening_balance, Account.opening_balance_date).where(Account.id == account_id)
+            acc_res = await session.execute(acc_stmt)
+            acc_data = acc_res.first()
+            
+            opening_balance = acc_data.opening_balance if acc_data and acc_data.opening_balance is not None else Decimal(0)
+            ob_date = acc_data.opening_balance_date if acc_data and acc_data.opening_balance_date is not None else None
+
+            je_activity_stmt = (
+                select(func.coalesce(func.sum(JournalEntryLine.debit_amount - JournalEntryLine.credit_amount), Decimal(0)))
+                .join(JournalEntry, JournalEntryLine.journal_entry_id == JournalEntry.id)
+                .where(
+                    JournalEntryLine.account_id == account_id,
+                    JournalEntry.is_posted == True,
+                    JournalEntry.entry_date <= as_of_date))
+            if ob_date:
+                je_activity_stmt = je_activity_stmt.where(JournalEntry.entry_date >= ob_date)
+            
+            result = await session.execute(je_activity_stmt)
+            je_net_activity = result.scalar_one_or_none() or Decimal(0)
+            return opening_balance + je_net_activity
+
+    async def get_account_balance_for_period(self, account_id: int, start_date: date, end_date: date) -> Decimal:
+        async with self.db_manager.session() as session:
+            stmt = (
+                select(func.coalesce(func.sum(JournalEntryLine.debit_amount - JournalEntryLine.credit_amount), Decimal(0)))
+                .join(JournalEntry, JournalEntryLine.journal_entry_id == JournalEntry.id)
+                .where(
+                    JournalEntryLine.account_id == account_id, JournalEntry.is_posted == True,
+                    JournalEntry.entry_date >= start_date, JournalEntry.entry_date <= end_date))
+            result = await session.execute(stmt)
+            balance_change = result.scalar_one_or_none()
+            return balance_change if balance_change is not None else Decimal(0)
+            
+    async def get_posted_lines_for_account_in_range(self, account_id: int, start_date: date, end_date: date) -> List[JournalEntryLine]:
+        """ Fetches posted journal lines for a specific account and date range. """
+        async with self.db_manager.session() as session:
+            stmt = select(JournalEntryLine).options(
+                joinedload(JournalEntryLine.journal_entry) # Eager load parent JE for date, no, desc
+            ).join(JournalEntry, JournalEntryLine.journal_entry_id == JournalEntry.id)\
+            .where(
+                JournalEntryLine.account_id == account_id,
+                JournalEntry.is_posted == True,
+                JournalEntry.entry_date >= start_date,
+                JournalEntry.entry_date <= end_date
+            ).order_by(JournalEntry.entry_date, JournalEntry.entry_no, JournalEntryLine.line_number) # Ensure consistent ordering
+            
+            result = await session.execute(stmt)
+            return list(result.scalars().all()) # .unique() might not be needed if JELine is the primary entity
+
+    async def get_recurring_patterns_due(self, as_of_date: date) -> List[RecurringPattern]:
+        async with self.db_manager.session() as session:
+            stmt = select(RecurringPattern).options(
+                joinedload(RecurringPattern.template_journal_entry).selectinload(JournalEntry.lines)
+            ).where(
+                RecurringPattern.is_active == True,
+                RecurringPattern.next_generation_date <= as_of_date,
+                or_(RecurringPattern.end_date == None, RecurringPattern.end_date >= as_of_date)
+            ).order_by(RecurringPattern.next_generation_date)
+            result = await session.execute(stmt)
+            return list(result.scalars().unique().all())
+
+    async def save_recurring_pattern(self, pattern: RecurringPattern) -> RecurringPattern:
+        async with self.db_manager.session() as session:
+            session.add(pattern)
+            await session.flush()
+            await session.refresh(pattern)
+            return pattern
 
 ```
 
-# app/accounting/chart_of_accounts_manager.py
+# app/services/core_services.py
 ```py
-# File: app/accounting/chart_of_accounts_manager.py
-# (Content previously updated to use AccountCreateData/UpdateData, ensure consistency)
-# Key: Uses AccountService. User ID comes from DTO which inherits UserAuditData.
-from typing import List, Optional, Dict, Any, TYPE_CHECKING
-from app.models.accounting.account import Account 
-from app.services.account_service import AccountService 
-from app.utils.result import Result
-from app.utils.pydantic_models import AccountCreateData, AccountUpdateData, AccountValidator
-# from app.core.application_core import ApplicationCore # Removed direct import
-from decimal import Decimal
-from datetime import date # Added for type hint in deactivate_account
+# File: app/services/core_services.py
+from typing import List, Optional, Any, TYPE_CHECKING
+from sqlalchemy import select, update
+from app.models.core.sequence import Sequence
+from app.models.core.configuration import Configuration
+from app.models.core.company_setting import CompanySetting
 
 if TYPE_CHECKING:
-    from app.core.application_core import ApplicationCore # For type hinting
+    from app.core.database_manager import DatabaseManager
+    from app.core.application_core import ApplicationCore
 
-class ChartOfAccountsManager:
-    def __init__(self, account_service: AccountService, app_core: "ApplicationCore"):
-        self.account_service = account_service
-        self.account_validator = AccountValidator() 
+
+class SequenceService:
+    def __init__(self, db_manager: "DatabaseManager"):
+        self.db_manager = db_manager
+
+    async def get_sequence_by_name(self, name: str) -> Optional[Sequence]:
+        async with self.db_manager.session() as session:
+            stmt = select(Sequence).where(Sequence.sequence_name == name)
+            result = await session.execute(stmt)
+            return result.scalars().first()
+
+    async def save_sequence(self, sequence_obj: Sequence) -> Sequence:
+        async with self.db_manager.session() as session:
+            session.add(sequence_obj)
+            await session.flush()
+            await session.refresh(sequence_obj)
+            return sequence_obj
+
+class ConfigurationService:
+    def __init__(self, db_manager: "DatabaseManager"):
+        self.db_manager = db_manager
+    
+    async def get_config_by_key(self, key: str) -> Optional[Configuration]:
+        async with self.db_manager.session() as session:
+            stmt = select(Configuration).where(Configuration.config_key == key)
+            result = await session.execute(stmt)
+            return result.scalars().first()
+
+    async def get_config_value(self, key: str, default_value: Optional[str] = None) -> Optional[str]:
+        """Fetches a configuration value by key, returning default if not found."""
+        config_entry = await self.get_config_by_key(key)
+        if config_entry and config_entry.config_value is not None:
+            return config_entry.config_value
+        return default_value
+
+    async def save_config(self, config_obj: Configuration) -> Configuration:
+        async with self.db_manager.session() as session:
+            session.add(config_obj)
+            await session.flush()
+            await session.refresh(config_obj)
+            return config_obj
+
+class CompanySettingsService:
+    def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
+        self.db_manager = db_manager
+        self.app_core = app_core
+
+    async def get_company_settings(self, settings_id: int = 1) -> Optional[CompanySetting]:
+        async with self.db_manager.session() as session:
+            # Ensure eager loading of related user if needed, though not strictly necessary for just settings values
+            return await session.get(CompanySetting, settings_id)
+
+    async def save_company_settings(self, settings_obj: CompanySetting) -> CompanySetting:
+        if self.app_core and self.app_core.current_user:
+            # Assuming updated_by_user_id is the correct attribute name as per model
+            settings_obj.updated_by_user_id = self.app_core.current_user.id # type: ignore
+        async with self.db_manager.session() as session:
+            session.add(settings_obj)
+            await session.flush()
+            await session.refresh(settings_obj)
+            return settings_obj
+
+
+```
+
+# app/services/__init__.py
+```py
+# File: app/services/__init__.py
+from abc import ABC, abstractmethod
+from typing import List, Optional, Any, Generic, TypeVar, Dict 
+from datetime import date
+from decimal import Decimal 
+
+T = TypeVar('T') 
+ID = TypeVar('ID') 
+
+class IRepository(ABC, Generic[T, ID]):
+    @abstractmethod
+    async def get_by_id(self, id_val: ID) -> Optional[T]: pass
+    @abstractmethod
+    async def get_all(self) -> List[T]: pass
+    @abstractmethod
+    async def add(self, entity: T) -> T: pass
+    @abstractmethod
+    async def update(self, entity: T) -> T: pass
+    @abstractmethod
+    async def delete(self, id_val: ID) -> bool: pass
+
+# --- ORM Model Imports ---
+from app.models.accounting.account import Account
+from app.models.accounting.journal_entry import JournalEntry
+from app.models.accounting.fiscal_period import FiscalPeriod
+from app.models.accounting.tax_code import TaxCode
+from app.models.core.company_setting import CompanySetting 
+from app.models.accounting.gst_return import GSTReturn
+from app.models.accounting.recurring_pattern import RecurringPattern
+from app.models.accounting.fiscal_year import FiscalYear 
+from app.models.accounting.account_type import AccountType 
+from app.models.accounting.currency import Currency 
+from app.models.accounting.exchange_rate import ExchangeRate 
+from app.models.core.sequence import Sequence 
+from app.models.core.configuration import Configuration 
+from app.models.business.customer import Customer
+from app.models.business.vendor import Vendor
+from app.models.business.product import Product
+from app.models.business.sales_invoice import SalesInvoice
+from app.models.business.purchase_invoice import PurchaseInvoice
+
+# --- DTO Imports (for return types in interfaces) ---
+from app.utils.pydantic_models import (
+    CustomerSummaryData, VendorSummaryData, ProductSummaryData, 
+    SalesInvoiceSummaryData, PurchaseInvoiceSummaryData
+)
+
+# --- Enum Imports (for filter types in interfaces) ---
+from app.common.enums import ProductTypeEnum, InvoiceStatusEnum
+
+
+# --- Existing Interfaces (condensed for brevity) ---
+class IAccountRepository(IRepository[Account, int]): 
+    @abstractmethod
+    async def get_by_code(self, code: str) -> Optional[Account]: pass
+    @abstractmethod
+    async def get_all_active(self) -> List[Account]: pass
+    @abstractmethod
+    async def get_by_type(self, account_type: str, active_only: bool = True) -> List[Account]: pass
+    @abstractmethod
+    async def save(self, account: Account) -> Account: pass 
+    @abstractmethod
+    async def get_account_tree(self, active_only: bool = True) -> List[Dict[str, Any]]: pass 
+    @abstractmethod
+    async def has_transactions(self, account_id: int) -> bool: pass
+    @abstractmethod
+    async def get_accounts_by_tax_treatment(self, tax_treatment_code: str) -> List[Account]: pass
+
+class IJournalEntryRepository(IRepository[JournalEntry, int]): 
+    @abstractmethod
+    async def get_by_entry_no(self, entry_no: str) -> Optional[JournalEntry]: pass
+    @abstractmethod
+    async def get_by_date_range(self, start_date: date, end_date: date) -> List[JournalEntry]: pass
+    @abstractmethod
+    async def get_posted_entries_by_date_range(self, start_date: date, end_date: date) -> List[JournalEntry]: pass
+    @abstractmethod
+    async def save(self, journal_entry: JournalEntry) -> JournalEntry: pass
+    @abstractmethod
+    async def get_account_balance(self, account_id: int, as_of_date: date) -> Decimal: pass
+    @abstractmethod
+    async def get_account_balance_for_period(self, account_id: int, start_date: date, end_date: date) -> Decimal: pass
+    @abstractmethod
+    async def get_recurring_patterns_due(self, as_of_date: date) -> List[RecurringPattern]: pass
+    @abstractmethod
+    async def save_recurring_pattern(self, pattern: RecurringPattern) -> RecurringPattern: pass
+    @abstractmethod
+    async def get_all_summary(self, start_date_filter: Optional[date] = None, 
+                              end_date_filter: Optional[date] = None, 
+                              status_filter: Optional[str] = None,
+                              entry_no_filter: Optional[str] = None,
+                              description_filter: Optional[str] = None
+                             ) -> List[Dict[str, Any]]: pass
+
+class IFiscalPeriodRepository(IRepository[FiscalPeriod, int]): 
+    @abstractmethod
+    async def get_by_date(self, target_date: date) -> Optional[FiscalPeriod]: pass
+    @abstractmethod
+    async def get_fiscal_periods_for_year(self, fiscal_year_id: int, period_type: Optional[str] = None) -> List[FiscalPeriod]: pass
+
+class IFiscalYearRepository(IRepository[FiscalYear, int]): 
+    @abstractmethod
+    async def get_by_name(self, year_name: str) -> Optional[FiscalYear]: pass
+    @abstractmethod
+    async def get_by_date_overlap(self, start_date: date, end_date: date, exclude_id: Optional[int] = None) -> Optional[FiscalYear]: pass
+    @abstractmethod
+    async def save(self, entity: FiscalYear) -> FiscalYear: pass
+
+class ITaxCodeRepository(IRepository[TaxCode, int]): 
+    @abstractmethod
+    async def get_tax_code(self, code: str) -> Optional[TaxCode]: pass
+    @abstractmethod
+    async def save(self, entity: TaxCode) -> TaxCode: pass 
+
+class ICompanySettingsRepository(IRepository[CompanySetting, int]): 
+    @abstractmethod
+    async def get_company_settings(self, settings_id: int = 1) -> Optional[CompanySetting]: pass
+    @abstractmethod
+    async def save_company_settings(self, settings_obj: CompanySetting) -> CompanySetting: pass
+
+class IGSTReturnRepository(IRepository[GSTReturn, int]): 
+    @abstractmethod
+    async def get_gst_return(self, return_id: int) -> Optional[GSTReturn]: pass 
+    @abstractmethod
+    async def save_gst_return(self, gst_return_data: GSTReturn) -> GSTReturn: pass
+
+class IAccountTypeRepository(IRepository[AccountType, int]): 
+    @abstractmethod
+    async def get_by_name(self, name: str) -> Optional[AccountType]: pass
+    @abstractmethod
+    async def get_by_category(self, category: str) -> List[AccountType]: pass
+
+class ICurrencyRepository(IRepository[Currency, str]): 
+    @abstractmethod
+    async def get_all_active(self) -> List[Currency]: pass
+
+class IExchangeRateRepository(IRepository[ExchangeRate, int]): 
+    @abstractmethod
+    async def get_rate_for_date(self, from_code: str, to_code: str, r_date: date) -> Optional[ExchangeRate]: pass
+    @abstractmethod
+    async def save(self, entity: ExchangeRate) -> ExchangeRate: pass
+
+class ISequenceRepository(IRepository[Sequence, int]): 
+    @abstractmethod
+    async def get_sequence_by_name(self, name: str) -> Optional[Sequence]: pass
+    @abstractmethod
+    async def save_sequence(self, sequence_obj: Sequence) -> Sequence: pass
+
+class IConfigurationRepository(IRepository[Configuration, int]): 
+    @abstractmethod
+    async def get_config_by_key(self, key: str) -> Optional[Configuration]: pass
+    @abstractmethod
+    async def save_config(self, config_obj: Configuration) -> Configuration: pass
+
+class ICustomerRepository(IRepository[Customer, int]): 
+    @abstractmethod
+    async def get_by_code(self, code: str) -> Optional[Customer]: pass
+    @abstractmethod
+    async def get_all_summary(self, active_only: bool = True,
+                              search_term: Optional[str] = None,
+                              page: int = 1, page_size: int = 50
+                             ) -> List[CustomerSummaryData]: pass
+
+class IVendorRepository(IRepository[Vendor, int]): 
+    @abstractmethod
+    async def get_by_code(self, code: str) -> Optional[Vendor]: pass
+    @abstractmethod
+    async def get_all_summary(self, active_only: bool = True,
+                              search_term: Optional[str] = None,
+                              page: int = 1, page_size: int = 50
+                             ) -> List[VendorSummaryData]: pass
+
+class IProductRepository(IRepository[Product, int]): 
+    @abstractmethod
+    async def get_by_code(self, code: str) -> Optional[Product]: pass
+    @abstractmethod
+    async def get_all_summary(self, 
+                              active_only: bool = True,
+                              product_type_filter: Optional[ProductTypeEnum] = None,
+                              search_term: Optional[str] = None,
+                              page: int = 1, 
+                              page_size: int = 50
+                             ) -> List[ProductSummaryData]: pass
+
+class ISalesInvoiceRepository(IRepository[SalesInvoice, int]):
+    @abstractmethod
+    async def get_by_invoice_no(self, invoice_no: str) -> Optional[SalesInvoice]: pass
+    @abstractmethod
+    async def get_all_summary(self, 
+                              customer_id: Optional[int] = None,
+                              status: Optional[InvoiceStatusEnum] = None, 
+                              start_date: Optional[date] = None, 
+                              end_date: Optional[date] = None,
+                              page: int = 1, 
+                              page_size: int = 50
+                             ) -> List[SalesInvoiceSummaryData]: pass
+
+class IPurchaseInvoiceRepository(IRepository[PurchaseInvoice, int]):
+    @abstractmethod
+    async def get_by_internal_ref_no(self, internal_ref_no: str) -> Optional[PurchaseInvoice]: pass 
+    
+    @abstractmethod
+    async def get_by_vendor_and_vendor_invoice_no(self, vendor_id: int, vendor_invoice_no: str) -> Optional[PurchaseInvoice]: pass
+    
+    @abstractmethod
+    async def get_all_summary(self, 
+                              vendor_id: Optional[int] = None,
+                              status: Optional[InvoiceStatusEnum] = None, 
+                              start_date: Optional[date] = None, 
+                              end_date: Optional[date] = None,
+                              page: int = 1, 
+                              page_size: int = 50
+                             ) -> List[PurchaseInvoiceSummaryData]: pass
+
+
+# --- Service Implementations ---
+from .account_service import AccountService
+from .journal_service import JournalService
+from .fiscal_period_service import FiscalPeriodService
+from .tax_service import TaxCodeService, GSTReturnService 
+from .core_services import SequenceService, ConfigurationService, CompanySettingsService 
+from .accounting_services import AccountTypeService, CurrencyService, ExchangeRateService, FiscalYearService
+from .business_services import (
+    CustomerService, VendorService, ProductService, 
+    SalesInvoiceService, PurchaseInvoiceService 
+)
+
+__all__ = [
+    "IRepository",
+    "IAccountRepository", "IJournalEntryRepository", "IFiscalPeriodRepository", "IFiscalYearRepository",
+    "ITaxCodeRepository", "ICompanySettingsRepository", "IGSTReturnRepository",
+    "IAccountTypeRepository", "ICurrencyRepository", "IExchangeRateRepository",
+    "ISequenceRepository", "IConfigurationRepository", 
+    "ICustomerRepository", "IVendorRepository", "IProductRepository",
+    "ISalesInvoiceRepository", "IPurchaseInvoiceRepository", 
+    "AccountService", "JournalService", "FiscalPeriodService", "FiscalYearService",
+    "TaxCodeService", "GSTReturnService",
+    "SequenceService", "ConfigurationService", "CompanySettingsService",
+    "AccountTypeService", "CurrencyService", "ExchangeRateService",
+    "CustomerService", "VendorService", "ProductService", 
+    "SalesInvoiceService", "PurchaseInvoiceService", 
+]
+
+```
+
+# app/services/accounting_services.py
+```py
+# File: app/services/accounting_services.py
+from typing import List, Optional, Any, TYPE_CHECKING
+from datetime import date
+from sqlalchemy import select, and_, or_ # Added or_
+from app.models.accounting.account_type import AccountType
+from app.models.accounting.currency import Currency
+from app.models.accounting.exchange_rate import ExchangeRate
+from app.models.accounting.fiscal_year import FiscalYear 
+from app.core.database_manager import DatabaseManager
+from app.services import (
+    IAccountTypeRepository, 
+    ICurrencyRepository, 
+    IExchangeRateRepository,
+    IFiscalYearRepository 
+)
+
+if TYPE_CHECKING:
+    from app.core.application_core import ApplicationCore
+
+
+class AccountTypeService(IAccountTypeRepository):
+    def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
+        self.db_manager = db_manager
+        self.app_core = app_core
+
+    async def get_by_id(self, id_val: int) -> Optional[AccountType]:
+        async with self.db_manager.session() as session:
+            return await session.get(AccountType, id_val)
+
+    async def get_all(self) -> List[AccountType]:
+        async with self.db_manager.session() as session:
+            stmt = select(AccountType).order_by(AccountType.display_order, AccountType.name)
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+
+    async def add(self, entity: AccountType) -> AccountType:
+        async with self.db_manager.session() as session:
+            session.add(entity)
+            await session.flush()
+            await session.refresh(entity)
+            return entity
+
+    async def update(self, entity: AccountType) -> AccountType:
+        async with self.db_manager.session() as session:
+            session.add(entity) 
+            await session.flush()
+            await session.refresh(entity)
+            return entity
+
+    async def delete(self, id_val: int) -> bool:
+        async with self.db_manager.session() as session:
+            entity = await session.get(AccountType, id_val)
+            if entity:
+                await session.delete(entity)
+                return True
+            return False
+
+    async def get_by_name(self, name: str) -> Optional[AccountType]:
+        async with self.db_manager.session() as session:
+            stmt = select(AccountType).where(AccountType.name == name)
+            result = await session.execute(stmt)
+            return result.scalars().first()
+
+    async def get_by_category(self, category: str) -> List[AccountType]:
+        async with self.db_manager.session() as session:
+            stmt = select(AccountType).where(AccountType.category == category).order_by(AccountType.display_order)
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+
+
+class CurrencyService(ICurrencyRepository):
+    def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
+        self.db_manager = db_manager
+        self.app_core = app_core
+
+    async def get_by_id(self, id_val: str) -> Optional[Currency]:
+        async with self.db_manager.session() as session:
+            return await session.get(Currency, id_val)
+
+    async def get_all(self) -> List[Currency]:
+        async with self.db_manager.session() as session:
+            stmt = select(Currency).order_by(Currency.name)
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+
+    async def add(self, entity: Currency) -> Currency:
+        if self.app_core and self.app_core.current_user:
+            user_id = self.app_core.current_user.id
+            if hasattr(entity, 'created_by_user_id') and not entity.created_by_user_id:
+                 entity.created_by_user_id = user_id # type: ignore
+            if hasattr(entity, 'updated_by_user_id'):
+                 entity.updated_by_user_id = user_id # type: ignore
+        async with self.db_manager.session() as session:
+            session.add(entity)
+            await session.flush()
+            await session.refresh(entity)
+            return entity
+
+    async def update(self, entity: Currency) -> Currency:
+        if self.app_core and self.app_core.current_user:
+            user_id = self.app_core.current_user.id
+            if hasattr(entity, 'updated_by_user_id'):
+                entity.updated_by_user_id = user_id # type: ignore
+        async with self.db_manager.session() as session:
+            session.add(entity)
+            await session.flush()
+            await session.refresh(entity)
+            return entity
+
+    async def delete(self, id_val: str) -> bool:
+        async with self.db_manager.session() as session:
+            entity = await session.get(Currency, id_val)
+            if entity:
+                await session.delete(entity)
+                return True
+            return False
+
+    async def get_all_active(self) -> List[Currency]:
+        async with self.db_manager.session() as session:
+            stmt = select(Currency).where(Currency.is_active == True).order_by(Currency.name)
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+
+
+class ExchangeRateService(IExchangeRateRepository):
+    def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
+        self.db_manager = db_manager
+        self.app_core = app_core
+
+    async def get_by_id(self, id_val: int) -> Optional[ExchangeRate]:
+        async with self.db_manager.session() as session:
+            return await session.get(ExchangeRate, id_val)
+
+    async def get_all(self) -> List[ExchangeRate]:
+        async with self.db_manager.session() as session:
+            stmt = select(ExchangeRate).order_by(ExchangeRate.rate_date.desc()) # type: ignore
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+
+    async def add(self, entity: ExchangeRate) -> ExchangeRate:
+        return await self.save(entity)
+
+    async def update(self, entity: ExchangeRate) -> ExchangeRate:
+        return await self.save(entity)
+
+    async def delete(self, id_val: int) -> bool:
+        async with self.db_manager.session() as session:
+            entity = await session.get(ExchangeRate, id_val)
+            if entity:
+                await session.delete(entity)
+                return True
+            return False
+
+    async def get_rate_for_date(self, from_code: str, to_code: str, r_date: date) -> Optional[ExchangeRate]:
+        async with self.db_manager.session() as session:
+            stmt = select(ExchangeRate).where(
+                ExchangeRate.from_currency_code == from_code,
+                ExchangeRate.to_currency_code == to_code,
+                ExchangeRate.rate_date == r_date
+            )
+            result = await session.execute(stmt)
+            return result.scalars().first()
+    
+    async def save(self, entity: ExchangeRate) -> ExchangeRate:
+        if self.app_core and self.app_core.current_user:
+            user_id = self.app_core.current_user.id
+            if not entity.id: 
+                 if hasattr(entity, 'created_by_user_id') and not entity.created_by_user_id:
+                    entity.created_by_user_id = user_id # type: ignore
+            if hasattr(entity, 'updated_by_user_id'):
+                entity.updated_by_user_id = user_id # type: ignore
+        
+        async with self.db_manager.session() as session:
+            session.add(entity)
+            await session.flush()
+            await session.refresh(entity)
+            return entity
+
+class FiscalYearService(IFiscalYearRepository):
+    def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
+        self.db_manager = db_manager
+        self.app_core = app_core
+
+    async def get_by_id(self, id_val: int) -> Optional[FiscalYear]:
+        async with self.db_manager.session() as session:
+            return await session.get(FiscalYear, id_val)
+
+    async def get_all(self) -> List[FiscalYear]:
+        async with self.db_manager.session() as session:
+            stmt = select(FiscalYear).order_by(FiscalYear.start_date.desc()) 
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+
+    async def add(self, entity: FiscalYear) -> FiscalYear:
+        return await self.save(entity)
+
+    async def update(self, entity: FiscalYear) -> FiscalYear:
+        return await self.save(entity)
+    
+    async def save(self, entity: FiscalYear) -> FiscalYear:
+        # User audit fields are directly on FiscalYear model and should be set by manager
+        async with self.db_manager.session() as session:
+            session.add(entity)
+            await session.flush()
+            await session.refresh(entity)
+            return entity
+
+    async def delete(self, id_val: int) -> bool:
+        # Implement checks: e.g., cannot delete if periods exist or year is not closed.
+        # For MVP, direct delete after confirmation by manager.
+        async with self.db_manager.session() as session:
+            entity = await session.get(FiscalYear, id_val)
+            if entity:
+                # Add check for associated fiscal periods
+                if entity.fiscal_periods:
+                     raise ValueError(f"Cannot delete fiscal year '{entity.year_name}' as it has associated fiscal periods.")
+                await session.delete(entity)
+                return True
+            return False
+
+    async def get_by_name(self, year_name: str) -> Optional[FiscalYear]:
+        async with self.db_manager.session() as session:
+            stmt = select(FiscalYear).where(FiscalYear.year_name == year_name)
+            result = await session.execute(stmt)
+            return result.scalars().first()
+
+    async def get_by_date_overlap(self, start_date: date, end_date: date, exclude_id: Optional[int] = None) -> Optional[FiscalYear]:
+        async with self.db_manager.session() as session:
+            conditions = [
+                # ExistingStart <= NewEnd AND ExistingEnd >= NewStart
+                FiscalYear.start_date <= end_date,
+                FiscalYear.end_date >= start_date
+            ]
+            if exclude_id is not None:
+                conditions.append(FiscalYear.id != exclude_id)
+            
+            stmt = select(FiscalYear).where(and_(*conditions))
+            result = await session.execute(stmt)
+            return result.scalars().first()
+
+```
+
+# app/services/tax_service.py
+```py
+# File: app/services/tax_service.py
+from typing import List, Optional, Any, TYPE_CHECKING
+from sqlalchemy import select
+from app.models.accounting.tax_code import TaxCode 
+from app.models.accounting.gst_return import GSTReturn 
+# from app.core.database_manager import DatabaseManager # Already imported via IRepository context
+from app.services import ITaxCodeRepository, IGSTReturnRepository 
+
+if TYPE_CHECKING:
+    from app.core.database_manager import DatabaseManager
+    from app.core.application_core import ApplicationCore
+
+
+class TaxCodeService(ITaxCodeRepository):
+    def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
+        self.db_manager = db_manager
         self.app_core = app_core 
 
-    async def create_account(self, account_data: AccountCreateData) -> Result[Account]:
-        validation_result = self.account_validator.validate_create(account_data)
-        if not validation_result.is_valid:
-            return Result.failure(validation_result.errors)
-        
-        existing = await self.account_service.get_by_code(account_data.code)
-        if existing:
-            return Result.failure([f"Account code '{account_data.code}' already exists."])
-        
-        current_user_id = account_data.user_id
-
-        account = Account(
-            code=account_data.code, name=account_data.name,
-            account_type=account_data.account_type, sub_type=account_data.sub_type,
-            tax_treatment=account_data.tax_treatment, gst_applicable=account_data.gst_applicable,
-            description=account_data.description, parent_id=account_data.parent_id,
-            report_group=account_data.report_group, is_control_account=account_data.is_control_account,
-            is_bank_account=account_data.is_bank_account, opening_balance=account_data.opening_balance,
-            opening_balance_date=account_data.opening_balance_date, is_active=account_data.is_active,
-            created_by_user_id=current_user_id, 
-            updated_by_user_id=current_user_id 
-        )
-        
-        try:
-            saved_account = await self.account_service.save(account)
-            return Result.success(saved_account)
-        except Exception as e:
-            return Result.failure([f"Failed to save account: {str(e)}"])
-    
-    async def update_account(self, account_data: AccountUpdateData) -> Result[Account]:
-        existing_account = await self.account_service.get_by_id(account_data.id)
-        if not existing_account:
-            return Result.failure([f"Account with ID {account_data.id} not found."])
-        
-        validation_result = self.account_validator.validate_update(account_data)
-        if not validation_result.is_valid:
-            return Result.failure(validation_result.errors)
-        
-        if account_data.code != existing_account.code:
-            code_exists = await self.account_service.get_by_code(account_data.code)
-            if code_exists and code_exists.id != existing_account.id:
-                return Result.failure([f"Account code '{account_data.code}' already exists."])
-        
-        current_user_id = account_data.user_id
-
-        existing_account.code = account_data.code; existing_account.name = account_data.name
-        existing_account.account_type = account_data.account_type; existing_account.sub_type = account_data.sub_type
-        existing_account.tax_treatment = account_data.tax_treatment; existing_account.gst_applicable = account_data.gst_applicable
-        existing_account.description = account_data.description; existing_account.parent_id = account_data.parent_id
-        existing_account.report_group = account_data.report_group; existing_account.is_control_account = account_data.is_control_account
-        existing_account.is_bank_account = account_data.is_bank_account; existing_account.opening_balance = account_data.opening_balance
-        existing_account.opening_balance_date = account_data.opening_balance_date; existing_account.is_active = account_data.is_active
-        existing_account.updated_by_user_id = current_user_id
-        
-        try:
-            updated_account = await self.account_service.save(existing_account)
-            return Result.success(updated_account)
-        except Exception as e:
-            return Result.failure([f"Failed to update account: {str(e)}"])
+    async def get_by_id(self, id_val: int) -> Optional[TaxCode]:
+        async with self.db_manager.session() as session:
+            return await session.get(TaxCode, id_val)
             
-    async def deactivate_account(self, account_id: int, user_id: int) -> Result[Account]:
-        account = await self.account_service.get_by_id(account_id)
-        if not account:
-            return Result.failure([f"Account with ID {account_id} not found."])
+    async def get_tax_code(self, code: str) -> Optional[TaxCode]:
+        async with self.db_manager.session() as session:
+            stmt = select(TaxCode).where(TaxCode.code == code, TaxCode.is_active == True)
+            result = await session.execute(stmt)
+            return result.scalars().first()
+
+    async def get_all(self) -> List[TaxCode]:
+        async with self.db_manager.session() as session:
+            stmt = select(TaxCode).where(TaxCode.is_active == True).order_by(TaxCode.code)
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+
+    async def save(self, entity: TaxCode) -> TaxCode: 
+        if self.app_core and self.app_core.current_user:
+            user_id = self.app_core.current_user.id 
+            if not entity.id: 
+                entity.created_by_user_id = user_id # type: ignore
+            entity.updated_by_user_id = user_id # type: ignore
         
-        if not account.is_active:
-             return Result.failure([f"Account '{account.code}' is already inactive."])
+        async with self.db_manager.session() as session:
+            session.add(entity)
+            await session.flush()
+            await session.refresh(entity)
+            return entity
 
-        if not hasattr(self.app_core, 'journal_service'): 
-            return Result.failure(["Journal service not available for balance check."])
+    async def add(self, entity: TaxCode) -> TaxCode:
+        return await self.save(entity)
 
-        total_current_balance = await self.app_core.journal_service.get_account_balance(account_id, date.today()) 
+    async def update(self, entity: TaxCode) -> TaxCode:
+        return await self.save(entity)
+            
+    async def delete(self, id_val: int) -> bool: 
+        tax_code = await self.get_by_id(id_val)
+        if tax_code and tax_code.is_active:
+            tax_code.is_active = False
+            await self.save(tax_code) 
+            return True
+        return False
 
-        if total_current_balance != Decimal(0):
-            return Result.failure([f"Cannot deactivate account '{account.code}' as it has a non-zero balance ({total_current_balance:.2f})."])
+class GSTReturnService(IGSTReturnRepository):
+    def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
+        self.db_manager = db_manager
+        self.app_core = app_core
 
-        account.is_active = False
-        account.updated_by_user_id = user_id 
+    async def get_by_id(self, id_val: int) -> Optional[GSTReturn]:
+        async with self.db_manager.session() as session:
+            return await session.get(GSTReturn, id_val)
+
+    async def get_gst_return(self, return_id: int) -> Optional[GSTReturn]:
+        return await self.get_by_id(return_id)
+
+    async def save_gst_return(self, gst_return_data: GSTReturn) -> GSTReturn:
+        if self.app_core and self.app_core.current_user:
+            user_id = self.app_core.current_user.id 
+            if not gst_return_data.id:
+                gst_return_data.created_by_user_id = user_id # type: ignore
+            gst_return_data.updated_by_user_id = user_id # type: ignore
         
-        try:
-            updated_account = await self.account_service.save(account)
-            return Result.success(updated_account)
-        except Exception as e:
-            return Result.failure([f"Failed to deactivate account: {str(e)}"])
+        async with self.db_manager.session() as session:
+            session.add(gst_return_data)
+            await session.flush()
+            await session.refresh(gst_return_data)
+            return gst_return_data
+    
+    async def get_all(self) -> List[GSTReturn]:
+        async with self.db_manager.session() as session:
+            stmt = select(GSTReturn).order_by(GSTReturn.end_date.desc()) # type: ignore
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
 
-    async def get_account_tree(self, active_only: bool = True) -> List[Dict[str, Any]]:
-        try:
-            tree = await self.account_service.get_account_tree(active_only=active_only)
-            return tree 
-        except Exception as e:
-            print(f"Error getting account tree: {e}") 
-            return []
+    async def add(self, entity: GSTReturn) -> GSTReturn:
+        return await self.save_gst_return(entity)
 
-    async def get_accounts_for_selection(self, account_type: Optional[str] = None, active_only: bool = True) -> List[Account]:
-        if account_type:
-            return await self.account_service.get_by_type(account_type, active_only=active_only)
-        elif active_only:
-            return await self.account_service.get_all_active()
-        else:
-            # Assuming get_all() exists on account_service, if not, this path needs adjustment
-            if hasattr(self.account_service, 'get_all'):
-                 return await self.account_service.get_all()
-            else: # Fallback to active if get_all not present for some reason
-                 return await self.account_service.get_all_active()
+    async def update(self, entity: GSTReturn) -> GSTReturn:
+        return await self.save_gst_return(entity)
+
+    async def delete(self, id_val: int) -> bool:
+        gst_return = await self.get_by_id(id_val)
+        if gst_return and gst_return.status == 'Draft':
+            async with self.db_manager.session() as session:
+                await session.delete(gst_return)
+            return True
+        return False
 
 ```
 
-# app/accounting/fiscal_period_manager.py
+# app/services/account_service.py
 ```py
-# File: app/accounting/fiscal_period_manager.py
-from typing import List, Optional, TYPE_CHECKING # Removed Any, will use specific type
-from datetime import date, datetime, timedelta
-from dateutil.relativedelta import relativedelta # type: ignore
-
-from sqlalchemy import select # Added for explicit select usage
-
-from app.models.accounting.fiscal_year import FiscalYear 
-from app.models.accounting.fiscal_period import FiscalPeriod
-from app.utils.result import Result
-from app.utils.pydantic_models import FiscalYearCreateData 
-from app.services.fiscal_period_service import FiscalPeriodService
-from app.services.accounting_services import FiscalYearService 
+# File: app/services/account_service.py
+# (Content previously updated, ensure imports and UserAuditMixin FKs are handled)
+from typing import List, Optional, Dict, Any, TYPE_CHECKING
+from sqlalchemy import select, func, text
+from app.models.accounting.account import Account 
+from app.models.accounting.journal_entry import JournalEntryLine, JournalEntry 
+# from app.core.database_manager import DatabaseManager # Already imported by IAccountRepository context
+from app.services import IAccountRepository 
+from decimal import Decimal
+from datetime import date # Added for type hint in has_transactions
 
 if TYPE_CHECKING:
-    from app.core.application_core import ApplicationCore 
-    from sqlalchemy.ext.asyncio import AsyncSession # For session type hint
+    from app.core.database_manager import DatabaseManager
+    from app.core.application_core import ApplicationCore
 
-class FiscalPeriodManager:
-    def __init__(self, app_core: "ApplicationCore"):
-        self.app_core = app_core
-        self.fiscal_period_service: FiscalPeriodService = app_core.fiscal_period_service 
-        self.fiscal_year_service: FiscalYearService = app_core.fiscal_year_service 
-        
-    async def create_fiscal_year_and_periods(self, fy_data: FiscalYearCreateData) -> Result[FiscalYear]:
-        if fy_data.start_date >= fy_data.end_date:
-            return Result.failure(["Fiscal year start date must be before end date."])
 
-        existing_by_name = await self.fiscal_year_service.get_by_name(fy_data.year_name)
-        if existing_by_name:
-            return Result.failure([f"A fiscal year with the name '{fy_data.year_name}' already exists."])
+class AccountService(IAccountRepository):
+    def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
+        self.db_manager = db_manager
+        self.app_core = app_core 
 
-        overlapping_fy = await self.fiscal_year_service.get_by_date_overlap(fy_data.start_date, fy_data.end_date)
-        if overlapping_fy:
-            return Result.failure([f"The proposed date range overlaps with existing fiscal year '{overlapping_fy.year_name}' ({overlapping_fy.start_date} - {overlapping_fy.end_date})."])
+    async def get_by_id(self, account_id: int) -> Optional[Account]:
+        async with self.db_manager.session() as session:
+            return await session.get(Account, account_id)
+    
+    async def get_by_code(self, code: str) -> Optional[Account]:
+        async with self.db_manager.session() as session:
+            stmt = select(Account).where(Account.code == code)
+            result = await session.execute(stmt)
+            return result.scalars().first()
+    
+    async def get_all(self) -> List[Account]: 
+        async with self.db_manager.session() as session:
+            stmt = select(Account).order_by(Account.code)
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
 
-        async with self.app_core.db_manager.session() as session: # type: ignore # session is AsyncSession here
-            fy = FiscalYear(
-                year_name=fy_data.year_name, 
-                start_date=fy_data.start_date, 
-                end_date=fy_data.end_date, 
-                created_by_user_id=fy_data.user_id, 
-                updated_by_user_id=fy_data.user_id,
-                is_closed=False 
+    async def get_all_active(self) -> List[Account]:
+        async with self.db_manager.session() as session:
+            stmt = select(Account).where(Account.is_active == True).order_by(Account.code)
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+    
+    async def get_by_type(self, account_type: str, active_only: bool = True) -> List[Account]:
+        async with self.db_manager.session() as session:
+            conditions = [Account.account_type == account_type]
+            if active_only:
+                conditions.append(Account.is_active == True)
+            
+            stmt = select(Account).where(*conditions).order_by(Account.code)
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+    
+    async def has_transactions(self, account_id: int) -> bool:
+        async with self.db_manager.session() as session:
+            stmt_je = select(func.count(JournalEntryLine.id)).join(
+                JournalEntry, JournalEntryLine.journal_entry_id == JournalEntry.id
+            ).where(
+                JournalEntryLine.account_id == account_id,
+                JournalEntry.is_posted == True
             )
-            session.add(fy)
+            count_je = (await session.execute(stmt_je)).scalar_one()
+
+            acc = await session.get(Account, account_id)
+            has_opening_balance_activity = False
+            if acc and acc.opening_balance_date and acc.opening_balance != Decimal(0):
+                has_opening_balance_activity = True
+            
+            return (count_je > 0) or has_opening_balance_activity
+
+    async def save(self, account: Account) -> Account:
+        async with self.db_manager.session() as session:
+            session.add(account)
             await session.flush() 
-            await session.refresh(fy) 
+            await session.refresh(account)
+            return account
 
-            if fy_data.auto_generate_periods and fy_data.auto_generate_periods in ["Month", "Quarter"]:
-                # Pass the existing session to the internal method
-                period_generation_result = await self._generate_periods_for_year_internal(
-                    fy, fy_data.auto_generate_periods, fy_data.user_id, session # Pass session
-                )
-                if not period_generation_result.is_success:
-                    # No need to explicitly rollback here, 'async with session' handles it on exception.
-                    # If period_generation_result itself raises an exception that's caught outside,
-                    # the session context manager will rollback.
-                    # If it returns a failure Result, we need to raise an exception to trigger rollback
-                    # or handle it such that the fiscal year is not considered fully created.
-                    # For now, let's assume if period generation fails, we raise to rollback.
-                    # This means _generate_periods_for_year_internal should raise on critical failure.
-                    # Or, the manager can decide to keep the FY and return warnings.
-                    # Let's make it so that failure to generate periods makes the whole operation fail.
-                    raise Exception(f"Failed to generate periods for '{fy.year_name}': {', '.join(period_generation_result.errors)}")
-            
-            # If we reach here, commit will happen automatically when 'async with session' exits.
-            return Result.success(fy)
+    async def add(self, entity: Account) -> Account: 
+        return await self.save(entity)
+
+    async def update(self, entity: Account) -> Account: 
+        return await self.save(entity)
+
+    async def delete(self, account_id: int) -> bool: 
+        raise NotImplementedError("Hard delete of accounts not typically supported. Use deactivation via manager.")
+    
+    async def get_account_tree(self, active_only: bool = True) -> List[Dict[str, Any]]:
+        active_filter_main = "WHERE a.parent_id IS NULL"
+        if active_only:
+            active_filter_main += " AND a.is_active = TRUE"
         
-        # This return Result.failure is less likely to be hit due to `async with` handling exceptions
-        return Result.failure(["An unexpected error occurred outside the transaction for fiscal year creation."])
+        active_filter_recursive = ""
+        if active_only:
+            active_filter_recursive = "AND a.is_active = TRUE"
 
-
-    async def _generate_periods_for_year_internal(self, fiscal_year: FiscalYear, period_type: str, user_id: int, session: "AsyncSession") -> Result[List[FiscalPeriod]]:
-        if not fiscal_year or not fiscal_year.id:
-            # This should raise an exception to trigger rollback in the calling method
-            raise ValueError("Valid FiscalYear object with an ID must be provided for period generation.")
-        
-        stmt_existing = select(FiscalPeriod).where(
-            FiscalPeriod.fiscal_year_id == fiscal_year.id,
-            FiscalPeriod.period_type == period_type
-        )
-        existing_periods_result = await session.execute(stmt_existing)
-        if existing_periods_result.scalars().first():
-             raise ValueError(f"{period_type} periods already exist for fiscal year '{fiscal_year.year_name}'.")
-
-
-        periods: List[FiscalPeriod] = []
-        current_start_date = fiscal_year.start_date
-        fy_end_date = fiscal_year.end_date
-        period_number = 1
-
-        while current_start_date <= fy_end_date:
-            current_end_date: date
-            period_name: str
-
-            if period_type == "Month":
-                current_end_date = current_start_date + relativedelta(months=1) - relativedelta(days=1)
-                if current_end_date > fy_end_date: current_end_date = fy_end_date
-                period_name = f"{current_start_date.strftime('%B %Y')}"
-            
-            elif period_type == "Quarter":
-                month_end_of_third_month = current_start_date + relativedelta(months=2, day=1) + relativedelta(months=1) - relativedelta(days=1)
-                current_end_date = month_end_of_third_month
-                if current_end_date > fy_end_date: current_end_date = fy_end_date
-                period_name = f"Q{period_number} {fiscal_year.year_name}"
-            else: 
-                raise ValueError(f"Invalid period type '{period_type}' during generation.")
-
-            fp = FiscalPeriod(
-                fiscal_year_id=fiscal_year.id, name=period_name,
-                start_date=current_start_date, end_date=current_end_date,
-                period_type=period_type, status="Open", period_number=period_number,
-                is_adjustment=False,
-                created_by_user_id=user_id, updated_by_user_id=user_id
+        query = f"""
+            WITH RECURSIVE account_tree_cte AS (
+                SELECT 
+                    a.id, a.code, a.name, a.account_type, a.sub_type, 
+                    a.parent_id, a.is_active, a.description, 
+                    a.report_group, a.is_control_account, a.is_bank_account,
+                    a.opening_balance, a.opening_balance_date,
+                    0 AS level
+                FROM accounting.accounts a
+                {active_filter_main}
+                
+                UNION ALL
+                
+                SELECT 
+                    a.id, a.code, a.name, a.account_type, a.sub_type, 
+                    a.parent_id, a.is_active, a.description, 
+                    a.report_group, a.is_control_account, a.is_bank_account,
+                    a.opening_balance, a.opening_balance_date,
+                    t.level + 1
+                FROM accounting.accounts a
+                JOIN account_tree_cte t ON a.parent_id = t.id
+                WHERE 1=1 {active_filter_recursive} 
             )
-            session.add(fp) 
-            periods.append(fp)
-
-            if current_end_date >= fy_end_date: break 
-            current_start_date = current_end_date + relativedelta(days=1)
-            period_number += 1
+            SELECT * FROM account_tree_cte
+            ORDER BY account_type, code;
+        """
+        # Type casting for raw_accounts if execute_query returns list of asyncpg.Record
+        raw_accounts: List[Any] = await self.db_manager.execute_query(query)
+        accounts_data = [dict(row) for row in raw_accounts]
         
-        await session.flush() # Flush within the session passed by the caller
-        for p in periods: 
-            await session.refresh(p)
-            
-        return Result.success(periods)
+        account_map: Dict[int, Dict[str, Any]] = {account['id']: account for account in accounts_data}
+        for account_dict in accounts_data: 
+            account_dict['children'] = [] 
 
-    async def close_period(self, fiscal_period_id: int, user_id: int) -> Result[FiscalPeriod]:
-        period = await self.fiscal_period_service.get_by_id(fiscal_period_id)
-        if not period: return Result.failure([f"Fiscal period ID {fiscal_period_id} not found."])
-        if period.status == 'Closed': return Result.failure(["Period is already closed."])
-        if period.status == 'Archived': return Result.failure(["Cannot close an archived period."])
+        tree_roots: List[Dict[str, Any]] = []
+        for account_dict in accounts_data:
+            if account_dict['parent_id'] and account_dict['parent_id'] in account_map:
+                parent = account_map[account_dict['parent_id']]
+                parent['children'].append(account_dict)
+            elif not account_dict['parent_id']:
+                tree_roots.append(account_dict)
         
-        period.status = 'Closed'
-        period.updated_by_user_id = user_id
-        # The service's update method will handle the commit with its own session
-        updated_period = await self.fiscal_period_service.update(period) 
-        return Result.success(updated_period)
+        return tree_roots
 
-    async def reopen_period(self, fiscal_period_id: int, user_id: int) -> Result[FiscalPeriod]:
-        period = await self.fiscal_period_service.get_by_id(fiscal_period_id)
-        if not period: return Result.failure([f"Fiscal period ID {fiscal_period_id} not found."])
-        if period.status == 'Open': return Result.failure(["Period is already open."])
-        if period.status == 'Archived': return Result.failure(["Cannot reopen an archived period."])
-        
-        fiscal_year = await self.fiscal_year_service.get_by_id(period.fiscal_year_id)
-        if fiscal_year and fiscal_year.is_closed:
-            return Result.failure(["Cannot reopen period as its fiscal year is closed."])
+    async def get_accounts_by_codes(self, codes: List[str]) -> List[Account]:
+        async with self.db_manager.session() as session:
+            stmt = select(Account).where(Account.code.in_(codes)) # type: ignore
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
 
-        period.status = 'Open'
-        period.updated_by_user_id = user_id
-        updated_period = await self.fiscal_period_service.update(period)
-        return Result.success(updated_period)
-
-    async def get_current_fiscal_period(self, target_date: Optional[date] = None) -> Optional[FiscalPeriod]:
-        if target_date is None:
-            target_date = date.today()
-        return await self.fiscal_period_service.get_by_date(target_date)
-
-    async def get_all_fiscal_years(self) -> List[FiscalYear]:
-        return await self.fiscal_year_service.get_all()
-
-    async def get_fiscal_year_by_id(self, fy_id: int) -> Optional[FiscalYear]:
-        return await self.fiscal_year_service.get_by_id(fy_id)
-
-    async def get_periods_for_fiscal_year(self, fiscal_year_id: int) -> List[FiscalPeriod]:
-        return await self.fiscal_period_service.get_fiscal_periods_for_year(fiscal_year_id)
-
-    async def close_fiscal_year(self, fiscal_year_id: int, user_id: int) -> Result[FiscalYear]:
-        fy = await self.fiscal_year_service.get_by_id(fiscal_year_id)
-        if not fy:
-            return Result.failure([f"Fiscal Year ID {fiscal_year_id} not found."])
-        if fy.is_closed:
-            return Result.failure([f"Fiscal Year '{fy.year_name}' is already closed."])
-
-        periods = await self.fiscal_period_service.get_fiscal_periods_for_year(fiscal_year_id)
-        open_periods = [p for p in periods if p.status == 'Open']
-        if open_periods:
-            return Result.failure([f"Cannot close fiscal year '{fy.year_name}'. Following periods are still open: {[p.name for p in open_periods]}"])
-        
-        print(f"Performing year-end closing entries for FY '{fy.year_name}' (conceptual)...")
-
-        fy.is_closed = True
-        fy.closed_date = datetime.utcnow() 
-        fy.closed_by_user_id = user_id
-        fy.updated_by_user_id = user_id 
-        
-        try:
-            updated_fy = await self.fiscal_year_service.save(fy)
-            return Result.success(updated_fy)
-        except Exception as e:
-            return Result.failure([f"Error closing fiscal year: {str(e)}"])
+    async def get_accounts_by_tax_treatment(self, tax_treatment_code: str) -> List[Account]:
+        async with self.db_manager.session() as session:
+            stmt = select(Account).where(Account.tax_treatment == tax_treatment_code, Account.is_active == True)
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
 
 ```
 
-# app/common/enums.py
+# app/services/business_services.py
 ```py
-# File: app/common/enums.py
-# (Content as previously generated and verified)
-from enum import Enum
+# File: app/services/business_services.py
+from typing import List, Optional, Any, TYPE_CHECKING, Dict
+from sqlalchemy import select, func, and_, or_
+from sqlalchemy.orm import selectinload, joinedload 
+from decimal import Decimal
+import logging 
 
-class AccountCategory(Enum): 
-    ASSET = "Asset"
-    LIABILITY = "Liability"
-    EQUITY = "Equity"
-    REVENUE = "Revenue"
-    EXPENSE = "Expense"
-
-class AccountTypeEnum(Enum): 
-    ASSET = "Asset"
-    LIABILITY = "Liability"
-    EQUITY = "Equity"
-    REVENUE = "Revenue"
-    EXPENSE = "Expense"
-
-
-class JournalTypeEnum(Enum): 
-    GENERAL = "General" 
-    SALES = "Sales"
-    PURCHASE = "Purchase"
-    CASH_RECEIPT = "Cash Receipt" 
-    CASH_DISBURSEMENT = "Cash Disbursement" 
-    PAYROLL = "Payroll"
-    OPENING_BALANCE = "Opening Balance"
-    ADJUSTMENT = "Adjustment"
-
-class FiscalPeriodTypeEnum(Enum): 
-    MONTH = "Month"
-    QUARTER = "Quarter"
-    YEAR = "Year" 
-
-class FiscalPeriodStatusEnum(Enum): 
-    OPEN = "Open"
-    CLOSED = "Closed"
-    ARCHIVED = "Archived"
-
-class TaxTypeEnum(Enum): 
-    GST = "GST"
-    INCOME_TAX = "Income Tax"
-    WITHHOLDING_TAX = "Withholding Tax"
-
-class ProductTypeEnum(Enum): 
-    INVENTORY = "Inventory"
-    SERVICE = "Service"
-    NON_INVENTORY = "Non-Inventory"
-
-class GSTReturnStatusEnum(Enum): 
-    DRAFT = "Draft"
-    SUBMITTED = "Submitted"
-    AMENDED = "Amended"
-
-class InventoryMovementTypeEnum(Enum): 
-    PURCHASE = "Purchase"
-    SALE = "Sale"
-    ADJUSTMENT = "Adjustment"
-    TRANSFER = "Transfer"
-    RETURN = "Return"
-    OPENING = "Opening"
-
-class InvoiceStatusEnum(Enum): 
-    DRAFT = "Draft"
-    APPROVED = "Approved"
-    SENT = "Sent" 
-    PARTIALLY_PAID = "Partially Paid"
-    PAID = "Paid"
-    OVERDUE = "Overdue"
-    VOIDED = "Voided"
-    DISPUTED = "Disputed" 
-
-class BankTransactionTypeEnum(Enum): 
-    DEPOSIT = "Deposit"
-    WITHDRAWAL = "Withdrawal"
-    TRANSFER = "Transfer"
-    INTEREST = "Interest"
-    FEE = "Fee"
-    ADJUSTMENT = "Adjustment"
-
-class PaymentTypeEnum(Enum): 
-    CUSTOMER_PAYMENT = "Customer Payment"
-    VENDOR_PAYMENT = "Vendor Payment"
-    REFUND = "Refund"
-    CREDIT_NOTE_APPLICATION = "Credit Note" 
-    OTHER = "Other"
-
-class PaymentMethodEnum(Enum): 
-    CASH = "Cash"
-    CHECK = "Check"
-    BANK_TRANSFER = "Bank Transfer"
-    CREDIT_CARD = "Credit Card"
-    GIRO = "GIRO"
-    PAYNOW = "PayNow"
-    OTHER = "Other"
-
-class PaymentEntityTypeEnum(Enum): 
-    CUSTOMER = "Customer"
-    VENDOR = "Vendor"
-    OTHER = "Other"
-
-class PaymentStatusEnum(Enum): 
-    DRAFT = "Draft"
-    APPROVED = "Approved"
-    COMPLETED = "Completed" 
-    VOIDED = "Voided"
-    RETURNED = "Returned" 
-
-class PaymentAllocationDocTypeEnum(Enum): 
-    SALES_INVOICE = "Sales Invoice"
-    PURCHASE_INVOICE = "Purchase Invoice"
-    CREDIT_NOTE = "Credit Note"
-    DEBIT_NOTE = "Debit Note"
-    OTHER = "Other"
-
-class WHCertificateStatusEnum(Enum): 
-    DRAFT = "Draft"
-    ISSUED = "Issued"
-    VOIDED = "Voided"
-
-class DataChangeTypeEnum(Enum): 
-    INSERT = "Insert"
-    UPDATE = "Update"
-    DELETE = "Delete"
-
-class RecurringFrequencyEnum(Enum): 
-    DAILY = "Daily"
-    WEEKLY = "Weekly"
-    MONTHLY = "Monthly"
-    QUARTERLY = "Quarterly"
-    YEARLY = "Yearly"
-
-```
-
-# data/report_templates/balance_sheet_default.json
-```json
-# File: data/report_templates/balance_sheet_default.json
-# (Content as provided before - example structure)
-"""
-{
-  "report_name": "Balance Sheet",
-  "sections": [
-    {
-      "title": "Assets",
-      "account_type": "Asset",
-      "sub_sections": [
-        {"title": "Current Assets", "account_sub_type_pattern": "Current Asset.*|Accounts Receivable|Cash.*"},
-        {"title": "Non-Current Assets", "account_sub_type_pattern": "Fixed Asset.*|Non-Current Asset.*"}
-      ]
-    },
-    {
-      "title": "Liabilities",
-      "account_type": "Liability",
-      "sub_sections": [
-        {"title": "Current Liabilities", "account_sub_type_pattern": "Current Liability.*|Accounts Payable|GST Payable"},
-        {"title": "Non-Current Liabilities", "account_sub_type_pattern": "Non-Current Liability.*|Loan.*"}
-      ]
-    },
-    {
-      "title": "Equity",
-      "account_type": "Equity"
-    }
-  ],
-  "options": {
-    "show_zero_balance": false,
-    "comparative_periods": 1
-  }
-}
-"""
-
-```
-
-# data/tax_codes/sg_gst_codes_2023.csv
-```csv
-# File: data/tax_codes/sg_gst_codes_2023.csv
-# (Content as provided before, verified against initial_data.sql SYS-GST-* accounts)
-"""Code,Description,TaxType,Rate,IsActive,AffectsAccountCode
-SR,Standard-Rated Supplies,GST,7.00,TRUE,SYS-GST-OUTPUT
-ZR,Zero-Rated Supplies,GST,0.00,TRUE,
-ES,Exempt Supplies,GST,0.00,TRUE,
-TX,Taxable Purchases (Standard-Rated),GST,7.00,TRUE,SYS-GST-INPUT
-BL,Blocked Input Tax (e.g. Club Subscriptions),GST,7.00,TRUE,
-OP,Out-of-Scope Supplies,GST,0.00,TRUE,
-"""
-
-```
-
-# data/chart_of_accounts/general_template.csv
-```csv
-# File: data/chart_of_accounts/general_template.csv
-# (Content as provided before, verified with new Account fields)
-"""Code,Name,AccountType,SubType,TaxTreatment,GSTApplicable,ParentCode,ReportGroup,IsControlAccount,IsBankAccount,OpeningBalance,OpeningBalanceDate
-1000,ASSETS,Asset,,,,,,,,0.00,
-1100,Current Assets,Asset,,,,1000,CURRENT_ASSETS,FALSE,FALSE,0.00,
-1110,Cash and Bank,Asset,Current Asset,,,1100,CASH_BANK,FALSE,TRUE,0.00,
-1111,Main Bank Account SGD,Asset,Cash and Cash Equivalents,Non-Taxable,FALSE,1110,CASH_BANK,FALSE,TRUE,1000.00,2023-01-01
-1112,Petty Cash,Asset,Cash and Cash Equivalents,Non-Taxable,FALSE,1110,CASH_BANK,FALSE,FALSE,100.00,2023-01-01
-1120,Accounts Receivable,Asset,Accounts Receivable,,,1100,ACCOUNTS_RECEIVABLE,TRUE,FALSE,500.00,2023-01-01
-1130,Inventory,Asset,Inventory,,,1100,INVENTORY,TRUE,FALSE,0.00,
-1200,Non-Current Assets,Asset,,,,1000,NON_CURRENT_ASSETS,FALSE,FALSE,0.00,
-1210,Property, Plant & Equipment,Asset,Fixed Assets,,,1200,PPE,FALSE,FALSE,0.00,
-1211,Office Equipment,Asset,Fixed Assets,,,1210,PPE,FALSE,FALSE,5000.00,2023-01-01
-1212,Accumulated Depreciation - Office Equipment,Asset,Fixed Assets,,,1210,PPE_ACCUM_DEPR,FALSE,FALSE,-500.00,2023-01-01
-2000,LIABILITIES,Liability,,,,,,,,0.00,
-2100,Current Liabilities,Liability,,,,2000,CURRENT_LIABILITIES,FALSE,FALSE,0.00,
-2110,Accounts Payable,Liability,Accounts Payable,,,2100,ACCOUNTS_PAYABLE,TRUE,FALSE,0.00,
-2120,GST Payable,Liability,GST Payable,Taxable,TRUE,2100,TAX_LIABILITIES,FALSE,FALSE,0.00,
-2200,Non-Current Liabilities,Liability,,,,2000,NON_CURRENT_LIABILITIES,FALSE,FALSE,0.00,
-2210,Bank Loan (Long Term),Liability,Long-term Liability,,,2200,LOANS_PAYABLE,FALSE,FALSE,0.00,
-3000,EQUITY,Equity,,,,,,,,0.00,
-3100,Owner's Capital,Equity,Owner''s Equity,,,3000,OWNERS_EQUITY,FALSE,FALSE,0.00,
-3200,Retained Earnings,Equity,Retained Earnings,,,3000,RETAINED_EARNINGS,FALSE,FALSE,0.00,SYS-RETAINED-EARNINGS
-4000,REVENUE,Revenue,,,,,,,,0.00,
-4100,Sales Revenue,Revenue,Sales,Taxable,TRUE,4000,OPERATING_REVENUE,FALSE,FALSE,0.00,
-4200,Service Revenue,Revenue,Services,Taxable,TRUE,4000,OPERATING_REVENUE,FALSE,FALSE,0.00,
-5000,COST OF SALES,Expense,,,,,,,,0.00,
-5100,Cost of Goods Sold,Expense,Cost of Sales,Taxable,TRUE,5000,COST_OF_SALES,FALSE,FALSE,0.00,
-6000,OPERATING EXPENSES,Expense,,,,,,,,0.00,
-6100,Salaries & Wages,Expense,Operating Expenses,Non-Taxable,FALSE,6000,SALARIES,FALSE,FALSE,0.00,
-6110,Rent Expense,Expense,Operating Expenses,Taxable,TRUE,6000,RENT,FALSE,FALSE,0.00,
-6120,Utilities Expense,Expense,Operating Expenses,Taxable,TRUE,6000,UTILITIES,FALSE,FALSE,0.00,
-7000,OTHER INCOME,Revenue,,,,,,,,0.00,
-7100,Interest Income,Revenue,Other Income,Taxable,FALSE,7000,INTEREST_INCOME,FALSE,FALSE,0.00,
-8000,OTHER EXPENSES,Expense,,,,,,,,0.00,
-8100,Bank Charges,Expense,Other Expenses,Non-Taxable,FALSE,8000,BANK_CHARGES,FALSE,FALSE,0.00,
-"""
-
-```
-
-# data/chart_of_accounts/retail_template.csv
-```csv
-# File: data/chart_of_accounts/retail_template.csv
-# (Content as provided before, verified with new Account fields)
-"""Code,Name,AccountType,SubType,TaxTreatment,GSTApplicable,ParentCode,ReportGroup,IsControlAccount,IsBankAccount,OpeningBalance,OpeningBalanceDate
-1135,Inventory - Retail Goods,Asset,Inventory,Non-Taxable,FALSE,1130,INVENTORY_RETAIL,TRUE,FALSE,5000.00,2023-01-01
-4110,Sales Returns & Allowances,Revenue,Sales Adjustments,Taxable,TRUE,4000,REVENUE_ADJUSTMENTS,FALSE,FALSE,0.00,
-4120,Sales Discounts,Revenue,Sales Adjustments,Taxable,TRUE,4000,REVENUE_ADJUSTMENTS,FALSE,FALSE,0.00,
-5110,Purchase Returns & Allowances,Expense,Cost of Sales Adjustments,Taxable,TRUE,5100,COGS_ADJUSTMENTS,FALSE,FALSE,0.00,
-5120,Purchase Discounts,Expense,Cost of Sales Adjustments,Taxable,TRUE,5100,COGS_ADJUSTMENTS,FALSE,FALSE,0.00,
-6200,Shop Supplies Expense,Expense,Operating Expenses,Taxable,TRUE,6000,SHOP_SUPPLIES,FALSE,FALSE,0.00,
-"""
-
-```
-
-# scripts/initial_data.sql
-```sql
--- File: scripts/initial_data.sql
--- ============================================================================
--- INITIAL DATA (Version 1.0.1 - Corrected Order, Idempotency, GST 9%)
--- ============================================================================
-
--- ----------------------------------------------------------------------------
--- Insert default roles
--- ----------------------------------------------------------------------------
-INSERT INTO core.roles (name, description) VALUES
-('Administrator', 'Full system access'),
-('Accountant', 'Access to accounting functions'),
-('Bookkeeper', 'Basic transaction entry and reporting'),
-('Manager', 'Access to reports and dashboards'),
-('Viewer', 'Read-only access to data')
-ON CONFLICT (name) DO UPDATE SET 
-    description = EXCLUDED.description, 
-    updated_at = CURRENT_TIMESTAMP;
-
--- ----------------------------------------------------------------------------
--- Insert default permissions
--- ----------------------------------------------------------------------------
-INSERT INTO core.permissions (code, description, module) VALUES
--- Core permissions
-('SYSTEM_SETTINGS', 'Manage system settings', 'System'),
-('USER_MANAGE', 'Manage users', 'System'),
-('ROLE_MANAGE', 'Manage roles and permissions', 'System'),
-('DATA_BACKUP', 'Backup and restore data', 'System'),
-('DATA_IMPORT', 'Import data', 'System'),
-('DATA_EXPORT', 'Export data', 'System'),
--- Accounting permissions
-('ACCOUNT_VIEW', 'View chart of accounts', 'Accounting'),
-('ACCOUNT_CREATE', 'Create accounts', 'Accounting'),
-('ACCOUNT_EDIT', 'Edit accounts', 'Accounting'),
-('ACCOUNT_DELETE', 'Delete/deactivate accounts', 'Accounting'),
-('JOURNAL_VIEW', 'View journal entries', 'Accounting'),
-('JOURNAL_CREATE', 'Create journal entries', 'Accounting'),
-('JOURNAL_EDIT', 'Edit draft journal entries', 'Accounting'),
-('JOURNAL_POST', 'Post journal entries', 'Accounting'),
-('JOURNAL_REVERSE', 'Reverse posted journal entries', 'Accounting'),
-('PERIOD_MANAGE', 'Manage fiscal periods', 'Accounting'),
-('YEAR_CLOSE', 'Close fiscal years', 'Accounting'),
--- Business permissions
-('CUSTOMER_VIEW', 'View customers', 'Business'),
-('CUSTOMER_CREATE', 'Create customers', 'Business'),
-('CUSTOMER_EDIT', 'Edit customers', 'Business'),
-('CUSTOMER_DELETE', 'Delete customers', 'Business'),
-('VENDOR_VIEW', 'View vendors', 'Business'),
-('VENDOR_CREATE', 'Create vendors', 'Business'),
-('VENDOR_EDIT', 'Edit vendors', 'Business'),
-('VENDOR_DELETE', 'Delete vendors', 'Business'),
-('PRODUCT_VIEW', 'View products', 'Business'),
-('PRODUCT_CREATE', 'Create products', 'Business'),
-('PRODUCT_EDIT', 'Edit products', 'Business'),
-('PRODUCT_DELETE', 'Delete products', 'Business'),
--- Transaction permissions
-('INVOICE_VIEW', 'View invoices', 'Transactions'),
-('INVOICE_CREATE', 'Create invoices', 'Transactions'),
-('INVOICE_EDIT', 'Edit invoices', 'Transactions'),
-('INVOICE_DELETE', 'Delete invoices', 'Transactions'),
-('INVOICE_APPROVE', 'Approve invoices', 'Transactions'),
-('PAYMENT_VIEW', 'View payments', 'Transactions'),
-('PAYMENT_CREATE', 'Create payments', 'Transactions'),
-('PAYMENT_EDIT', 'Edit payments', 'Transactions'),
-('PAYMENT_DELETE', 'Delete payments', 'Transactions'),
-('PAYMENT_APPROVE', 'Approve payments', 'Transactions'),
--- Banking permissions
-('BANK_VIEW', 'View bank accounts', 'Banking'),
-('BANK_CREATE', 'Create bank accounts', 'Banking'),
-('BANK_EDIT', 'Edit bank accounts', 'Banking'),
-('BANK_DELETE', 'Delete bank accounts', 'Banking'),
-('BANK_RECONCILE', 'Reconcile bank accounts', 'Banking'),
-('BANK_STATEMENT', 'Import bank statements', 'Banking'),
--- Tax permissions
-('TAX_VIEW', 'View tax settings', 'Tax'),
-('TAX_EDIT', 'Edit tax settings', 'Tax'),
-('GST_PREPARE', 'Prepare GST returns', 'Tax'),
-('GST_SUBMIT', 'Mark GST returns as submitted', 'Tax'),
-('TAX_REPORT', 'Generate tax reports', 'Tax'),
--- Reporting permissions
-('REPORT_FINANCIAL', 'Access financial reports', 'Reporting'),
-('REPORT_TAX', 'Access tax reports', 'Reporting'),
-('REPORT_MANAGEMENT', 'Access management reports', 'Reporting'),
-('REPORT_CUSTOM', 'Create custom reports', 'Reporting'),
-('REPORT_EXPORT', 'Export reports', 'Reporting')
-ON CONFLICT (code) DO UPDATE SET
-    description = EXCLUDED.description,
-    module = EXCLUDED.module;
-
--- ----------------------------------------------------------------------------
--- Insert System Init User (ID 1) - MUST BE CREATED EARLY
--- ----------------------------------------------------------------------------
-INSERT INTO core.users (id, username, password_hash, email, full_name, is_active, require_password_change)
-VALUES (1, 'system_init_user', crypt('system_init_secure_password_!PLACEHOLDER!', gen_salt('bf')), 'system_init@sgbookkeeper.com', 'System Initializer', FALSE, FALSE) 
-ON CONFLICT (id) DO UPDATE SET 
-    username = EXCLUDED.username, 
-    password_hash = EXCLUDED.password_hash, 
-    email = EXCLUDED.email, 
-    full_name = EXCLUDED.full_name, 
-    is_active = EXCLUDED.is_active,
-    require_password_change = EXCLUDED.require_password_change,
-    updated_at = CURRENT_TIMESTAMP;
-
--- Synchronize the sequence for core.users.id after inserting user with ID 1
--- This ensures the next user (e.g., 'admin') gets a correct auto-generated ID
-SELECT setval(pg_get_serial_sequence('core.users', 'id'), COALESCE((SELECT MAX(id) FROM core.users), 1), true);
-
--- ----------------------------------------------------------------------------
--- Insert Default Company Settings (ID = 1)
--- This MUST come AFTER core.users ID 1 is created and currencies are defined.
--- ----------------------------------------------------------------------------
-INSERT INTO accounting.currencies (code, name, symbol, is_active, decimal_places, created_by, updated_by) VALUES
-('SGD', 'Singapore Dollar', '$', TRUE, 2, 1, 1)
-ON CONFLICT (code) DO UPDATE SET 
-    name = EXCLUDED.name, symbol = EXCLUDED.symbol, is_active = EXCLUDED.is_active, 
-    decimal_places = EXCLUDED.decimal_places, created_by = COALESCE(accounting.currencies.created_by, EXCLUDED.created_by), 
-    updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
-
-INSERT INTO core.company_settings (
-    id, company_name, legal_name, uen_no, gst_registration_no, gst_registered, 
-    address_line1, postal_code, city, country, 
-    fiscal_year_start_month, fiscal_year_start_day, base_currency, tax_id_label, date_format, 
-    updated_by 
-) VALUES (
-    1, 
-    'My Demo Company Pte. Ltd.', 
-    'My Demo Company Private Limited',
-    '202400001Z', 
-    'M90000001Z', 
-    TRUE,
-    '1 Marina Boulevard', 
-    '018989',
-    'Singapore',
-    'Singapore',
-    1, 
-    1, 
-    'SGD',
-    'UEN',
-    'dd/MM/yyyy',
-    1 
+from app.core.database_manager import DatabaseManager
+from app.models.business.customer import Customer
+from app.models.business.vendor import Vendor
+from app.models.business.product import Product
+from app.models.business.sales_invoice import SalesInvoice, SalesInvoiceLine
+from app.models.business.purchase_invoice import PurchaseInvoice, PurchaseInvoiceLine 
+from app.models.accounting.account import Account 
+from app.models.accounting.currency import Currency 
+from app.models.accounting.tax_code import TaxCode 
+from app.services import (
+    ICustomerRepository, IVendorRepository, IProductRepository, 
+    ISalesInvoiceRepository, IPurchaseInvoiceRepository 
 )
-ON CONFLICT (id) DO UPDATE SET
-    company_name = EXCLUDED.company_name, legal_name = EXCLUDED.legal_name, uen_no = EXCLUDED.uen_no,
-    gst_registration_no = EXCLUDED.gst_registration_no, gst_registered = EXCLUDED.gst_registered,
-    address_line1 = EXCLUDED.address_line1, postal_code = EXCLUDED.postal_code, city = EXCLUDED.city, country = EXCLUDED.country,
-    fiscal_year_start_month = EXCLUDED.fiscal_year_start_month, fiscal_year_start_day = EXCLUDED.fiscal_year_start_day,
-    base_currency = EXCLUDED.base_currency, tax_id_label = EXCLUDED.tax_id_label, date_format = EXCLUDED.date_format,
-    updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
+from app.utils.pydantic_models import (
+    CustomerSummaryData, VendorSummaryData, ProductSummaryData, 
+    SalesInvoiceSummaryData, PurchaseInvoiceSummaryData 
+)
+from app.common.enums import ProductTypeEnum, InvoiceStatusEnum 
+from datetime import date 
 
--- ----------------------------------------------------------------------------
--- Insert other default currencies (now references user ID 1)
--- ----------------------------------------------------------------------------
-INSERT INTO accounting.currencies (code, name, symbol, is_active, decimal_places, created_by, updated_by) VALUES
-('USD', 'US Dollar', '$', TRUE, 2, 1, 1),
-('EUR', 'Euro', '€', TRUE, 2, 1, 1),
-('GBP', 'British Pound', '£', TRUE, 2, 1, 1),
-('AUD', 'Australian Dollar', '$', TRUE, 2, 1, 1),
-('JPY', 'Japanese Yen', '¥', TRUE, 0, 1, 1),
-('CNY', 'Chinese Yuan', '¥', TRUE, 2, 1, 1),
-('MYR', 'Malaysian Ringgit', 'RM', TRUE, 2, 1, 1),
-('IDR', 'Indonesian Rupiah', 'Rp', TRUE, 0, 1, 1)
-ON CONFLICT (code) DO UPDATE SET 
-    name = EXCLUDED.name, symbol = EXCLUDED.symbol, is_active = EXCLUDED.is_active, 
-    decimal_places = EXCLUDED.decimal_places, created_by = COALESCE(accounting.currencies.created_by, EXCLUDED.created_by), 
-    updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
+if TYPE_CHECKING:
+    from app.core.application_core import ApplicationCore
 
--- ----------------------------------------------------------------------------
--- Insert default document sequences
--- ----------------------------------------------------------------------------
-INSERT INTO core.sequences (sequence_name, prefix, next_value, format_template) VALUES
-('journal_entry', 'JE', 1, '{PREFIX}{VALUE:06}'), ('sales_invoice', 'INV', 1, '{PREFIX}{VALUE:06}'),
-('purchase_invoice', 'PUR', 1, '{PREFIX}{VALUE:06}'), ('payment', 'PAY', 1, '{PREFIX}{VALUE:06}'),
-('receipt', 'REC', 1, '{PREFIX}{VALUE:06}'), ('customer', 'CUS', 1, '{PREFIX}{VALUE:04}'),
-('vendor', 'VEN', 1, '{PREFIX}{VALUE:04}'), ('product', 'PRD', 1, '{PREFIX}{VALUE:04}'),
-('wht_certificate', 'WHT', 1, '{PREFIX}{VALUE:06}')
-ON CONFLICT (sequence_name) DO UPDATE SET
-    prefix = EXCLUDED.prefix, next_value = GREATEST(core.sequences.next_value, EXCLUDED.next_value), 
-    format_template = EXCLUDED.format_template, updated_at = CURRENT_TIMESTAMP;
+class CustomerService(ICustomerRepository):
+    def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
+        self.db_manager = db_manager
+        self.app_core = app_core
+        self.logger = app_core.logger if app_core and hasattr(app_core, 'logger') else logging.getLogger(self.__class__.__name__)
+    async def get_by_id(self, customer_id: int) -> Optional[Customer]:
+        async with self.db_manager.session() as session:
+            stmt = select(Customer).options(selectinload(Customer.currency),selectinload(Customer.receivables_account),selectinload(Customer.created_by_user),selectinload(Customer.updated_by_user)).where(Customer.id == customer_id)
+            result = await session.execute(stmt); return result.scalars().first()
+    async def get_all(self) -> List[Customer]:
+        async with self.db_manager.session() as session:
+            stmt = select(Customer).order_by(Customer.name); result = await session.execute(stmt); return list(result.scalars().all())
+    async def get_all_summary(self, active_only: bool = True,search_term: Optional[str] = None,page: int = 1, page_size: int = 50) -> List[CustomerSummaryData]:
+        async with self.db_manager.session() as session:
+            conditions = []; 
+            if active_only: conditions.append(Customer.is_active == True)
+            if search_term: search_pattern = f"%{search_term}%"; conditions.append(or_(Customer.customer_code.ilike(search_pattern), Customer.name.ilike(search_pattern), Customer.email.ilike(search_pattern) if Customer.email else False )) 
+            stmt = select(Customer.id, Customer.customer_code, Customer.name, Customer.email, Customer.phone, Customer.is_active)
+            if conditions: stmt = stmt.where(and_(*conditions))
+            stmt = stmt.order_by(Customer.name)
+            if page_size > 0 : stmt = stmt.limit(page_size).offset((page - 1) * page_size)
+            result = await session.execute(stmt); return [CustomerSummaryData.model_validate(row) for row in result.mappings().all()]
+    async def get_by_code(self, code: str) -> Optional[Customer]:
+        async with self.db_manager.session() as session:
+            stmt = select(Customer).where(Customer.customer_code == code); result = await session.execute(stmt); return result.scalars().first()
+    async def save(self, customer: Customer) -> Customer:
+        async with self.db_manager.session() as session:
+            session.add(customer); await session.flush(); await session.refresh(customer); return customer
+    async def add(self, entity: Customer) -> Customer: return await self.save(entity)
+    async def update(self, entity: Customer) -> Customer: return await self.save(entity)
+    async def delete(self, customer_id: int) -> bool:
+        log_msg = f"Hard delete attempted for Customer ID {customer_id}. Not implemented; use deactivation."
+        if self.logger: self.logger.warning(log_msg)
+        else: print(f"Warning: {log_msg}")
+        raise NotImplementedError("Hard delete of customers is not supported. Use deactivation.")
 
--- ----------------------------------------------------------------------------
--- Insert account types
--- ----------------------------------------------------------------------------
-INSERT INTO accounting.account_types (name, category, is_debit_balance, report_type, display_order, description) VALUES
-('Current Asset', 'Asset', TRUE, 'Balance Sheet', 10, 'Assets expected to be converted to cash within one year'),
-('Fixed Asset', 'Asset', TRUE, 'Balance Sheet', 20, 'Long-term tangible assets'),
-('Other Asset', 'Asset', TRUE, 'Balance Sheet', 30, 'Assets that don''t fit in other categories'),
-('Current Liability', 'Liability', FALSE, 'Balance Sheet', 40, 'Obligations due within one year'),
-('Long-term Liability', 'Liability', FALSE, 'Balance Sheet', 50, 'Obligations due beyond one year'),
-('Equity', 'Equity', FALSE, 'Balance Sheet', 60, 'Owner''s equity and retained earnings'),
-('Revenue', 'Revenue', FALSE, 'Income Statement', 70, 'Income from business operations'),
-('Cost of Sales', 'Expense', TRUE, 'Income Statement', 80, 'Direct costs of goods sold'),
-('Expense', 'Expense', TRUE, 'Income Statement', 90, 'General business expenses'),
-('Other Income', 'Revenue', FALSE, 'Income Statement', 100, 'Income from non-core activities'),
-('Other Expense', 'Expense', TRUE, 'Income Statement', 110, 'Expenses from non-core activities')
-ON CONFLICT (name) DO UPDATE SET
-    category = EXCLUDED.category, is_debit_balance = EXCLUDED.is_debit_balance, report_type = EXCLUDED.report_type,
-    display_order = EXCLUDED.display_order, description = EXCLUDED.description, updated_at = CURRENT_TIMESTAMP;
+class VendorService(IVendorRepository):
+    def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
+        self.db_manager = db_manager; self.app_core = app_core
+        self.logger = app_core.logger if app_core and hasattr(app_core, 'logger') else logging.getLogger(self.__class__.__name__)
+    async def get_by_id(self, vendor_id: int) -> Optional[Vendor]:
+        async with self.db_manager.session() as session:
+            stmt = select(Vendor).options(selectinload(Vendor.currency), selectinload(Vendor.payables_account),selectinload(Vendor.created_by_user), selectinload(Vendor.updated_by_user)).where(Vendor.id == vendor_id)
+            result = await session.execute(stmt); return result.scalars().first()
+    async def get_all(self) -> List[Vendor]:
+        async with self.db_manager.session() as session:
+            stmt = select(Vendor).order_by(Vendor.name); result = await session.execute(stmt); return list(result.scalars().all())
+    async def get_all_summary(self, active_only: bool = True,search_term: Optional[str] = None,page: int = 1, page_size: int = 50) -> List[VendorSummaryData]:
+        async with self.db_manager.session() as session:
+            conditions = []; 
+            if active_only: conditions.append(Vendor.is_active == True)
+            if search_term: search_pattern = f"%{search_term}%"; conditions.append(or_(Vendor.vendor_code.ilike(search_pattern), Vendor.name.ilike(search_pattern), Vendor.email.ilike(search_pattern) if Vendor.email else False))
+            stmt = select(Vendor.id, Vendor.vendor_code, Vendor.name, Vendor.email, Vendor.phone, Vendor.is_active)
+            if conditions: stmt = stmt.where(and_(*conditions))
+            stmt = stmt.order_by(Vendor.name)
+            if page_size > 0: stmt = stmt.limit(page_size).offset((page - 1) * page_size)
+            result = await session.execute(stmt); return [VendorSummaryData.model_validate(row) for row in result.mappings().all()]
+    async def get_by_code(self, code: str) -> Optional[Vendor]:
+        async with self.db_manager.session() as session:
+            stmt = select(Vendor).where(Vendor.vendor_code == code); result = await session.execute(stmt); return result.scalars().first()
+    async def save(self, vendor: Vendor) -> Vendor:
+        async with self.db_manager.session() as session:
+            session.add(vendor); await session.flush(); await session.refresh(vendor); return vendor
+    async def add(self, entity: Vendor) -> Vendor: return await self.save(entity)
+    async def update(self, entity: Vendor) -> Vendor: return await self.save(entity)
+    async def delete(self, vendor_id: int) -> bool:
+        log_msg = f"Hard delete attempted for Vendor ID {vendor_id}. Not implemented; use deactivation."
+        if self.logger: self.logger.warning(log_msg)
+        else: print(f"Warning: {log_msg}")
+        raise NotImplementedError("Hard delete of vendors is not supported. Use deactivation.")
 
--- ----------------------------------------------------------------------------
--- Insert default tax codes related accounts
--- ----------------------------------------------------------------------------
-INSERT INTO accounting.accounts (code, name, account_type, created_by, updated_by, is_active) VALUES
-('SYS-GST-OUTPUT', 'System GST Output Tax', 'Liability', 1, 1, TRUE),
-('SYS-GST-INPUT', 'System GST Input Tax', 'Asset', 1, 1, TRUE)
-ON CONFLICT (code) DO UPDATE SET
-    name = EXCLUDED.name, account_type = EXCLUDED.account_type, updated_by = EXCLUDED.updated_by, 
-    is_active = EXCLUDED.is_active, updated_at = CURRENT_TIMESTAMP;
+class ProductService(IProductRepository):
+    def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
+        self.db_manager = db_manager; self.app_core = app_core
+        self.logger = app_core.logger if app_core and hasattr(app_core, 'logger') else logging.getLogger(self.__class__.__name__)
+    async def get_by_id(self, product_id: int) -> Optional[Product]:
+        async with self.db_manager.session() as session:
+            stmt = select(Product).options(selectinload(Product.sales_account),selectinload(Product.purchase_account),selectinload(Product.inventory_account),selectinload(Product.tax_code_obj),selectinload(Product.created_by_user),selectinload(Product.updated_by_user)).where(Product.id == product_id)
+            result = await session.execute(stmt); return result.scalars().first()
+    async def get_all(self) -> List[Product]:
+        async with self.db_manager.session() as session:
+            stmt = select(Product).order_by(Product.name); result = await session.execute(stmt); return list(result.scalars().all())
+    async def get_all_summary(self, active_only: bool = True,product_type_filter: Optional[ProductTypeEnum] = None,search_term: Optional[str] = None,page: int = 1, page_size: int = 50) -> List[ProductSummaryData]:
+        async with self.db_manager.session() as session:
+            conditions = []; 
+            if active_only: conditions.append(Product.is_active == True)
+            if product_type_filter: conditions.append(Product.product_type == product_type_filter.value)
+            if search_term: search_pattern = f"%{search_term}%"; conditions.append(or_(Product.product_code.ilike(search_pattern), Product.name.ilike(search_pattern), Product.description.ilike(search_pattern) if Product.description else False ))
+            stmt = select(Product.id, Product.product_code, Product.name, Product.product_type, Product.sales_price, Product.purchase_price, Product.is_active)
+            if conditions: stmt = stmt.where(and_(*conditions))
+            stmt = stmt.order_by(Product.product_type, Product.name)
+            if page_size > 0: stmt = stmt.limit(page_size).offset((page - 1) * page_size)
+            result = await session.execute(stmt); return [ProductSummaryData.model_validate(row) for row in result.mappings().all()]
+    async def get_by_code(self, code: str) -> Optional[Product]:
+        async with self.db_manager.session() as session:
+            stmt = select(Product).where(Product.product_code == code); result = await session.execute(stmt); return result.scalars().first()
+    async def save(self, product: Product) -> Product:
+        async with self.db_manager.session() as session:
+            session.add(product); await session.flush(); await session.refresh(product); return product
+    async def add(self, entity: Product) -> Product: return await self.save(entity)
+    async def update(self, entity: Product) -> Product: return await self.save(entity)
+    async def delete(self, product_id: int) -> bool:
+        log_msg = f"Hard delete attempted for Product/Service ID {product_id}. Not implemented; use deactivation."
+        if self.logger: self.logger.warning(log_msg)
+        else: print(f"Warning: {log_msg}")
+        raise NotImplementedError("Hard delete of products/services is not supported. Use deactivation.")
 
--- ----------------------------------------------------------------------------
--- Insert default tax codes (GST updated to 9%)
--- ----------------------------------------------------------------------------
-INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id)
-SELECT 'SR', 'Standard Rate (9%)', 'GST', 9.00, TRUE, TRUE, 1, 1, acc.id FROM accounting.accounts acc WHERE acc.code = 'SYS-GST-OUTPUT'
-ON CONFLICT (code) DO UPDATE SET
-    description = EXCLUDED.description, tax_type = EXCLUDED.tax_type, rate = EXCLUDED.rate,
-    is_default = EXCLUDED.is_default, is_active = EXCLUDED.is_active, updated_by = EXCLUDED.updated_by, 
-    affects_account_id = EXCLUDED.affects_account_id, updated_at = CURRENT_TIMESTAMP;
+class SalesInvoiceService(ISalesInvoiceRepository):
+    def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
+        self.db_manager = db_manager
+        self.app_core = app_core
+        self.logger = app_core.logger if app_core and hasattr(app_core, 'logger') else logging.getLogger(self.__class__.__name__)
+    async def get_by_id(self, invoice_id: int) -> Optional[SalesInvoice]:
+        async with self.db_manager.session() as session:
+            stmt = select(SalesInvoice).options(
+                selectinload(SalesInvoice.lines).selectinload(SalesInvoiceLine.product),
+                selectinload(SalesInvoice.lines).selectinload(SalesInvoiceLine.tax_code_obj),
+                selectinload(SalesInvoice.customer), selectinload(SalesInvoice.currency),
+                selectinload(SalesInvoice.journal_entry), 
+                selectinload(SalesInvoice.created_by_user), selectinload(SalesInvoice.updated_by_user)
+            ).where(SalesInvoice.id == invoice_id)
+            result = await session.execute(stmt); return result.scalars().first()
+    async def get_all(self) -> List[SalesInvoice]:
+        async with self.db_manager.session() as session:
+            stmt = select(SalesInvoice).order_by(SalesInvoice.invoice_date.desc(), SalesInvoice.invoice_no.desc()) # type: ignore
+            result = await session.execute(stmt); return list(result.scalars().all())
+    async def get_all_summary(self, customer_id: Optional[int] = None, status: Optional[InvoiceStatusEnum] = None, 
+                              start_date: Optional[date] = None, end_date: Optional[date] = None,
+                              page: int = 1, page_size: int = 50) -> List[SalesInvoiceSummaryData]:
+        async with self.db_manager.session() as session:
+            conditions = []
+            if customer_id is not None: conditions.append(SalesInvoice.customer_id == customer_id)
+            if status: conditions.append(SalesInvoice.status == status.value)
+            if start_date: conditions.append(SalesInvoice.invoice_date >= start_date)
+            if end_date: conditions.append(SalesInvoice.invoice_date <= end_date)
+            stmt = select( SalesInvoice.id, SalesInvoice.invoice_no, SalesInvoice.invoice_date, SalesInvoice.due_date,
+                Customer.name.label("customer_name"), SalesInvoice.total_amount, SalesInvoice.amount_paid, SalesInvoice.status
+            ).join(Customer, SalesInvoice.customer_id == Customer.id) 
+            if conditions: stmt = stmt.where(and_(*conditions))
+            stmt = stmt.order_by(SalesInvoice.invoice_date.desc(), SalesInvoice.invoice_no.desc()) # type: ignore
+            if page_size > 0 : stmt = stmt.limit(page_size).offset((page - 1) * page_size)
+            result = await session.execute(stmt); return [SalesInvoiceSummaryData.model_validate(row) for row in result.mappings().all()]
+    async def get_by_invoice_no(self, invoice_no: str) -> Optional[SalesInvoice]: 
+        async with self.db_manager.session() as session:
+            stmt = select(SalesInvoice).options(selectinload(SalesInvoice.lines)).where(SalesInvoice.invoice_no == invoice_no)
+            result = await session.execute(stmt); return result.scalars().first()
+    async def save(self, invoice: SalesInvoice) -> SalesInvoice:
+        async with self.db_manager.session() as session:
+            session.add(invoice); await session.flush(); await session.refresh(invoice)
+            if invoice.id and invoice.lines: 
+                await session.refresh(invoice, attribute_names=['lines'])
+            return invoice
+    async def add(self, entity: SalesInvoice) -> SalesInvoice: return await self.save(entity)
+    async def update(self, entity: SalesInvoice) -> SalesInvoice: return await self.save(entity)
+    async def delete(self, invoice_id: int) -> bool:
+        log_msg = f"Hard delete attempted for Sales Invoice ID {invoice_id}. Not implemented; use voiding/cancellation."
+        if self.logger: self.logger.warning(log_msg)
+        else: print(f"Warning: {log_msg}")
+        raise NotImplementedError("Hard delete of sales invoices is not supported. Use voiding/cancellation.")
 
-INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
-('ZR', 'Zero Rate', 'GST', 0.00, FALSE, TRUE, 1, 1, NULL)
-ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
+class PurchaseInvoiceService(IPurchaseInvoiceRepository):
+    def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
+        self.db_manager = db_manager
+        self.app_core = app_core
+        self.logger = app_core.logger if app_core and hasattr(app_core, 'logger') else logging.getLogger(self.__class__.__name__)
 
-INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
-('ES', 'Exempt Supply', 'GST', 0.00, FALSE, TRUE, 1, 1, NULL)
-ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
+    async def get_by_id(self, invoice_id: int) -> Optional[PurchaseInvoice]:
+        async with self.db_manager.session() as session:
+            stmt = select(PurchaseInvoice).options(
+                selectinload(PurchaseInvoice.lines).selectinload(PurchaseInvoiceLine.product),
+                selectinload(PurchaseInvoice.lines).selectinload(PurchaseInvoiceLine.tax_code_obj),
+                selectinload(PurchaseInvoice.vendor),
+                selectinload(PurchaseInvoice.currency),
+                selectinload(PurchaseInvoice.journal_entry),
+                selectinload(PurchaseInvoice.created_by_user),
+                selectinload(PurchaseInvoice.updated_by_user)
+            ).where(PurchaseInvoice.id == invoice_id)
+            result = await session.execute(stmt)
+            return result.scalars().first()
 
-INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
-('OP', 'Out of Scope', 'GST', 0.00, FALSE, TRUE, 1, 1, NULL)
-ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
+    async def get_all(self) -> List[PurchaseInvoice]:
+        async with self.db_manager.session() as session:
+            stmt = select(PurchaseInvoice).order_by(PurchaseInvoice.invoice_date.desc(), PurchaseInvoice.invoice_no.desc()) # type: ignore
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
 
-INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id)
-SELECT 'TX', 'Taxable Purchase (9%)', 'GST', 9.00, FALSE, TRUE, 1, 1, acc.id FROM accounting.accounts acc WHERE acc.code = 'SYS-GST-INPUT'
-ON CONFLICT (code) DO UPDATE SET
-    description = EXCLUDED.description, tax_type = EXCLUDED.tax_type, rate = EXCLUDED.rate,
-    is_default = EXCLUDED.is_default, is_active = EXCLUDED.is_active, updated_by = EXCLUDED.updated_by, 
-    affects_account_id = EXCLUDED.affects_account_id, updated_at = CURRENT_TIMESTAMP;
-
-INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
-('BL', 'Blocked Input Tax (9%)', 'GST', 9.00, FALSE, TRUE, 1, 1, NULL)
-ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, rate = EXCLUDED.rate, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
-
-INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
-('NR', 'Non-Resident Services', 'Withholding Tax', 15.00, FALSE, TRUE, 1, 1, NULL)
-ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
-
-INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
-('ND', 'Non-Deductible', 'Income Tax', 0.00, FALSE, TRUE, 1, 1, NULL)
-ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
-
-INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
-('CA', 'Capital Allowance', 'Income Tax', 0.00, FALSE, TRUE, 1, 1, NULL)
-ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
-
--- Create an active 'admin' user for application login
--- ID will be auto-generated by sequence (should be 2 if ID 1 is system_init_user)
-INSERT INTO core.users (username, password_hash, email, full_name, is_active, require_password_change)
-VALUES ('admin', crypt('password', gen_salt('bf')), 'admin@sgbookkeeper.com', 'Administrator', TRUE, TRUE)
-ON CONFLICT (username) DO UPDATE SET
-    password_hash = EXCLUDED.password_hash, email = EXCLUDED.email, full_name = EXCLUDED.full_name,
-    is_active = EXCLUDED.is_active, require_password_change = EXCLUDED.require_password_change,
-    updated_at = CURRENT_TIMESTAMP;
-
--- Assign 'Administrator' role to 'admin' user
-WITH admin_user_id_cte AS (SELECT id FROM core.users WHERE username = 'admin'),
-     admin_role_id_cte AS (SELECT id FROM core.roles WHERE name = 'Administrator')
-INSERT INTO core.user_roles (user_id, role_id, created_at)
-SELECT admin_user_id_cte.id, admin_role_id_cte.id, CURRENT_TIMESTAMP FROM admin_user_id_cte, admin_role_id_cte
-WHERE admin_user_id_cte.id IS NOT NULL AND admin_role_id_cte.id IS NOT NULL
-ON CONFLICT (user_id, role_id) DO NOTHING;
-
--- For all permissions, grant them to the 'Administrator' role
-INSERT INTO core.role_permissions (role_id, permission_id, created_at)
-SELECT r.id, p.id, CURRENT_TIMESTAMP
-FROM core.roles r, core.permissions p
-WHERE r.name = 'Administrator'
-ON CONFLICT (role_id, permission_id) DO NOTHING;
-
-COMMIT; 
--- End of initial data
-
-```
-
-# scripts/db_init.py
-```py
-# File: scripts/db_init.py
-import asyncio
-import asyncpg # type: ignore
-import argparse
-import getpass
-import os
-import sys
-from pathlib import Path
-
-SCRIPT_DIR = Path(__file__).resolve().parent
-SCHEMA_SQL_PATH = SCRIPT_DIR / 'schema.sql'
-INITIAL_DATA_SQL_PATH = SCRIPT_DIR / 'initial_data.sql'
-
-async def create_database(args):
-    """Create PostgreSQL database and initialize schema using reference SQL files."""
-    conn_admin = None 
-    db_conn = None 
-    try:
-        conn_params_admin = { 
-            "user": args.user,
-            "password": args.password,
-            "host": args.host,
-            "port": args.port,
-        }
-        conn_admin = await asyncpg.connect(**conn_params_admin, database='postgres') 
-    except Exception as e:
-        print(f"Error connecting to PostgreSQL server (postgres DB): {type(e).__name__} - {str(e)}", file=sys.stderr)
-        return False
-    
-    try:
-        exists = await conn_admin.fetchval(
-            "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)",
-            args.dbname
-        )
-        
-        if exists:
-            if args.drop_existing:
-                print(f"Terminating connections to '{args.dbname}'...")
-                await conn_admin.execute(f"""
-                    SELECT pg_terminate_backend(pid)
-                    FROM pg_stat_activity
-                    WHERE datname = '{args.dbname}' AND pid <> pg_backend_pid();
-                """)
-                print(f"Dropping existing database '{args.dbname}'...")
-                await conn_admin.execute(f"DROP DATABASE IF EXISTS \"{args.dbname}\"") 
-            else:
-                print(f"Database '{args.dbname}' already exists. Use --drop-existing to recreate.")
-                await conn_admin.close()
-                return False 
-        
-        print(f"Creating database '{args.dbname}'...")
-        await conn_admin.execute(f"CREATE DATABASE \"{args.dbname}\"") 
-        
-        await conn_admin.close() 
-        conn_admin = None 
-        
-        conn_params_db = {**conn_params_admin, "database": args.dbname}
-        db_conn = await asyncpg.connect(**conn_params_db) 
-        
-        if not SCHEMA_SQL_PATH.exists():
-            print(f"Error: schema.sql not found at {SCHEMA_SQL_PATH}", file=sys.stderr)
-            return False
+    async def get_all_summary(self, 
+                              vendor_id: Optional[int] = None,
+                              status: Optional[InvoiceStatusEnum] = None, 
+                              start_date: Optional[date] = None, 
+                              end_date: Optional[date] = None,
+                              page: int = 1, 
+                              page_size: int = 50
+                             ) -> List[PurchaseInvoiceSummaryData]:
+        async with self.db_manager.session() as session:
+            conditions = []
+            if vendor_id is not None:
+                conditions.append(PurchaseInvoice.vendor_id == vendor_id)
+            if status:
+                conditions.append(PurchaseInvoice.status == status.value)
+            if start_date:
+                conditions.append(PurchaseInvoice.invoice_date >= start_date)
+            if end_date:
+                conditions.append(PurchaseInvoice.invoice_date <= end_date)
             
-        print(f"Initializing database schema from {SCHEMA_SQL_PATH}...")
-        with open(SCHEMA_SQL_PATH, 'r', encoding='utf-8') as f:
-            schema_sql = f.read()
-        await db_conn.execute(schema_sql)
-        print("Schema execution completed.")
-        
-        if not INITIAL_DATA_SQL_PATH.exists():
-            print(f"Warning: initial_data.sql not found at {INITIAL_DATA_SQL_PATH}. Skipping initial data.", file=sys.stderr)
-        else:
-            print(f"Loading initial data from {INITIAL_DATA_SQL_PATH}...")
-            with open(INITIAL_DATA_SQL_PATH, 'r', encoding='utf-8') as f:
-                data_sql = f.read()
-            await db_conn.execute(data_sql)
-            print("Initial data loading completed.")
+            stmt = select(
+                PurchaseInvoice.id, PurchaseInvoice.invoice_no, PurchaseInvoice.vendor_invoice_no, 
+                PurchaseInvoice.invoice_date, Vendor.name.label("vendor_name"), 
+                PurchaseInvoice.total_amount, PurchaseInvoice.status
+            ).join(Vendor, PurchaseInvoice.vendor_id == Vendor.id)
+            
+            if conditions:
+                stmt = stmt.where(and_(*conditions))
+            
+            stmt = stmt.order_by(PurchaseInvoice.invoice_date.desc(), PurchaseInvoice.invoice_no.desc()) # type: ignore
+            
+            if page_size > 0:
+                stmt = stmt.limit(page_size).offset((page - 1) * page_size)
+            
+            result = await session.execute(stmt)
+            return [PurchaseInvoiceSummaryData.model_validate(row) for row in result.mappings().all()]
 
-        print(f"Setting default search_path for database '{args.dbname}'...")
-        await db_conn.execute(f"""
-            ALTER DATABASE "{args.dbname}" 
-            SET search_path TO core, accounting, business, audit, public;
-        """)
-        print("Default search_path set.")
-        
-        print(f"Database '{args.dbname}' created and initialized successfully.")
-        return True
-    
-    except Exception as e:
-        print(f"Error during database creation/initialization: {type(e).__name__} - {str(e)}", file=sys.stderr)
-        if hasattr(e, 'sqlstate') and e.sqlstate: # type: ignore
-            print(f"  SQLSTATE: {e.sqlstate}", file=sys.stderr) # type: ignore
-        if hasattr(e, 'detail') and e.detail: # type: ignore
-             print(f"  DETAIL: {e.detail}", file=sys.stderr) # type: ignore
-        if hasattr(e, 'query') and e.query: # type: ignore
-            print(f"  Query context: {e.query[:200]}...", file=sys.stderr) # type: ignore
+    async def get_by_internal_ref_no(self, internal_ref_no: str) -> Optional[PurchaseInvoice]:
+        async with self.db_manager.session() as session:
+            stmt = select(PurchaseInvoice).options(
+                selectinload(PurchaseInvoice.lines)
+            ).where(PurchaseInvoice.invoice_no == internal_ref_no) 
+            result = await session.execute(stmt)
+            return result.scalars().first()
+
+    async def get_by_vendor_and_vendor_invoice_no(self, vendor_id: int, vendor_invoice_no: str) -> Optional[PurchaseInvoice]:
+        async with self.db_manager.session() as session:
+            stmt = select(PurchaseInvoice).options(
+                selectinload(PurchaseInvoice.lines)
+            ).where(
+                PurchaseInvoice.vendor_id == vendor_id,
+                PurchaseInvoice.vendor_invoice_no == vendor_invoice_no
+            )
+            result = await session.execute(stmt)
+            return result.scalars().first() 
+
+    async def save(self, invoice: PurchaseInvoice) -> PurchaseInvoice:
+        async with self.db_manager.session() as session:
+            session.add(invoice)
+            await session.flush()
+            await session.refresh(invoice)
+            if invoice.id and invoice.lines:
+                await session.refresh(invoice, attribute_names=['lines'])
+            return invoice
+
+    async def add(self, entity: PurchaseInvoice) -> PurchaseInvoice:
+        return await self.save(entity)
+
+    async def update(self, entity: PurchaseInvoice) -> PurchaseInvoice:
+        return await self.save(entity)
+
+    async def delete(self, invoice_id: int) -> bool:
+        async with self.db_manager.session() as session:
+            pi = await session.get(PurchaseInvoice, invoice_id)
+            if pi and pi.status == InvoiceStatusEnum.DRAFT.value: # Only allow deleting drafts
+                await session.delete(pi)
+                return True
+            elif pi:
+                # Log or raise specific error that non-drafts cannot be hard-deleted
+                self.logger.warning(f"Attempt to delete non-draft Purchase Invoice ID {invoice_id} with status {pi.status}. Denied.")
+                raise ValueError(f"Cannot delete Purchase Invoice {pi.invoice_no} as its status is '{pi.status}'. Only Draft invoices can be deleted via this method.")
         return False
-    
-    finally:
-        if conn_admin and not conn_admin.is_closed():
-            await conn_admin.close()
-        if db_conn and not db_conn.is_closed():
-            await db_conn.close()
-
-def parse_args():
-    parser = argparse.ArgumentParser(description='Initialize SG Bookkeeper database from reference SQL files.')
-    parser.add_argument('--host', default=os.getenv('PGHOST', 'localhost'), help='PostgreSQL server host (Env: PGHOST)')
-    parser.add_argument('--port', type=int, default=os.getenv('PGPORT', 5432), help='PostgreSQL server port (Env: PGPORT)')
-    parser.add_argument('--user', default=os.getenv('PGUSER', 'postgres'), help='PostgreSQL username (Env: PGUSER)')
-    parser.add_argument('--password', help='PostgreSQL password (Env: PGPASSWORD, or prompts if empty)')
-    parser.add_argument('--dbname', default=os.getenv('PGDATABASE', 'sg_bookkeeper'), help='Database name (Env: PGDATABASE)')
-    parser.add_argument('--drop-existing', action='store_true', help='Drop database if it already exists')
-    return parser.parse_args()
-
-def main():
-    args = parse_args()
-    
-    if not args.password:
-        pgpassword_env = os.getenv('PGPASSWORD')
-        if pgpassword_env:
-            args.password = pgpassword_env
-        else:
-            try:
-                args.password = getpass.getpass(f"Password for PostgreSQL user '{args.user}' on host '{args.host}': ")
-            except (EOFError, KeyboardInterrupt): 
-                print("\nPassword prompt cancelled or non-interactive environment. Exiting.", file=sys.stderr)
-                sys.exit(1)
-            except Exception as e: 
-                print(f"Could not read password securely: {e}. Try setting PGPASSWORD environment variable or using --password.", file=sys.stderr)
-                sys.exit(1)
-
-    try:
-        success = asyncio.run(create_database(args))
-    except KeyboardInterrupt:
-        print("\nDatabase initialization cancelled by user.", file=sys.stderr)
-        sys.exit(1)
-    except Exception as e: 
-        print(f"An unexpected error occurred in main: {type(e).__name__} - {str(e)}", file=sys.stderr)
-        if hasattr(e, 'sqlstate') and e.sqlstate: # type: ignore
-             print(f"  SQLSTATE: {e.sqlstate}", file=sys.stderr) # type: ignore
-        success = False
-        
-    sys.exit(0 if success else 1)
-
-if __name__ == '__main__':
-    main()
 
 ```
 
-# scripts/schema.sql
-```sql
--- File: scripts/schema.sql
--- ============================================================================
--- SG Bookkeeper - Complete Database Schema - Version 1.0.1 (Reordered FKs)
--- ============================================================================
--- This script creates the complete database schema for the SG Bookkeeper application.
--- Changes from 1.0.0:
---  - All CREATE TABLE statements are grouped first.
---  - All ALTER TABLE ADD CONSTRAINT FOREIGN KEY statements are grouped at the end.
---  - Full table definitions restored.
--- ============================================================================
-
--- ============================================================================
--- INITIAL SETUP
--- ============================================================================
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
-CREATE EXTENSION IF NOT EXISTS btree_gist;
-
-CREATE SCHEMA IF NOT EXISTS core;
-CREATE SCHEMA IF NOT EXISTS accounting;
-CREATE SCHEMA IF NOT EXISTS business;
-CREATE SCHEMA IF NOT EXISTS audit;
-
-SET search_path TO core, accounting, business, audit, public;
-
--- ============================================================================
--- CORE SCHEMA TABLES
--- ============================================================================
-CREATE TABLE core.users (
-    id SERIAL PRIMARY KEY,
-    username VARCHAR(50) NOT NULL UNIQUE,
-    password_hash VARCHAR(255) NOT NULL,
-    email VARCHAR(100) UNIQUE, -- Added UNIQUE constraint from reference logic
-    full_name VARCHAR(100),
-    is_active BOOLEAN DEFAULT TRUE,
-    failed_login_attempts INTEGER DEFAULT 0,
-    last_login_attempt TIMESTAMP WITH TIME ZONE,
-    last_login TIMESTAMP WITH TIME ZONE,
-    require_password_change BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
--- Comments for core.users (omitted here for brevity, assume they are as per reference)
-
-CREATE TABLE core.roles (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(50) NOT NULL UNIQUE,
-    description VARCHAR(200),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE core.permissions (
-    id SERIAL PRIMARY KEY,
-    code VARCHAR(50) NOT NULL UNIQUE,
-    description VARCHAR(200),
-    module VARCHAR(50) NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE core.role_permissions (
-    role_id INTEGER NOT NULL, -- FK added later
-    permission_id INTEGER NOT NULL, -- FK added later
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (role_id, permission_id)
-);
-
-CREATE TABLE core.user_roles (
-    user_id INTEGER NOT NULL, -- FK added later
-    role_id INTEGER NOT NULL, -- FK added later
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (user_id, role_id)
-);
-
-CREATE TABLE core.company_settings (
-    id SERIAL PRIMARY KEY,
-    company_name VARCHAR(100) NOT NULL,
-    legal_name VARCHAR(200),
-    uen_no VARCHAR(20),
-    gst_registration_no VARCHAR(20),
-    gst_registered BOOLEAN DEFAULT FALSE,
-    address_line1 VARCHAR(100),
-    address_line2 VARCHAR(100),
-    postal_code VARCHAR(20),
-    city VARCHAR(50) DEFAULT 'Singapore',
-    country VARCHAR(50) DEFAULT 'Singapore',
-    contact_person VARCHAR(100),
-    phone VARCHAR(20),
-    email VARCHAR(100),
-    website VARCHAR(100),
-    logo BYTEA,
-    fiscal_year_start_month INTEGER DEFAULT 1 CHECK (fiscal_year_start_month BETWEEN 1 AND 12),
-    fiscal_year_start_day INTEGER DEFAULT 1 CHECK (fiscal_year_start_day BETWEEN 1 AND 31),
-    base_currency VARCHAR(3) DEFAULT 'SGD', -- FK added later
-    tax_id_label VARCHAR(50) DEFAULT 'UEN',
-    date_format VARCHAR(20) DEFAULT 'yyyy-MM-dd',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_by INTEGER -- FK added later
-);
-
-CREATE TABLE core.configuration (
-    id SERIAL PRIMARY KEY,
-    config_key VARCHAR(50) NOT NULL UNIQUE,
-    config_value TEXT,
-    description VARCHAR(200),
-    is_encrypted BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_by INTEGER -- FK added later
-);
-
-CREATE TABLE core.sequences (
-    id SERIAL PRIMARY KEY,
-    sequence_name VARCHAR(50) NOT NULL UNIQUE,
-    prefix VARCHAR(10),
-    suffix VARCHAR(10),
-    next_value INTEGER NOT NULL DEFAULT 1,
-    increment_by INTEGER NOT NULL DEFAULT 1,
-    min_value INTEGER NOT NULL DEFAULT 1,
-    max_value INTEGER NOT NULL DEFAULT 2147483647,
-    cycle BOOLEAN DEFAULT FALSE,
-    format_template VARCHAR(50) DEFAULT '{PREFIX}{VALUE}{SUFFIX}',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- ============================================================================
--- ACCOUNTING SCHEMA TABLES
--- ============================================================================
-CREATE TABLE accounting.account_types (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(50) NOT NULL UNIQUE,
-    category VARCHAR(20) NOT NULL CHECK (category IN ('Asset', 'Liability', 'Equity', 'Revenue', 'Expense')),
-    is_debit_balance BOOLEAN NOT NULL,
-    report_type VARCHAR(30) NOT NULL,
-    display_order INTEGER NOT NULL,
-    description VARCHAR(200),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE accounting.accounts (
-    id SERIAL PRIMARY KEY,
-    code VARCHAR(20) NOT NULL UNIQUE,
-    name VARCHAR(100) NOT NULL,
-    account_type VARCHAR(20) NOT NULL CHECK (account_type IN ('Asset', 'Liability', 'Equity', 'Revenue', 'Expense')),
-    sub_type VARCHAR(30),
-    tax_treatment VARCHAR(20),
-    gst_applicable BOOLEAN DEFAULT FALSE,
-    is_active BOOLEAN DEFAULT TRUE,
-    description TEXT,
-    parent_id INTEGER, -- FK to self, added later
-    report_group VARCHAR(50),
-    is_control_account BOOLEAN DEFAULT FALSE,
-    is_bank_account BOOLEAN DEFAULT FALSE,
-    opening_balance NUMERIC(15,2) DEFAULT 0,
-    opening_balance_date DATE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER NOT NULL, -- FK added later
-    updated_by INTEGER NOT NULL -- FK added later
-);
-CREATE INDEX idx_accounts_parent_id ON accounting.accounts(parent_id);
-CREATE INDEX idx_accounts_is_active ON accounting.accounts(is_active);
-CREATE INDEX idx_accounts_account_type ON accounting.accounts(account_type);
-
-CREATE TABLE accounting.fiscal_years (
-    id SERIAL PRIMARY KEY,
-    year_name VARCHAR(20) NOT NULL UNIQUE,
-    start_date DATE NOT NULL,
-    end_date DATE NOT NULL,
-    is_closed BOOLEAN DEFAULT FALSE,
-    closed_date TIMESTAMP WITH TIME ZONE,
-    closed_by INTEGER, -- FK added later
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER NOT NULL, -- FK added later
-    updated_by INTEGER NOT NULL, -- FK added later
-    CONSTRAINT fy_date_range_check CHECK (start_date <= end_date),
-    CONSTRAINT fy_unique_date_ranges EXCLUDE USING gist (daterange(start_date, end_date, '[]') WITH &&)
-);
-
-CREATE TABLE accounting.fiscal_periods (
-    id SERIAL PRIMARY KEY,
-    fiscal_year_id INTEGER NOT NULL, -- FK added later
-    name VARCHAR(50) NOT NULL,
-    start_date DATE NOT NULL,
-    end_date DATE NOT NULL,
-    period_type VARCHAR(10) NOT NULL CHECK (period_type IN ('Month', 'Quarter', 'Year')),
-    status VARCHAR(10) NOT NULL CHECK (status IN ('Open', 'Closed', 'Archived')),
-    period_number INTEGER NOT NULL,
-    is_adjustment BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER NOT NULL, -- FK added later
-    updated_by INTEGER NOT NULL, -- FK added later
-    CONSTRAINT fp_date_range_check CHECK (start_date <= end_date),
-    CONSTRAINT fp_unique_period_dates UNIQUE (fiscal_year_id, period_type, period_number)
-);
-CREATE INDEX idx_fiscal_periods_dates ON accounting.fiscal_periods(start_date, end_date);
-CREATE INDEX idx_fiscal_periods_status ON accounting.fiscal_periods(status);
-
-CREATE TABLE accounting.currencies (
-    code CHAR(3) PRIMARY KEY,
-    name VARCHAR(50) NOT NULL,
-    symbol VARCHAR(10) NOT NULL,
-    is_active BOOLEAN DEFAULT TRUE,
-    decimal_places INTEGER DEFAULT 2,
-    format_string VARCHAR(20) DEFAULT '#,##0.00',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER, -- FK added later
-    updated_by INTEGER -- FK added later
-);
-
-CREATE TABLE accounting.exchange_rates (
-    id SERIAL PRIMARY KEY,
-    from_currency CHAR(3) NOT NULL, -- FK added later
-    to_currency CHAR(3) NOT NULL, -- FK added later
-    rate_date DATE NOT NULL,
-    exchange_rate NUMERIC(15,6) NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER, -- FK added later
-    updated_by INTEGER, -- FK added later
-    CONSTRAINT uq_exchange_rates_pair_date UNIQUE (from_currency, to_currency, rate_date)
-);
-CREATE INDEX idx_exchange_rates_lookup ON accounting.exchange_rates(from_currency, to_currency, rate_date);
-
-CREATE TABLE accounting.journal_entries (
-    id SERIAL PRIMARY KEY,
-    entry_no VARCHAR(20) NOT NULL UNIQUE,
-    journal_type VARCHAR(20) NOT NULL,
-    entry_date DATE NOT NULL,
-    fiscal_period_id INTEGER NOT NULL, -- FK added later
-    description VARCHAR(500),
-    reference VARCHAR(100),
-    is_recurring BOOLEAN DEFAULT FALSE,
-    recurring_pattern_id INTEGER, -- FK added later
-    is_posted BOOLEAN DEFAULT FALSE,
-    is_reversed BOOLEAN DEFAULT FALSE,
-    reversing_entry_id INTEGER, -- FK to self, added later
-    source_type VARCHAR(50),
-    source_id INTEGER,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER NOT NULL, -- FK added later
-    updated_by INTEGER NOT NULL -- FK added later
-);
-CREATE INDEX idx_journal_entries_date ON accounting.journal_entries(entry_date);
-CREATE INDEX idx_journal_entries_fiscal_period ON accounting.journal_entries(fiscal_period_id);
-CREATE INDEX idx_journal_entries_source ON accounting.journal_entries(source_type, source_id);
-CREATE INDEX idx_journal_entries_posted ON accounting.journal_entries(is_posted);
-
-CREATE TABLE accounting.journal_entry_lines (
-    id SERIAL PRIMARY KEY,
-    journal_entry_id INTEGER NOT NULL, -- FK added later
-    line_number INTEGER NOT NULL,
-    account_id INTEGER NOT NULL, -- FK added later
-    description VARCHAR(200),
-    debit_amount NUMERIC(15,2) DEFAULT 0,
-    credit_amount NUMERIC(15,2) DEFAULT 0,
-    currency_code CHAR(3) DEFAULT 'SGD', -- FK added later
-    exchange_rate NUMERIC(15,6) DEFAULT 1,
-    tax_code VARCHAR(20), -- FK added later
-    tax_amount NUMERIC(15,2) DEFAULT 0,
-    dimension1_id INTEGER, -- FK added later
-    dimension2_id INTEGER, -- FK added later
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT jel_check_debit_credit CHECK ((debit_amount > 0 AND credit_amount = 0) OR (credit_amount > 0 AND debit_amount = 0) OR (debit_amount = 0 AND credit_amount = 0))
-);
-CREATE INDEX idx_journal_entry_lines_entry ON accounting.journal_entry_lines(journal_entry_id);
-CREATE INDEX idx_journal_entry_lines_account ON accounting.journal_entry_lines(account_id);
-
-CREATE TABLE accounting.recurring_patterns (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
-    description TEXT,
-    template_entry_id INTEGER NOT NULL, -- FK added later
-    frequency VARCHAR(20) NOT NULL CHECK (frequency IN ('Daily', 'Weekly', 'Monthly', 'Quarterly', 'Yearly')),
-    interval_value INTEGER NOT NULL DEFAULT 1,
-    start_date DATE NOT NULL,
-    end_date DATE,
-    day_of_month INTEGER CHECK (day_of_month BETWEEN 1 AND 31),
-    day_of_week INTEGER CHECK (day_of_week BETWEEN 0 AND 6),
-    last_generated_date DATE,
-    next_generation_date DATE,
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER NOT NULL, -- FK added later
-    updated_by INTEGER NOT NULL -- FK added later
-);
-
-CREATE TABLE accounting.dimensions (
-    id SERIAL PRIMARY KEY,
-    dimension_type VARCHAR(50) NOT NULL,
-    code VARCHAR(20) NOT NULL,
-    name VARCHAR(100) NOT NULL,
-    description TEXT,
-    is_active BOOLEAN DEFAULT TRUE,
-    parent_id INTEGER, -- FK to self, added later
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER NOT NULL, -- FK added later
-    updated_by INTEGER NOT NULL, -- FK added later
-    UNIQUE (dimension_type, code)
-);
-
-CREATE TABLE accounting.budgets (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
-    fiscal_year_id INTEGER NOT NULL, -- FK added later
-    description TEXT,
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER NOT NULL, -- FK added later
-    updated_by INTEGER NOT NULL -- FK added later
-);
-
-CREATE TABLE accounting.budget_details (
-    id SERIAL PRIMARY KEY,
-    budget_id INTEGER NOT NULL, -- FK added later
-    account_id INTEGER NOT NULL, -- FK added later
-    fiscal_period_id INTEGER NOT NULL, -- FK added later
-    amount NUMERIC(15,2) NOT NULL,
-    dimension1_id INTEGER, -- FK added later
-    dimension2_id INTEGER, -- FK added later
-    notes TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER NOT NULL, -- FK added later
-    updated_by INTEGER NOT NULL -- FK added later
-);
-CREATE UNIQUE INDEX uix_budget_details_key ON accounting.budget_details (budget_id, account_id, fiscal_period_id, COALESCE(dimension1_id, 0), COALESCE(dimension2_id, 0));
-
-CREATE TABLE accounting.tax_codes (
-    id SERIAL PRIMARY KEY,
-    code VARCHAR(20) NOT NULL UNIQUE,
-    description VARCHAR(100) NOT NULL,
-    tax_type VARCHAR(20) NOT NULL CHECK (tax_type IN ('GST', 'Income Tax', 'Withholding Tax')),
-    rate NUMERIC(5,2) NOT NULL,
-    is_default BOOLEAN DEFAULT FALSE,
-    is_active BOOLEAN DEFAULT TRUE,
-    affects_account_id INTEGER, -- FK added later
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER NOT NULL, -- FK added later
-    updated_by INTEGER NOT NULL -- FK added later
-);
-
-CREATE TABLE accounting.gst_returns (
-    id SERIAL PRIMARY KEY,
-    return_period VARCHAR(20) NOT NULL UNIQUE,
-    start_date DATE NOT NULL,
-    end_date DATE NOT NULL,
-    filing_due_date DATE NOT NULL,
-    standard_rated_supplies NUMERIC(15,2) DEFAULT 0,
-    zero_rated_supplies NUMERIC(15,2) DEFAULT 0,
-    exempt_supplies NUMERIC(15,2) DEFAULT 0,
-    total_supplies NUMERIC(15,2) DEFAULT 0,
-    taxable_purchases NUMERIC(15,2) DEFAULT 0,
-    output_tax NUMERIC(15,2) DEFAULT 0,
-    input_tax NUMERIC(15,2) DEFAULT 0,
-    tax_adjustments NUMERIC(15,2) DEFAULT 0,
-    tax_payable NUMERIC(15,2) DEFAULT 0,
-    status VARCHAR(20) DEFAULT 'Draft' CHECK (status IN ('Draft', 'Submitted', 'Amended')),
-    submission_date DATE,
-    submission_reference VARCHAR(50),
-    journal_entry_id INTEGER, -- FK added later
-    notes TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER NOT NULL, -- FK added later
-    updated_by INTEGER NOT NULL -- FK added later
-);
-
-CREATE TABLE accounting.withholding_tax_certificates (
-    id SERIAL PRIMARY KEY,
-    certificate_no VARCHAR(20) NOT NULL UNIQUE,
-    vendor_id INTEGER NOT NULL, -- FK added later
-    tax_type VARCHAR(50) NOT NULL,
-    tax_rate NUMERIC(5,2) NOT NULL,
-    payment_date DATE NOT NULL,
-    amount_before_tax NUMERIC(15,2) NOT NULL,
-    tax_amount NUMERIC(15,2) NOT NULL,
-    payment_reference VARCHAR(50),
-    status VARCHAR(20) DEFAULT 'Draft' CHECK (status IN ('Draft', 'Issued', 'Voided')),
-    issue_date DATE,
-    journal_entry_id INTEGER, -- FK added later
-    notes TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER NOT NULL, -- FK added later
-    updated_by INTEGER NOT NULL -- FK added later
-);
-
--- ============================================================================
--- BUSINESS SCHEMA TABLES
--- ============================================================================
-CREATE TABLE business.customers (
-    id SERIAL PRIMARY KEY, customer_code VARCHAR(20) NOT NULL UNIQUE, name VARCHAR(100) NOT NULL, legal_name VARCHAR(200), uen_no VARCHAR(20), gst_registered BOOLEAN DEFAULT FALSE, gst_no VARCHAR(20), contact_person VARCHAR(100), email VARCHAR(100), phone VARCHAR(20), address_line1 VARCHAR(100), address_line2 VARCHAR(100), postal_code VARCHAR(20), city VARCHAR(50), country VARCHAR(50) DEFAULT 'Singapore', credit_terms INTEGER DEFAULT 30, credit_limit NUMERIC(15,2), currency_code CHAR(3) DEFAULT 'SGD', is_active BOOLEAN DEFAULT TRUE, customer_since DATE, notes TEXT, receivables_account_id INTEGER, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, created_by INTEGER NOT NULL, updated_by INTEGER NOT NULL);
-CREATE INDEX idx_customers_name ON business.customers(name); CREATE INDEX idx_customers_is_active ON business.customers(is_active);
-
-CREATE TABLE business.vendors (
-    id SERIAL PRIMARY KEY, vendor_code VARCHAR(20) NOT NULL UNIQUE, name VARCHAR(100) NOT NULL, legal_name VARCHAR(200), uen_no VARCHAR(20), gst_registered BOOLEAN DEFAULT FALSE, gst_no VARCHAR(20), withholding_tax_applicable BOOLEAN DEFAULT FALSE, withholding_tax_rate NUMERIC(5,2), contact_person VARCHAR(100), email VARCHAR(100), phone VARCHAR(20), address_line1 VARCHAR(100), address_line2 VARCHAR(100), postal_code VARCHAR(20), city VARCHAR(50), country VARCHAR(50) DEFAULT 'Singapore', payment_terms INTEGER DEFAULT 30, currency_code CHAR(3) DEFAULT 'SGD', is_active BOOLEAN DEFAULT TRUE, vendor_since DATE, notes TEXT, bank_account_name VARCHAR(100), bank_account_number VARCHAR(50), bank_name VARCHAR(100), bank_branch VARCHAR(100), bank_swift_code VARCHAR(20), payables_account_id INTEGER, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, created_by INTEGER NOT NULL, updated_by INTEGER NOT NULL);
-CREATE INDEX idx_vendors_name ON business.vendors(name); CREATE INDEX idx_vendors_is_active ON business.vendors(is_active);
-
-CREATE TABLE business.products (
-    id SERIAL PRIMARY KEY, product_code VARCHAR(20) NOT NULL UNIQUE, name VARCHAR(100) NOT NULL, description TEXT, product_type VARCHAR(20) NOT NULL CHECK (product_type IN ('Inventory', 'Service', 'Non-Inventory')), category VARCHAR(50), unit_of_measure VARCHAR(20), barcode VARCHAR(50), sales_price NUMERIC(15,2), purchase_price NUMERIC(15,2), sales_account_id INTEGER, purchase_account_id INTEGER, inventory_account_id INTEGER, tax_code VARCHAR(20), is_active BOOLEAN DEFAULT TRUE, min_stock_level NUMERIC(15,2), reorder_point NUMERIC(15,2), created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, created_by INTEGER NOT NULL, updated_by INTEGER NOT NULL);
-CREATE INDEX idx_products_name ON business.products(name); CREATE INDEX idx_products_is_active ON business.products(is_active); CREATE INDEX idx_products_type ON business.products(product_type);
-
-CREATE TABLE business.inventory_movements (
-    id SERIAL PRIMARY KEY, product_id INTEGER NOT NULL, movement_date DATE NOT NULL, movement_type VARCHAR(20) NOT NULL CHECK (movement_type IN ('Purchase', 'Sale', 'Adjustment', 'Transfer', 'Return', 'Opening')), quantity NUMERIC(15,2) NOT NULL, unit_cost NUMERIC(15,4), total_cost NUMERIC(15,2), reference_type VARCHAR(50), reference_id INTEGER, notes TEXT, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, created_by INTEGER NOT NULL);
-CREATE INDEX idx_inventory_movements_product ON business.inventory_movements(product_id, movement_date); CREATE INDEX idx_inventory_movements_reference ON business.inventory_movements(reference_type, reference_id);
-
-CREATE TABLE business.sales_invoices (
-    id SERIAL PRIMARY KEY, invoice_no VARCHAR(20) NOT NULL UNIQUE, customer_id INTEGER NOT NULL, invoice_date DATE NOT NULL, due_date DATE NOT NULL, currency_code CHAR(3) NOT NULL, exchange_rate NUMERIC(15,6) DEFAULT 1, subtotal NUMERIC(15,2) NOT NULL, tax_amount NUMERIC(15,2) NOT NULL DEFAULT 0, total_amount NUMERIC(15,2) NOT NULL, amount_paid NUMERIC(15,2) NOT NULL DEFAULT 0, status VARCHAR(20) NOT NULL DEFAULT 'Draft' CHECK (status IN ('Draft', 'Approved', 'Sent', 'Partially Paid', 'Paid', 'Overdue', 'Voided')), notes TEXT, terms_and_conditions TEXT, journal_entry_id INTEGER, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, created_by INTEGER NOT NULL, updated_by INTEGER NOT NULL);
-CREATE INDEX idx_sales_invoices_customer ON business.sales_invoices(customer_id); CREATE INDEX idx_sales_invoices_dates ON business.sales_invoices(invoice_date, due_date); CREATE INDEX idx_sales_invoices_status ON business.sales_invoices(status);
-
-CREATE TABLE business.sales_invoice_lines (
-    id SERIAL PRIMARY KEY, invoice_id INTEGER NOT NULL, line_number INTEGER NOT NULL, product_id INTEGER, description VARCHAR(200) NOT NULL, quantity NUMERIC(15,2) NOT NULL, unit_price NUMERIC(15,2) NOT NULL, discount_percent NUMERIC(5,2) DEFAULT 0, discount_amount NUMERIC(15,2) DEFAULT 0, line_subtotal NUMERIC(15,2) NOT NULL, tax_code VARCHAR(20), tax_amount NUMERIC(15,2) DEFAULT 0, line_total NUMERIC(15,2) NOT NULL, dimension1_id INTEGER, dimension2_id INTEGER, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP);
-CREATE INDEX idx_sales_invoice_lines_invoice ON business.sales_invoice_lines(invoice_id); CREATE INDEX idx_sales_invoice_lines_product ON business.sales_invoice_lines(product_id);
-
-CREATE TABLE business.purchase_invoices (
-    id SERIAL PRIMARY KEY, invoice_no VARCHAR(20) NOT NULL UNIQUE, vendor_id INTEGER NOT NULL, vendor_invoice_no VARCHAR(50), invoice_date DATE NOT NULL, due_date DATE NOT NULL, currency_code CHAR(3) NOT NULL, exchange_rate NUMERIC(15,6) DEFAULT 1, subtotal NUMERIC(15,2) NOT NULL, tax_amount NUMERIC(15,2) NOT NULL DEFAULT 0, total_amount NUMERIC(15,2) NOT NULL, amount_paid NUMERIC(15,2) NOT NULL DEFAULT 0, status VARCHAR(20) NOT NULL DEFAULT 'Draft' CHECK (status IN ('Draft', 'Approved', 'Partially Paid', 'Paid', 'Overdue', 'Disputed', 'Voided')), notes TEXT, journal_entry_id INTEGER, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, created_by INTEGER NOT NULL, updated_by INTEGER NOT NULL);
-CREATE INDEX idx_purchase_invoices_vendor ON business.purchase_invoices(vendor_id); CREATE INDEX idx_purchase_invoices_dates ON business.purchase_invoices(invoice_date, due_date); CREATE INDEX idx_purchase_invoices_status ON business.purchase_invoices(status);
-
-CREATE TABLE business.purchase_invoice_lines (
-    id SERIAL PRIMARY KEY, invoice_id INTEGER NOT NULL, line_number INTEGER NOT NULL, product_id INTEGER, description VARCHAR(200) NOT NULL, quantity NUMERIC(15,2) NOT NULL, unit_price NUMERIC(15,2) NOT NULL, discount_percent NUMERIC(5,2) DEFAULT 0, discount_amount NUMERIC(15,2) DEFAULT 0, line_subtotal NUMERIC(15,2) NOT NULL, tax_code VARCHAR(20), tax_amount NUMERIC(15,2) DEFAULT 0, line_total NUMERIC(15,2) NOT NULL, dimension1_id INTEGER, dimension2_id INTEGER, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP);
-CREATE INDEX idx_purchase_invoice_lines_invoice ON business.purchase_invoice_lines(invoice_id); CREATE INDEX idx_purchase_invoice_lines_product ON business.purchase_invoice_lines(product_id);
-
-CREATE TABLE business.bank_accounts (
-    id SERIAL PRIMARY KEY, account_name VARCHAR(100) NOT NULL, account_number VARCHAR(50) NOT NULL, bank_name VARCHAR(100) NOT NULL, bank_branch VARCHAR(100), bank_swift_code VARCHAR(20), currency_code CHAR(3) NOT NULL, opening_balance NUMERIC(15,2) DEFAULT 0, current_balance NUMERIC(15,2) DEFAULT 0, last_reconciled_date DATE, gl_account_id INTEGER NOT NULL, is_active BOOLEAN DEFAULT TRUE, description TEXT, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, created_by INTEGER NOT NULL, updated_by INTEGER NOT NULL);
-
-CREATE TABLE business.bank_transactions (
-    id SERIAL PRIMARY KEY, bank_account_id INTEGER NOT NULL, transaction_date DATE NOT NULL, value_date DATE, transaction_type VARCHAR(20) NOT NULL CHECK (transaction_type IN ('Deposit', 'Withdrawal', 'Transfer', 'Interest', 'Fee', 'Adjustment')), description VARCHAR(200) NOT NULL, reference VARCHAR(100), amount NUMERIC(15,2) NOT NULL, is_reconciled BOOLEAN DEFAULT FALSE, reconciled_date DATE, statement_date DATE, statement_id VARCHAR(50), journal_entry_id INTEGER, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, created_by INTEGER NOT NULL, updated_by INTEGER NOT NULL);
-CREATE INDEX idx_bank_transactions_account ON business.bank_transactions(bank_account_id); CREATE INDEX idx_bank_transactions_date ON business.bank_transactions(transaction_date); CREATE INDEX idx_bank_transactions_reconciled ON business.bank_transactions(is_reconciled);
-
-CREATE TABLE business.payments (
-    id SERIAL PRIMARY KEY, payment_no VARCHAR(20) NOT NULL UNIQUE, payment_type VARCHAR(20) NOT NULL CHECK (payment_type IN ('Customer Payment', 'Vendor Payment', 'Refund', 'Credit Note', 'Other')), payment_method VARCHAR(20) NOT NULL CHECK (payment_method IN ('Cash', 'Check', 'Bank Transfer', 'Credit Card', 'GIRO', 'PayNow', 'Other')), payment_date DATE NOT NULL, entity_type VARCHAR(20) NOT NULL CHECK (entity_type IN ('Customer', 'Vendor', 'Other')), entity_id INTEGER NOT NULL, bank_account_id INTEGER, currency_code CHAR(3) NOT NULL, exchange_rate NUMERIC(15,6) DEFAULT 1, amount NUMERIC(15,2) NOT NULL, reference VARCHAR(100), description TEXT, cheque_no VARCHAR(50), status VARCHAR(20) NOT NULL DEFAULT 'Draft' CHECK (status IN ('Draft', 'Approved', 'Completed', 'Voided', 'Returned')), journal_entry_id INTEGER, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, created_by INTEGER NOT NULL, updated_by INTEGER NOT NULL);
-CREATE INDEX idx_payments_date ON business.payments(payment_date); CREATE INDEX idx_payments_entity ON business.payments(entity_type, entity_id); CREATE INDEX idx_payments_status ON business.payments(status);
-
-CREATE TABLE business.payment_allocations (
-    id SERIAL PRIMARY KEY, payment_id INTEGER NOT NULL, document_type VARCHAR(20) NOT NULL CHECK (document_type IN ('Sales Invoice', 'Purchase Invoice', 'Credit Note', 'Debit Note', 'Other')), document_id INTEGER NOT NULL, amount NUMERIC(15,2) NOT NULL, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, created_by INTEGER NOT NULL);
-CREATE INDEX idx_payment_allocations_payment ON business.payment_allocations(payment_id); CREATE INDEX idx_payment_allocations_document ON business.payment_allocations(document_type, document_id);
-
--- ============================================================================
--- AUDIT SCHEMA TABLES
--- ============================================================================
-CREATE TABLE audit.audit_log (
-    id SERIAL PRIMARY KEY, user_id INTEGER, action VARCHAR(50) NOT NULL, entity_type VARCHAR(50) NOT NULL, entity_id INTEGER, entity_name VARCHAR(200), changes JSONB, ip_address VARCHAR(45), user_agent VARCHAR(255), timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP);
-CREATE INDEX idx_audit_log_user ON audit.audit_log(user_id); CREATE INDEX idx_audit_log_entity ON audit.audit_log(entity_type, entity_id); CREATE INDEX idx_audit_log_timestamp ON audit.audit_log(timestamp);
-
-CREATE TABLE audit.data_change_history (
-    id SERIAL PRIMARY KEY, table_name VARCHAR(100) NOT NULL, record_id INTEGER NOT NULL, field_name VARCHAR(100) NOT NULL, old_value TEXT, new_value TEXT, change_type VARCHAR(20) NOT NULL CHECK (change_type IN ('Insert', 'Update', 'Delete')), changed_by INTEGER, changed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP);
-CREATE INDEX idx_data_change_history_table_record ON audit.data_change_history(table_name, record_id); CREATE INDEX idx_data_change_history_changed_at ON audit.data_change_history(changed_at);
-
--- ============================================================================
--- ADDING FOREIGN KEY CONSTRAINTS (Grouped at the end)
--- ============================================================================
-
--- Core Schema FKs
-ALTER TABLE core.role_permissions ADD CONSTRAINT fk_rp_role FOREIGN KEY (role_id) REFERENCES core.roles(id) ON DELETE CASCADE;
-ALTER TABLE core.role_permissions ADD CONSTRAINT fk_rp_permission FOREIGN KEY (permission_id) REFERENCES core.permissions(id) ON DELETE CASCADE;
-ALTER TABLE core.user_roles ADD CONSTRAINT fk_ur_user FOREIGN KEY (user_id) REFERENCES core.users(id) ON DELETE CASCADE;
-ALTER TABLE core.user_roles ADD CONSTRAINT fk_ur_role FOREIGN KEY (role_id) REFERENCES core.roles(id) ON DELETE CASCADE;
-ALTER TABLE core.company_settings ADD CONSTRAINT fk_cs_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-ALTER TABLE core.company_settings ADD CONSTRAINT fk_cs_base_currency FOREIGN KEY (base_currency) REFERENCES accounting.currencies(code);
-ALTER TABLE core.configuration ADD CONSTRAINT fk_cfg_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
--- Accounting Schema FKs
-ALTER TABLE accounting.accounts ADD CONSTRAINT fk_acc_parent FOREIGN KEY (parent_id) REFERENCES accounting.accounts(id);
-ALTER TABLE accounting.accounts ADD CONSTRAINT fk_acc_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE accounting.accounts ADD CONSTRAINT fk_acc_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE accounting.fiscal_years ADD CONSTRAINT fk_fy_closed_by FOREIGN KEY (closed_by) REFERENCES core.users(id);
-ALTER TABLE accounting.fiscal_years ADD CONSTRAINT fk_fy_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE accounting.fiscal_years ADD CONSTRAINT fk_fy_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE accounting.fiscal_periods ADD CONSTRAINT fk_fp_fiscal_year FOREIGN KEY (fiscal_year_id) REFERENCES accounting.fiscal_years(id);
-ALTER TABLE accounting.fiscal_periods ADD CONSTRAINT fk_fp_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE accounting.fiscal_periods ADD CONSTRAINT fk_fp_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE accounting.currencies ADD CONSTRAINT fk_curr_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE accounting.currencies ADD CONSTRAINT fk_curr_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE accounting.exchange_rates ADD CONSTRAINT fk_er_from_curr FOREIGN KEY (from_currency) REFERENCES accounting.currencies(code);
-ALTER TABLE accounting.exchange_rates ADD CONSTRAINT fk_er_to_curr FOREIGN KEY (to_currency) REFERENCES accounting.currencies(code);
-ALTER TABLE accounting.exchange_rates ADD CONSTRAINT fk_er_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE accounting.exchange_rates ADD CONSTRAINT fk_er_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE accounting.journal_entries ADD CONSTRAINT fk_je_fiscal_period FOREIGN KEY (fiscal_period_id) REFERENCES accounting.fiscal_periods(id);
-ALTER TABLE accounting.journal_entries ADD CONSTRAINT fk_je_reversing_entry FOREIGN KEY (reversing_entry_id) REFERENCES accounting.journal_entries(id);
-ALTER TABLE accounting.journal_entries ADD CONSTRAINT fk_je_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE accounting.journal_entries ADD CONSTRAINT fk_je_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
--- Deferred FK for recurring_patterns cycle:
-ALTER TABLE accounting.journal_entries ADD CONSTRAINT fk_je_recurring_pattern FOREIGN KEY (recurring_pattern_id) REFERENCES accounting.recurring_patterns(id) DEFERRABLE INITIALLY DEFERRED;
-
-ALTER TABLE accounting.journal_entry_lines ADD CONSTRAINT fk_jel_journal_entry FOREIGN KEY (journal_entry_id) REFERENCES accounting.journal_entries(id) ON DELETE CASCADE;
-ALTER TABLE accounting.journal_entry_lines ADD CONSTRAINT fk_jel_account FOREIGN KEY (account_id) REFERENCES accounting.accounts(id);
-ALTER TABLE accounting.journal_entry_lines ADD CONSTRAINT fk_jel_currency FOREIGN KEY (currency_code) REFERENCES accounting.currencies(code);
-ALTER TABLE accounting.journal_entry_lines ADD CONSTRAINT fk_jel_tax_code FOREIGN KEY (tax_code) REFERENCES accounting.tax_codes(code);
-ALTER TABLE accounting.journal_entry_lines ADD CONSTRAINT fk_jel_dimension1 FOREIGN KEY (dimension1_id) REFERENCES accounting.dimensions(id);
-ALTER TABLE accounting.journal_entry_lines ADD CONSTRAINT fk_jel_dimension2 FOREIGN KEY (dimension2_id) REFERENCES accounting.dimensions(id);
-
-ALTER TABLE accounting.recurring_patterns ADD CONSTRAINT fk_rp_template_entry FOREIGN KEY (template_entry_id) REFERENCES accounting.journal_entries(id);
-ALTER TABLE accounting.recurring_patterns ADD CONSTRAINT fk_rp_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE accounting.recurring_patterns ADD CONSTRAINT fk_rp_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE accounting.dimensions ADD CONSTRAINT fk_dim_parent FOREIGN KEY (parent_id) REFERENCES accounting.dimensions(id);
-ALTER TABLE accounting.dimensions ADD CONSTRAINT fk_dim_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE accounting.dimensions ADD CONSTRAINT fk_dim_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE accounting.budgets ADD CONSTRAINT fk_bud_fiscal_year FOREIGN KEY (fiscal_year_id) REFERENCES accounting.fiscal_years(id);
-ALTER TABLE accounting.budgets ADD CONSTRAINT fk_bud_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE accounting.budgets ADD CONSTRAINT fk_bud_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE accounting.budget_details ADD CONSTRAINT fk_bd_budget FOREIGN KEY (budget_id) REFERENCES accounting.budgets(id) ON DELETE CASCADE;
-ALTER TABLE accounting.budget_details ADD CONSTRAINT fk_bd_account FOREIGN KEY (account_id) REFERENCES accounting.accounts(id);
-ALTER TABLE accounting.budget_details ADD CONSTRAINT fk_bd_fiscal_period FOREIGN KEY (fiscal_period_id) REFERENCES accounting.fiscal_periods(id);
-ALTER TABLE accounting.budget_details ADD CONSTRAINT fk_bd_dimension1 FOREIGN KEY (dimension1_id) REFERENCES accounting.dimensions(id);
-ALTER TABLE accounting.budget_details ADD CONSTRAINT fk_bd_dimension2 FOREIGN KEY (dimension2_id) REFERENCES accounting.dimensions(id);
-ALTER TABLE accounting.budget_details ADD CONSTRAINT fk_bd_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE accounting.budget_details ADD CONSTRAINT fk_bd_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE accounting.tax_codes ADD CONSTRAINT fk_tc_affects_account FOREIGN KEY (affects_account_id) REFERENCES accounting.accounts(id);
-ALTER TABLE accounting.tax_codes ADD CONSTRAINT fk_tc_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE accounting.tax_codes ADD CONSTRAINT fk_tc_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE accounting.gst_returns ADD CONSTRAINT fk_gstr_journal_entry FOREIGN KEY (journal_entry_id) REFERENCES accounting.journal_entries(id);
-ALTER TABLE accounting.gst_returns ADD CONSTRAINT fk_gstr_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE accounting.gst_returns ADD CONSTRAINT fk_gstr_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE accounting.withholding_tax_certificates ADD CONSTRAINT fk_whtc_vendor FOREIGN KEY (vendor_id) REFERENCES business.vendors(id);
-ALTER TABLE accounting.withholding_tax_certificates ADD CONSTRAINT fk_whtc_journal_entry FOREIGN KEY (journal_entry_id) REFERENCES accounting.journal_entries(id);
-ALTER TABLE accounting.withholding_tax_certificates ADD CONSTRAINT fk_whtc_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE accounting.withholding_tax_certificates ADD CONSTRAINT fk_whtc_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
--- Business Schema FKs
-ALTER TABLE business.customers ADD CONSTRAINT fk_cust_currency FOREIGN KEY (currency_code) REFERENCES accounting.currencies(code);
-ALTER TABLE business.customers ADD CONSTRAINT fk_cust_receivables_acc FOREIGN KEY (receivables_account_id) REFERENCES accounting.accounts(id);
-ALTER TABLE business.customers ADD CONSTRAINT fk_cust_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE business.customers ADD CONSTRAINT fk_cust_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE business.vendors ADD CONSTRAINT fk_vend_currency FOREIGN KEY (currency_code) REFERENCES accounting.currencies(code);
-ALTER TABLE business.vendors ADD CONSTRAINT fk_vend_payables_acc FOREIGN KEY (payables_account_id) REFERENCES accounting.accounts(id);
-ALTER TABLE business.vendors ADD CONSTRAINT fk_vend_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE business.vendors ADD CONSTRAINT fk_vend_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE business.products ADD CONSTRAINT fk_prod_sales_acc FOREIGN KEY (sales_account_id) REFERENCES accounting.accounts(id);
-ALTER TABLE business.products ADD CONSTRAINT fk_prod_purchase_acc FOREIGN KEY (purchase_account_id) REFERENCES accounting.accounts(id);
-ALTER TABLE business.products ADD CONSTRAINT fk_prod_inventory_acc FOREIGN KEY (inventory_account_id) REFERENCES accounting.accounts(id);
-ALTER TABLE business.products ADD CONSTRAINT fk_prod_tax_code FOREIGN KEY (tax_code) REFERENCES accounting.tax_codes(code);
-ALTER TABLE business.products ADD CONSTRAINT fk_prod_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE business.products ADD CONSTRAINT fk_prod_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE business.inventory_movements ADD CONSTRAINT fk_im_product FOREIGN KEY (product_id) REFERENCES business.products(id);
-ALTER TABLE business.inventory_movements ADD CONSTRAINT fk_im_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-
-ALTER TABLE business.sales_invoices ADD CONSTRAINT fk_si_customer FOREIGN KEY (customer_id) REFERENCES business.customers(id);
-ALTER TABLE business.sales_invoices ADD CONSTRAINT fk_si_currency FOREIGN KEY (currency_code) REFERENCES accounting.currencies(code);
-ALTER TABLE business.sales_invoices ADD CONSTRAINT fk_si_journal_entry FOREIGN KEY (journal_entry_id) REFERENCES accounting.journal_entries(id);
-ALTER TABLE business.sales_invoices ADD CONSTRAINT fk_si_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE business.sales_invoices ADD CONSTRAINT fk_si_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE business.sales_invoice_lines ADD CONSTRAINT fk_sil_invoice FOREIGN KEY (invoice_id) REFERENCES business.sales_invoices(id) ON DELETE CASCADE;
-ALTER TABLE business.sales_invoice_lines ADD CONSTRAINT fk_sil_product FOREIGN KEY (product_id) REFERENCES business.products(id);
-ALTER TABLE business.sales_invoice_lines ADD CONSTRAINT fk_sil_tax_code FOREIGN KEY (tax_code) REFERENCES accounting.tax_codes(code);
-ALTER TABLE business.sales_invoice_lines ADD CONSTRAINT fk_sil_dimension1 FOREIGN KEY (dimension1_id) REFERENCES accounting.dimensions(id);
-ALTER TABLE business.sales_invoice_lines ADD CONSTRAINT fk_sil_dimension2 FOREIGN KEY (dimension2_id) REFERENCES accounting.dimensions(id);
-
-ALTER TABLE business.purchase_invoices ADD CONSTRAINT fk_pi_vendor FOREIGN KEY (vendor_id) REFERENCES business.vendors(id);
-ALTER TABLE business.purchase_invoices ADD CONSTRAINT fk_pi_currency FOREIGN KEY (currency_code) REFERENCES accounting.currencies(code);
-ALTER TABLE business.purchase_invoices ADD CONSTRAINT fk_pi_journal_entry FOREIGN KEY (journal_entry_id) REFERENCES accounting.journal_entries(id);
-ALTER TABLE business.purchase_invoices ADD CONSTRAINT fk_pi_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE business.purchase_invoices ADD CONSTRAINT fk_pi_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE business.purchase_invoice_lines ADD CONSTRAINT fk_pil_invoice FOREIGN KEY (invoice_id) REFERENCES business.purchase_invoices(id) ON DELETE CASCADE;
-ALTER TABLE business.purchase_invoice_lines ADD CONSTRAINT fk_pil_product FOREIGN KEY (product_id) REFERENCES business.products(id);
-ALTER TABLE business.purchase_invoice_lines ADD CONSTRAINT fk_pil_tax_code FOREIGN KEY (tax_code) REFERENCES accounting.tax_codes(code);
-ALTER TABLE business.purchase_invoice_lines ADD CONSTRAINT fk_pil_dimension1 FOREIGN KEY (dimension1_id) REFERENCES accounting.dimensions(id);
-ALTER TABLE business.purchase_invoice_lines ADD CONSTRAINT fk_pil_dimension2 FOREIGN KEY (dimension2_id) REFERENCES accounting.dimensions(id);
-
-ALTER TABLE business.bank_accounts ADD CONSTRAINT fk_ba_currency FOREIGN KEY (currency_code) REFERENCES accounting.currencies(code);
-ALTER TABLE business.bank_accounts ADD CONSTRAINT fk_ba_gl_account FOREIGN KEY (gl_account_id) REFERENCES accounting.accounts(id);
-ALTER TABLE business.bank_accounts ADD CONSTRAINT fk_ba_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE business.bank_accounts ADD CONSTRAINT fk_ba_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE business.bank_transactions ADD CONSTRAINT fk_bt_bank_account FOREIGN KEY (bank_account_id) REFERENCES business.bank_accounts(id);
-ALTER TABLE business.bank_transactions ADD CONSTRAINT fk_bt_journal_entry FOREIGN KEY (journal_entry_id) REFERENCES accounting.journal_entries(id);
-ALTER TABLE business.bank_transactions ADD CONSTRAINT fk_bt_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE business.bank_transactions ADD CONSTRAINT fk_bt_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE business.payments ADD CONSTRAINT fk_pay_bank_account FOREIGN KEY (bank_account_id) REFERENCES business.bank_accounts(id);
-ALTER TABLE business.payments ADD CONSTRAINT fk_pay_currency FOREIGN KEY (currency_code) REFERENCES accounting.currencies(code);
-ALTER TABLE business.payments ADD CONSTRAINT fk_pay_journal_entry FOREIGN KEY (journal_entry_id) REFERENCES accounting.journal_entries(id);
-ALTER TABLE business.payments ADD CONSTRAINT fk_pay_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE business.payments ADD CONSTRAINT fk_pay_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
--- Note: entity_id in payments refers to customers.id or vendors.id; requires application logic or triggers to enforce based on entity_type.
-
-ALTER TABLE business.payment_allocations ADD CONSTRAINT fk_pa_payment FOREIGN KEY (payment_id) REFERENCES business.payments(id) ON DELETE CASCADE;
-ALTER TABLE business.payment_allocations ADD CONSTRAINT fk_pa_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-
--- Audit Schema FKs
-ALTER TABLE audit.audit_log ADD CONSTRAINT fk_al_user FOREIGN KEY (user_id) REFERENCES core.users(id);
-ALTER TABLE audit.data_change_history ADD CONSTRAINT fk_dch_changed_by FOREIGN KEY (changed_by) REFERENCES core.users(id);
-
--- ============================================================================
--- VIEWS
--- ============================================================================
-CREATE OR REPLACE VIEW accounting.account_balances AS
-SELECT 
-    a.id AS account_id, a.code AS account_code, a.name AS account_name, a.account_type, a.parent_id,
-    COALESCE(SUM(CASE WHEN jel.debit_amount > 0 THEN jel.debit_amount ELSE -jel.credit_amount END), 0) + a.opening_balance AS balance,
-    COALESCE(SUM(CASE WHEN jel.debit_amount > 0 THEN jel.debit_amount ELSE 0 END), 0) AS total_debits_activity,
-    COALESCE(SUM(CASE WHEN jel.credit_amount > 0 THEN jel.credit_amount ELSE 0 END), 0) AS total_credits_activity,
-    MAX(je.entry_date) AS last_activity_date
-FROM accounting.accounts a
-LEFT JOIN accounting.journal_entry_lines jel ON a.id = jel.account_id
-LEFT JOIN accounting.journal_entries je ON jel.journal_entry_id = je.id AND je.is_posted = TRUE
-GROUP BY a.id, a.code, a.name, a.account_type, a.parent_id, a.opening_balance;
-
-CREATE OR REPLACE VIEW accounting.trial_balance AS
-SELECT 
-    a.id AS account_id, a.code AS account_code, a.name AS account_name, a.account_type, a.sub_type,
-    CASE WHEN a.account_type IN ('Asset', 'Expense') THEN CASE WHEN ab.balance >= 0 THEN ab.balance ELSE 0 END ELSE CASE WHEN ab.balance < 0 THEN -ab.balance ELSE 0 END END AS debit_balance,
-    CASE WHEN a.account_type IN ('Asset', 'Expense') THEN CASE WHEN ab.balance < 0 THEN -ab.balance ELSE 0 END ELSE CASE WHEN ab.balance >= 0 THEN ab.balance ELSE 0 END END AS credit_balance
-FROM accounting.accounts a
-JOIN accounting.account_balances ab ON a.id = ab.account_id
-WHERE a.is_active = TRUE AND ab.balance != 0;
-
-CREATE OR REPLACE VIEW business.customer_balances AS
-SELECT c.id AS customer_id, c.customer_code, c.name AS customer_name,
-    COALESCE(SUM(si.total_amount - si.amount_paid), 0) AS outstanding_balance,
-    COALESCE(SUM(CASE WHEN si.due_date < CURRENT_DATE AND si.status NOT IN ('Paid', 'Voided') THEN si.total_amount - si.amount_paid ELSE 0 END), 0) AS overdue_amount,
-    COALESCE(SUM(CASE WHEN si.status = 'Draft' THEN si.total_amount ELSE 0 END), 0) AS draft_amount,
-    COALESCE(MAX(si.due_date), NULL) AS latest_due_date
-FROM business.customers c LEFT JOIN business.sales_invoices si ON c.id = si.customer_id AND si.status NOT IN ('Paid', 'Voided')
-GROUP BY c.id, c.customer_code, c.name;
-
-CREATE OR REPLACE VIEW business.vendor_balances AS
-SELECT v.id AS vendor_id, v.vendor_code, v.name AS vendor_name,
-    COALESCE(SUM(pi.total_amount - pi.amount_paid), 0) AS outstanding_balance,
-    COALESCE(SUM(CASE WHEN pi.due_date < CURRENT_DATE AND pi.status NOT IN ('Paid', 'Voided') THEN pi.total_amount - pi.amount_paid ELSE 0 END), 0) AS overdue_amount,
-    COALESCE(SUM(CASE WHEN pi.status = 'Draft' THEN pi.total_amount ELSE 0 END), 0) AS draft_amount,
-    COALESCE(MAX(pi.due_date), NULL) AS latest_due_date
-FROM business.vendors v LEFT JOIN business.purchase_invoices pi ON v.id = pi.vendor_id AND pi.status NOT IN ('Paid', 'Voided')
-GROUP BY v.id, v.vendor_code, v.name;
-
-CREATE OR REPLACE VIEW business.inventory_summary AS
-SELECT 
-    p.id AS product_id, p.product_code, p.name AS product_name, p.product_type, p.category, p.unit_of_measure,
-    COALESCE(SUM(im.quantity), 0) AS current_quantity,
-    CASE WHEN COALESCE(SUM(im.quantity), 0) != 0 THEN COALESCE(SUM(im.total_cost), 0) / SUM(im.quantity) ELSE p.purchase_price END AS average_cost,
-    COALESCE(SUM(im.total_cost), 0) AS inventory_value,
-    p.sales_price AS current_sales_price, p.min_stock_level, p.reorder_point,
-    CASE WHEN p.min_stock_level IS NOT NULL AND COALESCE(SUM(im.quantity), 0) <= p.min_stock_level THEN TRUE ELSE FALSE END AS below_minimum,
-    CASE WHEN p.reorder_point IS NOT NULL AND COALESCE(SUM(im.quantity), 0) <= p.reorder_point THEN TRUE ELSE FALSE END AS reorder_needed
-FROM business.products p LEFT JOIN business.inventory_movements im ON p.id = im.product_id
-WHERE p.product_type = 'Inventory' AND p.is_active = TRUE
-GROUP BY p.id, p.product_code, p.name, p.product_type, p.category, p.unit_of_measure, p.purchase_price, p.sales_price, p.min_stock_level, p.reorder_point;
-
--- ============================================================================
--- FUNCTIONS
--- ============================================================================
-CREATE OR REPLACE FUNCTION core.get_next_sequence_value(p_sequence_name VARCHAR)
-RETURNS VARCHAR AS $$
-DECLARE v_sequence RECORD; v_next_value INTEGER; v_result VARCHAR;
-BEGIN
-    SELECT * INTO v_sequence FROM core.sequences WHERE sequence_name = p_sequence_name FOR UPDATE;
-    IF NOT FOUND THEN RAISE EXCEPTION 'Sequence % not found', p_sequence_name; END IF;
-    v_next_value := v_sequence.next_value;
-    UPDATE core.sequences SET next_value = next_value + increment_by, updated_at = CURRENT_TIMESTAMP WHERE sequence_name = p_sequence_name;
-    v_result := v_sequence.format_template;
-    v_result := REPLACE(v_result, '{PREFIX}', COALESCE(v_sequence.prefix, ''));
-    v_result := REPLACE(v_result, '{VALUE}', LPAD(v_next_value::TEXT, 6, '0'));
-    v_result := REPLACE(v_result, '{SUFFIX}', COALESCE(v_sequence.suffix, ''));
-    RETURN v_result;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE FUNCTION accounting.generate_journal_entry(p_journal_type VARCHAR, p_entry_date DATE, p_description VARCHAR, p_reference VARCHAR, p_source_type VARCHAR, p_source_id INTEGER, p_lines JSONB, p_user_id INTEGER)
-RETURNS INTEGER AS $$ 
-DECLARE v_fiscal_period_id INTEGER; v_entry_no VARCHAR; v_journal_id INTEGER; v_line JSONB; v_line_number INTEGER := 1; v_total_debits NUMERIC(15,2) := 0; v_total_credits NUMERIC(15,2) := 0;
-BEGIN
-    SELECT id INTO v_fiscal_period_id FROM accounting.fiscal_periods WHERE p_entry_date BETWEEN start_date AND end_date AND status = 'Open';
-    IF v_fiscal_period_id IS NULL THEN RAISE EXCEPTION 'No open fiscal period found for date %', p_entry_date; END IF;
-    v_entry_no := core.get_next_sequence_value('journal_entry');
-    INSERT INTO accounting.journal_entries (entry_no, journal_type, entry_date, fiscal_period_id, description, reference, is_posted, source_type, source_id, created_by, updated_by) VALUES (v_entry_no, p_journal_type, p_entry_date, v_fiscal_period_id, p_description, p_reference, FALSE, p_source_type, p_source_id, p_user_id, p_user_id) RETURNING id INTO v_journal_id;
-    FOR v_line IN SELECT * FROM jsonb_array_elements(p_lines) LOOP
-        INSERT INTO accounting.journal_entry_lines (journal_entry_id, line_number, account_id, description, debit_amount, credit_amount, currency_code, exchange_rate, tax_code, tax_amount, dimension1_id, dimension2_id) 
-        VALUES (v_journal_id, v_line_number, (v_line->>'account_id')::INTEGER, v_line->>'description', COALESCE((v_line->>'debit_amount')::NUMERIC, 0), COALESCE((v_line->>'credit_amount')::NUMERIC, 0), COALESCE(v_line->>'currency_code', 'SGD'), COALESCE((v_line->>'exchange_rate')::NUMERIC, 1), v_line->>'tax_code', COALESCE((v_line->>'tax_amount')::NUMERIC, 0), NULLIF(TRIM(v_line->>'dimension1_id'), '')::INTEGER, NULLIF(TRIM(v_line->>'dimension2_id'), '')::INTEGER);
-        v_line_number := v_line_number + 1; v_total_debits := v_total_debits + COALESCE((v_line->>'debit_amount')::NUMERIC, 0); v_total_credits := v_total_credits + COALESCE((v_line->>'credit_amount')::NUMERIC, 0);
-    END LOOP;
-    IF round(v_total_debits, 2) != round(v_total_credits, 2) THEN RAISE EXCEPTION 'Journal entry is not balanced. Debits: %, Credits: %', v_total_debits, v_total_credits; END IF;
-    RETURN v_journal_id;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE FUNCTION accounting.post_journal_entry(p_journal_id INTEGER, p_user_id INTEGER)
-RETURNS BOOLEAN AS $$
-DECLARE v_fiscal_period_status VARCHAR; v_is_already_posted BOOLEAN;
-BEGIN
-    SELECT is_posted INTO v_is_already_posted FROM accounting.journal_entries WHERE id = p_journal_id;
-    IF v_is_already_posted THEN RAISE EXCEPTION 'Journal entry % is already posted', p_journal_id; END IF;
-    SELECT fp.status INTO v_fiscal_period_status FROM accounting.journal_entries je JOIN accounting.fiscal_periods fp ON je.fiscal_period_id = fp.id WHERE je.id = p_journal_id;
-    IF v_fiscal_period_status != 'Open' THEN RAISE EXCEPTION 'Cannot post to a closed or archived fiscal period'; END IF;
-    UPDATE accounting.journal_entries SET is_posted = TRUE, updated_at = CURRENT_TIMESTAMP, updated_by = p_user_id WHERE id = p_journal_id;
-    RETURN TRUE;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE FUNCTION accounting.calculate_account_balance(p_account_id INTEGER, p_as_of_date DATE)
-RETURNS NUMERIC AS $$
-DECLARE v_balance NUMERIC(15,2) := 0; v_opening_balance NUMERIC(15,2); v_account_opening_balance_date DATE; 
-BEGIN
-    SELECT acc.opening_balance, acc.opening_balance_date INTO v_opening_balance, v_account_opening_balance_date FROM accounting.accounts acc WHERE acc.id = p_account_id;
-    IF NOT FOUND THEN RAISE EXCEPTION 'Account with ID % not found', p_account_id; END IF;
-    SELECT COALESCE(SUM(CASE WHEN jel.debit_amount > 0 THEN jel.debit_amount ELSE -jel.credit_amount END), 0) INTO v_balance FROM accounting.journal_entry_lines jel JOIN accounting.journal_entries je ON jel.journal_entry_id = je.id WHERE jel.account_id = p_account_id AND je.is_posted = TRUE AND je.entry_date <= p_as_of_date AND (v_account_opening_balance_date IS NULL OR je.entry_date >= v_account_opening_balance_date);
-    v_balance := v_balance + COALESCE(v_opening_balance, 0);
-    RETURN v_balance;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE FUNCTION core.update_timestamp_trigger_func()
-RETURNS TRIGGER AS $$ BEGIN NEW.updated_at = CURRENT_TIMESTAMP; RETURN NEW; END; $$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE FUNCTION audit.log_data_change_trigger_func()
-RETURNS TRIGGER AS $$
-DECLARE
-    v_old_data JSONB; v_new_data JSONB; v_change_type VARCHAR(20); v_user_id INTEGER; v_entity_id INTEGER; v_entity_name VARCHAR(200); temp_val TEXT; current_field_name_from_json TEXT;
-BEGIN
-    BEGIN v_user_id := current_setting('app.current_user_id', TRUE)::INTEGER; EXCEPTION WHEN OTHERS THEN v_user_id := NULL; END;
-    IF v_user_id IS NULL THEN
-        IF TG_OP = 'INSERT' THEN BEGIN v_user_id := NEW.created_by; EXCEPTION WHEN undefined_column THEN IF TG_TABLE_SCHEMA = 'core' AND TG_TABLE_NAME = 'users' THEN v_user_id := NEW.id; ELSE v_user_id := NULL; END IF; END;
-        ELSIF TG_OP = 'UPDATE' THEN BEGIN v_user_id := NEW.updated_by; EXCEPTION WHEN undefined_column THEN IF TG_TABLE_SCHEMA = 'core' AND TG_TABLE_NAME = 'users' THEN v_user_id := NEW.id; ELSE v_user_id := NULL; END IF; END;
-        END IF;
-    END IF;
-    IF TG_TABLE_SCHEMA = 'audit' AND TG_TABLE_NAME IN ('audit_log', 'data_change_history') THEN RETURN NULL; END IF;
-    IF TG_OP = 'INSERT' THEN v_change_type := 'Insert'; v_old_data := NULL; v_new_data := to_jsonb(NEW);
-    ELSIF TG_OP = 'UPDATE' THEN v_change_type := 'Update'; v_old_data := to_jsonb(OLD); v_new_data := to_jsonb(NEW);
-    ELSIF TG_OP = 'DELETE' THEN v_change_type := 'Delete'; v_old_data := to_jsonb(OLD); v_new_data := NULL; END IF;
-    BEGIN IF TG_OP = 'DELETE' THEN v_entity_id := OLD.id; ELSE v_entity_id := NEW.id; END IF; EXCEPTION WHEN undefined_column THEN v_entity_id := NULL; END;
-    BEGIN IF TG_OP = 'DELETE' THEN temp_val := CASE WHEN TG_TABLE_NAME IN ('accounts','customers','vendors','products','roles','account_types','dimensions','fiscal_years','budgets') THEN OLD.name WHEN TG_TABLE_NAME = 'journal_entries' THEN OLD.entry_no WHEN TG_TABLE_NAME = 'sales_invoices' THEN OLD.invoice_no WHEN TG_TABLE_NAME = 'purchase_invoices' THEN OLD.invoice_no WHEN TG_TABLE_NAME = 'payments' THEN OLD.payment_no WHEN TG_TABLE_NAME = 'users' THEN OLD.username WHEN TG_TABLE_NAME = 'tax_codes' THEN OLD.code WHEN TG_TABLE_NAME = 'gst_returns' THEN OLD.return_period ELSE OLD.id::TEXT END;
-    ELSE temp_val := CASE WHEN TG_TABLE_NAME IN ('accounts','customers','vendors','products','roles','account_types','dimensions','fiscal_years','budgets') THEN NEW.name WHEN TG_TABLE_NAME = 'journal_entries' THEN NEW.entry_no WHEN TG_TABLE_NAME = 'sales_invoices' THEN NEW.invoice_no WHEN TG_TABLE_NAME = 'purchase_invoices' THEN NEW.invoice_no WHEN TG_TABLE_NAME = 'payments' THEN NEW.payment_no WHEN TG_TABLE_NAME = 'users' THEN NEW.username WHEN TG_TABLE_NAME = 'tax_codes' THEN NEW.code WHEN TG_TABLE_NAME = 'gst_returns' THEN NEW.return_period ELSE NEW.id::TEXT END; END IF; v_entity_name := temp_val;
-    EXCEPTION WHEN undefined_column THEN BEGIN IF TG_OP = 'DELETE' THEN v_entity_name := OLD.id::TEXT; ELSE v_entity_name := NEW.id::TEXT; END IF; EXCEPTION WHEN undefined_column THEN v_entity_name := NULL; END; END;
-    INSERT INTO audit.audit_log (user_id,action,entity_type,entity_id,entity_name,changes,timestamp) VALUES (v_user_id,v_change_type,TG_TABLE_SCHEMA||'.'||TG_TABLE_NAME,v_entity_id,v_entity_name,jsonb_build_object('old',v_old_data,'new',v_new_data),CURRENT_TIMESTAMP);
-    IF TG_OP = 'UPDATE' THEN
-        FOR current_field_name_from_json IN SELECT key_alias FROM jsonb_object_keys(v_old_data) AS t(key_alias) LOOP
-            IF (v_new_data ? current_field_name_from_json) AND ((v_old_data -> current_field_name_from_json) IS DISTINCT FROM (v_new_data -> current_field_name_from_json)) THEN
-                INSERT INTO audit.data_change_history (table_name,record_id,field_name,old_value,new_value,change_type,changed_by,changed_at) VALUES (TG_TABLE_SCHEMA||'.'||TG_TABLE_NAME,NEW.id,current_field_name_from_json,v_old_data->>current_field_name_from_json,v_new_data->>current_field_name_from_json,'Update',v_user_id,CURRENT_TIMESTAMP);
-            END IF;
-        END LOOP;
-    END IF;
-    RETURN NULL; 
-END;
-$$ LANGUAGE plpgsql;
-
--- ============================================================================
--- APPLYING TRIGGERS
--- ============================================================================
-DO $$ DECLARE r RECORD; BEGIN FOR r IN SELECT table_schema, table_name FROM information_schema.columns WHERE column_name = 'updated_at' AND table_schema IN ('core','accounting','business','audit') GROUP BY table_schema, table_name LOOP EXECUTE format('DROP TRIGGER IF EXISTS trg_update_timestamp ON %I.%I; CREATE TRIGGER trg_update_timestamp BEFORE UPDATE ON %I.%I FOR EACH ROW EXECUTE FUNCTION core.update_timestamp_trigger_func();',r.table_schema,r.table_name,r.table_schema,r.table_name); END LOOP; END; $$;
-DO $$ DECLARE tables_to_audit TEXT[] := ARRAY['accounting.accounts','accounting.journal_entries','accounting.fiscal_periods','accounting.fiscal_years','business.customers','business.vendors','business.products','business.sales_invoices','business.purchase_invoices','business.payments','accounting.tax_codes','accounting.gst_returns','core.users','core.roles','core.company_settings']; table_fullname TEXT; schema_name TEXT; table_name_var TEXT; BEGIN FOREACH table_fullname IN ARRAY tables_to_audit LOOP SELECT split_part(table_fullname,'.',1) INTO schema_name; SELECT split_part(table_fullname,'.',2) INTO table_name_var; EXECUTE format('DROP TRIGGER IF EXISTS trg_audit_log ON %I.%I; CREATE TRIGGER trg_audit_log AFTER INSERT OR UPDATE OR DELETE ON %I.%I FOR EACH ROW EXECUTE FUNCTION audit.log_data_change_trigger_func();',schema_name,table_name_var,schema_name,table_name_var); END LOOP; END; $$;
-
--- End of script
-
-```
-
-# resources/icons/banking.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M4 10h3v7H4v-7zm6.5 0h3v7h-3v-7zM2 19h20v3H2v-3zm15-9h3v7h-3v-7zm-5-9L2 6v2h20V6L12 1z"/></svg>
-
-```
-
-# resources/icons/vendors.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M16.5 12c1.38 0 2.5-1.12 2.5-2.5S17.88 7 16.5 7C15.12 7 14 8.12 14 9.5s1.12 2.5 2.5 2.5zM9 11c1.66 0 2.99-1.34 2.99-3S10.66 5 9 5C7.34 5 6 6.34 6 8s1.34 3 3 3zm7.5 3c-1.83 0-5.5.92-5.5 2.75V19h11v-2.25c0-1.83-3.67-2.75-5.5-2.75zM9 13c-2.33 0-7 1.17-7 3.5V19h7v-2.5c0-.85.33-2.34 2.37-3.47C10.5 13.1 9.66 13 9 13z"/></svg>
-
-```
-
-# resources/icons/deactivate.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
-  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm3.59-13L12 10.59 8.41 7 7 8.41 10.59 12 7 15.59 8.41 17 12 13.41 15.59 17 17 15.59 13.41 12 17 8.41z"/>
-</svg>
-
-```
-
-# resources/icons/product.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
-  <path d="M20 4H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm-1 14H5c-.55 0-1-.45-1-1V7c0-.55.45-1 1-1h14c.55 0 1 .45 1 1v10c0 .55-.45 1-1 1z"/>
-  <path d="M8 10h2v2H8zm0 4h2v2H8zm4-4h2v2h-2zm0 4h2v2h-2z"/>
-</svg>
-
-```
-
-# resources/icons/post.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>
-
-```
-
-# resources/icons/collapse_all.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
-  <path d="M12 18.17L8.83 15l-1.41 1.41L12 21l4.59-4.59L15.17 15 12 18.17zm0-12.34L15.17 9l1.41-1.41L12 3 7.41 7.59 8.83 9 12 5.83zM19 11h-2v2h2v-2zm-12 0H5v2h2v-2z"/>
-  <path d="M0 0h24v24H0z" fill="none"/>
-</svg>
-
-```
-
-# resources/icons/restore.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.25 2.52.77-1.28-3.52-2.09V8H12z"/></svg>
-
-```
-
-# resources/icons/refresh.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
-  <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
-</svg>
-
-```
-
-# resources/icons/exit.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M10.09 15.59L11.5 17l5-5-5-5-1.41 1.41L12.67 11H3v2h9.67l-2.58 2.59zM19 3H5c-1.11 0-2 .9-2 2v4h2V5h14v14H5v-4H3v4c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/></svg>
-
-```
-
-# resources/icons/about.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-5h2v-2h-2v2zm0-4h2V7h-2v4z"/></svg>
-
-```
-
-# resources/icons/settings.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.08-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.08.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"/></svg>
-
-```
-
-# resources/icons/accounting.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M4 10h16v2H4v-2zm0 4h16v2H4v-2zm0-8h16v2H4V6zm0 12h10v2H4v-2zM16 18h4v2h-4v-2z"/></svg>
-
-```
-
-# resources/icons/reports.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
-
-```
-
-# resources/icons/new_company.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11h-4v4h-2v-4H7v-2h4V7h2v4h4v2z"/></svg>
-
-```
-
-# resources/icons/remove.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M19 13H5v-2h14v2z"/></svg>
-
-```
-
-# resources/icons/preferences.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.08-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.08.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"/></svg>
-
-```
-
-# resources/icons/transactions.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
-  <path d="M20 6h-4V4c0-1.11-.89-2-2-2h-4c-1.11 0-2 .89-2 2v2H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2zm-6 0h-4V4h4v2zM4 18V8h2v10H4zm4 0V8h8v10H8zm12 0h-2V8h2v10z"/>
-  <path d="M0 0h24v24H0V0z" fill="none"/>
-</svg>
-
-```
-
-# resources/icons/customers.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
-
-```
-
-# resources/icons/backup.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/></svg>
-
-```
-
-# resources/icons/filter.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
-  <path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z"/>
-</svg>
-
-```
-
-# resources/icons/help.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/></svg>
-
-```
-
-# resources/icons/view.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
-
-```
-
-# resources/icons/add.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
-
-```
-
-# resources/icons/reverse.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C20.36 11.36 16.79 8 12.5 8z"/></svg>
-
-```
-
-# resources/icons/expand_all.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
-  <path d="M12 5.83L15.17 9l1.41-1.41L12 3 7.41 7.59 8.83 9 12 5.83zm0 12.34L8.83 15l-1.41 1.41L12 21l4.59-4.59L15.17 15 12 18.17zM5 13h2v-2H5v2zm12 0h2v-2h-2v2z"/>
-  <path d="M0 0h24v24H0z" fill="none"/>
-</svg>
-
-```
-
-# resources/icons/open_company.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V6h5.17l2 2H20v10z"/></svg>
-
-```
-
-# resources/icons/edit.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
-  <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
-</svg>
-
-```
-
-# resources/icons/dashboard.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect>
-</svg>
-
-```
-
-# resources/resources.qrc
-```qrc
-<!DOCTYPE RCC><RCC version="1.0"> 
-<qresource prefix="/">
-    <file alias="icons/dashboard.svg">icons/dashboard.svg</file>
-    <file alias="icons/accounting.svg">icons/accounting.svg</file>
-    <file alias="icons/customers.svg">icons/customers.svg</file>
-    <file alias="icons/vendors.svg">icons/vendors.svg</file>
-    <file alias="icons/product.svg">icons/product.svg</file> <!-- New Icon -->
-    <file alias="icons/banking.svg">icons/banking.svg</file>
-    <file alias="icons/reports.svg">icons/reports.svg</file>
-    <file alias="icons/settings.svg">icons/settings.svg</file>
-    <file alias="icons/new_company.svg">icons/new_company.svg</file>
-    <file alias="icons/open_company.svg">icons/open_company.svg</file>
-    <file alias="icons/backup.svg">icons/backup.svg</file>
-    <file alias="icons/restore.svg">icons/restore.svg</file>
-    <file alias="icons/exit.svg">icons/exit.svg</file>
-    <file alias="icons/preferences.svg">icons/preferences.svg</file>
-    <file alias="icons/help.svg">icons/help.svg</file>
-    <file alias="icons/about.svg">icons/about.svg</file>
-    <file alias="icons/filter.svg">icons/filter.svg</file>
-    <file alias="icons/expand_all.svg">icons/expand_all.svg</file>
-    <file alias="icons/collapse_all.svg">icons/collapse_all.svg</file>
-    <file alias="icons/refresh.svg">icons/refresh.svg</file>
-    <file alias="icons/edit.svg">icons/edit.svg</file>
-    <file alias="icons/transactions.svg">icons/transactions.svg</file>
-    <file alias="icons/deactivate.svg">icons/deactivate.svg</file>
-    <file alias="icons/add.svg">icons/add.svg</file>
-    <file alias="icons/remove.svg">icons/remove.svg</file>
-    <file alias="icons/view.svg">icons/view.svg</file>
-    <file alias="icons/post.svg">icons/post.svg</file>
-    <file alias="icons/reverse.svg">icons/reverse.svg</file>
-    <file alias="images/splash.png">images/splash.png</file>
-</qresource>
-</RCC>
-
-```
-
-# README.md
-```md
-# SG Bookkeeper
-
-<div align="center">
-
-<!-- Replace with actual logo if available -->
-<img src="https://raw.githubusercontent.com/nordeim/SG-Bookkeeper/refs/heads/main/home_screen.png" alt="SG Bookkeeper Logo" width="600"/>
-
-**Singapore-Focused Small Business Accounting Software**
-
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
-[![PySide6 6.9+](https://img.shields.io/badge/UI-PySide6_6.9-green.svg)](https://doc.qt.io/qtforpython/)
-[![PostgreSQL 14+](https://img.shields.io/badge/DB-PostgreSQL_14+-blue.svg)](https://www.postgresql.org/)
-[![SQLAlchemy 2.0+](https://img.shields.io/badge/ORM-SQLAlchemy_2.0-orange.svg)](https://www.sqlalchemy.org/)
-[![Asyncpg](https://img.shields.io/badge/Async-Asyncpg-purple.svg)](https://github.com/MagicStack/asyncpg)
-[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
-
-[Key Features](#key-features) • [Technology Stack](#technology-stack) • [Installation](#installation) • [Usage](#usage-guide) • [Project Structure](#project-structure) • [Contributing](#contributing) • [Roadmap](#roadmap) • [License](#license)
-
-</div>
-
-## Overview
-
-SG Bookkeeper is a comprehensive, cross-platform desktop application designed to meet the accounting and bookkeeping needs of small to medium-sized businesses in Singapore. Built with Python and leveraging the power of PySide6 for a modern user interface and PostgreSQL for robust data management, it offers professional-grade financial tools tailored to Singapore's regulatory environment.
-
-The application features a double-entry accounting core, GST management, financial reporting, and modules for essential business operations including customer, vendor, and product/service management. Its goal is to provide an intuitive, powerful, and compliant solution that empowers business owners and accountants.
-
-### Why SG Bookkeeper?
-
--   **Singapore-Centric**: Designed with Singapore Financial Reporting Standards (SFRS), GST regulations (including 9% rate), and IRAS compliance considerations at its core.
--   **Professional Grade**: Implements a full double-entry system, detailed audit trails (via database triggers), and robust data validation using Pydantic DTOs.
--   **User-Friendly Interface**: Aims for an intuitive experience for users who may not be accounting experts, while providing depth for professionals. Core accounting, customer/vendor/product management, and reporting UI are functional.
--   **Open Source & Local First**: Transparent development. Your financial data stays on your local machine or private server, ensuring privacy and control. No subscription fees.
--   **Modern & Performant**: Utilizes asynchronous operations for a responsive UI and efficient database interactions, with a dedicated asyncio event loop.
-
-## Key Features
-
-*(Status: Implemented, Partially Implemented, Basic UI Implemented, Foundational (DB/Models ready), Planned)*
-
-### Core Accounting
--   **Comprehensive Double-Entry Bookkeeping** (Implemented)
--   **Customizable Hierarchical Chart of Accounts** (Implemented - UI for CRUD)
--   **General Ledger with detailed transaction history** (Implemented - Report generation, on-screen view, export)
--   **Journal Entry System** (Implemented - UI for General Journal; Sales/Purchases JEs via respective modules are planned)
--   **Multi-Currency Support** (Foundational - `accounting.currencies` & `exchange_rates` tables and models exist, `CurrencyManager` for backend logic. UI integration in transactions pending.)
--   **Fiscal Year and Period Management** (Implemented - UI in Settings for FY creation and period auto-generation; period closing/reopening logic in manager.)
--   **Budgeting and Variance Analysis** (Foundational - `accounting.budgets` & `budget_details` tables and models exist. UI/Logic planned.)
-
-### Singapore Tax Compliance
--   **GST Tracking and Calculation** (Partially Implemented - `TaxCode` setup for SR, ZR, ES, TX at 9%; `TaxCalculator` exists. `GSTManager` uses posted JE data. Full JE line item tax application in all transaction UIs is ongoing.)
--   **GST F5 Return Data Preparation & Finalization** (Implemented - `GSTManager` backend for data prep & finalization with JE settlement. UI in Reports tab for prep, view, draft save, and finalize.)
--   **Income Tax Estimation Aids** (Planned - `IncomeTaxManager` stub exists.)
--   **Withholding Tax Management** (Foundational - `accounting.withholding_tax_certificates` table/model and `WithholdingTaxManager` stub exist.)
-
-### Business Operations
--   **Customer Management** (Implemented - List, Add, Edit, Toggle Active status, with search/filter.)
--   **Vendor Management** (Implemented - List, Add, Edit, Toggle Active status, with search/filter.)
--   **Product and Service Management** (Implemented - List, Add, Edit, Toggle Active status for Products & Services, with search/filter by type.)
--   **Sales Invoicing and Accounts Receivable** (Foundational - `business.sales_invoices` tables/models exist. UI/Logic planned.)
--   **Purchase Invoicing and Accounts Payable** (Foundational - `business.purchase_invoices` tables/models exist. UI/Logic planned.)
--   **Payment Processing and Allocation** (Foundational - `business.payments` tables/models exist. UI/Logic planned.)
--   **Bank Account Management and Reconciliation Tools** (Foundational - `business.bank_accounts` & `bank_transactions` tables/models exist. UI is a stub.)
--   **Basic Inventory Control** (Foundational - `business.inventory_movements` table/model exists. Logic planned; `Product` model includes inventory-specific fields.)
-
-### Reporting & Analytics
--   **Standard Financial Statements**: Balance Sheet, Profit & Loss, Trial Balance, General Ledger (Implemented - UI in Reports tab for selection, on-screen view via native Qt views, and PDF/Excel export.)
--   **Cash Flow Statement** (Planned)
--   **GST Reports** (Implemented - See GST F5 above. Formatted GST reports planned.)
--   **Customizable Reporting Engine** (Planned - Current `ReportEngine` is basic.)
--   **Dashboard with Key Performance Indicators (KPIs)** (Planned - UI is a stub.)
-
-### System & Security
--   **User Authentication with Role-Based Access Control (RBAC)** (Implemented)
--   **Granular Permissions System** (Foundational)
--   **Comprehensive Audit Trails** (Implemented - Via DB triggers and `app.current_user_id`.)
--   **PostgreSQL Database Backend** (Implemented)
--   **Data Backup and Restore Utilities** (Planned)
-
-## Technology Stack
-(Section remains unchanged from previous README version)
-...
-
-## Installation
-(Section remains unchanged from previous README version)
-...
-
-## Usage Guide
-
-The application provides a range of functional modules accessible via tabs:
-
--   **Accounting Tab**:
-    -   **Chart of Accounts**: View, add, edit, and (de)activate accounts.
-    -   **Journal Entries**: List, filter, create, edit drafts, view, post, and reverse general journal entries.
--   **Customers Tab**:
-    -   View, search, filter, add, edit, and toggle active status for customers.
--   **Vendors Tab**:
-    -   View, search, filter, add, edit, and toggle active status for vendors.
--   **Products & Services Tab**:
-    -   View a list of products and services.
-    -   Filter by product type (Inventory, Service, Non-Inventory), active status, or search term.
-    -   Add new items and edit existing ones using a comprehensive dialog that adapts to product type.
-    -   Toggle the active/inactive status of products/services.
--   **Reports Tab**:
-    -   **GST F5 Preparation**: Prepare, view, save draft, and finalize GST F5 returns.
-    *   **Financial Statements**: Generate Balance Sheet, P&L, Trial Balance, or General Ledger. View in structured tables/trees and export to PDF/Excel.
--   **Settings Tab**:
-    -   Configure Company Information and manage Fiscal Years.
-
-Other modules (Dashboard, Banking) are currently placeholders.
-The default `admin` user (password: `password` - change on first login) has full access.
-
-## Project Structure
-(Updated to include Product UI files)
-```
-sg_bookkeeper/
-├── app/
-│   ├── ... (core, common, models, services, accounting, tax, business_logic, reporting) ...
-│   ├── ui/
-│   │   ├── customers/ ...
-│   │   ├── vendors/ ...
-│   │   ├── products/       # Product specific UI
-│   │   │   ├── __init__.py
-│   │   │   ├── product_dialog.py 
-│   │   │   ├── product_table_model.py 
-│   │   │   └── products_widget.py 
-│   │   └── ... (other ui modules)
-│   └── utils/
-├── ... (data, docs, resources, scripts, tests) ...
-└── ... (project root files)
-```
-
-## Database Schema
-(Section remains unchanged)
-...
-
-## Development
-(Section remains unchanged)
-...
-
-## Contributing
-(Section remains unchanged)
-...
-
-## Roadmap
-
-### Current Focus / Short-term
--   **Refine Reporting**: Improve on-screen display of financial reports (currently native Qt views, but could be enhanced with more features like direct copy, custom styling per report).
--   **User and Role Management UI**: Add UI in Settings for managing users, roles, and permissions.
--   **Basic Sales Invoicing**: Begin implementation of sales invoice creation, linking to customers and products.
-
-### Medium-term
--   Basic Purchase Invoicing workflows.
--   Bank Account management and basic transaction entry UI in Banking module.
--   Enhance GST F5 report export options.
-
-### Long-term
--   Bank Reconciliation features.
--   Advanced reporting and analytics, dashboard KPIs.
--   Inventory Control enhancements.
--   Multi-company support.
--   Cloud synchronization options (optional).
-
-## License
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-```
-
-# Technical_Design_Specification_Document.md
-```md
-# Technical Design Specification Document: SG Bookkeeper (v7)
-
-**Version:** 7.0
-**Date:** 2025-05-27 <!-- Or current date -->
-
-## 1. Introduction
-
-### 1.1 Purpose
-This Technical Design Specification (TDS) document, version 7, provides a detailed and up-to-date overview of the SG Bookkeeper application's technical design and implementation. It reflects the current state of the project, incorporating architectural decisions, component structures, and functionalities. This version specifically details the addition of basic Product/Service Management capabilities (backend and UI), alongside previously documented features like Customer and Vendor Management, GST F5 workflow, and Financial Reporting. This document serves as a comprehensive guide for ongoing development, feature enhancement, testing, and maintenance.
-
-### 1.2 Scope
-This TDS covers the following aspects of the SG Bookkeeper application:
--   System Architecture: UI, business logic, data access layers, and asynchronous processing.
--   Database Schema: Alignment with `scripts/schema.sql`.
--   Key UI Implementation Patterns: `PySide6` interactions with the asynchronous backend.
--   Core Business Logic: Component structures, including those for Customer, Vendor, and Product/Service management.
--   Data Models (SQLAlchemy ORM) and Data Transfer Objects (Pydantic DTOs).
--   Security Implementation: Authentication, authorization, and audit mechanisms.
--   Deployment and Initialization procedures.
--   Current Implementation Status: Highlighting implemented features such as Settings, CoA, Journal Entries, GST workflow, Financial Reports, Customer Management, Vendor Management, and basic Product/Service Management.
-
-### 1.3 Intended Audience
-(Remains the same as TDS v6)
--   Software Developers, QA Engineers, System Administrators, Technical Project Managers.
-
-### 1.4 System Overview
-SG Bookkeeper is a cross-platform desktop application engineered with Python, utilizing PySide6 for its graphical user interface and PostgreSQL for robust data storage. It provides comprehensive accounting for Singaporean SMBs, including double-entry bookkeeping, GST management, interactive financial reporting, and foundational modules for business operations such as Customer Management, Vendor Management, and basic Product/Service Management (all allowing view, add, edit, toggle active status). The application emphasizes data integrity, compliance, and user-friendliness. Data structures are defined in `scripts/schema.sql` and seeded by `scripts/initial_data.sql`.
-
-## 2. System Architecture
-
-### 2.1 High-Level Architecture
-(Diagram and core description remain the same as TDS v6)
-
-### 2.2 Component Architecture
-
-#### 2.2.1 Core Components (`app/core/`)
-(Descriptions remain largely the same as TDS v6. `ApplicationCore` now also instantiates and provides access to `ProductService` and `ProductManager`.)
-
-#### 2.2.2 Asynchronous Task Management (`app/main.py`)
-(Description remains the same as TDS v6)
-
-#### 2.2.3 Services (`app/services/`)
--   **Accounting & Core Services** (as listed in TDS v6).
--   **Tax Services** (as listed in TDS v6).
--   **Business Services (`app/services/business_services.py`)**:
-    -   `CustomerService`: Manages `Customer` entity data access.
-    -   `VendorService`: Manages `Vendor` entity data access.
-    -   **`ProductService` (New)**: Implements `IProductRepository`. Responsible for basic CRUD operations, fetching product/service summaries (with filtering and pagination), and specific lookups for `Product` entities.
-
-#### 2.2.4 Managers (Business Logic) (`app/accounting/`, `app/tax/`, `app/business_logic/`)
--   **Accounting, Tax, Reporting Managers** (as listed in TDS v6).
--   **Business Logic Managers (`app/business_logic/`)**:
-    -   `CustomerManager`: Orchestrates customer lifecycle operations.
-    -   `VendorManager`: Orchestrates vendor lifecycle operations.
-    -   **`ProductManager` (New details - `app/business_logic/product_manager.py`)**: Orchestrates product/service lifecycle operations. Handles validation (e.g., product code uniqueness, valid GL accounts based on product type, valid tax code), maps DTOs to ORM models, interacts with `ProductService` for persistence, and manages active status.
-
-#### 2.2.5 User Interface (`app/ui/`)
--   **`MainWindow` (`app/ui/main_window.py`)**: Now includes a "Products & Services" tab.
--   **Module Widgets**:
-    -   `AccountingWidget`, `SettingsWidget`, `ReportsWidget`, `CustomersWidget`, `VendorsWidget` (Functional as per TDS v6).
-    -   **`ProductsWidget` (New - `app/ui/products/products_widget.py`)**: Provides a `QTableView` (using `ProductTableModel`) to list products/services. Includes a toolbar with "Add", "Edit", "Toggle Active", "Refresh" actions, and filter controls (search, product type, active status). Interacts with `ProductManager` and `ProductDialog`.
-    -   `DashboardWidget`, `BankingWidget` (Remain stubs).
--   **Detail Widgets & Dialogs**:
-    -   `AccountDialog`, `JournalEntryDialog`, `FiscalYearDialog`, `CustomerDialog`, `VendorDialog` (as in TDS v6).
-    -   **`ProductTableModel` (New - `app/ui/products/product_table_model.py`)**: `QAbstractTableModel` subclass for displaying `ProductSummaryData` in `ProductsWidget`.
-    -   **`ProductDialog` (New - `app/ui/products/product_dialog.py`)**: `QDialog` for adding and editing product/service details. Includes fields for all product attributes, dynamically adapts UI based on `ProductType` (e.g., inventory-specific fields), asynchronously populates `QComboBox`es for related accounts and tax codes, validates input, and interacts with `ProductManager` for saving.
-
-### 2.3 Technology Stack
-(Same as TDS v6)
-
-### 2.4 Design Patterns
-(Same as TDS v6. New Product module follows established patterns.)
-
-## 3. Data Architecture
-
-### 3.1 Database Schema Overview
-(Remains consistent. `business.products` table is now actively used.)
-
-### 3.2 SQLAlchemy ORM Models (`app/models/`)
-(`app/models/business/product.py` is now actively used.)
-
-### 3.3 Data Transfer Objects (DTOs - `app/utils/pydantic_models.py`)
-DTOs for `Product/Service` Management have been added and are actively used:
--   `ProductBaseData`, `ProductCreateData`, `ProductUpdateData`, `ProductData`, `ProductSummaryData`. (Details of fields as per `pydantic_models.py` which include `product_type` enum validation and conditional logic for inventory fields).
-
-### 3.4 Data Access Layer Interfaces (`app/services/__init__.py`)
-The following interface has been added:
--   **`IProductRepository(IRepository[Product, int])`**:
-    ```python
-    from app.models.business.product import Product
-    from app.utils.pydantic_models import ProductSummaryData
-    from app.common.enums import ProductTypeEnum
-
-    class IProductRepository(IRepository[Product, int]):
-        @abstractmethod
-        async def get_by_code(self, code: str) -> Optional[Product]: pass
-        
-        @abstractmethod
-        async def get_all_summary(self, 
-                                  active_only: bool = True,
-                                  product_type_filter: Optional[ProductTypeEnum] = None,
-                                  search_term: Optional[str] = None,
-                                  page: int = 1, 
-                                  page_size: int = 50
-                                 ) -> List[ProductSummaryData]: pass
-    ```
-
-## 4. Module and Component Specifications
-
-### 4.1 - 4.3 Core Accounting, Tax, Reporting Modules
-(Functionality as detailed in TDS v6 remains current for these modules.)
-
-### 4.4 Business Operations Modules
-
-#### 4.4.1 Customer Management Module 
-(As detailed in TDS v6)
-
-#### 4.4.2 Vendor Management Module
-(As detailed in TDS v6)
-
-#### 4.4.3 Product/Service Management Module (Backend and Basic UI Implemented)
-This module provides capabilities for managing product and service items.
--   **Service (`app/services/business_services.py`)**:
-    -   **`ProductService`**: Implements `IProductRepository`.
-        -   `get_by_id()`: Fetches a `Product` ORM, eager-loading related accounts (sales, purchase, inventory) and `tax_code_obj`.
-        -   `get_all_summary()`: Fetches `List[ProductSummaryData]` with filtering (active, product type, search on code/name/description) and pagination.
-        -   `save()`: Persists `Product` ORM objects.
--   **Manager (`app/business_logic/product_manager.py`)**:
-    -   **`ProductManager`**:
-        -   Dependencies: `ProductService`, `AccountService` (for GL account validation), `TaxCodeService` (for tax code validation), `ApplicationCore`.
-        -   `get_product_for_dialog()`: Retrieves full `Product` ORM for dialogs.
-        -   `get_products_for_listing()`: Retrieves `List[ProductSummaryData]` for table display.
-        -   `create_product(dto: ProductCreateData)`: Validates (code uniqueness, FKs for GL accounts based on product type, tax code). Maps DTO to `Product` ORM (handles `ProductTypeEnum.value`), sets audit IDs, saves.
-        -   `update_product(product_id: int, dto: ProductUpdateData)`: Fetches, validates, updates ORM, sets audit ID, saves.
-        -   `toggle_product_active_status(product_id: int, user_id: int)`: Toggles `is_active` and saves.
-
-## 5. User Interface Implementation (`app/ui/`)
-
-### 5.1 - 5.3 Core UI Components (MainWindow, Accounting, Settings, Reports, Customers, Vendors)
-(Functionality for Reports, Customers, Vendors as detailed in TDS v6. Other core UI unchanged.)
-
-### 5.4 Products & Services Module UI (`app/ui/products/`) (New Section)
--   **`ProductsWidget` (`app/ui/products/products_widget.py`)**:
-    -   The main UI for managing products and services, accessed via a dedicated tab in `MainWindow`.
-    -   **Layout**: Features a toolbar for common actions, a filter area, and a `QTableView`.
-    -   **Toolbar**: Includes "Add Product/Service", "Edit", "Toggle Active", and "Refresh List" actions.
-    *   **Filter Area**: Allows filtering by a text search term (acting on product code, name, description), `ProductTypeEnum` (Inventory, Service, Non-Inventory via a `QComboBox`), and an "Show Inactive" `QCheckBox`. A "Clear Filters" button resets filters.
-    -   **Table View**: Uses `ProductTableModel` to display product/service summaries (ID (hidden), Code, Name, Type, Sales Price, Purchase Price, Active status). Supports column sorting. Double-clicking a row opens the item for editing.
-    -   **Data Flow**:
-        -   `_load_products()`: Triggered on init and by filter changes/refresh. Asynchronously calls `ProductManager.get_products_for_listing()` with current filter parameters.
-        -   `_update_table_model_slot()`: Receives `List[ProductSummaryData]` (as JSON string from async call), parses it, and updates `ProductTableModel`.
-    -   **Actions**:
-        -   Add/Edit actions launch `ProductDialog`.
-        -   Toggle Active calls `ProductManager.toggle_product_active_status()`.
-        -   All backend interactions are asynchronous, with UI updates handled safely.
--   **`ProductTableModel` (`app/ui/products/product_table_model.py`)**:
-    -   `QAbstractTableModel` subclass.
-    -   Manages `List[ProductSummaryData]`.
-    -   Provides data for columns: ID, Code, Name, Type (displays enum value), Sales Price (formatted), Purchase Price (formatted), Active (Yes/No).
--   **`ProductDialog` (`app/ui/products/product_dialog.py`)**:
-    *   `QDialog` for creating or editing product/service details.
-    *   **Fields**: Includes inputs for all attributes defined in `ProductBaseData` (code, name, description, product type, category, UoM, barcode, prices, linked GL accounts, tax code, stock levels, active status).
-    *   **Dynamic UI**: The visibility and applicability of `inventory_account_id`, `min_stock_level`, and `reorder_point` fields are dynamically controlled based on the selected `ProductType` (enabled for "Inventory", disabled/cleared otherwise).
-    *   **ComboBox Population**: Asynchronously loads active accounts (filtered by appropriate types like Revenue for sales GL, Expense/Asset for purchase GL, Asset for inventory GL) and active tax codes into respective `QComboBox`es during dialog initialization.
-    *   **Data Handling**:
-        -   In edit mode, loads existing product data via `ProductManager.get_product_for_dialog()`.
-        -   On save, collects UI data into `ProductCreateData` or `ProductUpdateData` DTOs. Pydantic validation occurs.
-        -   Calls `ProductManager.create_product()` or `ProductManager.update_product()` asynchronously.
-        -   Displays success/error messages and emits `product_saved(product_id)` signal.
-
-## 6. Security Considerations
-(Unchanged from TDS v6)
-
-## 7. Database Access Implementation (`app/services/`)
--   **`business_services.py`**:
-    -   `CustomerService`, `VendorService` (As detailed in TDS v6).
-    -   **`ProductService` (New details)**: Implements `IProductRepository`.
-        -   `get_by_id()`: Fetches `Product` ORM, eager-loading `sales_account`, `purchase_account`, `inventory_account`, `tax_code_obj`, and audit users.
-        -   `get_all_summary()`: Fetches `List[ProductSummaryData]` with filtering (active, product type, search term) and pagination.
-        -   Other methods (`get_by_code`, `save`) provide standard repository functionality for `Product` entities.
-
-## 8. Deployment and Installation
-(Unchanged from TDS v6)
-
-## 9. Conclusion
-This TDS (v7) documents further significant progress in SG Bookkeeper's development. The core feature set has been expanded with the implementation of basic Product/Service Management (backend and UI), complementing the existing Customer and Vendor management modules. The application now offers a more rounded suite for managing key business entities alongside its robust accounting, GST, and reporting functionalities. The architecture remains stable and continues to support asynchronous operations and clear component responsibilities. Future iterations will focus on building transactional modules (like Invoicing) that leverage these foundational data entities.
-
+# app/services/fiscal_period_service.py
+```py
+# File: app/services/fiscal_period_service.py
+# Updated to use FiscalYear model
+from typing import List, Optional
+from datetime import date
+from sqlalchemy import select, extract # Added extract
+from app.models.accounting.fiscal_period import FiscalPeriod # Corrected path
+from app.models.accounting.fiscal_year import FiscalYear # New import
+from app.core.database_manager import DatabaseManager
+from app.services import IFiscalPeriodRepository
+
+class FiscalPeriodService(IFiscalPeriodRepository):
+    def __init__(self, db_manager: DatabaseManager):
+        self.db_manager = db_manager
+
+    async def get_by_id(self, period_id: int) -> Optional[FiscalPeriod]:
+        async with self.db_manager.session() as session:
+            return await session.get(FiscalPeriod, period_id)
+
+    async def get_all(self) -> List[FiscalPeriod]:
+        async with self.db_manager.session() as session:
+            stmt = select(FiscalPeriod).order_by(FiscalPeriod.start_date)
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+
+    async def add(self, entity: FiscalPeriod) -> FiscalPeriod:
+        async with self.db_manager.session() as session:
+            session.add(entity)
+            await session.flush()
+            await session.refresh(entity)
+            return entity
+
+    async def update(self, entity: FiscalPeriod) -> FiscalPeriod:
+        async with self.db_manager.session() as session:
+            session.add(entity) 
+            await session.flush()
+            await session.refresh(entity)
+            return entity
+            
+    async def delete(self, id_val: int) -> bool:
+        period = await self.get_by_id(id_val)
+        if period and period.status != 'Archived': 
+             async with self.db_manager.session() as session:
+                await session.delete(period)
+             return True
+        return False
+
+    async def get_by_date(self, target_date: date) -> Optional[FiscalPeriod]:
+        async with self.db_manager.session() as session:
+            stmt = select(FiscalPeriod).where(
+                FiscalPeriod.start_date <= target_date,
+                FiscalPeriod.end_date >= target_date,
+                FiscalPeriod.status == 'Open' 
+            ).order_by(FiscalPeriod.start_date.desc()) 
+            result = await session.execute(stmt)
+            return result.scalars().first()
+            
+    async def get_fiscal_year(self, year_value: int) -> Optional[FiscalYear]: # Changed return type to FiscalYear
+        """Gets the FiscalYear ORM object for the specified accounting year (e.g., 2023 for FY2023)."""
+        async with self.db_manager.session() as session:
+            # Assumes year_name is like "FY2023" or just "2023"
+            # This needs a robust way to map an integer year to a FiscalYear record.
+            # For now, assuming year_name contains the year as a string.
+            # Option 1: year_name is "YYYY"
+            # stmt = select(FiscalYear).where(FiscalYear.year_name == str(year_value))
+            # Option 2: year_value is contained in year_name
+            stmt = select(FiscalYear).where(FiscalYear.year_name.like(f"%{year_value}%")) # type: ignore
+            # Option 3: Check if year_value falls within start_date and end_date
+            # stmt = select(FiscalYear).where(
+            #    extract('year', FiscalYear.start_date) <= year_value,
+            #    extract('year', FiscalYear.end_date) >= year_value
+            # )
+            result = await session.execute(stmt)
+            return result.scalars().first()
+
+    async def get_fiscal_periods_for_year(self, fiscal_year_id: int, period_type: Optional[str] = None) -> List[FiscalPeriod]:
+        async with self.db_manager.session() as session:
+            conditions = [FiscalPeriod.fiscal_year_id == fiscal_year_id]
+            if period_type:
+                conditions.append(FiscalPeriod.period_type == period_type)
+            stmt = select(FiscalPeriod).where(*conditions).order_by(FiscalPeriod.period_number)
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
 
 ```
 

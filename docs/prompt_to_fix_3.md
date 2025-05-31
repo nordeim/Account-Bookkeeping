@@ -41,3 +41,20 @@ excellent result so far! please proceed with the next step in your plan to cover
 
 The important point is to proceed very carefully so as not to introduce any regression error or accidentally omit the original features or functions. use the same tested rigorous and meticulous approach. thank you and good luck!
 
+---
+Please carefully study the README.md, including the older revisions, for my project, then carefully review and compare all the attached technical specification documents to highlight any deviation between them in terms of feature or functional objectives. Also check whether the final version of `Technical Design Specification Document.md`, is consistent with the objectives stated in `README.md` for the project.
+
+When you have finished your careful review and analysis of the project documents, make sure you have a very thorough, good and clear understanding of the goals and objectives for the project. Acknowledge your understand, describe in detail your understanding of the project in markdown format.
+
+---
+now very carefully review the actual codebase by going through line-by-line the project's existing files created in attached `currect_project_file_structure.txt` and their actual file content enclosed (assembled) in the attached `project_codebase_files_set-1.md`, `project_codebase_files_set-2.md`, `project_codebase_files_set-3.md`, `project_codebase_files_set-4.md`, `project_codebase_files_set-5.md`, `project_codebase_files_set-6.md`, `project_codebase_files_set-7.md` and `project_codebase_files_set-8.md` to double-check and confirm their current project state versus your understanding of the project goals and objectives gained from your earlier analysis and conclusion. 
+
+Make sure you have very deep and thorough understanding of the current state of the project through the careful review of the actual project files enclosed. Then create a complete updated architectural understanding document in markdown format, building on your earlier document. Add very detailed architecture description of the actual current codebase, add a clear architectural diagram as well in your updated document.
+
+---
+now help me to carefully review the most recent code changes committed and validate them. also make sure you adopt the same style of careful, rigorous and meticulous approach to handle future feature addition and bug fix requests. give me a good summary of the recent code changes and their robustness and stability.
+
+---
+you have done a really awesome job so far! do keep up the same quality of work going forwards! now help me create a complete and updated `README.md` and `Technical_Design_Specification_Document.md` which are self-contained without any reference to the older revisions. You should incorporate the relevant sections from the older revisions of the respective document to your updated version so that anyone reading it should not have to look for the older revisions for additional details. the reason for doing this is because I want to delete all the older revisions of these documents because it has become a pain to reference so many versions of the same document. so again create a *complete* updated version with no reference to prior versions of the same document, and make sure all the valid sections and details from the revisions are incorporated.
+
+
