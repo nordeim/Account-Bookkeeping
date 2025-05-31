@@ -1,15 +1,16 @@
 # File: app/services/journal_service.py
 from typing import List, Optional, Any, TYPE_CHECKING, Dict
-from datetime import date, datetime, timedelta # Added timedelta
+from datetime import date, datetime, timedelta 
 from decimal import Decimal
 from sqlalchemy import select, func, and_, or_, literal_column, case, text
-from sqlalchemy.orm import aliased, selectinload, joinedload # Added joinedload
+from sqlalchemy.orm import aliased, selectinload, joinedload 
 from app.models.accounting.journal_entry import JournalEntry, JournalEntryLine 
 from app.models.accounting.account import Account 
 from app.models.accounting.recurring_pattern import RecurringPattern 
 from app.core.database_manager import DatabaseManager
 from app.services import IJournalEntryRepository
 from app.utils.result import Result
+from app.common.enums import JournalTypeEnum # Added for filter typing
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore
@@ -47,7 +48,8 @@ class JournalService(IJournalEntryRepository):
                               end_date_filter: Optional[date] = None, 
                               status_filter: Optional[str] = None,
                               entry_no_filter: Optional[str] = None,
-                              description_filter: Optional[str] = None
+                              description_filter: Optional[str] = None,
+                              journal_type_filter: Optional[str] = None # New filter
                              ) -> List[Dict[str, Any]]:
         async with self.db_manager.session() as session:
             conditions = []
@@ -64,11 +66,13 @@ class JournalService(IJournalEntryRepository):
                 conditions.append(JournalEntry.entry_no.ilike(f"%{entry_no_filter}%")) 
             if description_filter:
                 conditions.append(JournalEntry.description.ilike(f"%{description_filter}%"))
+            if journal_type_filter: # New filter condition
+                conditions.append(JournalEntry.journal_type == journal_type_filter)
             
             stmt = select(
                 JournalEntry.id, JournalEntry.entry_no, JournalEntry.entry_date,
                 JournalEntry.description, JournalEntry.journal_type, JournalEntry.is_posted,
-                func.sum(JournalEntryLine.debit_amount).label("total_debits") # Used for JE list total
+                func.sum(JournalEntryLine.debit_amount).label("total_debits") 
             ).join(JournalEntryLine, JournalEntry.id == JournalEntryLine.journal_entry_id, isouter=True)
             
             if conditions:
@@ -139,7 +143,8 @@ class JournalService(IJournalEntryRepository):
             entry = await session.get(JournalEntry, id_val)
             if entry:
                 if entry.is_posted:
-                    self.app_core.logger.warning(f"JournalService: Deletion of posted journal entry ID {id_val} prevented.") # type: ignore
+                    if self.app_core and hasattr(self.app_core, 'logger'):
+                        self.app_core.logger.warning(f"JournalService: Deletion of posted journal entry ID {id_val} prevented.") 
                     return False 
                 await session.delete(entry) 
                 return True
@@ -180,21 +185,29 @@ class JournalService(IJournalEntryRepository):
             balance_change = result.scalar_one_or_none()
             return balance_change if balance_change is not None else Decimal(0)
             
-    async def get_posted_lines_for_account_in_range(self, account_id: int, start_date: date, end_date: date) -> List[JournalEntryLine]:
-        """ Fetches posted journal lines for a specific account and date range. """
+    async def get_posted_lines_for_account_in_range(self, account_id: int, start_date: date, end_date: date, 
+                                                    dimension1_id: Optional[int] = None, dimension2_id: Optional[int] = None
+                                                    ) -> List[JournalEntryLine]: # Added dimension filters
         async with self.db_manager.session() as session:
-            stmt = select(JournalEntryLine).options(
-                joinedload(JournalEntryLine.journal_entry) # Eager load parent JE for date, no, desc
-            ).join(JournalEntry, JournalEntryLine.journal_entry_id == JournalEntry.id)\
-            .where(
+            conditions = [
                 JournalEntryLine.account_id == account_id,
                 JournalEntry.is_posted == True,
                 JournalEntry.entry_date >= start_date,
                 JournalEntry.entry_date <= end_date
-            ).order_by(JournalEntry.entry_date, JournalEntry.entry_no, JournalEntryLine.line_number) # Ensure consistent ordering
+            ]
+            if dimension1_id is not None:
+                conditions.append(JournalEntryLine.dimension1_id == dimension1_id)
+            if dimension2_id is not None:
+                conditions.append(JournalEntryLine.dimension2_id == dimension2_id)
+
+            stmt = select(JournalEntryLine).options(
+                joinedload(JournalEntryLine.journal_entry) 
+            ).join(JournalEntry, JournalEntryLine.journal_entry_id == JournalEntry.id)\
+            .where(and_(*conditions))\
+            .order_by(JournalEntry.entry_date, JournalEntry.entry_no, JournalEntryLine.line_number)
             
             result = await session.execute(stmt)
-            return list(result.scalars().all()) # .unique() might not be needed if JELine is the primary entity
+            return list(result.scalars().all()) 
 
     async def get_recurring_patterns_due(self, as_of_date: date) -> List[RecurringPattern]:
         async with self.db_manager.session() as session:

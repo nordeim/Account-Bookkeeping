@@ -4,20 +4,20 @@ Asyncio event loop <_UnixSelectorEventLoop running=False closed=False debug=Fals
 Global asyncio event loop <_UnixSelectorEventLoop running=True closed=False debug=False> confirmed running in dedicated thread.
 Successfully imported compiled Qt resources (resources_rc.py).
 Using compiled Qt resources.
-2025-05-31 17:33:19,541 - SGBookkeeperAppCore - INFO - ApplicationCore initialized.
-2025-05-31 17:33:19,542 - SGBookkeeperAppCore - INFO - ApplicationCore starting up...
+2025-05-31 17:59:55,834 - SGBookkeeperAppCore - INFO - ApplicationCore initialized.
+2025-05-31 17:59:55,834 - SGBookkeeperAppCore - INFO - ApplicationCore starting up...
 ModuleManager: load_all_modules called (conceptual).
-2025-05-31 17:33:19,680 - SGBookkeeperAppCore - INFO - ApplicationCore startup complete.
-2025-05-31 17:33:20,033 - SGBookkeeperAppCore - INFO - Using compiled Qt resources for JournalEntriesWidget.
-2025-05-31 17:33:20,043 - SGBookkeeperAppCore - INFO - Using compiled Qt resources for SalesInvoicesWidget.
-2025-05-31 17:33:20,049 - SGBookkeeperAppCore - INFO - Using compiled Qt resources for PurchaseInvoicesWidget.
-2025-05-31 17:33:20,055 - SGBookkeeperAppCore - INFO - Using compiled Qt resources for CustomersWidget.
-2025-05-31 17:33:20,058 - SGBookkeeperAppCore - INFO - Using compiled Qt resources for VendorsWidget.
-2025-05-31 17:33:20,060 - SGBookkeeperAppCore - INFO - Using compiled Qt resources for ProductsWidget.
+2025-05-31 17:59:55,956 - SGBookkeeperAppCore - INFO - ApplicationCore startup complete.
+2025-05-31 17:59:56,253 - SGBookkeeperAppCore - INFO - Using compiled Qt resources for JournalEntriesWidget.
+2025-05-31 17:59:56,266 - SGBookkeeperAppCore - INFO - Using compiled Qt resources for SalesInvoicesWidget.
+2025-05-31 17:59:56,273 - SGBookkeeperAppCore - INFO - Using compiled Qt resources for PurchaseInvoicesWidget.
+2025-05-31 17:59:56,280 - SGBookkeeperAppCore - INFO - Using compiled Qt resources for CustomersWidget.
+2025-05-31 17:59:56,283 - SGBookkeeperAppCore - INFO - Using compiled Qt resources for VendorsWidget.
+2025-05-31 17:59:56,286 - SGBookkeeperAppCore - INFO - Using compiled Qt resources for ProductsWidget.
 Application shutting down (actual_shutdown_sequence)...
 Scheduling ApplicationCore shutdown...
-2025-05-31 17:33:25,662 - SGBookkeeperAppCore - INFO - ApplicationCore shutting down...
-2025-05-31 17:33:25,670 - SGBookkeeperAppCore - INFO - ApplicationCore shutdown complete.
+2025-05-31 18:00:00,019 - SGBookkeeperAppCore - INFO - ApplicationCore shutting down...
+2025-05-31 18:00:00,023 - SGBookkeeperAppCore - INFO - ApplicationCore shutdown complete.
 ApplicationCore shutdown completed.
 Requesting global asyncio event loop to stop...
 Joining asyncio event loop thread...

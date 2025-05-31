@@ -1,4 +1,4 @@
-# app/ui/accounting/journal_entries_widget.py
+# File: app/ui/accounting/journal_entries_widget.py
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableView, QPushButton, 
     QToolBar, QMenu, QHeaderView, QAbstractItemView, QMessageBox,
@@ -15,9 +15,8 @@ from decimal import Decimal
 
 from app.ui.accounting.journal_entry_dialog import JournalEntryDialog
 from app.ui.accounting.journal_entry_table_model import JournalEntryTableModel
-# from app.common.enums import JournalTypeEnum # Not directly used in this file's logic
+from app.common.enums import JournalTypeEnum # Import for populating Journal Type filter
 from app.main import schedule_task_from_qt
-# from app.utils.pydantic_models import JournalEntryData # Not directly used by widget
 from app.models.accounting.journal_entry import JournalEntry 
 from app.utils.json_helpers import json_converter, json_date_hook
 from app.utils.result import Result 
@@ -61,11 +60,18 @@ class JournalEntriesWidget(QWidget):
         self.description_filter_edit = QLineEdit(); self.description_filter_edit.setPlaceholderText("Filter by Description")
         self.status_filter_combo = QComboBox(); self.status_filter_combo.addItems(["All", "Draft", "Posted"])
         
+        self.journal_type_filter_combo = QComboBox() # New QComboBox for Journal Type
+        self.journal_type_filter_combo.addItem("All Types", None) # User data None for all
+        for jt_enum in JournalTypeEnum:
+            self.journal_type_filter_combo.addItem(jt_enum.value, jt_enum.value) # Store enum value as data
+        
         filter_layout_form.addRow("From Date:", self.start_date_filter_edit)
         filter_layout_form.addRow("To Date:", self.end_date_filter_edit)
         filter_layout_form.addRow("Entry No.:", self.entry_no_filter_edit)
         filter_layout_form.addRow("Description:", self.description_filter_edit)
         filter_layout_form.addRow("Status:", self.status_filter_combo)
+        filter_layout_form.addRow("Journal Type:", self.journal_type_filter_combo) # Add to form
+        
         filter_group_layout.addLayout(filter_layout_form)
 
         filter_button_layout = QVBoxLayout()
@@ -95,33 +101,30 @@ class JournalEntriesWidget(QWidget):
         self.entries_table.doubleClicked.connect(self.on_view_entry_double_click) 
         self.entries_table.setSortingEnabled(True)
 
-        # Create and set the model FIRST
         self.table_model = JournalEntryTableModel()
         self.entries_table.setModel(self.table_model)
 
-        # Now configure header and columns using self.table_model
         header = self.entries_table.horizontalHeader()
         header.setStretchLastSection(False) 
-        
-        # Set default resize mode for all columns first
-        for i in range(self.table_model.columnCount()): # Use model's column count
+        for i in range(self.table_model.columnCount()): 
             header.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
-
-        # Hide ID column (model index 0, assuming headers are ["ID", "Entry No.", ...])
         id_column_model_index = self.table_model._headers.index("ID") if "ID" in self.table_model._headers else 0
         self.entries_table.setColumnHidden(id_column_model_index, True)
-        
-        # Specifically set stretch for "Description" column
-        # "Description" is model index 3. If "ID" (model index 0) is hidden,
-        # visible indices are: Entry No (0), Date (1), Description (2), Type (3), Total (4), Status (5)
-        # So, visible index for "Description" is 2.
-        description_column_visible_index = 2 
-        header.setSectionResizeMode(description_column_visible_index, QHeaderView.ResizeMode.Stretch)
+        description_column_model_index = self.table_model._headers.index("Description") if "Description" in self.table_model._headers else 2
+        visible_description_idx = description_column_model_index
+        if id_column_model_index < description_column_model_index and self.entries_table.isColumnHidden(id_column_model_index):
+            visible_description_idx -=1
+        if not self.entries_table.isColumnHidden(description_column_model_index):
+            header.setSectionResizeMode(visible_description_idx, QHeaderView.ResizeMode.Stretch)
         
         self._create_toolbar() 
         self.main_layout.addWidget(self.toolbar) 
         self.main_layout.addWidget(self.entries_table) 
         self.setLayout(self.main_layout)
+
+        if self.entries_table.selectionModel():
+            self.entries_table.selectionModel().selectionChanged.connect(self._update_action_states)
+        self._update_action_states() 
 
     @Slot()
     def _clear_filters_and_load(self):
@@ -130,6 +133,7 @@ class JournalEntriesWidget(QWidget):
         self.entry_no_filter_edit.clear()
         self.description_filter_edit.clear()
         self.status_filter_combo.setCurrentText("All")
+        self.journal_type_filter_combo.setCurrentIndex(0) # Reset to "All Types"
         schedule_task_from_qt(self._load_entries())
 
     def _create_toolbar(self):
@@ -206,10 +210,13 @@ class JournalEntriesWidget(QWidget):
             status_filter = status_text if status_text != "All" else None
             entry_no_filter_text = self.entry_no_filter_edit.text().strip()
             description_filter_text = self.description_filter_edit.text().strip()
+            journal_type_filter_val = self.journal_type_filter_combo.currentData() # Get enum value from currentData
 
             filters = {"start_date": start_date, "end_date": end_date, "status": status_filter,
                        "entry_no": entry_no_filter_text or None, 
-                       "description": description_filter_text or None}
+                       "description": description_filter_text or None,
+                       "journal_type": journal_type_filter_val # Pass enum value
+                       }
             
             result: Result[List[Dict[str, Any]]] = await self.app_core.journal_entry_manager.get_journal_entries_for_listing(filters=filters)
             
@@ -359,4 +366,3 @@ class JournalEntriesWidget(QWidget):
         else:
             QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "warning", Qt.ConnectionType.QueuedConnection,
                 Q_ARG(QWidget, self), Q_ARG(str, "Reversal Error"), Q_ARG(str, f"Failed to reverse journal entry:\n{', '.join(result.errors)}"))
-
