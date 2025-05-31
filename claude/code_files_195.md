@@ -1,3 +1,98 @@
+<think>
+Okay, I've identified a `SyntaxError: invalid syntax` in `app/ui/purchase_invoices/purchase_invoice_dialog.py` at line 533. This is the *exact same type of error* I introduced and fixed in `app/ui/sales_invoices/sales_invoice_dialog.py` previously. It's the incorrect use of a semicolon to chain an `else` clause on the same line as an `if` statement's body in Python.
+
+The problematic line in `purchase_invoice_dialog.py` is:
+```python
+if future: future.add_done_callback(lambda res: QMetaObject.invokeMethod(self, "_safe_set_buttons_for_async_operation_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(bool, False))); else: self._set_buttons_for_async_operation(False)
+```
+
+**Error Analysis & Deja Vu:**
+
+This is a repeat of the syntax error pattern. The semicolon before `else` is invalid. I need to apply the same correction strategy I used for `SalesInvoiceDialog`.
+
+**Corrected Logic (Recall from previous fix):**
+The `if/else` structure should be:
+```python
+if future:
+    future.add_done_callback(
+        lambda res: QMetaObject.invokeMethod(
+            self, "_safe_set_buttons_for_async_operation_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(bool, False)
+        )
+    )
+else:
+    # Log the scheduling failure and re-enable buttons directly
+    self.app_core.logger.error("Failed to schedule _perform_save task in on_save_draft.") # Contextualize log
+    self._set_buttons_for_async_operation(False)
+```
+And a corresponding slot:
+```python
+@Slot(bool)
+def _safe_set_buttons_for_async_operation_slot(self, busy: bool):
+    self._set_buttons_for_async_operation(busy)
+```
+
+This error occurs in `on_save_draft()` method of `PurchaseInvoiceDialog`. The `on_save_and_approve()` method in `PurchaseInvoiceDialog` currently just shows a "Not Implemented" message, so it doesn't have this problematic structure yet.
+
+**Double-Checking Past Resolutions:**
+I must be extremely careful not to repeat errors. The pattern of this `SyntaxError` and its correction involving `QMetaObject.invokeMethod` for thread-safe UI updates from `add_done_callback` is now well-established from the `SalesInvoiceDialog` fix.
+
+**Plan to Fix:**
+
+1.  **Locate the `on_save_draft()` method** in `app/ui/purchase_invoices/purchase_invoice_dialog.py`.
+2.  **Replace the erroneous `if/else` line** with the corrected multi-line structure, ensuring the `else` block includes logging and a direct call to `_set_buttons_for_async_operation(False)`.
+3.  **Add the `@Slot(bool) def _safe_set_buttons_for_async_operation_slot(self, busy: bool):` method** to `PurchaseInvoiceDialog` if it's not already present from a previous similar fix (it shouldn't be, as this file was just generated).
+4.  **Ensure `_set_buttons_for_async_operation(self, busy: bool)`** correctly manages the state of `save_draft_button` and `save_approve_button` (though `save_approve_button` is always disabled for PIs for now).
+
+**Detailed Execution Plan:**
+
+1.  **File**: `app/ui/purchase_invoices/purchase_invoice_dialog.py`
+2.  **In `on_save_draft()` method**:
+    *   Find the line: `if future: future.add_done_callback(lambda res: QMetaObject.invokeMethod(self, "_safe_set_buttons_for_async_operation_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(bool, False))); else: self._set_buttons_for_async_operation(False)`
+    *   Replace it with:
+        ```python
+        if future:
+            future.add_done_callback(
+                lambda res: QMetaObject.invokeMethod(
+                    self, "_safe_set_buttons_for_async_operation_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(bool, False)
+                )
+            )
+        else:
+            self.app_core.logger.error("Failed to schedule _perform_save task in on_save_draft for Purchase Invoice.")
+            self._set_buttons_for_async_operation(False) # Re-enable buttons if scheduling failed
+        ```
+3.  **Add the `_safe_set_buttons_for_async_operation_slot` method** to the `PurchaseInvoiceDialog` class:
+    ```python
+    @Slot(bool)
+    def _safe_set_buttons_for_async_operation_slot(self, busy: bool):
+        self._set_buttons_for_async_operation(busy)
+    ```
+4.  **Verify `_set_buttons_for_async_operation(self, busy: bool)`**:
+    The existing method is:
+    ```python
+    def _set_buttons_for_async_operation(self, busy: bool):
+        self.save_draft_button.setEnabled(not busy)
+        self.save_approve_button.setEnabled(False) # Always disabled for PI for now
+    ```
+    This is correct for the current state where "Save & Approve" is not implemented for Purchase Invoices.
+
+This fix should resolve the `SyntaxError` and ensure that button states are updated correctly and thread-safely after an attempt to save a draft purchase invoice.
+</think>
+
+You are absolutely right to call for extreme thoroughness. That `SyntaxError` in `app/ui/purchase_invoices/purchase_invoice_dialog.py` is indeed a repeat of a mistake I made earlier in `SalesInvoiceDialog`. I apologize for this lapse in diligence. It's crucial to learn from these patterns.
+
+The issue is the incorrect Python syntax for an `if/else` statement on a single line using a semicolon, and the fix involves restructuring it and ensuring thread-safe UI updates from the asynchronous callback.
+
+**Plan to Fix `SyntaxError` in `PurchaseInvoiceDialog` and Ensure Thread-Safe UI Updates:**
+
+1.  **Correct Python Syntax in `on_save_draft`**: The `if future: ...; else: ...` line will be rewritten as a proper multi-line `if/else` block.
+2.  **Ensure Thread Safety for UI Update**: A new slot `_safe_set_buttons_for_async_operation_slot` will be added, and `QMetaObject.invokeMethod` will be used to call this slot from the `future.add_done_callback()`, ensuring the UI update happens on the Qt main thread.
+3.  **Logging**: Add a log message in the `else` path if `schedule_task_from_qt` fails to return a future.
+
+**Execution:**
+
+I will now provide the complete updated replacement file for `app/ui/purchase_invoices/purchase_invoice_dialog.py` with the necessary corrections.
+
+```python
 # app/ui/purchase_invoices/purchase_invoice_dialog.py
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QFormLayout, QLineEdit, QPushButton, QDialogButtonBox, 
@@ -611,3 +706,75 @@ class PurchaseInvoiceDialog(QDialog):
         except Exception as e: self.app_core.logger.error(f"Error handling product selected from search for PI: {e}", exc_info=True); QMessageBox.warning(self, "Product Selection Error", f"Could not apply product: {str(e)}")
         finally: self._current_search_target_row = None
 
+```
+
+**Review of `app/ui/purchase_invoices/purchase_invoice_dialog.py` after Syntax Fix and Thread Safety Enhancement:**
+
+1.  **Syntax Error Fix (L533 in original context, now L554 in new context for `on_save_draft`):**
+    *   The problematic line:
+        ```python
+        # if future: future.add_done_callback(lambda res: QMetaObject.invokeMethod(self, "_safe_set_buttons_for_async_operation_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(bool, False))); else: self._set_buttons_for_async_operation(False)
+        ```
+    *   Has been correctly replaced with:
+        ```python
+        if future:
+            future.add_done_callback(
+                lambda res: QMetaObject.invokeMethod(
+                    self, "_safe_set_buttons_for_async_operation_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(bool, False)
+                )
+            )
+        else:
+            self.app_core.logger.error("Failed to schedule _perform_save task in on_save_draft for Purchase Invoice.")
+            self._set_buttons_for_async_operation(False) # Re-enable buttons if scheduling failed
+        ```
+    *   **Validation**: This is correct and mirrors the fix applied to `SalesInvoiceDialog`. The Python `SyntaxError` is resolved. The `else` block correctly handles failed task scheduling.
+
+2.  **New Slot `_safe_set_buttons_for_async_operation_slot`:**
+    *   The slot `@Slot(bool) def _safe_set_buttons_for_async_operation_slot(self, busy: bool):` has been added:
+        ```python
+        @Slot(bool)
+        def _safe_set_buttons_for_async_operation_slot(self, busy: bool):
+            self._set_buttons_for_async_operation(busy)
+        ```
+    *   **Validation**: This correctly allows `QMetaObject.invokeMethod` to call `_set_buttons_for_async_operation` on the main Qt thread.
+
+3.  **Delegate `setModelData` in `LineItemNumericDelegate`**:
+    *   The diff shows an attempt to refine the `setModelData` method within `LineItemNumericDelegate` (which is imported from `sales_invoice_dialog.py`).
+    *   The change from the previous version was:
+        ```diff
+        -        if isinstance(model, QTableWidget): # This check won't work, model is internal
+        -            item = self.parent().item(index.row(), index.column()) if isinstance(self.parent(), QTableWidget) else None # Try to get item if model is table
+        -            if item:
+        -                 item.setText(str(Decimal(str(editor.value())).quantize(Decimal(precision_str), ROUND_HALF_UP)))
+        -            else: # Fallback or if model is not QTableWidget
+        -                 model.setData(index, str(Decimal(str(editor.value())).quantize(Decimal(precision_str), ROUND_HALF_UP)), Qt.ItemDataRole.EditRole)
+        +        table_widget_item = None
+        +        if isinstance(self.parent(), QTableWidget) and isinstance(model, QTableWidget): # More robust check
+        +             table_widget_item = self.parent().item(index.row(), index.column())
+        ```
+    *   The problematic part `and isinstance(model, QTableWidget)` was **still present in the `-orig` version of the file provided for this diff context**. The latest generated version of `sales_invoice_dialog.py` (from the previous turn where this delegate was fixed) has the corrected logic:
+        ```python
+        # Corrected logic in sales_invoice_dialog.py (from previous turn)
+        precision_str = '0.01' if self.decimals == 2 else ('0.0001' if self.decimals == 4 else '0.000001')
+        view = self.parent()
+        if isinstance(view, QTableWidget):
+            item = view.item(index.row(), index.column())
+            if item: 
+                item.setText(str(Decimal(str(editor.value())).quantize(Decimal(precision_str), ROUND_HALF_UP)))
+            else:
+                model.setData(index, str(Decimal(str(editor.value())).quantize(Decimal(precision_str), ROUND_HALF_UP)), Qt.ItemDataRole.EditRole)
+        else:
+            model.setData(index, str(Decimal(str(editor.value())).quantize(Decimal(precision_str), ROUND_HALF_UP)), Qt.ItemDataRole.EditRole)
+        ```
+    *   **The `purchase_invoice_dialog.py` *imports* `LineItemNumericDelegate` from `sales_invoice_dialog.py`. Therefore, `purchase_invoice_dialog.py` itself does not need to redefine or fix the delegate. The fix made in `sales_invoice_dialog.py` will be used by `purchase_invoice_dialog.py`.** The diff shown is for `sales_invoice_dialog.py`, not `purchase_invoice_dialog.py` in this section of the diff. My review of the sales dialog's diff confirms this delegate fix was indeed made there.
+
+4.  **No other functional changes** were introduced to `purchase_invoice_dialog.py` beyond fixing the syntax and ensuring thread-safe UI updates for button states in `on_save_draft`. All other logic for product search integration, calculations, and data handling remains as validated in the previous step.
+
+**Conclusion on `app/ui/purchase_invoices/purchase_invoice_dialog.py` Changes:**
+
+The changes are **valid and primarily address the critical `SyntaxError`.**
+*   **Syntax Error**: The `SyntaxError` in `on_save_draft` is fixed.
+*   **Thread Safety**: UI updates for button states from the async task callback are now correctly marshaled to the Qt main thread.
+*   **No Loss of Functionality**: The core logic for purchase invoice creation, editing, product search integration, and calculations remains intact.
+
+The application should now run without the `SyntaxError`, and both sales and purchase invoice dialogs should have a functional and robust product search feature, along with correct asynchronous operation handling.
