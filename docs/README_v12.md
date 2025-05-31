@@ -64,7 +64,7 @@ The application features a double-entry accounting core, GST management, interac
 -   **Inventory Control (Weighted Average Cost)** (Implemented - `InventoryMovement` records created on posting Sales/Purchase invoices for 'Inventory' type products; COGS JEs for sales.)
 
 ### Reporting & Analytics
--   **Standard Financial Statements**: Balance Sheet, Profit & Loss, Trial Balance, General Ledger (Implemented - UI in Reports tab with options for comparative/zero-balance, on-screen view, PDF/Excel export with enhanced formatting for all four statements. GL includes dimension filtering options.)
+-   **Standard Financial Statements**: Balance Sheet, Profit & Loss, Trial Balance, General Ledger (Implemented - UI in Reports tab with options for comparative/zero-balance, on-screen view, PDF/Excel export with enhanced formatting for all four statements. GL includes dimension filtering.)
 -   **Cash Flow Statement** (Planned)
 -   **GST Reports** (Implemented - See GST F5 above.)
 -   **Customizable Reporting Engine** (Planned - `ReportEngine` has enhanced exports; further customization planned)
@@ -256,7 +256,7 @@ sg_bookkeeper/
 │   │   ├── sales_invoices/
 │   │   ├── purchase_invoices/
 │   │   ├── reports/
-│   │   ├── settings/               
+│   │   ├── settings/
 │   │   ├── shared/                 # Shared UI components like ProductSearchDialog
 │   │   └── ... (other ui modules)
 │   ├── utils/                      # General utility functions, Pydantic DTOs, helpers
@@ -296,13 +296,11 @@ Please adhere to standard coding practices and ensure your contributions align w
 
 ## Roadmap
 
-### Recently Completed (Current Focus / Short-term from previous plan)
--   **Purchase Invoicing**: Implemented full posting logic (Financial JE & Inventory Movements using WAC).
--   **Sales & Purchase Invoicing**: Enhanced line item entry with an advanced product search popup.
--   **Reporting Refinements**:
-    *   Improved PDF/Excel export formatting for Trial Balance and General Ledger reports.
-    *   Added Journal Type filter to Journal Entries list.
-    *   Added Dimension filters (up to two dimensions) to General Ledger report generation.
+### Recently Completed
+-   Implemented full posting logic (Financial JE & Inventory Movements using WAC) for Purchase Invoices.
+-   Enhanced Sales & Purchase Invoice dialogs with an advanced product search popup.
+-   Improved PDF/Excel export formatting for Trial Balance and General Ledger reports.
+-   Added Journal Type filter to Journal Entries list and Dimension filters to General Ledger report.
 
 ### Current Focus / Next Steps (Previously Medium-Term)
 -   **Banking Module**:
@@ -319,7 +317,7 @@ Please adhere to standard coding practices and ensure your contributions align w
 ### Long-term
 -   Bank Reconciliation features.
 -   Advanced reporting and analytics, dashboard KPIs.
--   Inventory Control enhancements (e.g., stock movements beyond invoicing, alternative valuation methods like FIFO/Standard Cost if WAC proves insufficient for some users).
+-   Inventory Control enhancements (e.g., stock movements beyond invoicing, valuation methods like FIFO/Weighted Avg if WAC proves insufficient).
 -   Multi-company support (major architectural consideration).
 -   Cloud synchronization options (optional).
 
