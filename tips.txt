@@ -1,0 +1,18 @@
+python3 assemble_code_files_2.py list1 project_codebase_files_set-1.md
+
+mkdir ttt4
+vi ttt4/oo1
+cd ttt4 ; pwd
+
+egrep '^```|^# File:|^# app\/' oo1
+
+python3 ../extract_code_files.py
+
+find app -type f
+
+rsync -av app /cdrom/project/SG-Bookkeeper/
+
+cd .. ; pwd ; rm -rf ttt4
+
+poetry run sg_bookkeeper
+

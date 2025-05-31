@@ -2,7 +2,12 @@
 from typing import List, Optional, Any, Dict, TYPE_CHECKING
 from decimal import Decimal
 from datetime import date, datetime, timedelta
-from dateutil.relativedelta import relativedelta 
+from dateutil.relativedelta import relativedelta # type: ignore
+
+from sqlalchemy import select # Added for explicit select usage
+from sqlalchemy.ext.asyncio import AsyncSession # Added for type hint
+from sqlalchemy.orm import selectinload
+
 
 from app.models import JournalEntry, JournalEntryLine, RecurringPattern, FiscalPeriod, Account
 from app.services.journal_service import JournalService
@@ -28,175 +33,171 @@ class JournalEntryManager:
         self.sequence_generator = sequence_generator
         self.app_core = app_core
 
-    async def create_journal_entry(self, entry_data: JournalEntryData) -> Result[JournalEntry]:
-        # Pydantic model JournalEntryData already validates balanced lines and non-empty lines
+    async def create_journal_entry(self, entry_data: JournalEntryData, session: Optional[AsyncSession] = None) -> Result[JournalEntry]:
         
-        fiscal_period = await self.fiscal_period_service.get_by_date(entry_data.entry_date)
-        if not fiscal_period or fiscal_period.status != 'Open':
-            return Result.failure([f"No open fiscal period found for the entry date {entry_data.entry_date} or period is not open."])
-        
-        # Consider using core.get_next_sequence_value DB function via db_manager.execute_scalar
-        # for better atomicity if SequenceGenerator's Python logic is a concern.
-        # For now, assuming SequenceGenerator is sufficient for desktop app context.
-        entry_no_str = await self.sequence_generator.next_sequence("journal_entry") 
-        
-        current_user_id = entry_data.user_id
-
-        journal_entry_orm = JournalEntry(
-            entry_no=entry_no_str,
-            journal_type=entry_data.journal_type,
-            entry_date=entry_data.entry_date,
-            fiscal_period_id=fiscal_period.id,
-            description=entry_data.description,
-            reference=entry_data.reference,
-            is_recurring=entry_data.is_recurring,
-            recurring_pattern_id=entry_data.recurring_pattern_id,
-            is_posted=False, # New entries are always drafts
-            source_type=entry_data.source_type,
-            source_id=entry_data.source_id,
-            created_by_user_id=current_user_id,
-            updated_by_user_id=current_user_id
-        )
-        
-        for i, line_dto in enumerate(entry_data.lines, 1):
-            account = await self.account_service.get_by_id(line_dto.account_id)
-            if not account or not account.is_active:
-                return Result.failure([f"Invalid or inactive account ID {line_dto.account_id} on line {i}."])
-            
-            # TODO: Add validation for tax_code, currency_code, dimension_ids existence if provided from their respective services.
-
-            line_orm = JournalEntryLine(
-                line_number=i,
-                account_id=line_dto.account_id,
-                description=line_dto.description,
-                debit_amount=line_dto.debit_amount,
-                credit_amount=line_dto.credit_amount,
-                currency_code=line_dto.currency_code,
-                exchange_rate=line_dto.exchange_rate,
-                tax_code=line_dto.tax_code,
-                tax_amount=line_dto.tax_amount,
-                dimension1_id=line_dto.dimension1_id,
-                dimension2_id=line_dto.dimension2_id
+        async def _create_je_logic(current_session: AsyncSession):
+            fiscal_period_stmt = select(FiscalPeriod).where(
+                FiscalPeriod.start_date <= entry_data.entry_date,
+                FiscalPeriod.end_date >= entry_data.entry_date,
+                FiscalPeriod.status == 'Open'
             )
-            journal_entry_orm.lines.append(line_orm)
-        
-        try:
-            saved_entry = await self.journal_service.save(journal_entry_orm)
-            return Result.success(saved_entry)
-        except Exception as e:
-            self.app_core.db_manager.logger.error(f"Error saving journal entry: {e}", exc_info=True) # type: ignore
-            return Result.failure([f"Failed to save journal entry: {str(e)}"])
+            fiscal_period_res = await current_session.execute(fiscal_period_stmt)
+            fiscal_period = fiscal_period_res.scalars().first()
+
+            if not fiscal_period:
+                return Result.failure([f"No open fiscal period found for the entry date {entry_data.entry_date} or period is not open."])
+            
+            entry_no_str = await self.app_core.db_manager.execute_scalar( # Use DB func via db_manager
+                "SELECT core.get_next_sequence_value($1);", "journal_entry"
+            )
+            if not entry_no_str:
+                return Result.failure(["Failed to generate journal entry number."])
+            
+            current_user_id = entry_data.user_id
+
+            journal_entry_orm = JournalEntry(
+                entry_no=entry_no_str,
+                journal_type=entry_data.journal_type,
+                entry_date=entry_data.entry_date,
+                fiscal_period_id=fiscal_period.id,
+                description=entry_data.description,
+                reference=entry_data.reference,
+                is_recurring=entry_data.is_recurring,
+                recurring_pattern_id=entry_data.recurring_pattern_id,
+                is_posted=False, 
+                source_type=entry_data.source_type,
+                source_id=entry_data.source_id,
+                created_by_user_id=current_user_id,
+                updated_by_user_id=current_user_id
+            )
+            
+            for i, line_dto in enumerate(entry_data.lines, 1):
+                account_stmt = select(Account).where(Account.id == line_dto.account_id)
+                account_res = await current_session.execute(account_stmt)
+                account = account_res.scalars().first()
+                
+                if not account or not account.is_active:
+                    return Result.failure([f"Invalid or inactive account ID {line_dto.account_id} on line {i}."])
+                
+                line_orm = JournalEntryLine(
+                    line_number=i, account_id=line_dto.account_id, description=line_dto.description,
+                    debit_amount=line_dto.debit_amount, credit_amount=line_dto.credit_amount,
+                    currency_code=line_dto.currency_code, exchange_rate=line_dto.exchange_rate,
+                    tax_code=line_dto.tax_code, tax_amount=line_dto.tax_amount,
+                    dimension1_id=line_dto.dimension1_id, dimension2_id=line_dto.dimension2_id
+                )
+                journal_entry_orm.lines.append(line_orm)
+            
+            current_session.add(journal_entry_orm)
+            await current_session.flush() 
+            await current_session.refresh(journal_entry_orm)
+            if journal_entry_orm.lines:
+                 await current_session.refresh(journal_entry_orm, attribute_names=['lines'])
+            return Result.success(journal_entry_orm)
+
+        if session: # Use provided session
+            return await _create_je_logic(session)
+        else: # Create new session
+            try:
+                async with self.app_core.db_manager.session() as new_session: # type: ignore
+                    return await _create_je_logic(new_session)
+            except Exception as e:
+                self.app_core.logger.error(f"Error creating journal entry with new session: {e}", exc_info=True) # type: ignore
+                return Result.failure([f"Failed to save journal entry: {str(e)}"])
+
 
     async def update_journal_entry(self, entry_id: int, entry_data: JournalEntryData) -> Result[JournalEntry]:
-        async with self.app_core.db_manager.session() as session: # Use a single session for atomicity
-            existing_entry = await session.get(JournalEntry, entry_id, options=[selectinload(JournalEntry.lines)]) # Eager load lines
+        async with self.app_core.db_manager.session() as session: # type: ignore
+            existing_entry = await session.get(JournalEntry, entry_id, options=[selectinload(JournalEntry.lines)])
             if not existing_entry:
                 return Result.failure([f"Journal entry ID {entry_id} not found for update."])
             if existing_entry.is_posted:
                 return Result.failure([f"Cannot update a posted journal entry: {existing_entry.entry_no}."])
 
-            fiscal_period = await self.fiscal_period_service.get_by_date(entry_data.entry_date) # This might use a different session if not passed
-            if not fiscal_period or fiscal_period.status != 'Open': # Re-check fiscal period for new date
-                fp_check_stmt = select(FiscalPeriod).where(FiscalPeriod.start_date <= entry_data.entry_date, FiscalPeriod.end_date >= entry_data.entry_date, FiscalPeriod.status == 'Open')
-                fp_res = await session.execute(fp_check_stmt)
-                fiscal_period_in_session = fp_res.scalars().first()
-                if not fiscal_period_in_session:
-                     return Result.failure([f"No open fiscal period found for the new entry date {entry_data.entry_date} or period is not open."])
-                fiscal_period_id = fiscal_period_in_session.id
-            else:
-                fiscal_period_id = fiscal_period.id
-
-
+            fp_stmt = select(FiscalPeriod).where(
+                FiscalPeriod.start_date <= entry_data.entry_date,
+                FiscalPeriod.end_date >= entry_data.entry_date,
+                FiscalPeriod.status == 'Open'
+            )
+            fp_res = await session.execute(fp_stmt)
+            fiscal_period = fp_res.scalars().first()
+            if not fiscal_period:
+                 return Result.failure([f"No open fiscal period found for the new entry date {entry_data.entry_date} or period is not open."])
+            
             current_user_id = entry_data.user_id
-
-            # Update header fields
-            existing_entry.journal_type = entry_data.journal_type
-            existing_entry.entry_date = entry_data.entry_date
-            existing_entry.fiscal_period_id = fiscal_period_id
-            existing_entry.description = entry_data.description
-            existing_entry.reference = entry_data.reference
-            existing_entry.is_recurring = entry_data.is_recurring
+            existing_entry.journal_type = entry_data.journal_type; existing_entry.entry_date = entry_data.entry_date
+            existing_entry.fiscal_period_id = fiscal_period.id; existing_entry.description = entry_data.description
+            existing_entry.reference = entry_data.reference; existing_entry.is_recurring = entry_data.is_recurring
             existing_entry.recurring_pattern_id = entry_data.recurring_pattern_id
-            existing_entry.source_type = entry_data.source_type
-            existing_entry.source_id = entry_data.source_id
+            existing_entry.source_type = entry_data.source_type; existing_entry.source_id = entry_data.source_id
             existing_entry.updated_by_user_id = current_user_id
             
-            # Line Handling: Clear existing lines and add new ones
-            # SQLAlchemy's cascade="all, delete-orphan" will handle DB deletions on flush/commit
-            # if the lines are removed from the collection.
-            for line in list(existing_entry.lines): # Iterate over a copy for safe removal
-                session.delete(line) # Explicitly delete old lines from session
-            existing_entry.lines.clear() # Clear the collection itself
-            
-            await session.flush() # Flush deletions of old lines
+            for line in list(existing_entry.lines): await session.delete(line)
+            existing_entry.lines.clear()
+            await session.flush() 
 
             new_lines_orm: List[JournalEntryLine] = []
             for i, line_dto in enumerate(entry_data.lines, 1):
-                # Account validation (ensure account_service uses the same session or is session-agnostic for reads)
-                # For simplicity, assume account_service can be called outside this transaction for validation reads.
-                account = await self.account_service.get_by_id(line_dto.account_id) 
+                acc_stmt = select(Account).where(Account.id == line_dto.account_id)
+                acc_res = await session.execute(acc_stmt)
+                account = acc_res.scalars().first()
                 if not account or not account.is_active:
-                    # This will cause the outer session to rollback due to exception
                     raise ValueError(f"Invalid or inactive account ID {line_dto.account_id} on line {i} during update.")
                 
                 new_lines_orm.append(JournalEntryLine(
-                    # journal_entry_id is set by relationship backref
-                    line_number=i,
-                    account_id=line_dto.account_id,
-                    description=line_dto.description,
-                    debit_amount=line_dto.debit_amount,
-                    credit_amount=line_dto.credit_amount,
-                    currency_code=line_dto.currency_code,
-                    exchange_rate=line_dto.exchange_rate,
-                    tax_code=line_dto.tax_code,
-                    tax_amount=line_dto.tax_amount,
-                    dimension1_id=line_dto.dimension1_id,
-                    dimension2_id=line_dto.dimension2_id
+                    line_number=i, account_id=line_dto.account_id, description=line_dto.description,
+                    debit_amount=line_dto.debit_amount, credit_amount=line_dto.credit_amount,
+                    currency_code=line_dto.currency_code, exchange_rate=line_dto.exchange_rate,
+                    tax_code=line_dto.tax_code, tax_amount=line_dto.tax_amount,
+                    dimension1_id=line_dto.dimension1_id, dimension2_id=line_dto.dimension2_id
                 ))
             existing_entry.lines.extend(new_lines_orm)
-            session.add(existing_entry) # Re-add to session if it became detached, or ensure it's managed
+            session.add(existing_entry) 
             
             try:
-                await session.commit() # Commit changes for header and new lines
-                await session.refresh(existing_entry) # Refresh to get any DB-generated values or ensure state
+                await session.flush() 
+                await session.refresh(existing_entry)
                 if existing_entry.lines: await session.refresh(existing_entry, attribute_names=['lines'])
                 return Result.success(existing_entry)
             except Exception as e:
-                # Session context manager handles rollback
-                self.app_core.db_manager.logger.error(f"Error updating journal entry ID {entry_id}: {e}", exc_info=True) # type: ignore
+                self.app_core.logger.error(f"Error updating journal entry ID {entry_id}: {e}", exc_info=True) # type: ignore
                 return Result.failure([f"Failed to update journal entry: {str(e)}"])
 
-
-    async def post_journal_entry(self, entry_id: int, user_id: int) -> Result[JournalEntry]:
-        async with self.app_core.db_manager.session() as session: # type: ignore
-            entry = await session.get(JournalEntry, entry_id) # Fetch within current session
+    async def post_journal_entry(self, entry_id: int, user_id: int, session: Optional[AsyncSession] = None) -> Result[JournalEntry]:
+        
+        async def _post_je_logic(current_session: AsyncSession):
+            entry = await current_session.get(JournalEntry, entry_id)
             if not entry:
                 return Result.failure([f"Journal entry ID {entry_id} not found."])
-            
             if entry.is_posted:
                 return Result.failure([f"Journal entry '{entry.entry_no}' is already posted."])
             
-            # Fetch fiscal period within the same session
-            fiscal_period = await session.get(FiscalPeriod, entry.fiscal_period_id)
+            fiscal_period = await current_session.get(FiscalPeriod, entry.fiscal_period_id)
             if not fiscal_period or fiscal_period.status != 'Open': 
                 return Result.failure([f"Cannot post. Fiscal period for entry date is not open. Current status: {fiscal_period.status if fiscal_period else 'Unknown'}."])
             
             entry.is_posted = True
             entry.updated_by_user_id = user_id
-            session.add(entry)
+            current_session.add(entry) # Ensure it's managed by this session
             
+            await current_session.flush()
+            await current_session.refresh(entry)
+            return Result.success(entry)
+
+        if session: # Use provided session
+            return await _post_je_logic(session)
+        else: # Create new session
             try:
-                await session.commit()
-                await session.refresh(entry)
-                return Result.success(entry)
+                async with self.app_core.db_manager.session() as new_session: # type: ignore
+                    return await _post_je_logic(new_session)
             except Exception as e:
-                self.app_core.db_manager.logger.error(f"Error posting journal entry ID {entry_id}: {e}", exc_info=True) # type: ignore
+                self.app_core.logger.error(f"Error posting journal entry ID {entry_id} with new session: {e}", exc_info=True) # type: ignore
                 return Result.failure([f"Failed to post journal entry: {str(e)}"])
 
+
     async def reverse_journal_entry(self, entry_id: int, reversal_date: date, description: Optional[str], user_id: int) -> Result[JournalEntry]:
-        # This method performs multiple DB operations and should be transactional.
         async with self.app_core.db_manager.session() as session: # type: ignore
-            original_entry = await session.get(JournalEntry, entry_id, options=[selectinload(JournalEntry.lines)]) # Fetch within session
+            original_entry = await session.get(JournalEntry, entry_id, options=[selectinload(JournalEntry.lines)])
             if not original_entry:
                 return Result.failure([f"Journal entry ID {entry_id} not found for reversal."])
             if not original_entry.is_posted:
@@ -204,25 +205,21 @@ class JournalEntryManager:
             if original_entry.is_reversed or original_entry.reversing_entry_id is not None:
                 return Result.failure([f"Entry '{original_entry.entry_no}' is already reversed."])
 
-            # Fetch reversal fiscal period within the same session
             reversal_fp_stmt = select(FiscalPeriod).where(
-                FiscalPeriod.start_date <= reversal_date, 
-                FiscalPeriod.end_date >= reversal_date, 
-                FiscalPeriod.status == 'Open'
-            )
+                FiscalPeriod.start_date <= reversal_date, FiscalPeriod.end_date >= reversal_date, FiscalPeriod.status == 'Open')
             reversal_fp_res = await session.execute(reversal_fp_stmt)
             reversal_fiscal_period = reversal_fp_res.scalars().first()
-
             if not reversal_fiscal_period:
                 return Result.failure([f"No open fiscal period found for reversal date {reversal_date} or period is not open."])
 
-            # Call DB function for sequence if preferred, or Python SequenceGenerator
-            # Assuming Python SequenceGenerator for now
-            reversal_entry_no = await self.sequence_generator.next_sequence("journal_entry", prefix="RJE-")
-            
-            reversal_lines_orm: List[JournalEntryLine] = []
+            reversal_entry_no = await self.app_core.db_manager.execute_scalar(
+                 "SELECT core.get_next_sequence_value($1);", "journal_entry" # Using DB sequence
+            )
+            if not reversal_entry_no: return Result.failure(["Failed to generate reversal entry number."])
+
+            reversal_lines_dto: List[JournalEntryLineData] = []
             for orig_line in original_entry.lines:
-                reversal_lines_orm.append(JournalEntryLine(
+                reversal_lines_dto.append(JournalEntryLineData(
                     account_id=orig_line.account_id, description=f"Reversal: {orig_line.description or ''}",
                     debit_amount=orig_line.credit_amount, credit_amount=orig_line.debit_amount, 
                     currency_code=orig_line.currency_code, exchange_rate=orig_line.exchange_rate,
@@ -231,40 +228,40 @@ class JournalEntryManager:
                     dimension1_id=orig_line.dimension1_id, dimension2_id=orig_line.dimension2_id
                 ))
             
-            reversal_je_orm = JournalEntry(
-                entry_no=reversal_entry_no, journal_type=original_entry.journal_type,
-                entry_date=reversal_date, fiscal_period_id=reversal_fiscal_period.id,
+            reversal_je_data = JournalEntryData(
+                # entry_no will be set by create_journal_entry
+                journal_type=original_entry.journal_type, entry_date=reversal_date,
                 description=description or f"Reversal of entry {original_entry.entry_no}",
                 reference=f"REV:{original_entry.entry_no}",
-                is_posted=False, # Reversal is initially a draft, can be auto-posted if needed
+                is_posted=False, # Create as draft first for review
                 source_type="JournalEntryReversalSource", source_id=original_entry.id,
-                created_by_user_id=user_id, updated_by_user_id=user_id,
-                lines=reversal_lines_orm # Associate lines directly
+                user_id=user_id, lines=reversal_lines_dto
             )
-            session.add(reversal_je_orm)
+
+            # Create the reversal JE within the same session
+            create_reversal_result = await self.create_journal_entry(reversal_je_data, session=session)
+            if not create_reversal_result.is_success or not create_reversal_result.value:
+                return Result.failure(["Failed to create reversal journal entry."] + create_reversal_result.errors)
+            
+            reversal_je_orm = create_reversal_result.value
             
             original_entry.is_reversed = True
-            # We need the ID of reversal_je_orm, so flush to get it.
-            await session.flush() # This will assign ID to reversal_je_orm
             original_entry.reversing_entry_id = reversal_je_orm.id
             original_entry.updated_by_user_id = user_id
-            session.add(original_entry) # Add original_entry back to session if it wasn't already managed or to mark it dirty
+            session.add(original_entry)
             
             try:
-                await session.commit()
-                await session.refresh(reversal_je_orm) # Refresh to get all attributes after commit
+                await session.flush() 
+                await session.refresh(reversal_je_orm) # Ensure reversal_je_orm is up-to-date
                 if reversal_je_orm.lines: await session.refresh(reversal_je_orm, attribute_names=['lines'])
                 return Result.success(reversal_je_orm)
             except Exception as e:
-                # Session context manager handles rollback
-                self.app_core.db_manager.logger.error(f"Error reversing journal entry ID {entry_id}: {e}", exc_info=True) # type: ignore
-                return Result.failure([f"Failed to reverse journal entry: {str(e)}"])
+                self.app_core.logger.error(f"Error reversing journal entry ID {entry_id} (flush/commit stage): {e}", exc_info=True) # type: ignore
+                return Result.failure([f"Failed to finalize reversal of journal entry: {str(e)}"])
 
-
+    # ... (rest of the methods: _calculate_next_generation_date, generate_recurring_entries, etc. remain unchanged from file set 7) ...
     def _calculate_next_generation_date(self, last_date: date, frequency: str, interval: int, day_of_month: Optional[int] = None, day_of_week: Optional[int] = None) -> date:
-        # (Logic from previous version is mostly fine, minor refinement if needed)
         next_date = last_date
-        # ... (same logic as before, ensure relativedelta is imported and used)
         if frequency == 'Monthly':
             next_date = last_date + relativedelta(months=interval)
             if day_of_month:
@@ -277,8 +274,6 @@ class JournalEntryManager:
                  except ValueError: next_date = next_date.replace(month=last_date.month) + relativedelta(day=31)
         elif frequency == 'Weekly':
             next_date = last_date + relativedelta(weeks=interval)
-            # Specific day_of_week logic with relativedelta can be complex, e.g. relativedelta(weekday=MO(+1))
-            # For now, simple interval is used.
         elif frequency == 'Daily':
             next_date = last_date + relativedelta(days=interval)
         elif frequency == 'Quarterly':
@@ -290,20 +285,18 @@ class JournalEntryManager:
             raise NotImplementedError(f"Frequency '{frequency}' not supported for next date calculation.")
         return next_date
 
-
     async def generate_recurring_entries(self, as_of_date: date, user_id: int) -> List[Result[JournalEntry]]:
         patterns_due: List[RecurringPattern] = await self.journal_service.get_recurring_patterns_due(as_of_date)
         generated_results: List[Result[JournalEntry]] = []
 
         for pattern in patterns_due:
-            if not pattern.template_journal_entry: # Due to joinedload, this should be populated
-                self.app_core.db_manager.logger.error(f"Template JE not loaded for pattern ID {pattern.id}. Skipping.") # type: ignore
+            if not pattern.template_journal_entry: 
+                self.app_core.logger.error(f"Template JE not loaded for pattern ID {pattern.id}. Skipping.") 
                 generated_results.append(Result.failure([f"Template JE not loaded for pattern '{pattern.name}'."]))
                 continue
             
-            # Ensure next_generation_date is valid
             entry_date_for_new_je = pattern.next_generation_date
-            if not entry_date_for_new_je : continue # Should have been filtered by service
+            if not entry_date_for_new_je : continue 
 
             template_entry = pattern.template_journal_entry
             
@@ -328,8 +321,7 @@ class JournalEntryManager:
             generated_results.append(create_result)
             
             if create_result.is_success:
-                async with self.app_core.db_manager.session() as session: # type: ignore
-                    # Re-fetch pattern in this session to update it
+                async with self.app_core.db_manager.session() as session: 
                     pattern_to_update = await session.get(RecurringPattern, pattern.id)
                     if pattern_to_update:
                         pattern_to_update.last_generated_date = entry_date_for_new_je
@@ -347,13 +339,13 @@ class JournalEntryManager:
                         except NotImplementedError:
                             pattern_to_update.next_generation_date = None
                             pattern_to_update.is_active = False 
-                            self.app_core.db_manager.logger.warning(f"Next gen date calc not implemented for pattern {pattern_to_update.name}, deactivating.") # type: ignore
+                            self.app_core.logger.warning(f"Next gen date calc not implemented for pattern {pattern_to_update.name}, deactivating.") 
                         
                         pattern_to_update.updated_by_user_id = user_id 
                         session.add(pattern_to_update)
                         await session.commit()
                     else:
-                        self.app_core.db_manager.logger.error(f"Failed to re-fetch pattern ID {pattern.id} for update after recurring JE generation.") # type: ignore
+                        self.app_core.logger.error(f"Failed to re-fetch pattern ID {pattern.id} for update after recurring JE generation.") 
         return generated_results
 
     async def get_journal_entry_for_dialog(self, entry_id: int) -> Optional[JournalEntry]:
@@ -371,5 +363,5 @@ class JournalEntryManager:
             )
             return Result.success(summary_data)
         except Exception as e:
-            self.app_core.db_manager.logger.error(f"Error fetching JE summaries for listing: {e}", exc_info=True) # type: ignore
+            self.app_core.logger.error(f"Error fetching JE summaries for listing: {e}", exc_info=True) 
             return Result.failure([f"Failed to retrieve journal entry summaries: {str(e)}"])
