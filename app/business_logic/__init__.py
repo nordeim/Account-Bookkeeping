@@ -4,6 +4,7 @@ from .vendor_manager import VendorManager
 from .product_manager import ProductManager
 from .sales_invoice_manager import SalesInvoiceManager
 from .purchase_invoice_manager import PurchaseInvoiceManager 
+from .bank_account_manager import BankAccountManager # New import
 
 __all__ = [
     "CustomerManager",
@@ -11,4 +12,5 @@ __all__ = [
     "ProductManager",
     "SalesInvoiceManager",
     "PurchaseInvoiceManager", 
+    "BankAccountManager", # New export
 ]

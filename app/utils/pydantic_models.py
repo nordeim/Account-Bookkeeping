@@ -109,7 +109,7 @@ class TransactionLineTaxData(AppBaseModel): amount: Decimal; tax_code: Optional[
 class TransactionTaxData(AppBaseModel): transaction_type: str; lines: List[TransactionLineTaxData]
 
 # --- Validation Result DTO ---
-class AccountValidationResult(AppBaseModel): is_valid: bool; errors: List[str] = []
+class AccountValidationResult(AppBaseModel): is_valid: bool; errors: List[str] = Field(default_factory=list)
 class AccountValidator: 
     def validate_common(self, account_data: AccountBaseData) -> List[str]:
         errors = []; 
@@ -140,7 +140,7 @@ class FiscalYearCreateData(AppBaseModel, UserAuditData):
         if start and end and start >= end: raise ValueError("End date must be after start date.")
         return values
 class FiscalPeriodData(AppBaseModel): id: int; name: str; start_date: date; end_date: date; period_type: str; status: str; period_number: int; is_adjustment: bool
-class FiscalYearData(AppBaseModel): id: int; year_name: str; start_date: date; end_date: date; is_closed: bool; closed_date: Optional[datetime] = None; periods: List[FiscalPeriodData] = []
+class FiscalYearData(AppBaseModel): id: int; year_name: str; start_date: date; end_date: date; is_closed: bool; closed_date: Optional[datetime] = None; periods: List[FiscalPeriodData] = Field(default_factory=list)
 
 # --- Customer Related DTOs ---
 class CustomerBaseData(AppBaseModel): 
@@ -234,6 +234,7 @@ class RoleData(AppBaseModel):
     id: int
     name: str
     description: Optional[str] = None
+    permission_ids: List[int] = Field(default_factory=list) 
 
 class UserSummaryData(AppBaseModel): 
     id: int
@@ -342,7 +343,7 @@ class PurchaseInvoiceUpdateData(PurchaseInvoiceBaseData, UserAuditData):
 
 class PurchaseInvoiceData(PurchaseInvoiceBaseData): 
     id: int
-    invoice_no: str # Our internal reference number
+    invoice_no: str 
     subtotal: Decimal
     tax_amount: Decimal
     total_amount: Decimal
@@ -363,3 +364,48 @@ class PurchaseInvoiceSummaryData(AppBaseModel):
     vendor_name: str 
     total_amount: Decimal
     status: InvoiceStatusEnum
+
+# --- Bank Account DTOs (New) ---
+class BankAccountBaseData(AppBaseModel):
+    account_name: str = Field(..., min_length=1, max_length=100)
+    account_number: str = Field(..., min_length=1, max_length=50)
+    bank_name: str = Field(..., min_length=1, max_length=100)
+    bank_branch: Optional[str] = Field(None, max_length=100)
+    bank_swift_code: Optional[str] = Field(None, max_length=20)
+    currency_code: str = Field("SGD", min_length=3, max_length=3)
+    opening_balance: Decimal = Field(Decimal(0))
+    opening_balance_date: Optional[date] = None
+    gl_account_id: int # Must be linked to a GL account
+    is_active: bool = True
+    description: Optional[str] = None
+
+    @validator('opening_balance', pre=True, always=True)
+    def bank_opening_balance_to_decimal(cls, v):
+        return Decimal(str(v)) if v is not None else Decimal(0)
+
+    @root_validator(skip_on_failure=True)
+    def check_ob_date_if_ob_exists_bank(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        ob = values.get('opening_balance')
+        ob_date = values.get('opening_balance_date')
+        if ob is not None and ob != Decimal(0) and ob_date is None:
+            raise ValueError("Opening Balance Date is required if Opening Balance is not zero.")
+        if ob_date is not None and (ob is None or ob == Decimal(0)):
+            values['opening_balance_date'] = None # Clear date if OB is zero or None
+        return values
+
+class BankAccountCreateData(BankAccountBaseData, UserAuditData):
+    pass
+
+class BankAccountUpdateData(BankAccountBaseData, UserAuditData):
+    id: int
+
+class BankAccountSummaryData(AppBaseModel):
+    id: int
+    account_name: str
+    bank_name: str
+    account_number: str 
+    currency_code: str
+    current_balance: Decimal 
+    gl_account_code: Optional[str] = None 
+    gl_account_name: Optional[str] = None 
+    is_active: bool

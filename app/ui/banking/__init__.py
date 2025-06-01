@@ -1,5 +1,12 @@
 # File: app/ui/banking/__init__.py
-# (Content as previously generated)
 from .banking_widget import BankingWidget
+from .bank_account_table_model import BankAccountTableModel 
+from .bank_account_dialog import BankAccountDialog 
+from .bank_accounts_widget import BankAccountsWidget # New Import
 
-__all__ = ["BankingWidget"]
+__all__ = [
+    "BankingWidget",
+    "BankAccountTableModel", 
+    "BankAccountDialog", 
+    "BankAccountsWidget", # New Export
+]

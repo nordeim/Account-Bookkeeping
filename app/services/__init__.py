@@ -39,12 +39,14 @@ from app.models.business.product import Product
 from app.models.business.sales_invoice import SalesInvoice
 from app.models.business.purchase_invoice import PurchaseInvoice
 from app.models.business.inventory_movement import InventoryMovement
-from app.models.accounting.dimension import Dimension # New Import
+from app.models.accounting.dimension import Dimension 
+from app.models.business.bank_account import BankAccount # New ORM Import
 
 # --- DTO Imports (for return types in interfaces) ---
 from app.utils.pydantic_models import (
     CustomerSummaryData, VendorSummaryData, ProductSummaryData, 
-    SalesInvoiceSummaryData, PurchaseInvoiceSummaryData
+    SalesInvoiceSummaryData, PurchaseInvoiceSummaryData,
+    BankAccountSummaryData # New DTO Import
 )
 
 # --- Enum Imports (for filter types in interfaces) ---
@@ -93,6 +95,10 @@ class IJournalEntryRepository(IRepository[JournalEntry, int]):
                               description_filter: Optional[str] = None,
                               journal_type_filter: Optional[str] = None
                              ) -> List[Dict[str, Any]]: pass
+    @abstractmethod
+    async def get_posted_lines_for_account_in_range(self, account_id: int, start_date: date, end_date: date, 
+                                                    dimension1_id: Optional[int] = None, dimension2_id: Optional[int] = None
+                                                    ) -> List[Any]: pass # JournalEntryLine type was used here
 
 class IFiscalPeriodRepository(IRepository[FiscalPeriod, int]): 
     @abstractmethod
@@ -214,9 +220,8 @@ class IPurchaseInvoiceRepository(IRepository[PurchaseInvoice, int]):
 
 class IInventoryMovementRepository(IRepository[InventoryMovement, int]):
     @abstractmethod
-    async def save(self, entity: InventoryMovement) -> InventoryMovement: pass
+    async def save(self, entity: InventoryMovement, session: Optional[Any]=None) -> InventoryMovement: pass # Allow passing session
 
-# --- New Interface for Dimensions ---
 class IDimensionRepository(IRepository[Dimension, int]):
     @abstractmethod
     async def get_distinct_dimension_types(self) -> List[str]: pass
@@ -225,6 +230,18 @@ class IDimensionRepository(IRepository[Dimension, int]):
     @abstractmethod
     async def get_by_type_and_code(self, dim_type: str, code: str) -> Optional[Dimension]: pass
 
+# --- New IBankAccountRepository Interface ---
+class IBankAccountRepository(IRepository[BankAccount, int]):
+    @abstractmethod
+    async def get_by_account_number(self, account_number: str) -> Optional[BankAccount]: pass
+    @abstractmethod
+    async def get_all_summary(self, active_only: bool = True, 
+                              currency_code: Optional[str] = None,
+                              page: int = 1, page_size: int = 50
+                             ) -> List[BankAccountSummaryData]: pass
+    @abstractmethod
+    async def save(self, entity: BankAccount) -> BankAccount: pass
+
 
 # --- Service Implementations ---
 from .account_service import AccountService
@@ -232,10 +249,11 @@ from .journal_service import JournalService
 from .fiscal_period_service import FiscalPeriodService
 from .tax_service import TaxCodeService, GSTReturnService 
 from .core_services import SequenceService, ConfigurationService, CompanySettingsService 
-from .accounting_services import AccountTypeService, CurrencyService, ExchangeRateService, FiscalYearService, DimensionService # Added DimensionService
+from .accounting_services import AccountTypeService, CurrencyService, ExchangeRateService, FiscalYearService, DimensionService
 from .business_services import (
     CustomerService, VendorService, ProductService, 
-    SalesInvoiceService, PurchaseInvoiceService, InventoryMovementService
+    SalesInvoiceService, PurchaseInvoiceService, InventoryMovementService,
+    BankAccountService # New Service Import
 )
 
 __all__ = [
@@ -247,12 +265,14 @@ __all__ = [
     "ICustomerRepository", "IVendorRepository", "IProductRepository",
     "ISalesInvoiceRepository", "IPurchaseInvoiceRepository", 
     "IInventoryMovementRepository", 
-    "IDimensionRepository", # New export
+    "IDimensionRepository", 
+    "IBankAccountRepository", # New Export
     "AccountService", "JournalService", "FiscalPeriodService", "FiscalYearService",
     "TaxCodeService", "GSTReturnService",
     "SequenceService", "ConfigurationService", "CompanySettingsService",
-    "AccountTypeService", "CurrencyService", "ExchangeRateService", "DimensionService", # New export
+    "AccountTypeService", "CurrencyService", "ExchangeRateService", "DimensionService", 
     "CustomerService", "VendorService", "ProductService", 
     "SalesInvoiceService", "PurchaseInvoiceService", 
     "InventoryMovementService", 
+    "BankAccountService", # New Export
 ]
