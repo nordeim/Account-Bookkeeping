@@ -4,7 +4,7 @@ from typing import List, Optional, Union, Any, Dict
 from datetime import date, datetime
 from decimal import Decimal
 
-from app.common.enums import ProductTypeEnum, InvoiceStatusEnum 
+from app.common.enums import ProductTypeEnum, InvoiceStatusEnum, BankTransactionTypeEnum # Added BankTransactionTypeEnum
 
 class AppBaseModel(BaseModel):
     class Config:
@@ -365,7 +365,7 @@ class PurchaseInvoiceSummaryData(AppBaseModel):
     total_amount: Decimal
     status: InvoiceStatusEnum
 
-# --- Bank Account DTOs (New) ---
+# --- Bank Account DTOs ---
 class BankAccountBaseData(AppBaseModel):
     account_name: str = Field(..., min_length=1, max_length=100)
     account_number: str = Field(..., min_length=1, max_length=50)
@@ -375,7 +375,7 @@ class BankAccountBaseData(AppBaseModel):
     currency_code: str = Field("SGD", min_length=3, max_length=3)
     opening_balance: Decimal = Field(Decimal(0))
     opening_balance_date: Optional[date] = None
-    gl_account_id: int # Must be linked to a GL account
+    gl_account_id: int 
     is_active: bool = True
     description: Optional[str] = None
 
@@ -390,7 +390,7 @@ class BankAccountBaseData(AppBaseModel):
         if ob is not None and ob != Decimal(0) and ob_date is None:
             raise ValueError("Opening Balance Date is required if Opening Balance is not zero.")
         if ob_date is not None and (ob is None or ob == Decimal(0)):
-            values['opening_balance_date'] = None # Clear date if OB is zero or None
+            values['opening_balance_date'] = None 
         return values
 
 class BankAccountCreateData(BankAccountBaseData, UserAuditData):
@@ -409,3 +409,46 @@ class BankAccountSummaryData(AppBaseModel):
     gl_account_code: Optional[str] = None 
     gl_account_name: Optional[str] = None 
     is_active: bool
+
+# --- Bank Transaction DTOs (New) ---
+class BankTransactionBaseData(AppBaseModel):
+    bank_account_id: int
+    transaction_date: date
+    value_date: Optional[date] = None
+    transaction_type: BankTransactionTypeEnum 
+    description: str = Field(..., min_length=1, max_length=200)
+    reference: Optional[str] = Field(None, max_length=100)
+    amount: Decimal # Signed: positive for inflow (Deposit, Interest), negative for outflow (Withdrawal, Fee)
+
+    @validator('amount', pre=True, always=True)
+    def bank_txn_amount_to_decimal(cls, v):
+        return Decimal(str(v)) if v is not None else Decimal(0)
+
+    @root_validator(skip_on_failure=True)
+    def check_amount_sign_vs_type(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        amount = values.get('amount')
+        txn_type = values.get('transaction_type')
+        if amount is None or txn_type is None: return values # Let other validators handle missing fields
+
+        if txn_type in [BankTransactionTypeEnum.DEPOSIT, BankTransactionTypeEnum.INTEREST]:
+            if amount < Decimal(0):
+                raise ValueError(f"{txn_type.value} amount must be positive or zero.")
+        elif txn_type in [BankTransactionTypeEnum.WITHDRAWAL, BankTransactionTypeEnum.FEE]:
+            if amount > Decimal(0):
+                raise ValueError(f"{txn_type.value} amount must be negative or zero.")
+        # Transfer/Adjustment can be positive or negative
+        return values
+
+class BankTransactionCreateData(BankTransactionBaseData, UserAuditData):
+    # If JE posting is implemented, may need contra_account_id, dimensions, etc.
+    pass
+
+class BankTransactionSummaryData(AppBaseModel):
+    id: int
+    transaction_date: date
+    value_date: Optional[date] = None
+    transaction_type: BankTransactionTypeEnum
+    description: str
+    reference: Optional[str] = None
+    amount: Decimal # Stored as signed
+    is_reconciled: bool = False # From ORM default

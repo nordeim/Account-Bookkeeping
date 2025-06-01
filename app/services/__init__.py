@@ -21,7 +21,7 @@ class IRepository(ABC, Generic[T, ID]):
 
 # --- ORM Model Imports ---
 from app.models.accounting.account import Account
-from app.models.accounting.journal_entry import JournalEntry
+from app.models.accounting.journal_entry import JournalEntry, JournalEntryLine # Added JournalEntryLine
 from app.models.accounting.fiscal_period import FiscalPeriod
 from app.models.accounting.tax_code import TaxCode
 from app.models.core.company_setting import CompanySetting 
@@ -40,17 +40,18 @@ from app.models.business.sales_invoice import SalesInvoice
 from app.models.business.purchase_invoice import PurchaseInvoice
 from app.models.business.inventory_movement import InventoryMovement
 from app.models.accounting.dimension import Dimension 
-from app.models.business.bank_account import BankAccount # New ORM Import
+from app.models.business.bank_account import BankAccount 
+from app.models.business.bank_transaction import BankTransaction # New ORM Import
 
 # --- DTO Imports (for return types in interfaces) ---
 from app.utils.pydantic_models import (
     CustomerSummaryData, VendorSummaryData, ProductSummaryData, 
     SalesInvoiceSummaryData, PurchaseInvoiceSummaryData,
-    BankAccountSummaryData # New DTO Import
+    BankAccountSummaryData, BankTransactionSummaryData # New DTO Import
 )
 
 # --- Enum Imports (for filter types in interfaces) ---
-from app.common.enums import ProductTypeEnum, InvoiceStatusEnum
+from app.common.enums import ProductTypeEnum, InvoiceStatusEnum, BankTransactionTypeEnum # Added BankTransactionTypeEnum
 
 
 # --- Existing Interfaces (condensed for brevity) ---
@@ -98,7 +99,7 @@ class IJournalEntryRepository(IRepository[JournalEntry, int]):
     @abstractmethod
     async def get_posted_lines_for_account_in_range(self, account_id: int, start_date: date, end_date: date, 
                                                     dimension1_id: Optional[int] = None, dimension2_id: Optional[int] = None
-                                                    ) -> List[Any]: pass # JournalEntryLine type was used here
+                                                    ) -> List[JournalEntryLine]: pass # Corrected return type
 
 class IFiscalPeriodRepository(IRepository[FiscalPeriod, int]): 
     @abstractmethod
@@ -220,7 +221,7 @@ class IPurchaseInvoiceRepository(IRepository[PurchaseInvoice, int]):
 
 class IInventoryMovementRepository(IRepository[InventoryMovement, int]):
     @abstractmethod
-    async def save(self, entity: InventoryMovement, session: Optional[Any]=None) -> InventoryMovement: pass # Allow passing session
+    async def save(self, entity: InventoryMovement, session: Optional[Any]=None) -> InventoryMovement: pass 
 
 class IDimensionRepository(IRepository[Dimension, int]):
     @abstractmethod
@@ -230,7 +231,6 @@ class IDimensionRepository(IRepository[Dimension, int]):
     @abstractmethod
     async def get_by_type_and_code(self, dim_type: str, code: str) -> Optional[Dimension]: pass
 
-# --- New IBankAccountRepository Interface ---
 class IBankAccountRepository(IRepository[BankAccount, int]):
     @abstractmethod
     async def get_by_account_number(self, account_number: str) -> Optional[BankAccount]: pass
@@ -241,6 +241,19 @@ class IBankAccountRepository(IRepository[BankAccount, int]):
                              ) -> List[BankAccountSummaryData]: pass
     @abstractmethod
     async def save(self, entity: BankAccount) -> BankAccount: pass
+
+# --- New IBankTransactionRepository Interface ---
+class IBankTransactionRepository(IRepository[BankTransaction, int]):
+    @abstractmethod
+    async def get_all_for_bank_account(self, bank_account_id: int,
+                                       start_date: Optional[date] = None,
+                                       end_date: Optional[date] = None,
+                                       transaction_type: Optional[BankTransactionTypeEnum] = None,
+                                       is_reconciled: Optional[bool] = None,
+                                       page: int = 1, page_size: int = 50
+                                      ) -> List[BankTransactionSummaryData]: pass # Using Summary DTO
+    @abstractmethod
+    async def save(self, entity: BankTransaction, session: Optional[Any] = None) -> BankTransaction: pass
 
 
 # --- Service Implementations ---
@@ -253,7 +266,7 @@ from .accounting_services import AccountTypeService, CurrencyService, ExchangeRa
 from .business_services import (
     CustomerService, VendorService, ProductService, 
     SalesInvoiceService, PurchaseInvoiceService, InventoryMovementService,
-    BankAccountService # New Service Import
+    BankAccountService, BankTransactionService # New Service Import
 )
 
 __all__ = [
@@ -266,7 +279,8 @@ __all__ = [
     "ISalesInvoiceRepository", "IPurchaseInvoiceRepository", 
     "IInventoryMovementRepository", 
     "IDimensionRepository", 
-    "IBankAccountRepository", # New Export
+    "IBankAccountRepository", 
+    "IBankTransactionRepository", # New Export
     "AccountService", "JournalService", "FiscalPeriodService", "FiscalYearService",
     "TaxCodeService", "GSTReturnService",
     "SequenceService", "ConfigurationService", "CompanySettingsService",
@@ -274,5 +288,6 @@ __all__ = [
     "CustomerService", "VendorService", "ProductService", 
     "SalesInvoiceService", "PurchaseInvoiceService", 
     "InventoryMovementService", 
-    "BankAccountService", # New Export
+    "BankAccountService", 
+    "BankTransactionService", # New Export
 ]

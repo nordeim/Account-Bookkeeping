@@ -1,4 +1,4 @@
-# File: app/core/application_core.py
+# app/core/application_core.py
 from typing import Optional, Any
 from app.core.config_manager import ConfigManager
 from app.core.database_manager import DatabaseManager 
@@ -17,7 +17,8 @@ from app.business_logic.vendor_manager import VendorManager
 from app.business_logic.product_manager import ProductManager
 from app.business_logic.sales_invoice_manager import SalesInvoiceManager
 from app.business_logic.purchase_invoice_manager import PurchaseInvoiceManager 
-from app.business_logic.bank_account_manager import BankAccountManager # New import
+from app.business_logic.bank_account_manager import BankAccountManager 
+from app.business_logic.bank_transaction_manager import BankTransactionManager
 
 # Services
 from app.services.account_service import AccountService
@@ -32,7 +33,7 @@ from app.services.accounting_services import (
 from app.services.business_services import (
     CustomerService, VendorService, ProductService, 
     SalesInvoiceService, PurchaseInvoiceService, InventoryMovementService,
-    BankAccountService # New import
+    BankAccountService, BankTransactionService
 )
 
 # Utilities
@@ -80,7 +81,8 @@ class ApplicationCore:
         self._sales_invoice_service_instance: Optional[SalesInvoiceService] = None
         self._purchase_invoice_service_instance: Optional[PurchaseInvoiceService] = None 
         self._inventory_movement_service_instance: Optional[InventoryMovementService] = None
-        self._bank_account_service_instance: Optional[BankAccountService] = None # New service instance
+        self._bank_account_service_instance: Optional[BankAccountService] = None 
+        self._bank_transaction_service_instance: Optional[BankTransactionService] = None
 
         # --- Manager Instance Placeholders ---
         self._coa_manager_instance: Optional[ChartOfAccountsManager] = None
@@ -96,7 +98,8 @@ class ApplicationCore:
         self._product_manager_instance: Optional[ProductManager] = None
         self._sales_invoice_manager_instance: Optional[SalesInvoiceManager] = None
         self._purchase_invoice_manager_instance: Optional[PurchaseInvoiceManager] = None 
-        self._bank_account_manager_instance: Optional[BankAccountManager] = None # New manager instance
+        self._bank_account_manager_instance: Optional[BankAccountManager] = None 
+        self._bank_transaction_manager_instance: Optional[BankTransactionManager] = None
 
         self.logger.info("ApplicationCore initialized.")
 
@@ -128,9 +131,10 @@ class ApplicationCore:
         self._vendor_service_instance = VendorService(self.db_manager, self) 
         self._product_service_instance = ProductService(self.db_manager, self)
         self._sales_invoice_service_instance = SalesInvoiceService(self.db_manager, self)
-        self._purchase_invoice_service_instance = PurchaseInvoiceService(self.db_manager, self) 
+        self._purchase_invoice_service_instance = PurchaseInvoiceService(self.db_manager, self) # Ensure this is initialized
         self._inventory_movement_service_instance = InventoryMovementService(self.db_manager, self) 
-        self._bank_account_service_instance = BankAccountService(self.db_manager, self) # New service init
+        self._bank_account_service_instance = BankAccountService(self.db_manager, self) 
+        self._bank_transaction_service_instance = BankTransactionService(self.db_manager, self)
 
         # Initialize Managers (dependencies should be initialized services)
         py_sequence_generator = SequenceGenerator(self.sequence_service, app_core_ref=self) 
@@ -151,7 +155,7 @@ class ApplicationCore:
         self._financial_statement_generator_instance = FinancialStatementGenerator(
             self.account_service, self.journal_service, self.fiscal_period_service,
             self.account_type_service, self.tax_code_service, self.company_settings_service,
-            self.dimension_service # Pass DimensionService
+            self.dimension_service 
         )
         self._report_engine_instance = ReportEngine(self)
 
@@ -179,8 +183,9 @@ class ApplicationCore:
             app_core=self,
             inventory_movement_service=self.inventory_movement_service 
         )
+        # This is where the error occurred in the traceback
         self._purchase_invoice_manager_instance = PurchaseInvoiceManager( 
-            purchase_invoice_service=self.purchase_invoice_service,
+            purchase_invoice_service=self.purchase_invoice_service, # Accessing via property now
             vendor_service=self.vendor_service,
             product_service=self.product_service,
             tax_code_service=self.tax_code_service,
@@ -191,10 +196,15 @@ class ApplicationCore:
             app_core=self,
             inventory_movement_service=self.inventory_movement_service 
         )
-        self._bank_account_manager_instance = BankAccountManager( # New manager init
+        self._bank_account_manager_instance = BankAccountManager( 
             bank_account_service=self.bank_account_service,
             account_service=self.account_service,
-            currency_service=self.currency_service, # type: ignore
+            currency_service=self.currency_service, 
+            app_core=self
+        )
+        self._bank_transaction_manager_instance = BankTransactionManager( 
+            bank_transaction_service=self.bank_transaction_service,
+            bank_account_service=self.bank_account_service,
             app_core=self
         )
         
@@ -211,15 +221,6 @@ class ApplicationCore:
         return self.security_manager.get_current_user()
 
     # --- Service Properties ---
-    @property
-    def dimension_service(self) -> DimensionService: 
-        if not self._dimension_service_instance: raise RuntimeError("DimensionService not initialized.")
-        return self._dimension_service_instance
-
-    @property
-    def inventory_movement_service(self) -> InventoryMovementService: 
-        if not self._inventory_movement_service_instance: raise RuntimeError("InventoryMovementService not initialized.")
-        return self._inventory_movement_service_instance
     @property
     def account_service(self) -> AccountService: 
         if not self._account_service_instance: raise RuntimeError("AccountService not initialized.")
@@ -245,6 +246,10 @@ class ApplicationCore:
         if not self._company_settings_service_instance: raise RuntimeError("CompanySettingsService not initialized.")
         return self._company_settings_service_instance
     @property
+    def configuration_service(self) -> ConfigurationService: 
+        if not self._configuration_service_instance: raise RuntimeError("ConfigurationService not initialized.")
+        return self._configuration_service_instance
+    @property
     def tax_code_service(self) -> TaxCodeService: 
         if not self._tax_code_service_instance: raise RuntimeError("TaxCodeService not initialized.")
         return self._tax_code_service_instance
@@ -261,7 +266,7 @@ class ApplicationCore:
         if not self._currency_repo_service_instance: raise RuntimeError("CurrencyRepoService not initialized.")
         return self._currency_repo_service_instance 
     @property
-    def currency_service(self) -> CurrencyRepoService: # Alias for consistency where CurrencyManager might expect 'currency_service'
+    def currency_service(self) -> CurrencyRepoService: 
         if not self._currency_repo_service_instance: raise RuntimeError("CurrencyService (CurrencyRepoService) not initialized.")
         return self._currency_repo_service_instance
     @property
@@ -269,9 +274,9 @@ class ApplicationCore:
         if not self._exchange_rate_service_instance: raise RuntimeError("ExchangeRateService not initialized.")
         return self._exchange_rate_service_instance 
     @property
-    def configuration_service(self) -> ConfigurationService: 
-        if not self._configuration_service_instance: raise RuntimeError("ConfigurationService not initialized.")
-        return self._configuration_service_instance
+    def dimension_service(self) -> DimensionService: 
+        if not self._dimension_service_instance: raise RuntimeError("DimensionService not initialized.")
+        return self._dimension_service_instance
     @property
     def customer_service(self) -> CustomerService: 
         if not self._customer_service_instance: raise RuntimeError("CustomerService not initialized.")
@@ -289,13 +294,21 @@ class ApplicationCore:
         if not self._sales_invoice_service_instance: raise RuntimeError("SalesInvoiceService not initialized.")
         return self._sales_invoice_service_instance
     @property
-    def purchase_invoice_service(self) -> PurchaseInvoiceService: 
+    def purchase_invoice_service(self) -> PurchaseInvoiceService: # Property for PurchaseInvoiceService
         if not self._purchase_invoice_service_instance: raise RuntimeError("PurchaseInvoiceService not initialized.")
         return self._purchase_invoice_service_instance
     @property
-    def bank_account_service(self) -> BankAccountService: # New service property
+    def inventory_movement_service(self) -> InventoryMovementService: 
+        if not self._inventory_movement_service_instance: raise RuntimeError("InventoryMovementService not initialized.")
+        return self._inventory_movement_service_instance
+    @property
+    def bank_account_service(self) -> BankAccountService: 
         if not self._bank_account_service_instance: raise RuntimeError("BankAccountService not initialized.")
         return self._bank_account_service_instance
+    @property
+    def bank_transaction_service(self) -> BankTransactionService: 
+        if not self._bank_transaction_service_instance: raise RuntimeError("BankTransactionService not initialized.")
+        return self._bank_transaction_service_instance
 
     # --- Manager Properties ---
     @property
@@ -303,7 +316,7 @@ class ApplicationCore:
         if not self._coa_manager_instance: raise RuntimeError("ChartOfAccountsManager not initialized.")
         return self._coa_manager_instance
     @property
-    def accounting_service(self) -> ChartOfAccountsManager: # Legacy alias potentially used by some older UI parts
+    def accounting_service(self) -> ChartOfAccountsManager: 
         return self.chart_of_accounts_manager
     @property
     def journal_entry_manager(self) -> JournalEntryManager: 
@@ -350,10 +363,15 @@ class ApplicationCore:
         if not self._sales_invoice_manager_instance: raise RuntimeError("SalesInvoiceManager not initialized.")
         return self._sales_invoice_manager_instance
     @property
-    def purchase_invoice_manager(self) -> PurchaseInvoiceManager: 
+    def purchase_invoice_manager(self) -> PurchaseInvoiceManager: # Property for PurchaseInvoiceManager
         if not self._purchase_invoice_manager_instance: raise RuntimeError("PurchaseInvoiceManager not initialized.")
         return self._purchase_invoice_manager_instance
     @property
-    def bank_account_manager(self) -> BankAccountManager: # New manager property
+    def bank_account_manager(self) -> BankAccountManager: 
         if not self._bank_account_manager_instance: raise RuntimeError("BankAccountManager not initialized.")
         return self._bank_account_manager_instance
+    @property
+    def bank_transaction_manager(self) -> BankTransactionManager: 
+        if not self._bank_transaction_manager_instance: raise RuntimeError("BankTransactionManager not initialized.")
+        return self._bank_transaction_manager_instance
+

@@ -13,21 +13,22 @@ from app.models.business.product import Product
 from app.models.business.sales_invoice import SalesInvoice, SalesInvoiceLine
 from app.models.business.purchase_invoice import PurchaseInvoice, PurchaseInvoiceLine 
 from app.models.business.inventory_movement import InventoryMovement 
-from app.models.business.bank_account import BankAccount # New import
+from app.models.business.bank_account import BankAccount 
+from app.models.business.bank_transaction import BankTransaction # New Import
 from app.models.accounting.account import Account 
 from app.models.accounting.currency import Currency 
 from app.models.accounting.tax_code import TaxCode 
 from app.services import (
     ICustomerRepository, IVendorRepository, IProductRepository, 
     ISalesInvoiceRepository, IPurchaseInvoiceRepository, IInventoryMovementRepository,
-    IBankAccountRepository # New import
+    IBankAccountRepository, IBankTransactionRepository # New import
 )
 from app.utils.pydantic_models import (
     CustomerSummaryData, VendorSummaryData, ProductSummaryData, 
     SalesInvoiceSummaryData, PurchaseInvoiceSummaryData,
-    BankAccountSummaryData # New import
+    BankAccountSummaryData, BankTransactionSummaryData # New import
 )
-from app.common.enums import ProductTypeEnum, InvoiceStatusEnum 
+from app.common.enums import ProductTypeEnum, InvoiceStatusEnum, BankTransactionTypeEnum # New import
 from datetime import date 
 
 if TYPE_CHECKING:
@@ -269,17 +270,13 @@ class InventoryMovementService(IInventoryMovementRepository):
             return list(result.scalars().all())
     
     async def save(self, entity: InventoryMovement, session: Optional[AsyncSession] = None) -> InventoryMovement:
-        """Saves an InventoryMovement, optionally using a provided session."""
-        
         async def _save_logic(current_session: AsyncSession):
             current_session.add(entity)
             await current_session.flush()
             await current_session.refresh(entity)
             return entity
-
-        if session: 
-            return await _save_logic(session)
-        else: 
+        if session: return await _save_logic(session)
+        else:
             async with self.db_manager.session() as new_session: # type: ignore
                 return await _save_logic(new_session)
 
@@ -299,8 +296,6 @@ class InventoryMovementService(IInventoryMovementRepository):
                 return True
             return False
 
-
-# --- New BankAccountService ---
 class BankAccountService(IBankAccountRepository):
     def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
         self.db_manager = db_manager
@@ -373,17 +368,115 @@ class BankAccountService(IBankAccountRepository):
         return await self.save(entity)
 
     async def delete(self, id_val: int) -> bool:
-        # For bank accounts, usually deactivate instead of hard delete if transactions exist.
-        # This method implies a soft delete (toggling `is_active`).
-        # The manager layer should decide if a hard delete is ever allowed based on business rules.
         bank_account = await self.get_by_id(id_val)
         if bank_account:
-            if bank_account.is_active: # Only "delete" (deactivate) if it's active
+            if bank_account.is_active: 
                 bank_account.is_active = False
-                # User ID for updated_by should be set by the manager calling this
                 await self.save(bank_account)
                 return True
-            else: # If already inactive, consider it "deleted" or no action needed
+            else: 
                 self.logger.info(f"BankAccount ID {id_val} is already inactive. No change made by delete.")
-                return True # Or False if you want to indicate no state change happened
+                return True 
         return False
+
+# --- New BankTransactionService ---
+class BankTransactionService(IBankTransactionRepository):
+    def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
+        self.db_manager = db_manager
+        self.app_core = app_core
+        self.logger = app_core.logger if app_core and hasattr(app_core, 'logger') else logging.getLogger(self.__class__.__name__)
+
+    async def get_by_id(self, id_val: int) -> Optional[BankTransaction]:
+        async with self.db_manager.session() as session:
+            stmt = select(BankTransaction).options(
+                selectinload(BankTransaction.bank_account),
+                selectinload(BankTransaction.journal_entry), # If JE linking is implemented
+                selectinload(BankTransaction.created_by_user),
+                selectinload(BankTransaction.updated_by_user)
+            ).where(BankTransaction.id == id_val)
+            result = await session.execute(stmt)
+            return result.scalars().first()
+
+    async def get_all(self) -> List[BankTransaction]: # Generic get_all might not be too useful
+        async with self.db_manager.session() as session:
+            stmt = select(BankTransaction).order_by(BankTransaction.transaction_date.desc(), BankTransaction.id.desc()) # type: ignore
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+
+    async def get_all_for_bank_account(self, bank_account_id: int,
+                                       start_date: Optional[date] = None,
+                                       end_date: Optional[date] = None,
+                                       transaction_type: Optional[BankTransactionTypeEnum] = None,
+                                       is_reconciled: Optional[bool] = None,
+                                       page: int = 1, page_size: int = 50
+                                      ) -> List[BankTransactionSummaryData]:
+        async with self.db_manager.session() as session:
+            conditions = [BankTransaction.bank_account_id == bank_account_id]
+            if start_date:
+                conditions.append(BankTransaction.transaction_date >= start_date)
+            if end_date:
+                conditions.append(BankTransaction.transaction_date <= end_date)
+            if transaction_type:
+                conditions.append(BankTransaction.transaction_type == transaction_type.value)
+            if is_reconciled is not None:
+                conditions.append(BankTransaction.is_reconciled == is_reconciled)
+            
+            stmt = select(BankTransaction).where(and_(*conditions)).order_by(BankTransaction.transaction_date.desc(), BankTransaction.id.desc()) # type: ignore
+            
+            if page_size > 0:
+                stmt = stmt.limit(page_size).offset((page - 1) * page_size)
+            
+            result = await session.execute(stmt)
+            txns_orm = result.scalars().all()
+            
+            # Convert ORM to Summary DTO
+            summaries: List[BankTransactionSummaryData] = []
+            for txn in txns_orm:
+                summaries.append(BankTransactionSummaryData(
+                    id=txn.id,
+                    transaction_date=txn.transaction_date,
+                    value_date=txn.value_date,
+                    transaction_type=BankTransactionTypeEnum(txn.transaction_type), # Convert string from DB to Enum
+                    description=txn.description,
+                    reference=txn.reference,
+                    amount=txn.amount, # Amount is stored signed
+                    is_reconciled=txn.is_reconciled
+                ))
+            return summaries
+
+    async def save(self, entity: BankTransaction, session: Optional[AsyncSession] = None) -> BankTransaction:
+        async def _save_logic(current_session: AsyncSession):
+            current_session.add(entity)
+            await current_session.flush()
+            await current_session.refresh(entity)
+            return entity
+
+        if session:
+            return await _save_logic(session)
+        else:
+            async with self.db_manager.session() as new_session: # type: ignore
+                return await _save_logic(new_session)
+    
+    async def add(self, entity: BankTransaction) -> BankTransaction:
+        return await self.save(entity)
+
+    async def update(self, entity: BankTransaction) -> BankTransaction:
+        # Business rules for updating bank transactions might be strict,
+        # e.g., only if not reconciled, or only certain fields.
+        # For now, a generic save.
+        return await self.save(entity)
+
+    async def delete(self, id_val: int) -> bool:
+        # Deleting bank transactions is usually highly restricted, especially if reconciled or posted.
+        # A "void" status or reversal transaction is preferred.
+        # For manually entered transactions not yet reconciled, deletion might be permissible.
+        async with self.db_manager.session() as session:
+            entity = await session.get(BankTransaction, id_val)
+            if entity:
+                if entity.is_reconciled:
+                    self.logger.warning(f"Attempt to delete reconciled BankTransaction ID {id_val}. Denied.")
+                    return False # Or raise error
+                # Add other checks if it's linked to a posted JE, etc.
+                await session.delete(entity)
+                return True
+            return False
