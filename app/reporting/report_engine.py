@@ -1,4 +1,4 @@
-# app/reporting/report_engine.py
+# File: app/reporting/report_engine.py
 from typing import Dict, Any, Literal, List, Optional, TYPE_CHECKING 
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, KeepInFrame
 from reportlab.platypus.flowables import KeepTogether
@@ -13,6 +13,8 @@ from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
 from openpyxl.utils import get_column_letter 
 from decimal import Decimal, InvalidOperation
 from datetime import date
+
+from app.utils.pydantic_models import GSTReturnData, GSTTransactionLineDetail # Import new DTOs
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore 
@@ -38,35 +40,31 @@ class ReportEngine:
         self.styles.add(ParagraphStyle(name='GLAccountHeader', parent=self.styles['h3'], fontSize=10, spaceBefore=0.1*inch, spaceAfter=0.05*inch, alignment=TA_LEFT))
 
 
-    async def export_report(self, report_data: Dict[str, Any], format_type: Literal["pdf", "excel"]) -> bytes:
+    async def export_report(self, report_data: Dict[str, Any], format_type: Literal["pdf", "excel", "gst_excel_detail"]) -> bytes: # Added "gst_excel_detail"
         title = report_data.get('title', "Financial Report")
+        # Special handling if report_data is GSTReturnData for detail export
+        is_gst_detail_export = isinstance(report_data, GSTReturnData) and "gst_excel_detail" in format_type
+
         if format_type == "pdf":
-            if title == "Balance Sheet":
-                return await self._export_balance_sheet_to_pdf(report_data)
-            elif title == "Profit & Loss Statement":
-                return await self._export_profit_loss_to_pdf(report_data)
-            elif title == "Trial Balance": 
-                return await self._export_trial_balance_to_pdf(report_data)
-            elif title == "General Ledger": 
-                return await self._export_general_ledger_to_pdf(report_data)
-            else: 
-                return self._export_generic_table_to_pdf(report_data) # Fallback for other types
+            if title == "Balance Sheet": return await self._export_balance_sheet_to_pdf(report_data)
+            elif title == "Profit & Loss Statement": return await self._export_profit_loss_to_pdf(report_data)
+            elif title == "Trial Balance": return await self._export_trial_balance_to_pdf(report_data)
+            elif title == "General Ledger": return await self._export_general_ledger_to_pdf(report_data)
+            else: return self._export_generic_table_to_pdf(report_data) 
         elif format_type == "excel":
-            if title == "Balance Sheet":
-                return await self._export_balance_sheet_to_excel(report_data)
-            elif title == "Profit & Loss Statement":
-                return await self._export_profit_loss_to_excel(report_data)
-            elif title == "Trial Balance": 
-                return await self._export_trial_balance_to_excel(report_data)
-            elif title == "General Ledger": 
-                return await self._export_general_ledger_to_excel(report_data)
-            else: 
-                return self._export_generic_table_to_excel(report_data) # Fallback for other types
+            if title == "Balance Sheet": return await self._export_balance_sheet_to_excel(report_data)
+            elif title == "Profit & Loss Statement": return await self._export_profit_loss_to_excel(report_data)
+            elif title == "Trial Balance": return await self._export_trial_balance_to_excel(report_data)
+            elif title == "General Ledger": return await self._export_general_ledger_to_excel(report_data)
+            else: return self._export_generic_table_to_excel(report_data) 
+        elif is_gst_detail_export: # Check for specific GST detail export type
+            # Cast is safe here due to the check above
+            return await self._export_gst_f5_details_to_excel(cast(GSTReturnData, report_data))
         else:
-            raise ValueError(f"Unsupported report format: {format_type}")
+            raise ValueError(f"Unsupported report format or data type mismatch: {format_type}, type: {type(report_data)}")
 
     def _format_decimal(self, value: Optional[Decimal], places: int = 2, show_blank_for_zero: bool = False) -> str:
-        if value is None: return "" if show_blank_for_zero else self._format_decimal(Decimal(0), places) # Ensure 0.00 for non-blank zero
+        if value is None: return "" if show_blank_for_zero else self._format_decimal(Decimal(0), places) 
         if not isinstance(value, Decimal): 
             try: value = Decimal(str(value))
             except InvalidOperation: return "ERR_DEC" 
@@ -81,25 +79,17 @@ class ReportEngine:
         canvas.saveState()
         page_width = doc.width + doc.leftMargin + doc.rightMargin
         header_y_start = doc.height + doc.topMargin - 0.5*inch
-        canvas.setFont('Helvetica-Bold', 14)
-        canvas.drawCentredString(page_width/2, header_y_start, company_name)
-        canvas.setFont('Helvetica-Bold', 12)
-        canvas.drawCentredString(page_width/2, header_y_start - 0.25*inch, report_title)
-        canvas.setFont('Helvetica', 10)
-        canvas.drawCentredString(page_width/2, header_y_start - 0.5*inch, date_desc)
-        footer_y = 0.5*inch
-        canvas.setFont('Helvetica', 8)
+        canvas.setFont('Helvetica-Bold', 14); canvas.drawCentredString(page_width/2, header_y_start, company_name)
+        canvas.setFont('Helvetica-Bold', 12); canvas.drawCentredString(page_width/2, header_y_start - 0.25*inch, report_title)
+        canvas.setFont('Helvetica', 10); canvas.drawCentredString(page_width/2, header_y_start - 0.5*inch, date_desc)
+        footer_y = 0.5*inch; canvas.setFont('Helvetica', 8)
         canvas.drawString(doc.leftMargin, footer_y, f"Generated on: {date.today().strftime('%d %b %Y')}")
         canvas.drawRightString(page_width - doc.rightMargin, footer_y, f"Page {doc.page}")
         canvas.restoreState()
 
-    # --- Balance Sheet Specific PDF ---
-    # ... (Method unchanged from previous version)
+    # ... (Existing PDF export methods for BS, P&L, TB, GL, Generic - unchanged) ...
     async def _export_balance_sheet_to_pdf(self, report_data: Dict[str, Any]) -> bytes:
-        buffer = BytesIO()
-        company_name = await self._get_company_name()
-        report_title = report_data.get('title', "Balance Sheet")
-        date_desc = report_data.get('report_date_description', "")
+        buffer = BytesIO(); company_name = await self._get_company_name(); report_title = report_data.get('title', "Balance Sheet"); date_desc = report_data.get('report_date_description', "")
         doc = SimpleDocTemplate(buffer, pagesize=A4,rightMargin=0.75*inch, leftMargin=0.75*inch,topMargin=1.25*inch, bottomMargin=0.75*inch)
         story: List[Any] = []; has_comparative = bool(report_data.get('comparative_date'))
         col_widths = [3.5*inch, 1.5*inch]; 
@@ -134,8 +124,6 @@ class ReportEngine:
         if report_data.get('is_balanced') is False: story.append(Spacer(1, 0.2*inch)); story.append(Paragraph("Warning: Balance Sheet is out of balance!", ParagraphStyle(name='Warning', parent=self.styles['Normal'], textColor=colors.red, fontName='Helvetica-Bold')))
         doc.build(story, onFirstPage=lambda c, d: self._add_pdf_header_footer(c, d, company_name, report_title, date_desc), onLaterPages=lambda c, d: self._add_pdf_header_footer(c, d, company_name, report_title, date_desc)); return buffer.getvalue()
 
-    # --- Profit & Loss Specific PDF ---
-    # ... (Method unchanged from previous version)
     async def _export_profit_loss_to_pdf(self, report_data: Dict[str, Any]) -> bytes:
         buffer = BytesIO(); company_name = await self._get_company_name(); report_title = report_data.get('title', "Profit & Loss Statement"); date_desc = report_data.get('report_date_description', "")
         doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=0.75*inch, leftMargin=0.75*inch,topMargin=1.25*inch, bottomMargin=0.75*inch)
@@ -175,8 +163,6 @@ class ReportEngine:
         pl_table.setStyle(style); story.append(pl_table)
         doc.build(story, onFirstPage=lambda c, d: self._add_pdf_header_footer(c, d, company_name, report_title, date_desc), onLaterPages=lambda c, d: self._add_pdf_header_footer(c, d, company_name, report_title, date_desc)); return buffer.getvalue()
 
-    # --- Trial Balance PDF Export ---
-    # ... (Method unchanged from previous version)
     async def _export_trial_balance_to_pdf(self, report_data: Dict[str, Any]) -> bytes:
         buffer = BytesIO(); company_name = await self._get_company_name(); report_title = report_data.get('title', "Trial Balance"); date_desc = report_data.get('report_date_description', f"As of {date.today().strftime('%d %b %Y')}")
         doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=0.75*inch, leftMargin=0.75*inch,topMargin=1.25*inch, bottomMargin=0.75*inch)
@@ -191,103 +177,33 @@ class ReportEngine:
         if report_data.get('is_balanced') is False: story.append(Spacer(1,0.2*inch)); story.append(Paragraph("Warning: Trial Balance is out of balance!", ParagraphStyle(name='Warning', parent=self.styles['Normal'], textColor=colors.red, fontName='Helvetica-Bold')))
         doc.build(story, onFirstPage=lambda c, d: self._add_pdf_header_footer(c, d, company_name, report_title, date_desc), onLaterPages=lambda c, d: self._add_pdf_header_footer(c, d, company_name, report_title, date_desc)); return buffer.getvalue()
 
-    # --- General Ledger PDF Export ---
     async def _export_general_ledger_to_pdf(self, report_data: Dict[str, Any]) -> bytes:
-        buffer = BytesIO()
-        company_name = await self._get_company_name()
-        report_title = report_data.get('title', "General Ledger")
-        # GL report_date_description includes account code and name, so use it directly
-        date_desc = report_data.get('report_date_description', "") 
-
-        doc = SimpleDocTemplate(buffer, pagesize=landscape(A4),
-                                rightMargin=0.5*inch, leftMargin=0.5*inch,
-                                topMargin=1.25*inch, bottomMargin=0.75*inch) # Use standard margins for GL header
-        story: List[Any] = []
-
-        # Account Specific Header (inside the main story, not page frame)
-        story.append(Paragraph(f"Account: {report_data.get('account_code')} - {report_data.get('account_name')}", self.styles['GLAccountHeader']))
-        story.append(Spacer(1, 0.1*inch))
-        story.append(Paragraph(f"Opening Balance: {self._format_decimal(report_data.get('opening_balance'))}", self.styles['AccountNameBold']))
-        story.append(Spacer(1, 0.2*inch))
-
-        # Transaction Table
+        buffer = BytesIO(); company_name = await self._get_company_name(); report_title = report_data.get('title', "General Ledger"); date_desc = report_data.get('report_date_description', "") 
+        doc = SimpleDocTemplate(buffer, pagesize=landscape(A4), rightMargin=0.5*inch, leftMargin=0.5*inch, topMargin=1.25*inch, bottomMargin=0.75*inch)
+        story: List[Any] = []; story.append(Paragraph(f"Account: {report_data.get('account_code')} - {report_data.get('account_name')}", self.styles['GLAccountHeader'])); story.append(Spacer(1, 0.1*inch)); story.append(Paragraph(f"Opening Balance: {self._format_decimal(report_data.get('opening_balance'))}", self.styles['AccountNameBold'])); story.append(Spacer(1, 0.2*inch))
         headers = ["Date", "Entry No.", "JE Description", "Line Description", "Debit", "Credit", "Balance"]
-        table_header_row = [Paragraph(h, self.styles['TableHeader']) for h in headers]
-        
-        gl_data: List[List[Any]] = [table_header_row]
-        for txn in report_data.get('transactions', []):
-            gl_data.append([
-                Paragraph(txn['date'].strftime('%d/%m/%Y') if isinstance(txn['date'], date) else str(txn['date']), self.styles['NormalCenter']),
-                Paragraph(txn['entry_no'], self.styles['Normal']),
-                Paragraph(txn.get('je_description','')[:40], self.styles['Normal']), # Truncate for PDF
-                Paragraph(txn.get('line_description','')[:40], self.styles['Normal']), # Truncate
-                Paragraph(self._format_decimal(txn['debit'], show_blank_for_zero=True), self.styles['NormalRight']),
-                Paragraph(self._format_decimal(txn['credit'], show_blank_for_zero=True), self.styles['NormalRight']),
-                Paragraph(self._format_decimal(txn['balance']), self.styles['NormalRight'])
-            ])
-        
-        # Column Widths for GL (Landscape A4)
-        # Total width available: landscape(A4)[0] - leftMargin - rightMargin = 11.69*inch - 1*inch = 10.69*inch
-        col_widths_gl = [0.9*inch, # Date
-                         1.0*inch, # Entry No.
-                         2.8*inch, # JE Desc
-                         2.8*inch, # Line Desc
-                         1.0*inch, # Debit
-                         1.0*inch, # Credit
-                         1.19*inch] # Balance
+        table_header_row = [Paragraph(h, self.styles['TableHeader']) for h in headers]; gl_data: List[List[Any]] = [table_header_row]
+        for txn in report_data.get('transactions', []): gl_data.append([Paragraph(txn['date'].strftime('%d/%m/%Y') if isinstance(txn['date'], date) else str(txn['date']), self.styles['NormalCenter']), Paragraph(txn['entry_no'], self.styles['Normal']), Paragraph(txn.get('je_description','')[:40], self.styles['Normal']), Paragraph(txn.get('line_description','')[:40], self.styles['Normal']), Paragraph(self._format_decimal(txn['debit'], show_blank_for_zero=True), self.styles['NormalRight']), Paragraph(self._format_decimal(txn['credit'], show_blank_for_zero=True), self.styles['NormalRight']), Paragraph(self._format_decimal(txn['balance']), self.styles['NormalRight'])])
+        col_widths_gl = [0.9*inch, 1.0*inch, 2.8*inch, 2.8*inch, 1.0*inch, 1.0*inch, 1.19*inch]
+        gl_table = Table(gl_data, colWidths=col_widths_gl); style = TableStyle([('GRID', (0,0), (-1,-1), 0.5, colors.grey), ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#4F81BD")), ('VALIGN', (0,0), (-1,-1), 'MIDDLE'), ('ALIGN', (0,1), (1,-1), 'CENTER'), ('ALIGN', (4,1), (6,-1), 'RIGHT'),]); gl_table.setStyle(style); story.append(gl_table); story.append(Spacer(1, 0.1*inch)); story.append(Paragraph(f"Closing Balance: {self._format_decimal(report_data.get('closing_balance'))}", self.styles['AmountBold']))
+        doc.build(story, onFirstPage=lambda c, d: self._add_pdf_header_footer(c, d, company_name, report_title, date_desc), onLaterPages=lambda c, d: self._add_pdf_header_footer(c, d, company_name, report_title, date_desc)); return buffer.getvalue()
 
-        gl_table = Table(gl_data, colWidths=col_widths_gl)
-        style = TableStyle([
-            ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
-            ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#4F81BD")),
-            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-            ('ALIGN', (0,1), (1,-1), 'CENTER'), # Date, Entry No.
-            ('ALIGN', (4,1), (6,-1), 'RIGHT'), # Amounts
-        ])
-        gl_table.setStyle(style)
-        story.append(gl_table)
-        story.append(Spacer(1, 0.1*inch))
-        story.append(Paragraph(f"Closing Balance: {self._format_decimal(report_data.get('closing_balance'))}", self.styles['AmountBold']))
-        
-        doc.build(story, onFirstPage=lambda c, d: self._add_pdf_header_footer(c, d, company_name, report_title, date_desc), 
-                         onLaterPages=lambda c, d: self._add_pdf_header_footer(c, d, company_name, report_title, date_desc))
-        return buffer.getvalue()
-
-
-    # --- Generic PDF Exporter (Fallback, if ever needed) ---
     def _export_generic_table_to_pdf(self, report_data: Dict[str, Any]) -> bytes:
-        # This method is now primarily a fallback.
-        # Specific GL PDF export will be richer.
-        # If GL is called here, it will be very basic.
         self.app_core.logger.warning(f"Using generic PDF export for report: {report_data.get('title')}")
-        buffer = BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=A4,
-                                rightMargin=0.5*inch, leftMargin=0.5*inch,
-                                topMargin=0.5*inch, bottomMargin=0.5*inch)
-        story: List[Any] = [Paragraph(report_data.get('title', "Report"), self.styles['h1'])]
+        buffer = BytesIO(); doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=0.5*inch, leftMargin=0.5*inch, topMargin=0.5*inch, bottomMargin=0.5*inch)
+        story: List[Any] = [Paragraph(report_data.get('title', "Report"), self.styles['h1'])]; 
         if report_data.get('report_date_description'): story.append(Paragraph(report_data.get('report_date_description'), self.styles['h3']))
-        story.append(Spacer(1, 0.2*inch))
-        
-        # Simplified table creation - assumes flat data structure if this fallback is hit
-        data_to_display = report_data.get('data_rows', []) # Expect 'data_rows' if generic
-        headers = report_data.get('headers', [])
+        story.append(Spacer(1, 0.2*inch)); data_to_display = report_data.get('data_rows', []); headers = report_data.get('headers', [])
         if headers and data_to_display:
             table_data: List[List[Any]] = [[Paragraph(str(h), self.styles['TableHeader']) for h in headers]]
-            for row_dict in data_to_display:
-                table_data.append([Paragraph(str(row_dict.get(h_key, '')), self.styles['Normal']) for h_key in headers]) # Assuming headers are keys
-            
-            num_cols = len(headers)
-            col_widths_generic = [doc.width/num_cols]*num_cols
-            table = Table(table_data, colWidths=col_widths_generic)
-            table.setStyle(TableStyle([('GRID', (0,0), (-1,-1), 0.5, colors.grey), ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#4F81BD"))]))
-            story.append(table)
+            for row_dict in data_to_display: table_data.append([Paragraph(str(row_dict.get(h_key, '')), self.styles['Normal']) for h_key in headers]) 
+            num_cols = len(headers); col_widths_generic = [doc.width/num_cols]*num_cols
+            table = Table(table_data, colWidths=col_widths_generic); table.setStyle(TableStyle([('GRID', (0,0), (-1,-1), 0.5, colors.grey), ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#4F81BD"))])); story.append(table)
         else: story.append(Paragraph("No data or headers provided for generic export.", self.styles['Normal']))
-
-        doc.build(story)
-        return buffer.getvalue()
+        doc.build(story); return buffer.getvalue()
 
     # --- Excel Export Methods ---
-    # ... (_apply_excel_header_style, _apply_excel_amount_style, _export_balance_sheet_to_excel, _export_profit_loss_to_excel, _export_trial_balance_to_excel - unchanged from previous version)
+    # ... ( _apply_excel_header_style, _apply_excel_amount_style, _export_balance_sheet_to_excel, _export_profit_loss_to_excel, _export_trial_balance_to_excel, _export_general_ledger_to_excel, _export_generic_table_to_excel - unchanged)
     def _apply_excel_header_style(self, cell, bold=True, size=12, alignment='center', fill_color: Optional[str]=None):
         cell.font = Font(bold=bold, size=size, color="FFFFFF" if fill_color else "000000")
         if alignment == 'center': cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
@@ -302,15 +218,10 @@ class ReportEngine:
         if underline: cell.border = Border(bottom=Side(style=underline))
         
     async def _export_balance_sheet_to_excel(self, report_data: Dict[str, Any]) -> bytes:
-        wb = openpyxl.Workbook(); ws = wb.active; ws.title = "Balance Sheet"
-        company_name = await self._get_company_name(); has_comparative = bool(report_data.get('comparative_date'))
-        row_num = 1
-        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3 if has_comparative else 2)
-        self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=company_name), size=14); row_num +=1
-        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3 if has_comparative else 2)
-        self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=report_data.get('title')), size=12); row_num +=1
-        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3 if has_comparative else 2)
-        self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=report_data.get('report_date_description')), size=10, bold=False); row_num += 2
+        wb = openpyxl.Workbook(); ws = wb.active; ws.title = "Balance Sheet"; company_name = await self._get_company_name(); has_comparative = bool(report_data.get('comparative_date')); row_num = 1
+        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3 if has_comparative else 2); self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=company_name), size=14); row_num +=1
+        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3 if has_comparative else 2); self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=report_data.get('title')), size=12); row_num +=1
+        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3 if has_comparative else 2); self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=report_data.get('report_date_description')), size=10, bold=False); row_num += 2
         headers = ["Description", "Current Period"]; 
         if has_comparative: headers.append("Comparative")
         for col, header_text in enumerate(headers, 1): self._apply_excel_header_style(ws.cell(row=row_num, column=col, value=header_text), alignment='center' if col>0 else 'left', fill_color="4F81BD")
@@ -342,15 +253,10 @@ class ReportEngine:
         excel_bytes_io = BytesIO(); wb.save(excel_bytes_io); return excel_bytes_io.getvalue()
 
     async def _export_profit_loss_to_excel(self, report_data: Dict[str, Any]) -> bytes:
-        wb = openpyxl.Workbook(); ws = wb.active; ws.title = "Profit and Loss"
-        company_name = await self._get_company_name(); has_comparative = bool(report_data.get('comparative_start'))
-        row_num = 1
-        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3 if has_comparative else 2)
-        self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=company_name), size=14); row_num +=1
-        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3 if has_comparative else 2)
-        self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=report_data.get('title')), size=12); row_num +=1
-        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3 if has_comparative else 2)
-        self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=report_data.get('report_date_description')), size=10, bold=False); row_num += 2
+        wb = openpyxl.Workbook(); ws = wb.active; ws.title = "Profit and Loss"; company_name = await self._get_company_name(); has_comparative = bool(report_data.get('comparative_start')); row_num = 1
+        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3 if has_comparative else 2); self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=company_name), size=14); row_num +=1
+        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3 if has_comparative else 2); self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=report_data.get('title')), size=12); row_num +=1
+        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3 if has_comparative else 2); self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=report_data.get('report_date_description')), size=10, bold=False); row_num += 2
         headers = ["Description", "Current Period"]; 
         if has_comparative: headers.append("Comparative")
         for col, header_text in enumerate(headers, 1): self._apply_excel_header_style(ws.cell(row=row_num, column=col, value=header_text), alignment='center' if col>0 else 'left', fill_color="4F81BD")
@@ -371,12 +277,9 @@ class ReportEngine:
             ws.cell(row=row_num, column=1, value=f"Total {title}").font = Font(bold=True)
             self._apply_excel_amount_style(ws.cell(row=row_num, column=2, value=float(section.get('total',0))), bold=True, underline="thin")
             if has_comparative: self._apply_excel_amount_style(ws.cell(row=row_num, column=3, value=float(section.get('comparative_total',0))), bold=True, underline="thin")
-            row_num +=1
-            return section.get('total', Decimal(0)), section.get('comparative_total') if has_comparative else Decimal(0)
-        total_revenue, comp_total_revenue = write_pl_section('revenue', 'Revenue')
-        row_num +=1 
-        total_expenses, comp_total_expenses = write_pl_section('expenses', 'Operating Expenses')
-        row_num +=1 
+            row_num +=1; return section.get('total', Decimal(0)), section.get('comparative_total') if has_comparative else Decimal(0)
+        total_revenue, comp_total_revenue = write_pl_section('revenue', 'Revenue'); row_num +=1 
+        total_expenses, comp_total_expenses = write_pl_section('expenses', 'Operating Expenses'); row_num +=1 
         ws.cell(row=row_num, column=1, value="Net Profit / (Loss)").font = Font(bold=True, size=11)
         self._apply_excel_amount_style(ws.cell(row=row_num, column=2, value=float(report_data.get('net_profit',0))), bold=True, underline="double")
         if has_comparative: self._apply_excel_amount_style(ws.cell(row=row_num, column=3, value=float(report_data.get('comparative_net_profit',0))), bold=True, underline="double")
@@ -384,7 +287,6 @@ class ReportEngine:
         excel_bytes_io = BytesIO(); wb.save(excel_bytes_io); return excel_bytes_io.getvalue()
     
     async def _export_trial_balance_to_excel(self, report_data: Dict[str, Any]) -> bytes:
-        # ... (Method unchanged from previous version)
         wb = openpyxl.Workbook(); ws = wb.active; ws.title = "Trial Balance"; company_name = await self._get_company_name(); row_num = 1
         ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=4); self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=company_name), size=14, alignment='center'); row_num += 1
         ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=4); self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=report_data.get('title')), size=12, alignment='center'); row_num += 1
@@ -392,107 +294,131 @@ class ReportEngine:
         headers = ["Account Code", "Account Name", "Debit", "Credit"]
         for col, header_text in enumerate(headers, 1): self._apply_excel_header_style(ws.cell(row=row_num, column=col, value=header_text), fill_color="4F81BD", alignment='center' if col > 1 else 'left')
         row_num += 1
-        for acc in report_data.get('debit_accounts', []):
-            ws.cell(row=row_num, column=1, value=acc['code']); ws.cell(row=row_num, column=2, value=acc['name'])
-            self._apply_excel_amount_style(ws.cell(row=row_num, column=3, value=float(acc['balance'] if acc.get('balance') is not None else 0))); ws.cell(row=row_num, column=4, value=None); row_num += 1
-        for acc in report_data.get('credit_accounts', []):
-            ws.cell(row=row_num, column=1, value=acc['code']); ws.cell(row=row_num, column=2, value=acc['name'])
-            ws.cell(row=row_num, column=3, value=None); self._apply_excel_amount_style(ws.cell(row=row_num, column=4, value=float(acc['balance'] if acc.get('balance') is not None else 0))); row_num += 1
+        for acc in report_data.get('debit_accounts', []): ws.cell(row=row_num, column=1, value=acc['code']); ws.cell(row=row_num, column=2, value=acc['name']); self._apply_excel_amount_style(ws.cell(row=row_num, column=3, value=float(acc['balance'] if acc.get('balance') is not None else 0))); ws.cell(row=row_num, column=4, value=None); row_num += 1
+        for acc in report_data.get('credit_accounts', []): ws.cell(row=row_num, column=1, value=acc['code']); ws.cell(row=row_num, column=2, value=acc['name']); ws.cell(row=row_num, column=3, value=None); self._apply_excel_amount_style(ws.cell(row=row_num, column=4, value=float(acc['balance'] if acc.get('balance') is not None else 0))); row_num += 1
         row_num +=1; ws.cell(row=row_num, column=2, value="TOTALS").font = Font(bold=True); ws.cell(row=row_num, column=2).alignment = Alignment(horizontal='right')
-        self._apply_excel_amount_style(ws.cell(row=row_num, column=3, value=float(report_data.get('total_debits', 0))), bold=True, underline="thin")
-        self._apply_excel_amount_style(ws.cell(row=row_num, column=4, value=float(report_data.get('total_credits', 0))), bold=True, underline="thin")
+        self._apply_excel_amount_style(ws.cell(row=row_num, column=3, value=float(report_data.get('total_debits', 0))), bold=True, underline="thin"); self._apply_excel_amount_style(ws.cell(row=row_num, column=4, value=float(report_data.get('total_credits', 0))), bold=True, underline="thin")
         if report_data.get('is_balanced', True) is False: row_num +=2; ws.cell(row=row_num, column=1, value="Warning: Trial Balance is out of balance!").font = Font(color="FF0000", bold=True)
         ws.column_dimensions[get_column_letter(1)].width = 15; ws.column_dimensions[get_column_letter(2)].width = 45; ws.column_dimensions[get_column_letter(3)].width = 20; ws.column_dimensions[get_column_letter(4)].width = 20
         excel_bytes_io = BytesIO(); wb.save(excel_bytes_io); return excel_bytes_io.getvalue()
 
-    # --- General Ledger Excel Export ---
     async def _export_general_ledger_to_excel(self, report_data: Dict[str, Any]) -> bytes:
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.title = f"GL-{report_data.get('account_code', 'Account')}"[:30]
-        company_name = await self._get_company_name()
+        wb = openpyxl.Workbook(); ws = wb.active; ws.title = f"GL-{report_data.get('account_code', 'Account')}"[:30]; company_name = await self._get_company_name(); row_num = 1
+        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=7); self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=company_name), size=14, alignment='center'); row_num += 1
+        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=7); self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=report_data.get('title')), size=12, alignment='center'); row_num += 1
+        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=7); self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=report_data.get('report_date_description')), size=10, bold=False, alignment='center'); row_num += 2
+        headers = ["Date", "Entry No.", "JE Description", "Line Description", "Debit", "Credit", "Balance"]
+        for col, header_text in enumerate(headers, 1): self._apply_excel_header_style(ws.cell(row=row_num, column=col, value=header_text), fill_color="4F81BD", alignment='center' if col > 3 else 'left')
+        row_num += 1
+        ws.cell(row=row_num, column=4, value="Opening Balance").font = Font(bold=True); ws.cell(row=row_num, column=4).alignment = Alignment(horizontal='right'); self._apply_excel_amount_style(ws.cell(row=row_num, column=7, value=float(report_data.get('opening_balance',0))), bold=True); row_num += 1
+        for txn in report_data.get('transactions', []):
+            ws.cell(row=row_num, column=1, value=txn['date'].strftime('%d/%m/%Y') if isinstance(txn['date'], date) else txn['date']); ws.cell(row=row_num, column=1).alignment = Alignment(horizontal='center')
+            ws.cell(row=row_num, column=2, value=txn['entry_no']); ws.cell(row=row_num, column=3, value=txn.get('je_description','')); ws.cell(row=row_num, column=4, value=txn.get('line_description',''))
+            self._apply_excel_amount_style(ws.cell(row=row_num, column=5, value=float(txn['debit'] if txn['debit'] else 0))); self._apply_excel_amount_style(ws.cell(row=row_num, column=6, value=float(txn['credit'] if txn['credit'] else 0))); self._apply_excel_amount_style(ws.cell(row=row_num, column=7, value=float(txn['balance']))); row_num += 1
+        ws.cell(row=row_num, column=4, value="Closing Balance").font = Font(bold=True); ws.cell(row=row_num, column=4).alignment = Alignment(horizontal='right'); self._apply_excel_amount_style(ws.cell(row=row_num, column=7, value=float(report_data.get('closing_balance',0))), bold=True, underline="thin")
+        ws.column_dimensions[get_column_letter(1)].width = 12; ws.column_dimensions[get_column_letter(2)].width = 15; ws.column_dimensions[get_column_letter(3)].width = 40; ws.column_dimensions[get_column_letter(4)].width = 40
+        for i in [5,6,7]: ws.column_dimensions[get_column_letter(i)].width = 18
+        excel_bytes_io = BytesIO(); wb.save(excel_bytes_io); return excel_bytes_io.getvalue()
 
+    # --- New GST F5 Detail Excel Export ---
+    async def _export_gst_f5_details_to_excel(self, report_data: GSTReturnData) -> bytes:
+        wb = openpyxl.Workbook()
+        
+        # Summary Sheet
+        ws_summary = wb.active
+        ws_summary.title = "GST F5 Summary"
+        company_name = await self._get_company_name()
         row_num = 1
-        # Report Headers
-        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=7)
-        self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=company_name), size=14, alignment='center')
+        ws_summary.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3)
+        self._apply_excel_header_style(ws_summary.cell(row=row_num, column=1, value=company_name), size=14)
         row_num += 1
-        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=7)
-        self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=report_data.get('title')), size=12, alignment='center')
+        ws_summary.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3)
+        self._apply_excel_header_style(ws_summary.cell(row=row_num, column=1, value="GST F5 Return"), size=12)
         row_num += 1
-        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=7)
-        self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=report_data.get('report_date_description')), size=10, bold=False, alignment='center')
+        ws_summary.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3)
+        date_desc = f"For period: {report_data.start_date.strftime('%d %b %Y')} to {report_data.end_date.strftime('%d %b %Y')}"
+        self._apply_excel_header_style(ws_summary.cell(row=row_num, column=1, value=date_desc), size=10, bold=False)
         row_num += 2
 
-        # Column Headers
-        headers = ["Date", "Entry No.", "JE Description", "Line Description", "Debit", "Credit", "Balance"]
-        for col, header_text in enumerate(headers, 1):
-            self._apply_excel_header_style(ws.cell(row=row_num, column=col, value=header_text), fill_color="4F81BD", alignment='center' if col > 3 else 'left')
-        row_num += 1
+        f5_boxes = [
+            ("1. Standard-Rated Supplies", report_data.standard_rated_supplies),
+            ("2. Zero-Rated Supplies", report_data.zero_rated_supplies),
+            ("3. Exempt Supplies", report_data.exempt_supplies),
+            ("4. Total Supplies (1+2+3)", report_data.total_supplies, True), # Bold
+            ("5. Taxable Purchases", report_data.taxable_purchases),
+            ("6. Output Tax Due", report_data.output_tax),
+            ("7. Input Tax and Refunds Claimed", report_data.input_tax),
+            ("8. GST Adjustments (e.g. Bad Debt Relief)", report_data.tax_adjustments),
+            ("9. Net GST Payable / (Claimable)", report_data.tax_payable, True) # Bold
+        ]
+        for desc, val, *is_bold in f5_boxes:
+            ws_summary.cell(row=row_num, column=1, value=desc).font = Font(bold=bool(is_bold and is_bold[0]))
+            self._apply_excel_amount_style(ws_summary.cell(row=row_num, column=2, value=float(val)), bold=bool(is_bold and is_bold[0]))
+            row_num +=1
         
-        # Opening Balance
-        ws.cell(row=row_num, column=4, value="Opening Balance").font = Font(bold=True) # Column D for 'Line Description' aligns with values
-        ws.cell(row=row_num, column=4).alignment = Alignment(horizontal='right')
-        self._apply_excel_amount_style(ws.cell(row=row_num, column=7, value=float(report_data.get('opening_balance',0))), bold=True)
-        row_num += 1
-
-        # Transaction Rows
-        for txn in report_data.get('transactions', []):
-            ws.cell(row=row_num, column=1, value=txn['date'].strftime('%d/%m/%Y') if isinstance(txn['date'], date) else txn['date'])
-            ws.cell(row=row_num, column=1).alignment = Alignment(horizontal='center')
-            ws.cell(row=row_num, column=2, value=txn['entry_no'])
-            ws.cell(row=row_num, column=3, value=txn.get('je_description',''))
-            ws.cell(row=row_num, column=4, value=txn.get('line_description',''))
-            self._apply_excel_amount_style(ws.cell(row=row_num, column=5, value=float(txn['debit'] if txn['debit'] else 0)))
-            self._apply_excel_amount_style(ws.cell(row=row_num, column=6, value=float(txn['credit'] if txn['credit'] else 0)))
-            self._apply_excel_amount_style(ws.cell(row=row_num, column=7, value=float(txn['balance'])))
-            row_num += 1
+        ws_summary.column_dimensions['A'].width = 45
+        ws_summary.column_dimensions['B'].width = 20
         
-        # Closing Balance
-        ws.cell(row=row_num, column=4, value="Closing Balance").font = Font(bold=True)
-        ws.cell(row=row_num, column=4).alignment = Alignment(horizontal='right')
-        self._apply_excel_amount_style(ws.cell(row=row_num, column=7, value=float(report_data.get('closing_balance',0))), bold=True, underline="thin") # Single underline for CB
+        # Detail Sheets
+        detail_headers = ["Date", "Doc No.", "Entity", "Description", "GL Code", "GL Name", "Net Amount", "GST Amount", "Tax Code"]
+        
+        box_map_to_detail_key = {
+            "Box 1: Std Supplies": "box1_standard_rated_supplies",
+            "Box 2: Zero Supplies": "box2_zero_rated_supplies",
+            "Box 3: Exempt Supplies": "box3_exempt_supplies",
+            "Box 5: Taxable Purchases": "box5_taxable_purchases",
+            "Box 6: Output Tax": "box6_output_tax_details", # Transactions where GST was charged
+            "Box 7: Input Tax": "box7_input_tax_details",   # Transactions where GST was claimed
+        }
 
-        # Column Widths
-        ws.column_dimensions[get_column_letter(1)].width = 12  # Date
-        ws.column_dimensions[get_column_letter(2)].width = 15  # Entry No
-        ws.column_dimensions[get_column_letter(3)].width = 40  # JE Desc
-        ws.column_dimensions[get_column_letter(4)].width = 40  # Line Desc
-        for i in [5,6,7]: ws.column_dimensions[get_column_letter(i)].width = 18 # Amounts
+        if report_data.detailed_breakdown:
+            for sheet_title_prefix, detail_key in box_map_to_detail_key.items():
+                transactions: List[GSTTransactionLineDetail] = report_data.detailed_breakdown.get(detail_key, [])
+                if not transactions: continue # Skip sheet if no details
+                
+                ws_detail = wb.create_sheet(title=sheet_title_prefix[:30]) # Max 31 chars for sheet title
+                row_num_detail = 1
+                for col, header_text in enumerate(detail_headers, 1):
+                    self._apply_excel_header_style(ws_detail.cell(row=row_num_detail, column=col, value=header_text), fill_color="4F81BD")
+                row_num_detail +=1
+                
+                for txn in transactions:
+                    ws_detail.cell(row=row_num_detail, column=1, value=txn.transaction_date.strftime('%d/%m/%Y') if txn.transaction_date else None)
+                    ws_detail.cell(row=row_num_detail, column=2, value=txn.document_no)
+                    ws_detail.cell(row=row_num_detail, column=3, value=txn.entity_name)
+                    ws_detail.cell(row=row_num_detail, column=4, value=txn.description)
+                    ws_detail.cell(row=row_num_detail, column=5, value=txn.account_code)
+                    ws_detail.cell(row=row_num_detail, column=6, value=txn.account_name)
+                    self._apply_excel_amount_style(ws_detail.cell(row=row_num_detail, column=7, value=float(txn.net_amount)))
+                    self._apply_excel_amount_style(ws_detail.cell(row=row_num_detail, column=8, value=float(txn.gst_amount)))
+                    ws_detail.cell(row=row_num_detail, column=9, value=txn.tax_code_applied)
+                    row_num_detail += 1
+                
+                for i, col_letter in enumerate([get_column_letter(j+1) for j in range(len(detail_headers))]):
+                    if i in [0,1,8]: ws_detail.column_dimensions[col_letter].width = 15 # Date, Doc No, Tax Code
+                    elif i in [2,3,4,5]: ws_detail.column_dimensions[col_letter].width = 30 # Entity, Desc, GL Code, GL Name
+                    else: ws_detail.column_dimensions[col_letter].width = 18 # Amounts
 
         excel_bytes_io = BytesIO()
         wb.save(excel_bytes_io)
         return excel_bytes_io.getvalue()
-
-    # --- Generic Excel Exporter (Fallback) ---
+        
     def _export_generic_table_to_excel(self, report_data: Dict[str, Any]) -> bytes:
-        # This is now truly a fallback for any other report types
         self.app_core.logger.warning(f"Using generic Excel export for report: {report_data.get('title')}")
         wb = openpyxl.Workbook(); ws = wb.active; ws.title = report_data.get('title', "Report")[:30] # type: ignore
         row_num = 1
         ws.cell(row=row_num, column=1, value=report_data.get('title')).font = Font(bold=True, size=14); row_num += 1 # type: ignore
         if report_data.get('report_date_description'): ws.cell(row=row_num, column=1, value=report_data.get('report_date_description')).font = Font(italic=True); row_num += 1 # type: ignore
-        row_num += 1
-        
-        headers = report_data.get('headers', [])
-        data_rows = report_data.get('data_rows', []) # Expects a list of dicts or lists
-
+        row_num += 1; headers = report_data.get('headers', []); data_rows = report_data.get('data_rows', []) 
         if headers:
             for col, header_text in enumerate(headers,1): self._apply_excel_header_style(ws.cell(row=row_num, column=col, value=header_text), fill_color="4F81BD")
             row_num +=1
-        
         if data_rows:
             for data_item in data_rows:
                 if isinstance(data_item, dict):
-                    for col, header_text in enumerate(headers, 1):
-                        ws.cell(row=row_num, column=col, value=data_item.get(header_text, data_item.get(header_text.lower().replace(' ','_'))))
+                    for col, header_text in enumerate(headers, 1): ws.cell(row=row_num, column=col, value=data_item.get(header_text, data_item.get(header_text.lower().replace(' ','_'))))
                 elif isinstance(data_item, list):
-                     for col, cell_val in enumerate(data_item, 1):
-                        ws.cell(row=row_num, column=col, value=cell_val)
+                     for col, cell_val in enumerate(data_item, 1): ws.cell(row=row_num, column=col, value=cell_val)
                 row_num +=1
-        
-        for col_idx_generic in range(1, len(headers) + 1): 
-            ws.column_dimensions[get_column_letter(col_idx_generic)].width = 20
-
+        for col_idx_generic in range(1, len(headers) + 1): ws.column_dimensions[get_column_letter(col_idx_generic)].width = 20
         excel_bytes_io = BytesIO(); wb.save(excel_bytes_io); return excel_bytes_io.getvalue()
-

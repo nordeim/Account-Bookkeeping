@@ -6,8 +6,8 @@ from decimal import Decimal
 
 from app.common.enums import ( 
     ProductTypeEnum, InvoiceStatusEnum, BankTransactionTypeEnum,
-    PaymentTypeEnum, PaymentMethodEnum, PaymentEntityTypeEnum, PaymentStatusEnum, # New Payment Enums
-    PaymentAllocationDocTypeEnum # New Payment Allocation Enum
+    PaymentTypeEnum, PaymentMethodEnum, PaymentEntityTypeEnum, PaymentStatusEnum, 
+    PaymentAllocationDocTypeEnum 
 )
 
 class AppBaseModel(BaseModel):
@@ -84,27 +84,43 @@ class JournalEntryData(AppBaseModel, UserAuditData):
         if abs(total_debits - total_credits) > Decimal("0.01"): raise ValueError(f"Journal entry must be balanced (Debits: {total_debits}, Credits: {total_credits}).")
         return values
 
-# --- GST Return Related DTOs ---
+# --- GST Related DTOs (New/Updated) ---
+class GSTTransactionLineDetail(AppBaseModel):
+    transaction_date: date
+    document_no: str # JE No or Source Document Ref
+    entity_name: Optional[str] = None # Customer/Vendor name, if applicable
+    description: str
+    account_code: str
+    account_name: str
+    net_amount: Decimal
+    gst_amount: Decimal
+    tax_code_applied: Optional[str] = None
+
 class GSTReturnData(AppBaseModel, UserAuditData):
     id: Optional[int] = None
     return_period: str = Field(..., max_length=20)
     start_date: date; end_date: date
     filing_due_date: Optional[date] = None 
-    standard_rated_supplies: Decimal = Field(Decimal(0))
-    zero_rated_supplies: Decimal = Field(Decimal(0))
-    exempt_supplies: Decimal = Field(Decimal(0))
-    total_supplies: Decimal = Field(Decimal(0)) 
-    taxable_purchases: Decimal = Field(Decimal(0))
-    output_tax: Decimal = Field(Decimal(0))
-    input_tax: Decimal = Field(Decimal(0))
-    tax_adjustments: Decimal = Field(Decimal(0))
-    tax_payable: Decimal = Field(Decimal(0)) 
+    standard_rated_supplies: Decimal = Field(Decimal(0))         # Box 1
+    zero_rated_supplies: Decimal = Field(Decimal(0))             # Box 2
+    exempt_supplies: Decimal = Field(Decimal(0))                 # Box 3
+    total_supplies: Decimal = Field(Decimal(0))                  # Box 4 (1+2+3)
+    taxable_purchases: Decimal = Field(Decimal(0))               # Box 5
+    output_tax: Decimal = Field(Decimal(0))                      # Box 6
+    input_tax: Decimal = Field(Decimal(0))                       # Box 7
+    tax_adjustments: Decimal = Field(Decimal(0))                 # Box 8
+    tax_payable: Decimal = Field(Decimal(0))                     # Box 9 (6-7+8)
     status: str = Field("Draft", max_length=20)
     submission_date: Optional[date] = None
     submission_reference: Optional[str] = Field(None, max_length=50)
     journal_entry_id: Optional[int] = None
     notes: Optional[str] = None
-    @validator('standard_rated_supplies', 'zero_rated_supplies', 'exempt_supplies', 'total_supplies', 'taxable_purchases', 'output_tax', 'input_tax', 'tax_adjustments', 'tax_payable', pre=True, always=True)
+    # New field for detailed breakdown
+    detailed_breakdown: Optional[Dict[str, List[GSTTransactionLineDetail]]] = Field(None, exclude=True) # Exclude by default from normal model_dump
+
+    @validator('standard_rated_supplies', 'zero_rated_supplies', 'exempt_supplies', 
+               'total_supplies', 'taxable_purchases', 'output_tax', 'input_tax', 
+               'tax_adjustments', 'tax_payable', pre=True, always=True)
     def gst_amounts_to_decimal(cls, v): return Decimal(str(v)) if v is not None else Decimal(0)
 
 # --- Tax Calculation DTOs ---
@@ -231,7 +247,7 @@ class SalesInvoiceBaseData(AppBaseModel):
 class SalesInvoiceCreateData(SalesInvoiceBaseData, UserAuditData): lines: List[SalesInvoiceLineBaseData] = Field(..., min_length=1)
 class SalesInvoiceUpdateData(SalesInvoiceBaseData, UserAuditData): id: int; lines: List[SalesInvoiceLineBaseData] = Field(..., min_length=1)
 class SalesInvoiceData(SalesInvoiceBaseData): id: int; invoice_no: str; subtotal: Decimal; tax_amount: Decimal; total_amount: Decimal; amount_paid: Decimal; status: InvoiceStatusEnum; journal_entry_id: Optional[int] = None; lines: List[SalesInvoiceLineBaseData]; created_at: datetime; updated_at: datetime; created_by_user_id: int; updated_by_user_id: int
-class SalesInvoiceSummaryData(AppBaseModel): id: int; invoice_no: str; invoice_date: date; due_date: date; customer_name: str; total_amount: Decimal; amount_paid: Decimal; status: InvoiceStatusEnum
+class SalesInvoiceSummaryData(AppBaseModel): id: int; invoice_no: str; invoice_date: date; due_date: date; customer_name: str; total_amount: Decimal; amount_paid: Decimal; status: InvoiceStatusEnum; currency_code: str # Added currency_code
 
 # --- User & Role Management DTOs ---
 class RoleData(AppBaseModel): 
@@ -368,6 +384,7 @@ class PurchaseInvoiceSummaryData(AppBaseModel):
     vendor_name: str 
     total_amount: Decimal
     status: InvoiceStatusEnum
+    currency_code: str # Added currency_code
 
 # --- Bank Account DTOs ---
 class BankAccountBaseData(AppBaseModel):
