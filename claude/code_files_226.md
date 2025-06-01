@@ -1,3 +1,52 @@
+<think>
+The user has provided a new traceback.
+**Error**: `NameError: name 'QGroupBox' is not defined`
+**Location**: `app/ui/banking/bank_accounts_widget.py`, line 113, in `_create_filter_area`.
+This error occurs during the initialization of `BankAccountsWidget`, which is called during `BankingWidget` initialization, which in turn is called during `MainWindow` initialization.
+
+**Diagnosis:**
+
+A `NameError` for a Qt class like `QGroupBox` means it was used without being imported from `PySide6.QtWidgets`.
+
+**Reviewing `app/ui/banking/bank_accounts_widget.py` from my last response:**
+The imports section for this file was:
+```python
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QTableView, QPushButton, 
+    QToolBar, QHeaderView, QAbstractItemView, QMessageBox,
+    QLabel, QLineEdit, QCheckBox, QComboBox # QGroupBox is missing here!
+)
+from PySide6.QtCore import Qt, Slot, QTimer, QMetaObject, Q_ARG, QModelIndex, QSize, QDate, Signal # Added Signal
+from PySide6.QtGui import QIcon, QAction
+# ... other imports
+```
+Indeed, `QGroupBox` is missing from the `PySide6.QtWidgets` import list.
+
+**Plan to Fix:**
+
+1.  **File**: `app/ui/banking/bank_accounts_widget.py`
+2.  **Action**: Add `QGroupBox` to the import statement from `PySide6.QtWidgets`.
+
+**Detailed Execution Plan for `app/ui/banking/bank_accounts_widget.py`:**
+
+1.  Locate the import block at the beginning of the file.
+2.  Modify the line `from PySide6.QtWidgets import (...)` to include `QGroupBox`.
+
+This is a straightforward fix. I will generate the complete updated file. I must be careful to ensure that only this specific import is added and no other parts of the file (which were correct for the previous step) are inadvertently changed. The rest of the `BankAccountsWidget` logic, including the signal emissions and filter area structure (aside from the missing import for `QGroupBox`), was intended to be correct.
+</think>
+
+You're absolutely right to flag this error. The traceback clearly points to a `NameError: name 'QGroupBox' is not defined` in `app/ui/banking/bank_accounts_widget.py`. This occurred because `QGroupBox` was used in the `_create_filter_area` method without being imported from `PySide6.QtWidgets`.
+
+My apologies for this oversight. I will add the necessary import.
+
+**Plan to Fix:**
+
+1.  **File**: `app/ui/banking/bank_accounts_widget.py`
+2.  **Change**: Add `QGroupBox` to the import list from `PySide6.QtWidgets`.
+
+I will now provide the complete updated file.
+
+```python
 # app/ui/banking/bank_accounts_widget.py
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableView, QPushButton, 
@@ -251,3 +300,35 @@ class BankAccountsWidget(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"An unexpected error occurred: {str(e)}")
 
+```
+
+**Diff for `app/ui/banking/bank_accounts_widget.py`**:
+```diff
+--- a/app/ui/banking/bank_accounts_widget.py
++++ b/app/ui/banking/bank_accounts_widget.py
+@@ -1,8 +1,8 @@
+ # app/ui/banking/bank_accounts_widget.py
+ from PySide6.QtWidgets import (
+     QWidget, QVBoxLayout, QHBoxLayout, QTableView, QPushButton, 
+-    QToolBar, QHeaderView, QAbstractItemView, QMessageBox,
+-    QLabel, QLineEdit, QCheckBox, QComboBox 
++    QToolBar, QHeaderView, QAbstractItemView, QMessageBox,
++    QLabel, QLineEdit, QCheckBox, QComboBox, QGroupBox # Added QGroupBox
+ )
+ from PySide6.QtCore import Qt, Slot, QTimer, QMetaObject, Q_ARG, QModelIndex, QSize, QDate, Signal
+ from PySide6.QtGui import QIcon, QAction
+
+```
+
+**Validation of `app/ui/banking/bank_accounts_widget.py`:**
+
+*   **Diff**: The `diff` correctly shows that `QGroupBox` was added to the import statement from `PySide6.QtWidgets`.
+*   **Content**: No other functional logic in the file was changed. The rest of the file remains as it was after the previous step where it was created (implementing the Bank Accounts list view, toolbar, signals for master-detail, etc.).
+*   **Correctness**: The change is valid and directly addresses the `NameError`.
+
+The file `app/ui/banking/bank_accounts_widget.py` is now correct.
+
+**Conclusion of Fix:**
+The `NameError` for `QGroupBox` in `app/ui/banking/bank_accounts_widget.py` has been resolved by adding the missing import. The application should now launch successfully and the Banking module, with its master-detail view for Bank Accounts and (empty for now) Bank Transactions, should be functional.
+
+All files generated in the previous step for "Basic Bank Transaction Entry (UI)" remain structurally sound, with this one import fix applied to `BankAccountsWidget`.
