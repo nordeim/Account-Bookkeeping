@@ -14,27 +14,30 @@ from app.models.business.sales_invoice import SalesInvoice, SalesInvoiceLine
 from app.models.business.purchase_invoice import PurchaseInvoice, PurchaseInvoiceLine 
 from app.models.business.inventory_movement import InventoryMovement 
 from app.models.business.bank_account import BankAccount 
-from app.models.business.bank_transaction import BankTransaction # New Import
+from app.models.business.bank_transaction import BankTransaction
+from app.models.business.payment import Payment, PaymentAllocation # New Import
 from app.models.accounting.account import Account 
 from app.models.accounting.currency import Currency 
 from app.models.accounting.tax_code import TaxCode 
 from app.services import (
     ICustomerRepository, IVendorRepository, IProductRepository, 
     ISalesInvoiceRepository, IPurchaseInvoiceRepository, IInventoryMovementRepository,
-    IBankAccountRepository, IBankTransactionRepository # New import
+    IBankAccountRepository, IBankTransactionRepository, IPaymentRepository # New import
 )
 from app.utils.pydantic_models import (
     CustomerSummaryData, VendorSummaryData, ProductSummaryData, 
     SalesInvoiceSummaryData, PurchaseInvoiceSummaryData,
-    BankAccountSummaryData, BankTransactionSummaryData # New import
+    BankAccountSummaryData, BankTransactionSummaryData,
+    PaymentSummaryData # New import
 )
-from app.common.enums import ProductTypeEnum, InvoiceStatusEnum, BankTransactionTypeEnum # New import
+from app.common.enums import ProductTypeEnum, InvoiceStatusEnum, BankTransactionTypeEnum, PaymentEntityTypeEnum, PaymentStatusEnum # New import
 from datetime import date 
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore
 
 class CustomerService(ICustomerRepository):
+    # ... (existing CustomerService code - unchanged) ...
     def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
         self.db_manager = db_manager
         self.app_core = app_core
@@ -71,6 +74,7 @@ class CustomerService(ICustomerRepository):
         raise NotImplementedError("Hard delete of customers is not supported. Use deactivation.")
 
 class VendorService(IVendorRepository):
+    # ... (existing VendorService code - unchanged) ...
     def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
         self.db_manager = db_manager; self.app_core = app_core
         self.logger = app_core.logger if app_core and hasattr(app_core, 'logger') else logging.getLogger(self.__class__.__name__)
@@ -106,6 +110,7 @@ class VendorService(IVendorRepository):
         raise NotImplementedError("Hard delete of vendors is not supported. Use deactivation.")
 
 class ProductService(IProductRepository):
+    # ... (existing ProductService code - unchanged) ...
     def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
         self.db_manager = db_manager; self.app_core = app_core
         self.logger = app_core.logger if app_core and hasattr(app_core, 'logger') else logging.getLogger(self.__class__.__name__)
@@ -142,6 +147,7 @@ class ProductService(IProductRepository):
         raise NotImplementedError("Hard delete of products/services is not supported. Use deactivation.")
 
 class SalesInvoiceService(ISalesInvoiceRepository):
+    # ... (existing SalesInvoiceService code - unchanged) ...
     def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
         self.db_manager = db_manager
         self.app_core = app_core
@@ -195,6 +201,7 @@ class SalesInvoiceService(ISalesInvoiceRepository):
         raise NotImplementedError("Hard delete of sales invoices is not supported. Use voiding/cancellation.")
 
 class PurchaseInvoiceService(IPurchaseInvoiceRepository):
+    # ... (existing PurchaseInvoiceService code - unchanged) ...
     def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
         self.db_manager = db_manager
         self.app_core = app_core
@@ -254,6 +261,7 @@ class PurchaseInvoiceService(IPurchaseInvoiceRepository):
         return False
 
 class InventoryMovementService(IInventoryMovementRepository):
+    # ... (existing InventoryMovementService code - unchanged) ...
     def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
         self.db_manager = db_manager
         self.app_core = app_core
@@ -297,6 +305,7 @@ class InventoryMovementService(IInventoryMovementRepository):
             return False
 
 class BankAccountService(IBankAccountRepository):
+    # ... (existing BankAccountService code - unchanged) ...
     def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
         self.db_manager = db_manager
         self.app_core = app_core
@@ -379,8 +388,8 @@ class BankAccountService(IBankAccountRepository):
                 return True 
         return False
 
-# --- New BankTransactionService ---
 class BankTransactionService(IBankTransactionRepository):
+    # ... (existing BankTransactionService code - unchanged) ...
     def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
         self.db_manager = db_manager
         self.app_core = app_core
@@ -390,14 +399,14 @@ class BankTransactionService(IBankTransactionRepository):
         async with self.db_manager.session() as session:
             stmt = select(BankTransaction).options(
                 selectinload(BankTransaction.bank_account),
-                selectinload(BankTransaction.journal_entry), # If JE linking is implemented
+                selectinload(BankTransaction.journal_entry), 
                 selectinload(BankTransaction.created_by_user),
                 selectinload(BankTransaction.updated_by_user)
             ).where(BankTransaction.id == id_val)
             result = await session.execute(stmt)
             return result.scalars().first()
 
-    async def get_all(self) -> List[BankTransaction]: # Generic get_all might not be too useful
+    async def get_all(self) -> List[BankTransaction]: 
         async with self.db_manager.session() as session:
             stmt = select(BankTransaction).order_by(BankTransaction.transaction_date.desc(), BankTransaction.id.desc()) # type: ignore
             result = await session.execute(stmt)
@@ -429,17 +438,16 @@ class BankTransactionService(IBankTransactionRepository):
             result = await session.execute(stmt)
             txns_orm = result.scalars().all()
             
-            # Convert ORM to Summary DTO
             summaries: List[BankTransactionSummaryData] = []
             for txn in txns_orm:
                 summaries.append(BankTransactionSummaryData(
                     id=txn.id,
                     transaction_date=txn.transaction_date,
                     value_date=txn.value_date,
-                    transaction_type=BankTransactionTypeEnum(txn.transaction_type), # Convert string from DB to Enum
+                    transaction_type=BankTransactionTypeEnum(txn.transaction_type), 
                     description=txn.description,
                     reference=txn.reference,
-                    amount=txn.amount, # Amount is stored signed
+                    amount=txn.amount, 
                     is_reconciled=txn.is_reconciled
                 ))
             return summaries
@@ -461,22 +469,143 @@ class BankTransactionService(IBankTransactionRepository):
         return await self.save(entity)
 
     async def update(self, entity: BankTransaction) -> BankTransaction:
-        # Business rules for updating bank transactions might be strict,
-        # e.g., only if not reconciled, or only certain fields.
-        # For now, a generic save.
         return await self.save(entity)
 
     async def delete(self, id_val: int) -> bool:
-        # Deleting bank transactions is usually highly restricted, especially if reconciled or posted.
-        # A "void" status or reversal transaction is preferred.
-        # For manually entered transactions not yet reconciled, deletion might be permissible.
         async with self.db_manager.session() as session:
             entity = await session.get(BankTransaction, id_val)
             if entity:
                 if entity.is_reconciled:
                     self.logger.warning(f"Attempt to delete reconciled BankTransaction ID {id_val}. Denied.")
-                    return False # Or raise error
-                # Add other checks if it's linked to a posted JE, etc.
+                    return False 
                 await session.delete(entity)
                 return True
+            return False
+
+# --- New PaymentService ---
+class PaymentService(IPaymentRepository):
+    def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
+        self.db_manager = db_manager
+        self.app_core = app_core
+        self.logger = app_core.logger if app_core and hasattr(app_core, 'logger') else logging.getLogger(self.__class__.__name__)
+
+    async def get_by_id(self, id_val: int) -> Optional[Payment]:
+        async with self.db_manager.session() as session:
+            stmt = select(Payment).options(
+                selectinload(Payment.allocations), # Eager load allocations
+                selectinload(Payment.bank_account),
+                selectinload(Payment.currency),
+                selectinload(Payment.journal_entry),
+                selectinload(Payment.created_by_user),
+                selectinload(Payment.updated_by_user)
+            ).where(Payment.id == id_val)
+            result = await session.execute(stmt)
+            return result.scalars().first()
+
+    async def get_all(self) -> List[Payment]:
+        async with self.db_manager.session() as session:
+            stmt = select(Payment).order_by(Payment.payment_date.desc(), Payment.payment_no.desc()) # type: ignore
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+
+    async def get_by_payment_no(self, payment_no: str) -> Optional[Payment]:
+        async with self.db_manager.session() as session:
+            stmt = select(Payment).options(selectinload(Payment.allocations)).where(Payment.payment_no == payment_no)
+            result = await session.execute(stmt)
+            return result.scalars().first()
+
+    async def get_all_summary(self, 
+                              entity_type: Optional[PaymentEntityTypeEnum] = None,
+                              entity_id: Optional[int] = None,
+                              status: Optional[PaymentStatusEnum] = None,
+                              start_date: Optional[date] = None,
+                              end_date: Optional[date] = None,
+                              page: int = 1, page_size: int = 50
+                             ) -> List[PaymentSummaryData]:
+        async with self.db_manager.session() as session:
+            conditions = []
+            if entity_type:
+                conditions.append(Payment.entity_type == entity_type.value)
+            if entity_id is not None: # entity_id can be 0 which is falsy but valid if we ever allow it
+                conditions.append(Payment.entity_id == entity_id)
+            if status:
+                conditions.append(Payment.status == status.value)
+            if start_date:
+                conditions.append(Payment.payment_date >= start_date)
+            if end_date:
+                conditions.append(Payment.payment_date <= end_date)
+
+            # Select base payment fields and join to get entity_name
+            # This requires conditional joining or a more complex query if entity_type varies
+            # For simplicity, let's assume we fetch entity_name in the manager after getting IDs
+            # Or, use a UNION if performance is critical and entity types are few
+            
+            # Simpler approach: fetch IDs and resolve names in manager, or do separate queries
+            # For now, fetch entity_id and type, name resolution will be in manager.
+            stmt = select(
+                Payment.id, Payment.payment_no, Payment.payment_date, Payment.payment_type,
+                Payment.payment_method, Payment.entity_type, Payment.entity_id,
+                Payment.amount, Payment.currency_code, Payment.status,
+                # Labeling for clarity, though direct attribute access works on ORM objects
+                # For mappings, labels are good.
+                case(
+                    (Payment.entity_type == PaymentEntityTypeEnum.CUSTOMER.value, select(Customer.name).where(Customer.id == Payment.entity_id).scalar_subquery()),
+                    (Payment.entity_type == PaymentEntityTypeEnum.VENDOR.value, select(Vendor.name).where(Vendor.id == Payment.entity_id).scalar_subquery()),
+                    else_ = literal_column("'Other/N/A'")
+                ).label("entity_name")
+            )
+            
+            if conditions:
+                stmt = stmt.where(and_(*conditions))
+            
+            stmt = stmt.order_by(Payment.payment_date.desc(), Payment.payment_no.desc()) # type: ignore
+            
+            if page_size > 0:
+                stmt = stmt.limit(page_size).offset((page - 1) * page_size)
+            
+            result = await session.execute(stmt)
+            return [PaymentSummaryData.model_validate(row._asdict()) for row in result.mappings().all()]
+
+
+    async def save(self, entity: Payment, session: Optional[AsyncSession] = None) -> Payment:
+        """Saves a Payment and its allocations. Expects allocations to be set on entity.lines."""
+        async def _save_logic(current_session: AsyncSession):
+            # If it's an update, existing allocations might need to be handled (e.g., removed and re-added)
+            # This is typically done by the manager before calling save, or by cascade settings.
+            # For Payment, allocations are related via Payment.allocations.
+            # SQLAlchemy's cascade="all, delete-orphan" on Payment.allocations handles child (PaymentAllocation) persistence.
+            current_session.add(entity)
+            await current_session.flush()
+            await current_session.refresh(entity)
+            # Eager load allocations if they were part of the save, to ensure they are available on the returned ORM.
+            if entity.id and entity.allocations: # check if allocations were part of the DTO used to build entity
+                 await current_session.refresh(entity, attribute_names=['allocations'])
+            return entity
+
+        if session:
+            return await _save_logic(session)
+        else:
+            async with self.db_manager.session() as new_session: # type: ignore
+                return await _save_logic(new_session)
+
+    async def add(self, entity: Payment) -> Payment:
+        return await self.save(entity)
+
+    async def update(self, entity: Payment) -> Payment:
+        return await self.save(entity)
+
+    async def delete(self, id_val: int) -> bool:
+        # Payments, especially if posted (linked to JE), should typically be voided, not hard deleted.
+        # A voiding process would create reversal JEs.
+        # For now, only allow deleting DRAFT payments.
+        async with self.db_manager.session() as session:
+            payment = await session.get(Payment, id_val)
+            if payment:
+                if payment.status == PaymentStatusEnum.DRAFT.value:
+                    await session.delete(payment)
+                    self.logger.info(f"Draft Payment ID {id_val} deleted.")
+                    return True
+                else:
+                    self.logger.warning(f"Attempt to delete non-draft Payment ID {id_val} (status: {payment.status}). Denied.")
+                    return False 
             return False

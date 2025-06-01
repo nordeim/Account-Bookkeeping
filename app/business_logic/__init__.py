@@ -5,7 +5,8 @@ from .product_manager import ProductManager
 from .sales_invoice_manager import SalesInvoiceManager
 from .purchase_invoice_manager import PurchaseInvoiceManager 
 from .bank_account_manager import BankAccountManager 
-from .bank_transaction_manager import BankTransactionManager # New import
+from .bank_transaction_manager import BankTransactionManager
+from .payment_manager import PaymentManager # New import
 
 __all__ = [
     "CustomerManager",
@@ -14,5 +15,6 @@ __all__ = [
     "SalesInvoiceManager",
     "PurchaseInvoiceManager", 
     "BankAccountManager", 
-    "BankTransactionManager", # New export
+    "BankTransactionManager",
+    "PaymentManager", # New export
 ]
