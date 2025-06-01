@@ -15,6 +15,7 @@ from app.models.accounting.fiscal_year import FiscalYear
 from app.ui.accounting.fiscal_year_dialog import FiscalYearDialog 
 from app.ui.settings.user_management_widget import UserManagementWidget 
 from app.ui.settings.role_management_widget import RoleManagementWidget 
+from app.ui.audit.audit_log_widget import AuditLogWidget # New Import
 from decimal import Decimal, InvalidOperation
 import asyncio
 import json 
@@ -183,6 +184,10 @@ class SettingsWidget(QWidget):
         # --- Role Management Tab ---
         self.role_management_widget = RoleManagementWidget(self.app_core)
         self.tab_widget.addTab(self.role_management_widget, "Roles & Permissions")
+
+        # --- Audit Log Tab (New) ---
+        self.audit_log_widget = AuditLogWidget(self.app_core)
+        self.tab_widget.addTab(self.audit_log_widget, "Audit Logs")
         
         self.setLayout(self.main_layout) 
 
@@ -245,7 +250,8 @@ class SettingsWidget(QWidget):
         
         if target_currency_code:
             idx = self.base_currency_combo.findData(target_currency_code) 
-            if idx != -1: self.base_currency_combo.setCurrentIndex(idx)
+            if idx != -1: 
+                self.base_currency_combo.setCurrentIndex(idx)
             else: 
                 idx_sgd = self.base_currency_combo.findData("SGD") 
                 if idx_sgd != -1: self.base_currency_combo.setCurrentIndex(idx_sgd)
@@ -413,8 +419,12 @@ class SettingsWidget(QWidget):
         if result.is_success:
             assert result.value is not None
             msg = f"Fiscal Year '{result.value.year_name}' created successfully."
-            if fy_data.auto_generate_periods:
-                msg += f" {fy_data.auto_generate_periods} periods generated."
+            if fy_data.auto_generate_periods: # Check against original DTO value
+                # This part was using a string "Month" or "Quarterly" instead of checking the DTO attribute
+                # The DTO's auto_generate_periods is Optional[str]
+                # Example: " Month periods generated." if type is Month.
+                # For simplicity, let's just confirm periods were generated if the DTO flag was set.
+                msg += f" Periods auto-generated as per selection."
             
             QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "information", Qt.ConnectionType.QueuedConnection,
                 Q_ARG(QWidget, self), Q_ARG(str, "Success"), Q_ARG(str, msg))
