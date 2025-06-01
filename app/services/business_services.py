@@ -1,6 +1,6 @@
 # File: app/services/business_services.py
 from typing import List, Optional, Any, TYPE_CHECKING, Dict
-from sqlalchemy import select, func, and_, or_
+from sqlalchemy import select, func, and_, or_, literal_column # Added literal_column
 from sqlalchemy.ext.asyncio import AsyncSession 
 from sqlalchemy.orm import selectinload, joinedload 
 from decimal import Decimal
@@ -492,12 +492,14 @@ class PaymentService(IPaymentRepository):
     async def get_by_id(self, id_val: int) -> Optional[Payment]:
         async with self.db_manager.session() as session:
             stmt = select(Payment).options(
-                selectinload(Payment.allocations), # Eager load allocations
+                selectinload(Payment.allocations),
                 selectinload(Payment.bank_account),
                 selectinload(Payment.currency),
                 selectinload(Payment.journal_entry),
                 selectinload(Payment.created_by_user),
                 selectinload(Payment.updated_by_user)
+                # Eager load entity (Customer/Vendor) might be needed if Payment model has direct relationship
+                # For now, entity_id is just an int.
             ).where(Payment.id == id_val)
             result = await session.execute(stmt)
             return result.scalars().first()
@@ -526,7 +528,7 @@ class PaymentService(IPaymentRepository):
             conditions = []
             if entity_type:
                 conditions.append(Payment.entity_type == entity_type.value)
-            if entity_id is not None: # entity_id can be 0 which is falsy but valid if we ever allow it
+            if entity_id is not None:
                 conditions.append(Payment.entity_id == entity_id)
             if status:
                 conditions.append(Payment.status == status.value)
@@ -535,23 +537,17 @@ class PaymentService(IPaymentRepository):
             if end_date:
                 conditions.append(Payment.payment_date <= end_date)
 
-            # Select base payment fields and join to get entity_name
-            # This requires conditional joining or a more complex query if entity_type varies
-            # For simplicity, let's assume we fetch entity_name in the manager after getting IDs
-            # Or, use a UNION if performance is critical and entity types are few
-            
-            # Simpler approach: fetch IDs and resolve names in manager, or do separate queries
-            # For now, fetch entity_id and type, name resolution will be in manager.
+            # Using case for entity_name as implemented before
             stmt = select(
                 Payment.id, Payment.payment_no, Payment.payment_date, Payment.payment_type,
                 Payment.payment_method, Payment.entity_type, Payment.entity_id,
                 Payment.amount, Payment.currency_code, Payment.status,
-                # Labeling for clarity, though direct attribute access works on ORM objects
-                # For mappings, labels are good.
                 case(
-                    (Payment.entity_type == PaymentEntityTypeEnum.CUSTOMER.value, select(Customer.name).where(Customer.id == Payment.entity_id).scalar_subquery()),
-                    (Payment.entity_type == PaymentEntityTypeEnum.VENDOR.value, select(Vendor.name).where(Vendor.id == Payment.entity_id).scalar_subquery()),
-                    else_ = literal_column("'Other/N/A'")
+                    (Payment.entity_type == PaymentEntityTypeEnum.CUSTOMER.value, 
+                     select(Customer.name).where(Customer.id == Payment.entity_id).scalar_subquery()),
+                    (Payment.entity_type == PaymentEntityTypeEnum.VENDOR.value, 
+                     select(Vendor.name).where(Vendor.id == Payment.entity_id).scalar_subquery()),
+                    else_=literal_column("'Other/N/A'") 
                 ).label("entity_name")
             )
             
@@ -566,19 +562,19 @@ class PaymentService(IPaymentRepository):
             result = await session.execute(stmt)
             return [PaymentSummaryData.model_validate(row._asdict()) for row in result.mappings().all()]
 
-
     async def save(self, entity: Payment, session: Optional[AsyncSession] = None) -> Payment:
-        """Saves a Payment and its allocations. Expects allocations to be set on entity.lines."""
         async def _save_logic(current_session: AsyncSession):
-            # If it's an update, existing allocations might need to be handled (e.g., removed and re-added)
-            # This is typically done by the manager before calling save, or by cascade settings.
-            # For Payment, allocations are related via Payment.allocations.
-            # SQLAlchemy's cascade="all, delete-orphan" on Payment.allocations handles child (PaymentAllocation) persistence.
             current_session.add(entity)
-            await current_session.flush()
+            await current_session.flush() # Flushes to get IDs, persists main entity
+            
+            # If allocations are part of the entity and not yet persisted through cascade,
+            # or if they need linking, this is where it would happen.
+            # With cascade="all, delete-orphan" on Payment.allocations relationship,
+            # adding allocations to entity.allocations before adding 'entity' to session
+            # should handle persistence of allocations.
+            
             await current_session.refresh(entity)
-            # Eager load allocations if they were part of the save, to ensure they are available on the returned ORM.
-            if entity.id and entity.allocations: # check if allocations were part of the DTO used to build entity
+            if entity.id and entity.allocations: # If allocations were set on the entity
                  await current_session.refresh(entity, attribute_names=['allocations'])
             return entity
 
@@ -592,17 +588,15 @@ class PaymentService(IPaymentRepository):
         return await self.save(entity)
 
     async def update(self, entity: Payment) -> Payment:
+        # For updates, the manager should handle clearing/updating allocations before calling save.
         return await self.save(entity)
 
     async def delete(self, id_val: int) -> bool:
-        # Payments, especially if posted (linked to JE), should typically be voided, not hard deleted.
-        # A voiding process would create reversal JEs.
-        # For now, only allow deleting DRAFT payments.
         async with self.db_manager.session() as session:
             payment = await session.get(Payment, id_val)
             if payment:
-                if payment.status == PaymentStatusEnum.DRAFT.value:
-                    await session.delete(payment)
+                if payment.status == PaymentStatusEnum.DRAFT.value: # Only draft can be deleted
+                    await session.delete(payment) # Cascade should delete allocations
                     self.logger.info(f"Draft Payment ID {id_val} deleted.")
                     return True
                 else:

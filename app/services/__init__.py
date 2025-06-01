@@ -41,26 +41,26 @@ from app.models.business.purchase_invoice import PurchaseInvoice
 from app.models.business.inventory_movement import InventoryMovement
 from app.models.accounting.dimension import Dimension 
 from app.models.business.bank_account import BankAccount 
-from app.models.business.bank_transaction import BankTransaction
-from app.models.business.payment import Payment, PaymentAllocation # New ORM Imports
+from app.models.business.bank_transaction import BankTransaction 
+from app.models.business.payment import Payment, PaymentAllocation 
 
 # --- DTO Imports (for return types in interfaces) ---
 from app.utils.pydantic_models import (
     CustomerSummaryData, VendorSummaryData, ProductSummaryData, 
     SalesInvoiceSummaryData, PurchaseInvoiceSummaryData,
     BankAccountSummaryData, BankTransactionSummaryData,
-    PaymentSummaryData # New DTO Import
+    PaymentSummaryData
 )
 
 # --- Enum Imports (for filter types in interfaces) ---
-from app.common.enums import ( # Assuming all relevant enums are here
+from app.common.enums import ( 
     ProductTypeEnum, InvoiceStatusEnum, BankTransactionTypeEnum,
-    PaymentTypeEnum, PaymentEntityTypeEnum, PaymentStatusEnum # Added Payment Enums
+    PaymentTypeEnum, PaymentEntityTypeEnum, PaymentStatusEnum 
 )
 
 
-# --- Existing Interfaces (condensed for brevity) ---
-# ... (IAccountRepository to IDimensionRepository - unchanged from previous step) ...
+# --- Existing Interfaces ---
+# ... (IAccountRepository to IBankTransactionRepository - unchanged from previous step) ...
 class IAccountRepository(IRepository[Account, int]): 
     @abstractmethod
     async def get_by_code(self, code: str) -> Optional[Account]: pass
@@ -274,7 +274,7 @@ class IPaymentRepository(IRepository[Payment, int]):
                               page: int = 1, page_size: int = 50
                              ) -> List[PaymentSummaryData]: pass
     @abstractmethod
-    async def save(self, entity: Payment, session: Optional[Any] = None) -> Payment: pass # For payment and its allocations
+    async def save(self, entity: Payment, session: Optional[Any] = None) -> Payment: pass
 
 
 # --- Service Implementations ---
@@ -287,7 +287,7 @@ from .accounting_services import AccountTypeService, CurrencyService, ExchangeRa
 from .business_services import (
     CustomerService, VendorService, ProductService, 
     SalesInvoiceService, PurchaseInvoiceService, InventoryMovementService,
-    BankAccountService, BankTransactionService, PaymentService # New Service Import
+    BankAccountService, BankTransactionService, PaymentService 
 )
 
 __all__ = [
@@ -302,7 +302,7 @@ __all__ = [
     "IDimensionRepository", 
     "IBankAccountRepository", 
     "IBankTransactionRepository", 
-    "IPaymentRepository", # New Export
+    "IPaymentRepository", 
     "AccountService", "JournalService", "FiscalPeriodService", "FiscalYearService",
     "TaxCodeService", "GSTReturnService",
     "SequenceService", "ConfigurationService", "CompanySettingsService",
@@ -312,5 +312,5 @@ __all__ = [
     "InventoryMovementService", 
     "BankAccountService", 
     "BankTransactionService",
-    "PaymentService", # New Export
+    "PaymentService", 
 ]
