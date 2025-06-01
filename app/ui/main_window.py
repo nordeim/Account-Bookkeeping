@@ -9,13 +9,14 @@ from PySide6.QtCore import Qt, QSettings, Signal, Slot, QCoreApplication, QSize
 from app.ui.dashboard.dashboard_widget import DashboardWidget
 from app.ui.accounting.accounting_widget import AccountingWidget
 from app.ui.sales_invoices.sales_invoices_widget import SalesInvoicesWidget
-from app.ui.purchase_invoices.purchase_invoices_widget import PurchaseInvoicesWidget # New Import
+from app.ui.purchase_invoices.purchase_invoices_widget import PurchaseInvoicesWidget
 from app.ui.customers.customers_widget import CustomersWidget
 from app.ui.vendors.vendors_widget import VendorsWidget
 from app.ui.products.products_widget import ProductsWidget
 from app.ui.banking.banking_widget import BankingWidget
 from app.ui.reports.reports_widget import ReportsWidget
 from app.ui.settings.settings_widget import SettingsWidget
+from app.ui.payments.payments_widget import PaymentsWidget # New Import
 from app.core.application_core import ApplicationCore
 
 class MainWindow(QMainWindow):
@@ -83,8 +84,11 @@ class MainWindow(QMainWindow):
         self.sales_invoices_widget = SalesInvoicesWidget(self.app_core)
         self.tab_widget.addTab(self.sales_invoices_widget, QIcon(self.icon_path_prefix + "transactions.svg"), "Sales") 
 
-        self.purchase_invoices_widget = PurchaseInvoicesWidget(self.app_core) # New Widget
-        self.tab_widget.addTab(self.purchase_invoices_widget, QIcon(self.icon_path_prefix + "vendors.svg"), "Purchases") # Using vendors.svg for now
+        self.purchase_invoices_widget = PurchaseInvoicesWidget(self.app_core) 
+        self.tab_widget.addTab(self.purchase_invoices_widget, QIcon(self.icon_path_prefix + "vendors.svg"), "Purchases") 
+
+        self.payments_widget = PaymentsWidget(self.app_core) # New Payments Tab
+        self.tab_widget.addTab(self.payments_widget, QIcon(self.icon_path_prefix + "banking.svg"), "Payments") # Re-use banking icon for now
 
         self.customers_widget = CustomersWidget(self.app_core)
         self.tab_widget.addTab(self.customers_widget, QIcon(self.icon_path_prefix + "customers.svg"), "Customers")

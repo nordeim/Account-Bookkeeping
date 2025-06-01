@@ -1,3 +1,51 @@
+<think>
+The user has provided a new traceback.
+**Error**: `NameError: name 'case' is not defined`
+**Location**: `app/services/business_services.py`, line 545, within the `PaymentService.get_all_summary` method.
+**Context**: This error occurs when the `PaymentsWidget` (or any other component) tries to load the list of payments, triggering the `PaymentManager.get_payments_for_listing` method, which in turn calls `PaymentService.get_all_summary`.
+
+**Diagnosis:**
+
+The `NameError` means that the SQLAlchemy `case` construct was used without being imported from `sqlalchemy`. The `case` statement is used in the `get_all_summary` method to conditionally determine the `entity_name` based on `Payment.entity_type`.
+
+**Reviewing `app/services/business_services.py` from my last response:**
+
+The imports at the top of `business_services.py` were:
+```python
+from typing import List, Optional, Any, TYPE_CHECKING, Dict
+from sqlalchemy import select, func, and_, or_, literal_column # 'case' is missing here
+from sqlalchemy.ext.asyncio import AsyncSession 
+from sqlalchemy.orm import selectinload, joinedload 
+# ... other imports
+```
+Indeed, `case` is missing from the `sqlalchemy` import list.
+
+**Plan to Fix:**
+
+1.  **File**: `app/services/business_services.py`
+2.  **Action**: Add `case` to the import statement from `sqlalchemy`.
+
+**Detailed Execution Plan for `app/services/business_services.py`:**
+
+1.  Locate the import block at the beginning of the file.
+2.  Modify the line `from sqlalchemy import select, func, and_, or_, literal_column` to include `case`.
+    So it becomes: `from sqlalchemy import select, func, and_, or_, literal_column, case`.
+
+This is a straightforward import fix. I will generate the complete updated file, ensuring only this specific import is added and no other parts of the file are inadvertently changed.
+</think>
+
+You are absolutely correct to point out this `NameError`. The traceback clearly shows that `case` (from SQLAlchemy, used for conditional expressions in queries) was not defined in `app/services/business_services.py` within the `PaymentService.get_all_summary` method. This is because it was missing from the `sqlalchemy` imports.
+
+My apologies for this oversight. I will add the necessary import.
+
+**Plan to Fix:**
+
+1.  **File**: `app/services/business_services.py`
+2.  **Change**: Add `case` to the import list from `sqlalchemy`.
+
+I will now provide the complete updated file with this correction.
+
+```python
 # app/services/business_services.py
 from typing import List, Optional, Any, TYPE_CHECKING, Dict
 from sqlalchemy import select, func, and_, or_, literal_column, case # Added 'case'
@@ -584,3 +632,15 @@ class PaymentService(IPaymentRepository):
                     return False 
             return False
 
+```
+**Validation of `app/services/business_services.py`**:
+*   **Diff**: The only change is `from sqlalchemy import select, func, and_, or_, literal_column` was changed to `from sqlalchemy import select, func, and_, or_, literal_column, case`.
+*   **Content**: This adds the missing `case` import.
+*   **Correctness**: This change is correct and directly addresses the `NameError` reported in the traceback. No other parts of the file were modified.
+
+The file `app/services/business_services.py` is now correct.
+
+**Conclusion of Fix:**
+The `NameError` for `case` in `app/services/business_services.py` within the `PaymentService.get_all_summary` method has been resolved by adding the missing import from `sqlalchemy`. The application should now launch successfully and the Payments module (both backend and the UI elements implemented so far) should function as intended, including the listing of payments which triggered this error.
+
+All other functionalities of the application remain unchanged and intact.
