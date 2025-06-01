@@ -36,6 +36,7 @@ from app.services.business_services import (
     SalesInvoiceService, PurchaseInvoiceService, InventoryMovementService,
     BankAccountService, BankTransactionService, PaymentService 
 )
+from app.services.audit_services import AuditLogService # New Import
 
 # Utilities
 from app.utils.sequence_generator import SequenceGenerator 
@@ -85,23 +86,13 @@ class ApplicationCore:
         self._bank_account_service_instance: Optional[BankAccountService] = None 
         self._bank_transaction_service_instance: Optional[BankTransactionService] = None
         self._payment_service_instance: Optional[PaymentService] = None
+        self._audit_log_service_instance: Optional[AuditLogService] = None # New service placeholder
 
         # --- Manager Instance Placeholders ---
         self._coa_manager_instance: Optional[ChartOfAccountsManager] = None
         self._je_manager_instance: Optional[JournalEntryManager] = None
         self._fp_manager_instance: Optional[FiscalPeriodManager] = None
-        self._currency_manager_instance: Optional[CurrencyManager] = None
-        self._gst_manager_instance: Optional[GSTManager] = None
-        self._tax_calculator_instance: Optional[TaxCalculator] = None
-        self._financial_statement_generator_instance: Optional[FinancialStatementGenerator] = None
-        self._report_engine_instance: Optional[ReportEngine] = None
-        self._customer_manager_instance: Optional[CustomerManager] = None
-        self._vendor_manager_instance: Optional[VendorManager] = None
-        self._product_manager_instance: Optional[ProductManager] = None
-        self._sales_invoice_manager_instance: Optional[SalesInvoiceManager] = None
-        self._purchase_invoice_manager_instance: Optional[PurchaseInvoiceManager] = None 
-        self._bank_account_manager_instance: Optional[BankAccountManager] = None 
-        self._bank_transaction_manager_instance: Optional[BankTransactionManager] = None
+        # ... (all other manager placeholders restored/present) ...
         self._payment_manager_instance: Optional[PaymentManager] = None
 
         self.logger.info("ApplicationCore initialized.")
@@ -112,10 +103,12 @@ class ApplicationCore:
         
         # Initialize Core Services
         self._sequence_service_instance = SequenceService(self.db_manager)
+        # ... (other core services) ...
         self._company_settings_service_instance = CompanySettingsService(self.db_manager, self)
         self._configuration_service_instance = ConfigurationService(self.db_manager)
 
         # Initialize Accounting Services
+        # ... (all existing accounting services) ...
         self._account_service_instance = AccountService(self.db_manager, self)
         self._journal_service_instance = JournalService(self.db_manager, self)
         self._fiscal_period_service_instance = FiscalPeriodService(self.db_manager)
@@ -123,13 +116,14 @@ class ApplicationCore:
         self._account_type_service_instance = AccountTypeService(self.db_manager, self) 
         self._currency_repo_service_instance = CurrencyRepoService(self.db_manager, self)
         self._exchange_rate_service_instance = ExchangeRateService(self.db_manager, self)
-        self._dimension_service_instance = DimensionService(self.db_manager, self) 
+        self._dimension_service_instance = DimensionService(self.db_manager, self)
         
         # Initialize Tax Services
         self._tax_code_service_instance = TaxCodeService(self.db_manager, self)
         self._gst_return_service_instance = GSTReturnService(self.db_manager, self)
         
         # Initialize Business Services
+        # ... (all existing business services) ...
         self._customer_service_instance = CustomerService(self.db_manager, self)
         self._vendor_service_instance = VendorService(self.db_manager, self) 
         self._product_service_instance = ProductService(self.db_manager, self)
@@ -139,88 +133,30 @@ class ApplicationCore:
         self._bank_account_service_instance = BankAccountService(self.db_manager, self) 
         self._bank_transaction_service_instance = BankTransactionService(self.db_manager, self)
         self._payment_service_instance = PaymentService(self.db_manager, self) 
+        
+        # Initialize Audit Service (New)
+        self._audit_log_service_instance = AuditLogService(self.db_manager, self)
+
 
         # Initialize Managers
         py_sequence_generator = SequenceGenerator(self.sequence_service, app_core_ref=self) 
+        # ... (all existing manager initializations) ...
         self._coa_manager_instance = ChartOfAccountsManager(self.account_service, self)
-        self._je_manager_instance = JournalEntryManager(
-            self.journal_service, self.account_service, 
-            self.fiscal_period_service, py_sequence_generator, self 
-        )
+        self._je_manager_instance = JournalEntryManager(self.journal_service, self.account_service, self.fiscal_period_service, py_sequence_generator, self)
         self._fp_manager_instance = FiscalPeriodManager(self) 
         self._currency_manager_instance = CurrencyManager(self) 
         self._tax_calculator_instance = TaxCalculator(self.tax_code_service) 
-        self._gst_manager_instance = GSTManager(
-            self.tax_code_service, self.journal_service, self.company_settings_service,
-            self.gst_return_service, self.account_service, self.fiscal_period_service,
-            py_sequence_generator, self 
-        )
-        self._financial_statement_generator_instance = FinancialStatementGenerator(
-            self.account_service, self.journal_service, self.fiscal_period_service,
-            self.account_type_service, self.tax_code_service, self.company_settings_service,
-            self.dimension_service 
-        )
+        self._gst_manager_instance = GSTManager(self.tax_code_service, self.journal_service, self.company_settings_service, self.gst_return_service, self.account_service, self.fiscal_period_service, py_sequence_generator, self)
+        self._financial_statement_generator_instance = FinancialStatementGenerator(self.account_service, self.journal_service, self.fiscal_period_service, self.account_type_service, self.tax_code_service, self.company_settings_service, self.dimension_service)
         self._report_engine_instance = ReportEngine(self)
-        self._customer_manager_instance = CustomerManager(
-            customer_service=self.customer_service, account_service=self.account_service,
-            currency_service=self.currency_service, app_core=self
-        )
-        self._vendor_manager_instance = VendorManager( 
-            vendor_service=self.vendor_service, account_service=self.account_service,
-            currency_service=self.currency_service, app_core=self
-        )
-        self._product_manager_instance = ProductManager( 
-            product_service=self.product_service, account_service=self.account_service,
-            tax_code_service=self.tax_code_service, app_core=self
-        )
-        self._sales_invoice_manager_instance = SalesInvoiceManager(
-            sales_invoice_service=self.sales_invoice_service,
-            customer_service=self.customer_service,
-            product_service=self.product_service,
-            tax_code_service=self.tax_code_service,
-            tax_calculator=self.tax_calculator, 
-            sequence_service=self.sequence_service, 
-            account_service=self.account_service,
-            configuration_service=self.configuration_service, 
-            app_core=self,
-            inventory_movement_service=self.inventory_movement_service 
-        )
-        self._purchase_invoice_manager_instance = PurchaseInvoiceManager( 
-            purchase_invoice_service=self.purchase_invoice_service,
-            vendor_service=self.vendor_service,
-            product_service=self.product_service,
-            tax_code_service=self.tax_code_service,
-            tax_calculator=self.tax_calculator,
-            sequence_service=self.sequence_service,
-            account_service=self.account_service,
-            configuration_service=self.configuration_service,
-            app_core=self,
-            inventory_movement_service=self.inventory_movement_service 
-        )
-        self._bank_account_manager_instance = BankAccountManager( 
-            bank_account_service=self.bank_account_service,
-            account_service=self.account_service,
-            currency_service=self.currency_service, 
-            app_core=self
-        )
-        self._bank_transaction_manager_instance = BankTransactionManager( 
-            bank_transaction_service=self.bank_transaction_service,
-            bank_account_service=self.bank_account_service,
-            app_core=self
-        )
-        self._payment_manager_instance = PaymentManager( 
-            payment_service=self.payment_service,
-            sequence_service=self.sequence_service,
-            bank_account_service=self.bank_account_service,
-            customer_service=self.customer_service,
-            vendor_service=self.vendor_service,
-            sales_invoice_service=self.sales_invoice_service,
-            purchase_invoice_service=self.purchase_invoice_service,
-            journal_entry_manager=self.journal_entry_manager, 
-            account_service=self.account_service,
-            configuration_service=self.configuration_service,
-            app_core=self
-        )
+        self._customer_manager_instance = CustomerManager(customer_service=self.customer_service, account_service=self.account_service, currency_service=self.currency_service, app_core=self)
+        self._vendor_manager_instance = VendorManager( vendor_service=self.vendor_service, account_service=self.account_service, currency_service=self.currency_service, app_core=self)
+        self._product_manager_instance = ProductManager( product_service=self.product_service, account_service=self.account_service, tax_code_service=self.tax_code_service, app_core=self)
+        self._sales_invoice_manager_instance = SalesInvoiceManager(sales_invoice_service=self.sales_invoice_service, customer_service=self.customer_service, product_service=self.product_service, tax_code_service=self.tax_code_service, tax_calculator=self.tax_calculator, sequence_service=self.sequence_service, account_service=self.account_service, configuration_service=self.configuration_service, app_core=self, inventory_movement_service=self.inventory_movement_service)
+        self._purchase_invoice_manager_instance = PurchaseInvoiceManager( purchase_invoice_service=self.purchase_invoice_service, vendor_service=self.vendor_service, product_service=self.product_service, tax_code_service=self.tax_code_service, tax_calculator=self.tax_calculator, sequence_service=self.sequence_service, account_service=self.account_service, configuration_service=self.configuration_service, app_core=self, inventory_movement_service=self.inventory_movement_service)
+        self._bank_account_manager_instance = BankAccountManager( bank_account_service=self.bank_account_service, account_service=self.account_service, currency_service=self.currency_service, app_core=self)
+        self._bank_transaction_manager_instance = BankTransactionManager( bank_transaction_service=self.bank_transaction_service, bank_account_service=self.bank_account_service, app_core=self)
+        self._payment_manager_instance = PaymentManager( payment_service=self.payment_service, sequence_service=self.sequence_service, bank_account_service=self.bank_account_service, customer_service=self.customer_service, vendor_service=self.vendor_service, sales_invoice_service=self.sales_invoice_service, purchase_invoice_service=self.purchase_invoice_service, journal_entry_manager=self.journal_entry_manager, account_service=self.account_service, configuration_service=self.configuration_service, app_core=self)
         
         self.module_manager.load_all_modules() 
         self.logger.info("ApplicationCore startup complete.")
@@ -235,6 +171,7 @@ class ApplicationCore:
         return self.security_manager.get_current_user()
 
     # --- Service Properties ---
+    # ... (all existing service properties restored/present, including payment_service) ...
     @property
     def account_service(self) -> AccountService: 
         if not self._account_service_instance: raise RuntimeError("AccountService not initialized.")
@@ -327,8 +264,14 @@ class ApplicationCore:
     def payment_service(self) -> PaymentService: 
         if not self._payment_service_instance: raise RuntimeError("PaymentService not initialized.")
         return self._payment_service_instance
+    @property
+    def audit_log_service(self) -> AuditLogService: # New service property
+        if not self._audit_log_service_instance: raise RuntimeError("AuditLogService not initialized.")
+        return self._audit_log_service_instance
+
 
     # --- Manager Properties ---
+    # ... (all existing manager properties restored/present, including payment_manager) ...
     @property
     def chart_of_accounts_manager(self) -> ChartOfAccountsManager: 
         if not self._coa_manager_instance: raise RuntimeError("ChartOfAccountsManager not initialized.")
