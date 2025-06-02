@@ -71,3 +71,17 @@ Hope, this incidence is an important  lesson for you not to remove seemingly unn
 
 Now, I want you to recall whether you have removed seemingly unnecessary sections or lines of code that are *harmless* in any of your earlier response?
 
+---
+Please validate the update in schema.sql after carefully reviewing the attached recommended code change.
+
+can you carefully and thoroughly and deeply review all the documents shared earlier to have a good context and grounding for the project, then refine and re-validate your conclusion on `scripts/schema.sql-new`?
+
+---
+Please carefully and deeply review the current codebase shared here as `currect_project_file_structure.txt`, `project_codebase_files_set-2.md`, `project_codebase_files_set-4.md`, `project_codebase_files_set-6.md project_codebase_files_set-1.md`, `project_codebase_files_set-3.md`, `project_codebase_files_set-5.md`, and `project_codebase_files_set-7.md` files.
+
+The current project folder structure is shown in `currect_project_file_structure.txt` and all the current project code files are enclosed in `project_codebase_files_set-2.md`, `project_codebase_files_set-4.md`, `project_codebase_files_set-6.md project_codebase_files_set-1.md`, `project_codebase_files_set-3.md`, `project_codebase_files_set-5.md`, and `project_codebase_files_set-7.md` files.
+
+Make sure you have a good grounding on the current state of the project based on the current codebase shared here. Then cross reference them with your earlier understanding of the project based on your earlier review of the project documentation shared earlier. Give me a detail architecture overview of the the current state of the project based on this current codebase study.
+
+Next, with a good grounding of the current codebase, do a careful re-validation of your newly generated files for `scripts/schema.sql`, `app/utils/pydantic_models.py`, `app/services/audit_services.py`, and `app/models/business/bank_transaction.py`. It is good practice to do due diligence.
+

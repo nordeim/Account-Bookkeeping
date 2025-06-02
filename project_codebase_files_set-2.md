@@ -1,963 +1,89 @@
-# app/ui/__init__.py
+# app/ui/banking/__init__.py
 ```py
-# File: app/ui/__init__.py
-# (Content as previously generated)
-from .main_window import MainWindow
-
-__all__ = ["MainWindow"]
-
-```
-
-# app/ui/settings/user_management_widget.py
-```py
-# File: app/ui/settings/user_management_widget.py
-from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QTableView, QPushButton, 
-    QToolBar, QMenu, QHeaderView, QAbstractItemView, QMessageBox
-)
-from PySide6.QtCore import Qt, Slot, QTimer, QMetaObject, Q_ARG, QModelIndex, QSize
-from PySide6.QtGui import QIcon, QAction
-from typing import Optional, List, Dict, Any, TYPE_CHECKING
-
-import json
-
-from app.core.application_core import ApplicationCore
-from app.main import schedule_task_from_qt
-from app.ui.settings.user_table_model import UserTableModel
-from app.ui.settings.user_dialog import UserDialog 
-from app.ui.settings.user_password_dialog import UserPasswordDialog # New import
-from app.utils.pydantic_models import UserSummaryData
-from app.utils.json_helpers import json_converter, json_date_hook 
-from app.utils.result import Result
-from app.models.core.user import User 
-
-if TYPE_CHECKING:
-    from PySide6.QtGui import QPaintDevice
-
-class UserManagementWidget(QWidget):
-    def __init__(self, app_core: ApplicationCore, parent: Optional["QWidget"] = None):
-        super().__init__(parent)
-        self.app_core = app_core
-        
-        self.icon_path_prefix = "resources/icons/" 
-        try:
-            import app.resources_rc 
-            self.icon_path_prefix = ":/icons/"
-        except ImportError:
-            pass 
-        
-        self._init_ui()
-        QTimer.singleShot(0, lambda: schedule_task_from_qt(self._load_users()))
-
-    def _init_ui(self):
-        self.main_layout = QVBoxLayout(self)
-        self.main_layout.setSpacing(5)
-
-        self._create_toolbar()
-        self.main_layout.addWidget(self.toolbar)
-
-        self.users_table = QTableView()
-        self.users_table.setAlternatingRowColors(True)
-        self.users_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.users_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.users_table.horizontalHeader().setStretchLastSection(True) 
-        self.users_table.setSortingEnabled(True)
-        self.users_table.doubleClicked.connect(self._on_edit_user_double_click)
-
-
-        self.table_model = UserTableModel()
-        self.users_table.setModel(self.table_model)
-        
-        header = self.users_table.horizontalHeader()
-        for i in range(self.table_model.columnCount()):
-            header.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
-        
-        id_col_idx = self.table_model._headers.index("ID") if "ID" in self.table_model._headers else -1
-        if id_col_idx != -1: self.users_table.setColumnHidden(id_col_idx, True)
-        
-        fn_col_idx = self.table_model._headers.index("Full Name") if "Full Name" in self.table_model._headers else -1
-        email_col_idx = self.table_model._headers.index("Email") if "Email" in self.table_model._headers else -1
-
-        if fn_col_idx != -1 and not self.users_table.isColumnHidden(fn_col_idx) :
-            header.setSectionResizeMode(fn_col_idx, QHeaderView.ResizeMode.Stretch)
-        elif email_col_idx != -1 and not self.users_table.isColumnHidden(email_col_idx):
-             header.setSectionResizeMode(email_col_idx, QHeaderView.ResizeMode.Stretch)
-        
-        self.main_layout.addWidget(self.users_table)
-        self.setLayout(self.main_layout)
-
-        if self.users_table.selectionModel():
-            self.users_table.selectionModel().selectionChanged.connect(self._update_action_states)
-        self._update_action_states()
-
-    def _create_toolbar(self):
-        self.toolbar = QToolBar("User Management Toolbar")
-        self.toolbar.setIconSize(QSize(16, 16))
-
-        self.toolbar_add_action = QAction(QIcon(self.icon_path_prefix + "add.svg"), "Add User", self)
-        self.toolbar_add_action.triggered.connect(self._on_add_user)
-        self.toolbar.addAction(self.toolbar_add_action)
-
-        self.toolbar_edit_action = QAction(QIcon(self.icon_path_prefix + "edit.svg"), "Edit User", self)
-        self.toolbar_edit_action.triggered.connect(self._on_edit_user)
-        self.toolbar.addAction(self.toolbar_edit_action)
-
-        self.toolbar_toggle_active_action = QAction(QIcon(self.icon_path_prefix + "deactivate.svg"), "Toggle Active", self)
-        self.toolbar_toggle_active_action.triggered.connect(self._on_toggle_active_status)
-        self.toolbar.addAction(self.toolbar_toggle_active_action)
-        
-        self.toolbar_change_password_action = QAction(QIcon(self.icon_path_prefix + "preferences.svg"), "Change Password", self)
-        self.toolbar_change_password_action.triggered.connect(self._on_change_password)
-        self.toolbar.addAction(self.toolbar_change_password_action)
-        
-        self.toolbar.addSeparator()
-        self.toolbar_refresh_action = QAction(QIcon(self.icon_path_prefix + "refresh.svg"), "Refresh List", self)
-        self.toolbar_refresh_action.triggered.connect(lambda: schedule_task_from_qt(self._load_users()))
-        self.toolbar.addAction(self.toolbar_refresh_action)
-
-    @Slot()
-    def _update_action_states(self):
-        selected_rows = self.users_table.selectionModel().selectedRows()
-        single_selection = len(selected_rows) == 1
-        can_modify = False
-        is_current_user_selected = False
-        is_system_init_user_selected = False
-
-        if single_selection:
-            can_modify = True
-            row = selected_rows[0].row()
-            user_id = self.table_model.get_user_id_at_row(row)
-            username = self.table_model.get_username_at_row(row)
-
-            if self.app_core.current_user and user_id == self.app_core.current_user.id:
-                is_current_user_selected = True
-            if username == "system_init_user": 
-                is_system_init_user_selected = True
-        
-        self.toolbar_edit_action.setEnabled(can_modify and not is_system_init_user_selected)
-        self.toolbar_toggle_active_action.setEnabled(can_modify and not is_current_user_selected and not is_system_init_user_selected)
-        self.toolbar_change_password_action.setEnabled(can_modify and not is_system_init_user_selected)
-
-    async def _load_users(self):
-        if not self.app_core.security_manager:
-            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
-                Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str,"Security Manager component not available."))
-            return
-        try:
-            summaries: List[UserSummaryData] = await self.app_core.security_manager.get_all_users_summary()
-            json_data = json.dumps([s.model_dump(mode='json') for s in summaries])
-            QMetaObject.invokeMethod(self, "_update_table_model_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, json_data))
-        except Exception as e:
-            self.app_core.logger.error(f"Unexpected error loading users: {e}", exc_info=True)
-            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
-                Q_ARG(QWidget, self), Q_ARG(str, "Load Error"), Q_ARG(str, f"Unexpected error loading users: {str(e)}"))
-
-    @Slot(str)
-    def _update_table_model_slot(self, json_data_str: str):
-        try:
-            list_of_dicts = json.loads(json_data_str, object_hook=json_date_hook)
-            user_summaries: List[UserSummaryData] = [UserSummaryData.model_validate(item) for item in list_of_dicts]
-            self.table_model.update_data(user_summaries)
-        except Exception as e: 
-            self.app_core.logger.error(f"Failed to parse/validate user data for table: {e}", exc_info=True)
-            QMessageBox.critical(self, "Data Error", f"Failed to parse/validate user data: {e}")
-        finally:
-            self._update_action_states()
-
-    @Slot()
-    def _on_add_user(self):
-        if not self.app_core.current_user: QMessageBox.warning(self, "Auth Error", "Please log in."); return
-        dialog = UserDialog(self.app_core, self.app_core.current_user.id, parent=self)
-        dialog.user_saved.connect(self._refresh_list_after_save)
-        dialog.exec()
-
-    def _get_selected_user_id_and_username(self) -> tuple[Optional[int], Optional[str]]: # Modified to return username too
-        selected_rows = self.users_table.selectionModel().selectedRows()
-        if not selected_rows or len(selected_rows) > 1:
-            return None, None
-        row_index = selected_rows[0].row()
-        user_id = self.table_model.get_user_id_at_row(row_index)
-        username = self.table_model.get_username_at_row(row_index)
-        return user_id, username
-
-
-    @Slot()
-    def _on_edit_user(self):
-        user_id, username = self._get_selected_user_id_and_username()
-        if user_id is None: 
-            QMessageBox.information(self, "Selection", "Please select a single user to edit.")
-            return
-        
-        if username == "system_init_user":
-            QMessageBox.warning(self, "Action Denied", "The 'system_init_user' cannot be edited from the UI.")
-            return
-
-        if not self.app_core.current_user: QMessageBox.warning(self, "Auth Error", "Please log in."); return
-        dialog = UserDialog(self.app_core, self.app_core.current_user.id, user_id_to_edit=user_id, parent=self)
-        dialog.user_saved.connect(self._refresh_list_after_save)
-        dialog.exec()
-
-    @Slot(QModelIndex)
-    def _on_edit_user_double_click(self, index: QModelIndex):
-        if not index.isValid(): return
-        user_id = self.table_model.get_user_id_at_row(index.row())
-        username = self.table_model.get_username_at_row(index.row())
-        if user_id is None: return
-        
-        if username == "system_init_user":
-            QMessageBox.warning(self, "Action Denied", "The 'system_init_user' cannot be edited from the UI.")
-            return
-
-        if not self.app_core.current_user: QMessageBox.warning(self, "Auth Error", "Please log in."); return
-        dialog = UserDialog(self.app_core, self.app_core.current_user.id, user_id_to_edit=user_id, parent=self)
-        dialog.user_saved.connect(self._refresh_list_after_save)
-        dialog.exec()
-
-
-    @Slot()
-    def _on_toggle_active_status(self):
-        user_id, username = self._get_selected_user_id_and_username()
-        if user_id is None: QMessageBox.information(self, "Selection", "Please select a single user to toggle status."); return
-        
-        if not self.app_core.current_user: QMessageBox.warning(self, "Auth Error", "Please log in."); return
-        if user_id == self.app_core.current_user.id:
-            QMessageBox.warning(self, "Action Denied", "You cannot change the active status of your own account.")
-            return
-            
-        if username == "system_init_user":
-             QMessageBox.warning(self, "Action Denied", "The 'system_init_user' status cannot be modified from the UI.")
-             return
-
-        current_row_idx = self.users_table.currentIndex().row()
-        is_currently_active = self.table_model.get_user_active_status_at_row(current_row_idx)
-        action_verb = "deactivate" if is_currently_active else "activate"
-        
-        reply = QMessageBox.question(self, f"Confirm {action_verb.capitalize()}",
-                                     f"Are you sure you want to {action_verb} user account '{username}'?",
-                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                     QMessageBox.StandardButton.No)
-        if reply == QMessageBox.StandardButton.No: return
-
-        future = schedule_task_from_qt(
-            self.app_core.security_manager.toggle_user_active_status(user_id, self.app_core.current_user.id)
-        )
-        if future: future.add_done_callback(self._handle_toggle_active_result)
-        else: self._handle_toggle_active_result(None) 
-
-    def _handle_toggle_active_result(self, future):
-        if future is None: QMessageBox.critical(self, "Task Error", "Failed to schedule user status toggle."); return
-        try:
-            result: Result[User] = future.result()
-            if result.is_success and result.value:
-                action_verb_past = "activated" if result.value.is_active else "deactivated"
-                QMessageBox.information(self, "Success", f"User account '{result.value.username}' {action_verb_past} successfully.")
-                schedule_task_from_qt(self._load_users()) 
-            else:
-                QMessageBox.warning(self, "Error", f"Failed to toggle user status:\n{', '.join(result.errors)}")
-        except Exception as e:
-            self.app_core.logger.error(f"Error handling toggle active status result for user: {e}", exc_info=True)
-            QMessageBox.critical(self, "Error", f"An unexpected error occurred: {str(e)}")
-
-    @Slot()
-    def _on_change_password(self):
-        user_id, username = self._get_selected_user_id_and_username()
-        if user_id is None: 
-            QMessageBox.information(self, "Selection", "Please select a user to change password.")
-            return
-        
-        if username == "system_init_user":
-            QMessageBox.warning(self, "Action Denied", "Password for 'system_init_user' cannot be changed from the UI.")
-            return
-        
-        if not self.app_core.current_user:
-            QMessageBox.warning(self, "Auth Error", "Please log in.")
-            return
-
-        dialog = UserPasswordDialog(
-            self.app_core, 
-            self.app_core.current_user.id, # User performing the change
-            user_id_to_change=user_id,
-            username_to_change=username if username else "Selected User", # Fallback for username
-            parent=self
-        )
-        # password_changed signal doesn't strictly need connection if just a success msg is enough
-        # If list needs refresh due to some password related field, connect it.
-        # dialog.password_changed.connect(lambda changed_user_id: self.app_core.logger.info(f"Password changed for user {changed_user_id}"))
-        dialog.exec()
-    
-    @Slot(int)
-    def _refresh_list_after_save(self, user_id: int): # Renamed from on_user_saved
-        self.app_core.logger.info(f"UserDialog reported save for User ID: {user_id}. Refreshing user list.")
-        schedule_task_from_qt(self._load_users())
-
-```
-
-# app/ui/settings/__init__.py
-```py
-# File: app/ui/settings/__init__.py
-from .settings_widget import SettingsWidget
-from .user_management_widget import UserManagementWidget 
-from .user_table_model import UserTableModel 
-from .user_dialog import UserDialog 
-from .user_password_dialog import UserPasswordDialog 
-from .role_management_widget import RoleManagementWidget # New export
-from .role_table_model import RoleTableModel # New export
-from .role_dialog import RoleDialog # New export
-
+# File: app/ui/banking/__init__.py
+from .banking_widget import BankingWidget
+from .bank_account_table_model import BankAccountTableModel 
+from .bank_account_dialog import BankAccountDialog 
+from .bank_accounts_widget import BankAccountsWidget 
+from .bank_transaction_table_model import BankTransactionTableModel
+from .bank_transaction_dialog import BankTransactionDialog
+from .bank_transactions_widget import BankTransactionsWidget
 
 __all__ = [
-    "SettingsWidget",
-    "UserManagementWidget", 
-    "UserTableModel",       
-    "UserDialog", 
-    "UserPasswordDialog",
-    "RoleManagementWidget", # New export
-    "RoleTableModel",       # New export
-    "RoleDialog",           # New export
+    "BankingWidget",
+    "BankAccountTableModel", 
+    "BankAccountDialog", 
+    "BankAccountsWidget", 
+    "BankTransactionTableModel",
+    "BankTransactionDialog",
+    "BankTransactionsWidget",
 ]
 
 ```
 
-# app/ui/settings/role_table_model.py
+# app/ui/banking/banking_widget.py
 ```py
-# File: app/ui/settings/role_table_model.py
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
-from typing import List, Optional, Any
-
-from app.utils.pydantic_models import RoleData # Use RoleData DTO
-
-class RoleTableModel(QAbstractTableModel):
-    def __init__(self, data: Optional[List[RoleData]] = None, parent=None):
-        super().__init__(parent)
-        self._headers = ["ID", "Name", "Description"]
-        self._data: List[RoleData] = data or []
-
-    def rowCount(self, parent=QModelIndex()) -> int:
-        if parent.isValid(): return 0
-        return len(self._data)
-
-    def columnCount(self, parent=QModelIndex()) -> int:
-        return len(self._headers)
-
-    def headerData(self, section: int, orientation: Qt.Orientation, role=Qt.ItemDataRole.DisplayRole) -> Optional[str]:
-        if role == Qt.ItemDataRole.DisplayRole and orientation == Qt.Orientation.Horizontal:
-            if 0 <= section < len(self._headers):
-                return self._headers[section]
-        return None
-
-    def data(self, index: QModelIndex, role=Qt.ItemDataRole.DisplayRole) -> Any:
-        if not index.isValid() or role != Qt.ItemDataRole.DisplayRole:
-            # Allow UserRole for ID retrieval
-            if role == Qt.ItemDataRole.UserRole and index.column() == 0 and 0 <= index.row() < len(self._data):
-                return self._data[index.row()].id
-            return None
-        
-        row = index.row(); col = index.column()
-        if not (0 <= row < len(self._data)): return None
-            
-        role_data: RoleData = self._data[row]
-
-        if col == 0: return str(role_data.id)
-        if col == 1: return role_data.name
-        if col == 2: return role_data.description or ""
-            
-        return None
-
-    def get_role_id_at_row(self, row: int) -> Optional[int]:
-        if 0 <= row < len(self._data):
-            # Try UserRole first for consistency if data() method is updated to store it
-            idx = self.index(row, 0)
-            role_id = self.data(idx, Qt.ItemDataRole.UserRole)
-            if role_id is not None: return int(role_id)
-            return self._data[row].id 
-        return None
-        
-    def get_role_name_at_row(self, row: int) -> Optional[str]:
-        if 0 <= row < len(self._data):
-            return self._data[row].name
-        return None
-
-    def update_data(self, new_data: List[RoleData]):
-        self.beginResetModel()
-        self._data = new_data or []
-        self.endResetModel()
-
-```
-
-# app/ui/settings/user_password_dialog.py
-```py
-# File: app/ui/settings/user_password_dialog.py
-from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QFormLayout, QLineEdit, QPushButton, QDialogButtonBox, 
-    QMessageBox, QLabel
-)
-from PySide6.QtCore import Qt, Slot, Signal, QTimer, QMetaObject, Q_ARG
-from typing import Optional, TYPE_CHECKING
-
+# File: app/ui/banking/banking_widget.py
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QSplitter
+from PySide6.QtCore import Qt # Added Qt for orientation
 from app.core.application_core import ApplicationCore
-from app.main import schedule_task_from_qt
-from app.utils.pydantic_models import UserPasswordChangeData
-from app.utils.result import Result
+from app.ui.banking.bank_accounts_widget import BankAccountsWidget 
+from app.ui.banking.bank_transactions_widget import BankTransactionsWidget # New Import
 
-if TYPE_CHECKING:
-    from PySide6.QtGui import QPaintDevice
-
-class UserPasswordDialog(QDialog):
-    password_changed = Signal(int) # Emits user_id_to_change
-
-    def __init__(self, app_core: ApplicationCore, 
-                 current_admin_user_id: int,
-                 user_id_to_change: int,
-                 username_to_change: str,
-                 parent: Optional["QWidget"] = None):
-        super().__init__(parent)
-        self.app_core = app_core
-        self.current_admin_user_id = current_admin_user_id
-        self.user_id_to_change = user_id_to_change
-        self.username_to_change = username_to_change
-
-        self.setWindowTitle(f"Change Password for {self.username_to_change}")
-        self.setMinimumWidth(400)
-        self.setModal(True)
-
-        self._init_ui()
-        self._connect_signals()
-
-    def _init_ui(self):
-        main_layout = QVBoxLayout(self)
-        
-        info_label = QLabel(f"Changing password for user: <b>{self.username_to_change}</b> (ID: {self.user_id_to_change})")
-        main_layout.addWidget(info_label)
-
-        form_layout = QFormLayout()
-        self.new_password_edit = QLineEdit()
-        self.new_password_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        self.new_password_edit.setPlaceholderText("Enter new password (min 8 characters)")
-        form_layout.addRow("New Password*:", self.new_password_edit)
-
-        self.confirm_password_edit = QLineEdit()
-        self.confirm_password_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        self.confirm_password_edit.setPlaceholderText("Confirm new password")
-        form_layout.addRow("Confirm New Password*:", self.confirm_password_edit)
-        
-        main_layout.addLayout(form_layout)
-
-        self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        main_layout.addWidget(self.button_box)
-        self.setLayout(main_layout)
-        
-        self.new_password_edit.setFocus()
-
-
-    def _connect_signals(self):
-        self.button_box.accepted.connect(self.on_ok_clicked)
-        self.button_box.rejected.connect(self.reject)
-
-    def _collect_data(self) -> Optional[UserPasswordChangeData]:
-        new_password = self.new_password_edit.text()
-        confirm_password = self.confirm_password_edit.text()
-
-        if not new_password:
-            QMessageBox.warning(self, "Validation Error", "New Password cannot be empty.")
-            return None
-        
-        # Pydantic DTO will handle min_length and password match via its validator
-        try:
-            dto = UserPasswordChangeData(
-                user_id_to_change=self.user_id_to_change,
-                new_password=new_password,
-                confirm_new_password=confirm_password,
-                user_id=self.current_admin_user_id # User performing the change
-            )
-            return dto
-        except ValueError as e: # Catches Pydantic validation errors
-            QMessageBox.warning(self, "Validation Error", f"Invalid data:\n{str(e)}")
-            return None
-
-    @Slot()
-    def on_ok_clicked(self):
-        dto = self._collect_data()
-        if dto:
-            ok_button = self.button_box.button(QDialogButtonBox.StandardButton.Ok)
-            if ok_button: ok_button.setEnabled(False)
-            
-            future = schedule_task_from_qt(self._perform_password_change(dto))
-            if future:
-                future.add_done_callback(
-                    # Re-enable button regardless of outcome unless dialog is closed
-                    lambda _: ok_button.setEnabled(True) if ok_button and self.isVisible() else None
-                )
-            else: # Handle scheduling failure
-                if ok_button: ok_button.setEnabled(True)
-                QMessageBox.critical(self, "Task Error", "Failed to schedule password change operation.")
-
-
-    async def _perform_password_change(self, dto: UserPasswordChangeData):
-        if not self.app_core.security_manager:
-            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
-                Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str, "Security Manager not available."))
-            return
-
-        result: Result[None] = await self.app_core.security_manager.change_user_password(dto)
-
-        if result.is_success:
-            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "information", Qt.ConnectionType.QueuedConnection,
-                Q_ARG(QWidget, self.parentWidget() if self.parentWidget() else self), # Show on parent if possible
-                Q_ARG(str, "Success"), 
-                Q_ARG(str, f"Password for user '{self.username_to_change}' changed successfully."))
-            self.password_changed.emit(self.user_id_to_change)
-            QMetaObject.invokeMethod(self, "accept", Qt.ConnectionType.QueuedConnection)
-        else:
-            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "warning", Qt.ConnectionType.QueuedConnection,
-                Q_ARG(QWidget, self), Q_ARG(str, "Password Change Error"), 
-                Q_ARG(str, f"Failed to change password:\n{', '.join(result.errors)}"))
-            # Button re-enabled by callback in on_ok_clicked
-
-```
-
-# app/ui/settings/settings_widget.py
-```py
-# File: app/ui/settings/settings_widget.py
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QLabel, QPushButton, 
-                               QFormLayout, QLineEdit, QMessageBox, QComboBox, 
-                               QSpinBox, QDateEdit, QCheckBox, QGroupBox,
-                               QTableView, QHeaderView, QAbstractItemView,
-                               QHBoxLayout, QTabWidget 
-                               ) 
-from PySide6.QtCore import Slot, QDate, QTimer, QMetaObject, Q_ARG, Qt, QAbstractTableModel, QModelIndex 
-from PySide6.QtGui import QColor, QFont 
-from app.core.application_core import ApplicationCore
-from app.utils.pydantic_models import CompanySettingData, FiscalYearCreateData, FiscalYearData 
-from app.models.core.company_setting import CompanySetting
-from app.models.accounting.currency import Currency 
-from app.models.accounting.fiscal_year import FiscalYear 
-from app.ui.accounting.fiscal_year_dialog import FiscalYearDialog 
-from app.ui.settings.user_management_widget import UserManagementWidget 
-from app.ui.settings.role_management_widget import RoleManagementWidget 
-from decimal import Decimal, InvalidOperation
-import asyncio
-import json 
-from typing import Optional, List, Any, Dict 
-from app.main import schedule_task_from_qt 
-from datetime import date as python_date, datetime 
-from app.utils.json_helpers import json_converter, json_date_hook 
-
-class FiscalYearTableModel(QAbstractTableModel):
-    def __init__(self, data: Optional[List[FiscalYearData]] = None, parent=None): 
-        super().__init__(parent)
-        self._headers = ["Name", "Start Date", "End Date", "Status"]
-        self._data: List[FiscalYearData] = data or []
-
-    def rowCount(self, parent=QModelIndex()):
-        if parent.isValid(): return 0
-        return len(self._data)
-
-    def columnCount(self, parent=QModelIndex()):
-        return len(self._headers)
-
-    def headerData(self, section: int, orientation: Qt.Orientation, role=Qt.ItemDataRole.DisplayRole):
-        if role == Qt.ItemDataRole.DisplayRole and orientation == Qt.Orientation.Horizontal:
-            if 0 <= section < len(self._headers):
-                return self._headers[section]
-        return None
-
-    def data(self, index: QModelIndex, role=Qt.ItemDataRole.DisplayRole):
-        if not index.isValid(): 
-            return None
-        
-        try:
-            fy = self._data[index.row()]
-            column = index.column()
-
-            if role == Qt.ItemDataRole.DisplayRole:
-                if column == 0: return fy.year_name
-                if column == 1: return fy.start_date.strftime('%d/%m/%Y') if isinstance(fy.start_date, python_date) else str(fy.start_date)
-                if column == 2: return fy.end_date.strftime('%d/%m/%Y') if isinstance(fy.end_date, python_date) else str(fy.end_date)
-                if column == 3: return "Closed" if fy.is_closed else "Open"
-            elif role == Qt.ItemDataRole.FontRole:
-                if column == 3: 
-                    font = QFont()
-                    if fy.is_closed:
-                        pass 
-                    else: 
-                        font.setBold(True)
-                    return font
-            elif role == Qt.ItemDataRole.ForegroundRole:
-                 if column == 3 and not fy.is_closed: 
-                    return QColor("green")
-        except IndexError:
-            return None 
-        return None
-
-    def get_fiscal_year_at_row(self, row: int) -> Optional[FiscalYearData]:
-        if 0 <= row < len(self._data):
-            return self._data[row]
-        return None
-        
-    def update_data(self, new_data: List[FiscalYearData]):
-        self.beginResetModel()
-        self._data = new_data or []
-        self.endResetModel()
-
-
-class SettingsWidget(QWidget):
+class BankingWidget(QWidget):
     def __init__(self, app_core: ApplicationCore, parent=None):
         super().__init__(parent)
         self.app_core = app_core
-        self._loaded_settings_obj: Optional[CompanySetting] = None 
         
-        self.main_layout = QVBoxLayout(self) 
-        self.tab_widget = QTabWidget() 
-        self.main_layout.addWidget(self.tab_widget)
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(5,5,5,5) # Add some margins back for overall widget
 
-        # --- Company Settings Tab ---
-        self.company_settings_tab = QWidget()
-        company_tab_layout = QVBoxLayout(self.company_settings_tab) 
+        self.splitter = QSplitter(Qt.Orientation.Horizontal) # Use Horizontal splitter
 
-        company_settings_group = QGroupBox("Company Information")
-        company_settings_form_layout = QFormLayout(company_settings_group) 
+        self.bank_accounts_widget = BankAccountsWidget(self.app_core, self)
+        self.bank_transactions_widget = BankTransactionsWidget(self.app_core, self)
 
-        self.company_name_edit = QLineEdit()
-        self.legal_name_edit = QLineEdit()
-        self.uen_edit = QLineEdit()
-        self.gst_reg_edit = QLineEdit()
-        self.gst_registered_check = QCheckBox("GST Registered")
-        self.base_currency_combo = QComboBox() 
-        self.address_line1_edit = QLineEdit()
-        self.address_line2_edit = QLineEdit()
-        self.postal_code_edit = QLineEdit()
-        self.city_edit = QLineEdit()
-        self.country_edit = QLineEdit()
-        self.contact_person_edit = QLineEdit()
-        self.phone_edit = QLineEdit()
-        self.email_edit = QLineEdit()
-        self.website_edit = QLineEdit()
-        self.fiscal_year_start_month_spin = QSpinBox()
-        self.fiscal_year_start_month_spin.setRange(1, 12)
-        self.fiscal_year_start_day_spin = QSpinBox()
-        self.fiscal_year_start_day_spin.setRange(1,31)
-        self.tax_id_label_edit = QLineEdit()
-        self.date_format_combo = QComboBox() 
-        self.date_format_combo.addItems(["dd/MM/yyyy", "yyyy-MM-dd", "MM/dd/yyyy"])
-
-        company_settings_form_layout.addRow("Company Name*:", self.company_name_edit)
-        company_settings_form_layout.addRow("Legal Name:", self.legal_name_edit)
-        company_settings_form_layout.addRow("UEN No:", self.uen_edit)
-        company_settings_form_layout.addRow("GST Reg. No:", self.gst_reg_edit)
-        company_settings_form_layout.addRow(self.gst_registered_check)
-        company_settings_form_layout.addRow("Base Currency:", self.base_currency_combo)
-        company_settings_form_layout.addRow("Address Line 1:", self.address_line1_edit)
-        company_settings_form_layout.addRow("Address Line 2:", self.address_line2_edit)
-        company_settings_form_layout.addRow("Postal Code:", self.postal_code_edit)
-        company_settings_form_layout.addRow("City:", self.city_edit)
-        company_settings_form_layout.addRow("Country:", self.country_edit)
-        company_settings_form_layout.addRow("Contact Person:", self.contact_person_edit)
-        company_settings_form_layout.addRow("Phone:", self.phone_edit)
-        company_settings_form_layout.addRow("Email:", self.email_edit)
-        company_settings_form_layout.addRow("Website:", self.website_edit)
-        company_settings_form_layout.addRow("Fiscal Year Start Month:", self.fiscal_year_start_month_spin)
-        company_settings_form_layout.addRow("Fiscal Year Start Day:", self.fiscal_year_start_day_spin)
-        company_settings_form_layout.addRow("Tax ID Label:", self.tax_id_label_edit)
-        company_settings_form_layout.addRow("Date Format:", self.date_format_combo)
+        self.splitter.addWidget(self.bank_accounts_widget)
+        self.splitter.addWidget(self.bank_transactions_widget)
         
-        self.save_company_settings_button = QPushButton("Save Company Settings")
-        self.save_company_settings_button.clicked.connect(self.on_save_company_settings)
-        company_settings_form_layout.addRow(self.save_company_settings_button)
+        # Set initial sizes for the splitter panes (e.g., 1/3 for accounts, 2/3 for transactions)
+        # These are just suggestions, can be adjusted by user.
+        initial_accounts_width = self.width() // 3 if self.width() > 0 else 300
+        self.splitter.setSizes([initial_accounts_width, self.width() - initial_accounts_width if self.width() > 0 else 600])
         
-        company_tab_layout.addWidget(company_settings_group)
-        company_tab_layout.addStretch() 
-        self.tab_widget.addTab(self.company_settings_tab, "Company")
-
-        # --- Fiscal Year Management Tab ---
-        self.fiscal_year_tab = QWidget()
-        fiscal_tab_main_layout = QVBoxLayout(self.fiscal_year_tab)
+        self.main_layout.addWidget(self.splitter)
         
-        fiscal_year_group = QGroupBox("Fiscal Year Management")
-        fiscal_year_group_layout = QVBoxLayout(fiscal_year_group) 
-
-        self.fiscal_years_table = QTableView()
-        self.fiscal_years_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.fiscal_years_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.fiscal_years_table.horizontalHeader().setStretchLastSection(True)
-        self.fiscal_years_table.setMinimumHeight(150) 
-        self.fiscal_year_model = FiscalYearTableModel() 
-        self.fiscal_years_table.setModel(self.fiscal_year_model)
-        fiscal_year_group_layout.addWidget(self.fiscal_years_table)
-
-        fy_button_layout = QHBoxLayout() 
-        self.add_fy_button = QPushButton("Add New Fiscal Year...")
-        self.add_fy_button.clicked.connect(self.on_add_fiscal_year)
-        fy_button_layout.addWidget(self.add_fy_button)
-        fy_button_layout.addStretch()
-        fiscal_year_group_layout.addLayout(fy_button_layout)
-        
-        fiscal_tab_main_layout.addWidget(fiscal_year_group)
-        fiscal_tab_main_layout.addStretch() 
-        self.tab_widget.addTab(self.fiscal_year_tab, "Fiscal Years")
-
-        # --- User Management Tab ---
-        self.user_management_widget = UserManagementWidget(self.app_core)
-        self.tab_widget.addTab(self.user_management_widget, "Users")
-
-        # --- Role Management Tab ---
-        self.role_management_widget = RoleManagementWidget(self.app_core)
-        self.tab_widget.addTab(self.role_management_widget, "Roles & Permissions")
-        
-        self.setLayout(self.main_layout) 
-
-        QTimer.singleShot(0, lambda: schedule_task_from_qt(self.load_initial_data()))
-
-    async def load_initial_data(self):
-        await self.load_company_settings()
-        await self._load_fiscal_years() 
-
-    async def load_company_settings(self):
-        if not self.app_core.company_settings_service:
-            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
-                Q_ARG(QWidget, self), Q_ARG(str, "Error"), 
-                Q_ARG(str,"Company Settings Service not available."))
-            return
-        
-        currencies_loaded_successfully = False
-        active_currencies_data: List[Dict[str, str]] = [] 
-        if self.app_core.currency_manager:
-            try:
-                active_currencies_orm: List[Currency] = await self.app_core.currency_manager.get_active_currencies()
-                for curr in active_currencies_orm:
-                    active_currencies_data.append({"code": curr.code, "name": curr.name})
-                QMetaObject.invokeMethod(self, "_populate_currency_combo_slot", Qt.ConnectionType.QueuedConnection, 
-                                         Q_ARG(str, json.dumps(active_currencies_data)))
-                currencies_loaded_successfully = True
-            except Exception as e:
-                error_msg = f"Error loading currencies for settings: {e}"
-                self.app_core.logger.error(error_msg, exc_info=True) 
-                QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "warning", Qt.ConnectionType.QueuedConnection,
-                    Q_ARG(QWidget, self), Q_ARG(str, "Currency Load Error"), Q_ARG(str, error_msg))
-        
-        if not currencies_loaded_successfully: 
-            QMetaObject.invokeMethod(self.base_currency_combo, "addItems", Qt.ConnectionType.QueuedConnection, Q_ARG(list, ["SGD", "USD"]))
-
-        settings_obj: Optional[CompanySetting] = await self.app_core.company_settings_service.get_company_settings()
-        self._loaded_settings_obj = settings_obj 
-        
-        settings_data_for_ui_json: Optional[str] = None
-        if settings_obj:
-            settings_dict = { col.name: getattr(settings_obj, col.name) for col in CompanySetting.__table__.columns }
-            settings_data_for_ui_json = json.dumps(settings_dict, default=json_converter)
-        
-        QMetaObject.invokeMethod(self, "_update_ui_from_settings_slot", Qt.ConnectionType.QueuedConnection, 
-                                 Q_ARG(str, settings_data_for_ui_json if settings_data_for_ui_json else ""))
-
-    @Slot(str) 
-    def _populate_currency_combo_slot(self, currencies_json_str: str): 
-        try: currencies_data: List[Dict[str,str]] = json.loads(currencies_json_str)
-        except json.JSONDecodeError: currencies_data = [{"code": "SGD", "name": "Singapore Dollar"}] 
-            
-        current_selection = self.base_currency_combo.currentData()
-        self.base_currency_combo.clear()
-        if currencies_data: 
-            for curr_data in currencies_data: self.base_currency_combo.addItem(f"{curr_data['code']} - {curr_data['name']}", curr_data['code']) 
-        
-        target_currency_code = current_selection
-        if hasattr(self, '_loaded_settings_obj') and self._loaded_settings_obj and self._loaded_settings_obj.base_currency:
-            target_currency_code = self._loaded_settings_obj.base_currency
-        
-        if target_currency_code:
-            idx = self.base_currency_combo.findData(target_currency_code) 
-            if idx != -1: self.base_currency_combo.setCurrentIndex(idx)
-            else: 
-                idx_sgd = self.base_currency_combo.findData("SGD") 
-                if idx_sgd != -1: self.base_currency_combo.setCurrentIndex(idx_sgd)
-        elif self.base_currency_combo.count() > 0: self.base_currency_combo.setCurrentIndex(0)
-
-    @Slot(str) 
-    def _update_ui_from_settings_slot(self, settings_json_str: str):
-        settings_data: Optional[Dict[str, Any]] = None
-        if settings_json_str:
-            try:
-                settings_data = json.loads(settings_json_str, object_hook=json_date_hook)
-            except json.JSONDecodeError: 
-                QMessageBox.critical(self, "Error", "Failed to parse settings data."); settings_data = None
-
-        if settings_data:
-            self.company_name_edit.setText(settings_data.get("company_name", ""))
-            self.legal_name_edit.setText(settings_data.get("legal_name", "") or "")
-            self.uen_edit.setText(settings_data.get("uen_no", "") or "")
-            self.gst_reg_edit.setText(settings_data.get("gst_registration_no", "") or "")
-            self.gst_registered_check.setChecked(settings_data.get("gst_registered", False))
-            self.address_line1_edit.setText(settings_data.get("address_line1", "") or "")
-            self.address_line2_edit.setText(settings_data.get("address_line2", "") or "")
-            self.postal_code_edit.setText(settings_data.get("postal_code", "") or "")
-            self.city_edit.setText(settings_data.get("city", "Singapore") or "Singapore")
-            self.country_edit.setText(settings_data.get("country", "Singapore") or "Singapore")
-            self.contact_person_edit.setText(settings_data.get("contact_person", "") or "")
-            self.phone_edit.setText(settings_data.get("phone", "") or "")
-            self.email_edit.setText(settings_data.get("email", "") or "")
-            self.website_edit.setText(settings_data.get("website", "") or "")
-            self.fiscal_year_start_month_spin.setValue(settings_data.get("fiscal_year_start_month", 1))
-            self.fiscal_year_start_day_spin.setValue(settings_data.get("fiscal_year_start_day", 1))
-            self.tax_id_label_edit.setText(settings_data.get("tax_id_label", "UEN") or "UEN")
-            
-            date_fmt = settings_data.get("date_format", "dd/MM/yyyy") 
-            date_fmt_idx = self.date_format_combo.findText(date_fmt, Qt.MatchFlag.MatchFixedString)
-            if date_fmt_idx != -1: self.date_format_combo.setCurrentIndex(date_fmt_idx)
-            else: self.date_format_combo.setCurrentIndex(0) 
-
-            if self.base_currency_combo.count() > 0: 
-                base_currency = settings_data.get("base_currency")
-                if base_currency:
-                    idx = self.base_currency_combo.findData(base_currency) 
-                    if idx != -1: 
-                        self.base_currency_combo.setCurrentIndex(idx)
-                    else: 
-                        idx_sgd = self.base_currency_combo.findData("SGD")
-                        if idx_sgd != -1: self.base_currency_combo.setCurrentIndex(idx_sgd)
-        else:
-            if not self._loaded_settings_obj : 
-                 QMessageBox.warning(self, "Settings", "Default company settings not found. Please configure.")
-
-    @Slot()
-    def on_save_company_settings(self):
-        if not self.app_core.current_user:
-            QMessageBox.warning(self, "Error", "No user logged in. Cannot save settings.")
-            return
-        selected_currency_code = self.base_currency_combo.currentData() or "SGD"
-        dto = CompanySettingData(
-            id=1, 
-            company_name=self.company_name_edit.text(),
-            legal_name=self.legal_name_edit.text() or None, uen_no=self.uen_edit.text() or None,
-            gst_registration_no=self.gst_reg_edit.text() or None, gst_registered=self.gst_registered_check.isChecked(),
-            user_id=self.app_core.current_user.id,
-            address_line1=self.address_line1_edit.text() or None, address_line2=self.address_line2_edit.text() or None,
-            postal_code=self.postal_code_edit.text() or None, city=self.city_edit.text() or "Singapore",
-            country=self.country_edit.text() or "Singapore", contact_person=self.contact_person_edit.text() or None,
-            phone=self.phone_edit.text() or None, email=self.email_edit.text() or None, 
-            website=self.website_edit.text() or None,
-            fiscal_year_start_month=self.fiscal_year_start_month_spin.value(), 
-            fiscal_year_start_day=self.fiscal_year_start_day_spin.value(),  
-            base_currency=selected_currency_code, 
-            tax_id_label=self.tax_id_label_edit.text() or "UEN",       
-            date_format=self.date_format_combo.currentText() or "dd/MM/yyyy", 
-            logo=None 
+        # Connect signals for master-detail view
+        self.bank_accounts_widget.bank_account_selected.connect(
+            self.bank_transactions_widget.set_current_bank_account
         )
-        schedule_task_from_qt(self.perform_save_company_settings(dto))
-
-    async def perform_save_company_settings(self, settings_data: CompanySettingData):
-        if not self.app_core.company_settings_service:
-            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
-                Q_ARG(QWidget, self), Q_ARG(str, "Error"), 
-                Q_ARG(str,"Company Settings Service not available."))
-            return
-        existing_settings = await self.app_core.company_settings_service.get_company_settings() 
-        orm_obj_to_save: CompanySetting
-        if existing_settings:
-            orm_obj_to_save = existing_settings
-            update_dict = settings_data.model_dump(exclude={'user_id', 'id', 'logo'}, exclude_none=False, by_alias=False)
-            for field_name, field_value in update_dict.items():
-                if hasattr(orm_obj_to_save, field_name): 
-                    if field_name == 'email' and field_value is not None: 
-                        setattr(orm_obj_to_save, field_name, str(field_value))
-                    else:
-                        setattr(orm_obj_to_save, field_name, field_value)
-        else: 
-            dict_data = settings_data.model_dump(exclude={'user_id', 'id', 'logo'}, exclude_none=False, by_alias=False)
-            if 'email' in dict_data and dict_data['email'] is not None: dict_data['email'] = str(dict_data['email'])
-            orm_obj_to_save = CompanySetting(**dict_data) # type: ignore
-            if settings_data.id: orm_obj_to_save.id = settings_data.id 
+        self.bank_accounts_widget.selection_cleared.connect(
+            lambda: self.bank_transactions_widget.set_current_bank_account(None, "N/A (No bank account selected)")
+        )
         
-        if self.app_core.current_user: orm_obj_to_save.updated_by_user_id = self.app_core.current_user.id 
-        result_orm = await self.app_core.company_settings_service.save_company_settings(orm_obj_to_save)
-        message_title = "Success" if result_orm else "Error"
-        message_text = "Company settings saved successfully." if result_orm else "Failed to save company settings."
-        msg_box_method = QMessageBox.information if result_orm else QMessageBox.warning
-        QMetaObject.invokeMethod(msg_box_method, "", Qt.ConnectionType.QueuedConnection, 
-            Q_ARG(QWidget, self), Q_ARG(str, message_title), Q_ARG(str, message_text))
-
-    async def _load_fiscal_years(self):
-        if not self.app_core.fiscal_period_manager:
-            self.app_core.logger.error("FiscalPeriodManager not available in SettingsWidget.")
-            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "warning", Qt.ConnectionType.QueuedConnection,
-                Q_ARG(QWidget, self), Q_ARG(str, "Service Error"), Q_ARG(str, "Fiscal Period Manager not available."))
-            return
-        try:
-            fy_orms: List[FiscalYear] = await self.app_core.fiscal_period_manager.get_all_fiscal_years()
-            fy_dtos_for_table: List[FiscalYearData] = []
-            for fy_orm in fy_orms:
-                fy_dtos_for_table.append(FiscalYearData(
-                    id=fy_orm.id, year_name=fy_orm.year_name, start_date=fy_orm.start_date,
-                    end_date=fy_orm.end_date, is_closed=fy_orm.is_closed, closed_date=fy_orm.closed_date,
-                    periods=[] 
-                ))
-            
-            fy_json_data = json.dumps([dto.model_dump(mode='json') for dto in fy_dtos_for_table])
-            QMetaObject.invokeMethod(self, "_update_fiscal_years_table_slot", Qt.ConnectionType.QueuedConnection,
-                                     Q_ARG(str, fy_json_data))
-        except Exception as e:
-            error_msg = f"Error loading fiscal years: {str(e)}"
-            self.app_core.logger.error(error_msg, exc_info=True)
-            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "warning", Qt.ConnectionType.QueuedConnection,
-                Q_ARG(QWidget, self), Q_ARG(str, "Fiscal Year Load Error"), Q_ARG(str, error_msg))
-
-    @Slot(str)
-    def _update_fiscal_years_table_slot(self, fy_json_list_str: str):
-        try:
-            fy_dict_list = json.loads(fy_json_list_str, object_hook=json_date_hook) 
-            fy_dtos: List[FiscalYearData] = [FiscalYearData.model_validate(item_dict) for item_dict in fy_dict_list]
-            self.fiscal_year_model.update_data(fy_dtos)
-        except json.JSONDecodeError as e:
-            QMessageBox.critical(self, "Data Error", f"Failed to parse fiscal year data: {e}")
-        except Exception as e_val: 
-            QMessageBox.critical(self, "Data Error", f"Invalid fiscal year data format: {e_val}")
-
-    @Slot()
-    def on_add_fiscal_year(self):
-        if not self.app_core.current_user:
-            QMessageBox.warning(self, "Authentication Error", "No user logged in.")
-            return
-        
-        dialog = FiscalYearDialog(self.app_core, self.app_core.current_user.id, self)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            fy_create_data = dialog.get_fiscal_year_data()
-            if fy_create_data:
-                schedule_task_from_qt(self._perform_add_fiscal_year(fy_create_data))
-
-    async def _perform_add_fiscal_year(self, fy_data: FiscalYearCreateData):
-        if not self.app_core.fiscal_period_manager:
-            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
-                Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str, "Fiscal Period Manager not available."))
-            return
-
-        result: Result[FiscalYear] = await self.app_core.fiscal_period_manager.create_fiscal_year_and_periods(fy_data)
-
-        if result.is_success:
-            assert result.value is not None
-            msg = f"Fiscal Year '{result.value.year_name}' created successfully."
-            if fy_data.auto_generate_periods:
-                msg += f" {fy_data.auto_generate_periods} periods generated."
-            
-            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "information", Qt.ConnectionType.QueuedConnection,
-                Q_ARG(QWidget, self), Q_ARG(str, "Success"), Q_ARG(str, msg))
-            schedule_task_from_qt(self._load_fiscal_years()) 
-        else:
-            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "warning", Qt.ConnectionType.QueuedConnection,
-                Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str, f"Failed to create fiscal year:\n{', '.join(result.errors)}"))
+        self.setLayout(self.main_layout)
 
 ```
 
-# app/ui/settings/user_table_model.py
+# app/ui/banking/bank_transaction_table_model.py
 ```py
-# File: app/ui/settings/user_table_model.py
+# File: app/ui/banking/bank_transaction_table_model.py
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from decimal import Decimal, InvalidOperation
+from datetime import date as python_date
 
-from app.utils.pydantic_models import UserSummaryData
+from app.utils.pydantic_models import BankTransactionSummaryData
+from app.common.enums import BankTransactionTypeEnum
 
-class UserTableModel(QAbstractTableModel):
-    def __init__(self, data: Optional[List[UserSummaryData]] = None, parent=None):
+class BankTransactionTableModel(QAbstractTableModel):
+    def __init__(self, data: Optional[List[BankTransactionSummaryData]] = None, parent=None):
         super().__init__(parent)
-        self._headers = ["ID", "Username", "Full Name", "Email", "Roles", "Active", "Last Login"]
-        self._data: List[UserSummaryData] = data or []
+        self._headers = [
+            "ID", "Txn Date", "Value Date", "Type", "Description", 
+            "Reference", "Amount", "Reconciled"
+        ]
+        self._data: List[BankTransactionSummaryData] = data or []
 
     def rowCount(self, parent=QModelIndex()) -> int:
         if parent.isValid():
@@ -973,6 +99,15 @@ class UserTableModel(QAbstractTableModel):
                 return self._headers[section]
         return None
 
+    def _format_decimal_for_table(self, value: Optional[Decimal]) -> str:
+        if value is None: 
+            return "0.00" # Show 0.00 for None, as it's an amount
+        try:
+            # Negative numbers should be displayed with a minus sign by default with f-string formatting
+            return f"{Decimal(str(value)):,.2f}"
+        except (InvalidOperation, TypeError):
+            return str(value) 
+
     def data(self, index: QModelIndex, role=Qt.ItemDataRole.DisplayRole) -> Any:
         if not index.isValid():
             return None
@@ -983,91 +118,366 @@ class UserTableModel(QAbstractTableModel):
         if not (0 <= row < len(self._data)):
             return None
             
-        user_summary: UserSummaryData = self._data[row]
+        transaction_summary: BankTransactionSummaryData = self._data[row]
 
         if role == Qt.ItemDataRole.DisplayRole:
-            header_key = self._headers[col].lower().replace(' ', '_')
-            
-            if col == 0: return str(user_summary.id)
-            if col == 1: return user_summary.username
-            if col == 2: return user_summary.full_name or ""
-            if col == 3: return str(user_summary.email) if user_summary.email else ""
-            if col == 4: return ", ".join(user_summary.roles) if user_summary.roles else "N/A"
-            if col == 5: return "Yes" if user_summary.is_active else "No"
-            if col == 6: 
-                # Ensure last_login is datetime before formatting
-                last_login_val = user_summary.last_login
-                if isinstance(last_login_val, str): # It might come as ISO string from JSON
-                    try:
-                        last_login_val = datetime.fromisoformat(last_login_val.replace('Z', '+00:00'))
-                    except ValueError:
-                        return "Invalid Date" # Or keep original string
-                
-                return last_login_val.strftime('%d/%m/%Y %H:%M') if isinstance(last_login_val, datetime) else "Never"
-            
-            return str(getattr(user_summary, header_key, ""))
+            if col == 0: return str(transaction_summary.id)
+            if col == 1: # Txn Date
+                txn_date = transaction_summary.transaction_date
+                return txn_date.strftime('%d/%m/%Y') if isinstance(txn_date, python_date) else str(txn_date)
+            if col == 2: # Value Date
+                val_date = transaction_summary.value_date
+                return val_date.strftime('%d/%m/%Y') if isinstance(val_date, python_date) else ""
+            if col == 3: # Type
+                return transaction_summary.transaction_type.value if isinstance(transaction_summary.transaction_type, BankTransactionTypeEnum) else str(transaction_summary.transaction_type)
+            if col == 4: return transaction_summary.description
+            if col == 5: return transaction_summary.reference or ""
+            if col == 6: return self._format_decimal_for_table(transaction_summary.amount) # Amount (signed)
+            if col == 7: return "Yes" if transaction_summary.is_reconciled else "No"
+            return ""
 
-        elif role == Qt.ItemDataRole.UserRole:
-            if col == 0: # Store ID with the first column
-                return user_summary.id
+        elif role == Qt.ItemDataRole.UserRole: 
+            if col == 0: 
+                return transaction_summary.id
         
         elif role == Qt.ItemDataRole.TextAlignmentRole:
-            if self._headers[col] == "Active":
+            if self._headers[col] == "Amount":
+                return Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            if self._headers[col] in ["Txn Date", "Value Date", "Reconciled"]:
                 return Qt.AlignmentFlag.AlignCenter
         
         return None
 
-    def get_user_id_at_row(self, row: int) -> Optional[int]:
+    def get_transaction_id_at_row(self, row: int) -> Optional[int]:
         if 0 <= row < len(self._data):
             index = self.index(row, 0) 
             id_val = self.data(index, Qt.ItemDataRole.UserRole)
-            if id_val is not None: return int(id_val)
+            if id_val is not None:
+                return int(id_val)
             return self._data[row].id 
         return None
         
-    def get_user_active_status_at_row(self, row: int) -> Optional[bool]:
+    def get_transaction_reconciled_status_at_row(self, row: int) -> Optional[bool]:
         if 0 <= row < len(self._data):
-            return self._data[row].is_active
-        return None
-        
-    def get_username_at_row(self, row: int) -> Optional[str]:
-        if 0 <= row < len(self._data):
-            return self._data[row].username
+            return self._data[row].is_reconciled
         return None
 
-    def update_data(self, new_data: List[UserSummaryData]):
+    def update_data(self, new_data: List[BankTransactionSummaryData]):
         self.beginResetModel()
         self._data = new_data or []
         self.endResetModel()
 
 ```
 
-# app/ui/settings/role_management_widget.py
+# app/ui/banking/bank_account_dialog.py
 ```py
-# File: app/ui/settings/role_management_widget.py
+# File: app/ui/banking/bank_account_dialog.py
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QTableView, QPushButton, QToolBar, 
-    QHeaderView, QAbstractItemView, QMessageBox
+    QDialog, QVBoxLayout, QFormLayout, QLineEdit, QPushButton, QDialogButtonBox, 
+    QMessageBox, QCheckBox, QDateEdit, QComboBox, QSpinBox, QTextEdit, 
+    QDoubleSpinBox # For opening_balance
 )
-from PySide6.QtCore import Qt, Slot, QTimer, QMetaObject, Q_ARG, QModelIndex, QSize
+from PySide6.QtCore import Qt, QDate, Slot, Signal, QTimer, QMetaObject, Q_ARG
+from PySide6.QtGui import QIcon
+from typing import Optional, List, Dict, Any, TYPE_CHECKING, Union
+
+import json
+from decimal import Decimal, InvalidOperation
+
+from app.core.application_core import ApplicationCore
+from app.main import schedule_task_from_qt
+from app.utils.pydantic_models import BankAccountCreateData, BankAccountUpdateData
+from app.models.business.bank_account import BankAccount
+from app.models.accounting.account import Account # For Account DTO/ORM
+from app.models.accounting.currency import Currency # For Currency DTO/ORM
+from app.utils.result import Result
+from app.utils.json_helpers import json_converter, json_date_hook
+
+if TYPE_CHECKING:
+    from PySide6.QtGui import QPaintDevice
+
+class BankAccountDialog(QDialog):
+    bank_account_saved = Signal(int) # Emits bank_account ID
+
+    def __init__(self, app_core: "ApplicationCore", current_user_id: int, 
+                 bank_account_id: Optional[int] = None, 
+                 parent: Optional["QWidget"] = None):
+        super().__init__(parent)
+        self.app_core = app_core
+        self.current_user_id = current_user_id
+        self.bank_account_id = bank_account_id
+        self.loaded_bank_account_orm: Optional[BankAccount] = None # Store loaded ORM
+
+        self._currencies_cache: List[Dict[str, Any]] = [] # Store as dicts for combo
+        self._gl_accounts_cache: List[Dict[str, Any]] = [] # Store as dicts for combo
+        
+        self.setWindowTitle("Edit Bank Account" if self.bank_account_id else "Add New Bank Account")
+        self.setMinimumWidth(550)
+        self.setModal(True)
+
+        self._init_ui()
+        self._connect_signals()
+
+        QTimer.singleShot(0, lambda: schedule_task_from_qt(self._load_combo_data()))
+        if self.bank_account_id:
+            QTimer.singleShot(100, lambda: schedule_task_from_qt(self._load_existing_bank_account_details()))
+        else: # New account
+             self._on_opening_balance_changed(self.opening_balance_edit.value()) # Initial state for OB date
+
+    def _init_ui(self):
+        main_layout = QVBoxLayout(self)
+        form_layout = QFormLayout()
+        form_layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
+
+        self.account_name_edit = QLineEdit(); form_layout.addRow("Account Name*:", self.account_name_edit)
+        self.bank_name_edit = QLineEdit(); form_layout.addRow("Bank Name*:", self.bank_name_edit)
+        self.account_number_edit = QLineEdit(); form_layout.addRow("Account Number*:", self.account_number_edit)
+        self.bank_branch_edit = QLineEdit(); form_layout.addRow("Bank Branch:", self.bank_branch_edit)
+        self.bank_swift_code_edit = QLineEdit(); form_layout.addRow("SWIFT Code:", self.bank_swift_code_edit)
+        
+        self.currency_combo = QComboBox(); self.currency_combo.setMinimumWidth(150)
+        form_layout.addRow("Currency*:", self.currency_combo)
+        
+        self.gl_account_combo = QComboBox(); self.gl_account_combo.setMinimumWidth(250)
+        form_layout.addRow("GL Link (Asset Account)*:", self.gl_account_combo)
+
+        self.opening_balance_edit = QDoubleSpinBox()
+        self.opening_balance_edit.setDecimals(2); self.opening_balance_edit.setRange(-999999999.99, 999999999.99)
+        self.opening_balance_edit.setGroupSeparatorShown(True); self.opening_balance_edit.setValue(0.00)
+        form_layout.addRow("Opening Balance:", self.opening_balance_edit)
+
+        self.opening_balance_date_edit = QDateEdit(QDate.currentDate())
+        self.opening_balance_date_edit.setCalendarPopup(True); self.opening_balance_date_edit.setDisplayFormat("dd/MM/yyyy")
+        self.opening_balance_date_edit.setEnabled(False) # Enabled if OB is non-zero
+        form_layout.addRow("OB Date:", self.opening_balance_date_edit)
+        
+        self.description_edit = QTextEdit(); self.description_edit.setFixedHeight(60)
+        form_layout.addRow("Description:", self.description_edit)
+
+        self.is_active_check = QCheckBox("Is Active"); self.is_active_check.setChecked(True)
+        form_layout.addRow(self.is_active_check)
+        
+        main_layout.addLayout(form_layout)
+        self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        main_layout.addWidget(self.button_box)
+        self.setLayout(main_layout)
+
+    def _connect_signals(self):
+        self.button_box.accepted.connect(self.on_save_bank_account)
+        self.button_box.rejected.connect(self.reject)
+        self.opening_balance_edit.valueChanged.connect(self._on_opening_balance_changed)
+
+    @Slot(float)
+    def _on_opening_balance_changed(self, value: float):
+        self.opening_balance_date_edit.setEnabled(abs(value) > 0.005) # Enable if non-zero
+
+    async def _load_combo_data(self):
+        try:
+            if self.app_core.currency_manager:
+                active_currencies = await self.app_core.currency_manager.get_all_active_currencies()
+                self._currencies_cache = [{"code": c.code, "name": c.name} for c in active_currencies]
+            
+            if self.app_core.chart_of_accounts_manager:
+                # Fetch active Asset accounts flagged as bank accounts
+                asset_accounts = await self.app_core.chart_of_accounts_manager.get_accounts_for_selection(
+                    account_type="Asset", active_only=True
+                )
+                # Further filter for those that are `is_bank_account=True`
+                self._gl_accounts_cache = [
+                    {"id": acc.id, "code": acc.code, "name": acc.name} 
+                    for acc in asset_accounts if acc.is_bank_account
+                ]
+            
+            currencies_json = json.dumps(self._currencies_cache, default=json_converter)
+            gl_accounts_json = json.dumps(self._gl_accounts_cache, default=json_converter)
+
+            QMetaObject.invokeMethod(self, "_populate_combos_slot", Qt.ConnectionType.QueuedConnection, 
+                                     Q_ARG(str, currencies_json), Q_ARG(str, gl_accounts_json))
+        except Exception as e:
+            self.app_core.logger.error(f"Error loading combo data for BankAccountDialog: {e}", exc_info=True)
+            QMessageBox.warning(self, "Data Load Error", f"Could not load data for dropdowns: {str(e)}")
+
+    @Slot(str, str)
+    def _populate_combos_slot(self, currencies_json: str, gl_accounts_json: str):
+        try:
+            currencies_data = json.loads(currencies_json, object_hook=json_date_hook)
+            gl_accounts_data = json.loads(gl_accounts_json, object_hook=json_date_hook)
+        except json.JSONDecodeError as e:
+            self.app_core.logger.error(f"Error parsing combo JSON data for BankAccountDialog: {e}")
+            QMessageBox.warning(self, "Data Error", "Error parsing dropdown data."); return
+
+        self.currency_combo.clear()
+        for curr in currencies_data: self.currency_combo.addItem(f"{curr['code']} - {curr['name']}", curr['code'])
+        if self.currency_combo.count() > 0: self.currency_combo.setCurrentIndex(0) # Default to first
+
+        self.gl_account_combo.clear()
+        self.gl_account_combo.addItem("-- Select GL Account --", 0) # Represents None
+        for acc in gl_accounts_data: self.gl_account_combo.addItem(f"{acc['code']} - {acc['name']}", acc['id'])
+        
+        # If editing and ORM data is already loaded, apply it to combos
+        if self.loaded_bank_account_orm:
+            self._populate_fields_from_orm_after_combos(self.loaded_bank_account_orm)
+
+    async def _load_existing_bank_account_details(self):
+        if not self.bank_account_id or not self.app_core.bank_account_manager: return
+        
+        self.loaded_bank_account_orm = await self.app_core.bank_account_manager.get_bank_account_for_dialog(self.bank_account_id)
+        if self.loaded_bank_account_orm:
+            # Serialize data for thread-safe UI update
+            account_dict = {col.name: getattr(self.loaded_bank_account_orm, col.name) 
+                            for col in BankAccount.__table__.columns 
+                            if hasattr(self.loaded_bank_account_orm, col.name)}
+            account_json_str = json.dumps(account_dict, default=json_converter)
+            QMetaObject.invokeMethod(self, "_populate_fields_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, account_json_str))
+        else:
+            QMessageBox.warning(self, "Load Error", f"Bank Account ID {self.bank_account_id} not found.")
+            self.reject()
+
+    @Slot(str)
+    def _populate_fields_slot(self, account_json_str: str):
+        try:
+            data = json.loads(account_json_str, object_hook=json_date_hook)
+        except json.JSONDecodeError:
+            QMessageBox.critical(self, "Error", "Failed to parse bank account data for editing."); return
+        self._populate_fields_from_dict(data)
+
+    def _populate_fields_from_dict(self, data: Dict[str, Any]):
+        self.account_name_edit.setText(data.get("account_name", ""))
+        self.account_number_edit.setText(data.get("account_number", ""))
+        self.bank_name_edit.setText(data.get("bank_name", ""))
+        self.bank_branch_edit.setText(data.get("bank_branch", "") or "")
+        self.bank_swift_code_edit.setText(data.get("bank_swift_code", "") or "")
+        
+        ob_val = data.get("opening_balance")
+        self.opening_balance_edit.setValue(float(Decimal(str(ob_val))) if ob_val is not None else 0.0)
+        ob_date_val = data.get("opening_balance_date")
+        self.opening_balance_date_edit.setDate(QDate(ob_date_val) if ob_date_val else QDate.currentDate())
+        self._on_opening_balance_changed(self.opening_balance_edit.value()) # Update date edit enabled state
+
+        self.description_edit.setText(data.get("description", "") or "")
+        self.is_active_check.setChecked(data.get("is_active", True))
+
+        # Set comboboxes - ensure they are populated first
+        currency_idx = self.currency_combo.findData(data.get("currency_code", "SGD"))
+        if currency_idx != -1: self.currency_combo.setCurrentIndex(currency_idx)
+        
+        gl_acc_id = data.get("gl_account_id")
+        gl_acc_idx = self.gl_account_combo.findData(gl_acc_id if gl_acc_id is not None else 0)
+        if gl_acc_idx != -1: self.gl_account_combo.setCurrentIndex(gl_acc_idx)
+
+    def _populate_fields_from_orm_after_combos(self, ba_orm: BankAccount): # Called after combos are loaded
+        currency_idx = self.currency_combo.findData(ba_orm.currency_code)
+        if currency_idx != -1: self.currency_combo.setCurrentIndex(currency_idx)
+        else: self.app_core.logger.warning(f"Loaded bank account currency '{ba_orm.currency_code}' not found in combo.")
+
+        gl_acc_idx = self.gl_account_combo.findData(ba_orm.gl_account_id or 0)
+        if gl_acc_idx != -1: self.gl_account_combo.setCurrentIndex(gl_acc_idx)
+        elif ba_orm.gl_account_id:
+             self.app_core.logger.warning(f"Loaded bank account GL ID '{ba_orm.gl_account_id}' not found in combo.")
+
+
+    @Slot()
+    def on_save_bank_account(self):
+        if not self.app_core.current_user:
+            QMessageBox.warning(self, "Auth Error", "No user logged in."); return
+
+        gl_account_id_data = self.gl_account_combo.currentData()
+        if not gl_account_id_data or gl_account_id_data == 0:
+            QMessageBox.warning(self, "Validation Error", "GL Link Account is required.")
+            return
+        
+        ob_val = Decimal(str(self.opening_balance_edit.value()))
+        ob_date_val = self.opening_balance_date_edit.date().toPython() if self.opening_balance_date_edit.isEnabled() else None
+        
+        common_data_dict = {
+            "account_name": self.account_name_edit.text().strip(),
+            "account_number": self.account_number_edit.text().strip(),
+            "bank_name": self.bank_name_edit.text().strip(),
+            "bank_branch": self.bank_branch_edit.text().strip() or None,
+            "bank_swift_code": self.bank_swift_code_edit.text().strip() or None,
+            "currency_code": self.currency_combo.currentData() or "SGD",
+            "opening_balance": ob_val,
+            "opening_balance_date": ob_date_val,
+            "gl_account_id": int(gl_account_id_data),
+            "is_active": self.is_active_check.isChecked(),
+            "description": self.description_edit.toPlainText().strip() or None,
+            "user_id": self.current_user_id
+        }
+
+        try:
+            if self.bank_account_id:
+                dto = BankAccountUpdateData(id=self.bank_account_id, **common_data_dict) # type: ignore
+            else:
+                dto = BankAccountCreateData(**common_data_dict) # type: ignore
+        except ValueError as pydantic_error:
+             QMessageBox.warning(self, "Validation Error", f"Invalid data:\n{str(pydantic_error)}")
+             return
+
+        ok_button = self.button_box.button(QDialogButtonBox.StandardButton.Ok)
+        if ok_button: ok_button.setEnabled(False)
+        
+        schedule_task_from_qt(self._perform_save(dto)).add_done_callback(
+            lambda _: ok_button.setEnabled(True) if ok_button and self.isVisible() else None
+        )
+
+    async def _perform_save(self, dto: Union[BankAccountCreateData, BankAccountUpdateData]):
+        if not self.app_core.bank_account_manager:
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str, "Bank Account Manager not available."))
+            return
+
+        result: Result[BankAccount]
+        is_update = isinstance(dto, BankAccountUpdateData)
+        action_verb_past = "updated" if is_update else "created"
+
+        if is_update:
+            result = await self.app_core.bank_account_manager.update_bank_account(dto.id, dto)
+        else:
+            result = await self.app_core.bank_account_manager.create_bank_account(dto)
+
+        if result.is_success and result.value:
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "information", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Success"), 
+                Q_ARG(str, f"Bank Account '{result.value.account_name}' {action_verb_past} successfully (ID: {result.value.id})."))
+            self.bank_account_saved.emit(result.value.id)
+            QMetaObject.invokeMethod(self, "accept", Qt.ConnectionType.QueuedConnection)
+        else:
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "warning", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Save Error"), 
+                Q_ARG(str, f"Failed to save bank account:\n{', '.join(result.errors)}"))
+
+```
+
+# app/ui/banking/bank_accounts_widget.py
+```py
+# app/ui/banking/bank_accounts_widget.py
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QTableView, QPushButton, 
+    QToolBar, QHeaderView, QAbstractItemView, QMessageBox,
+    QLabel, QLineEdit, QCheckBox, QComboBox, QGroupBox # Added QGroupBox
+)
+from PySide6.QtCore import Qt, Slot, QTimer, QMetaObject, Q_ARG, QModelIndex, QSize, QDate, Signal
 from PySide6.QtGui import QIcon, QAction
-from typing import Optional, List, TYPE_CHECKING
+from typing import Optional, List, Dict, Any, TYPE_CHECKING
 
 import json
 
 from app.core.application_core import ApplicationCore
 from app.main import schedule_task_from_qt
-from app.ui.settings.role_table_model import RoleTableModel
-from app.ui.settings.role_dialog import RoleDialog # Import RoleDialog
-from app.utils.pydantic_models import RoleData
-from app.utils.json_helpers import json_converter
+from app.ui.banking.bank_account_table_model import BankAccountTableModel
+from app.ui.banking.bank_account_dialog import BankAccountDialog
+from app.utils.pydantic_models import BankAccountSummaryData
+from app.utils.json_helpers import json_converter, json_date_hook
 from app.utils.result import Result
-from app.models.core.user import Role 
+from app.models.business.bank_account import BankAccount 
 
 if TYPE_CHECKING:
     from PySide6.QtGui import QPaintDevice
 
-class RoleManagementWidget(QWidget):
+class BankAccountsWidget(QWidget):
+    bank_account_selected = Signal(int, str) # Emit bank_account_id and name
+    selection_cleared = Signal() # Emit when no valid selection
+
     def __init__(self, app_core: ApplicationCore, parent: Optional["QWidget"] = None):
         super().__init__(parent)
         self.app_core = app_core
@@ -1077,774 +487,803 @@ class RoleManagementWidget(QWidget):
             import app.resources_rc 
             self.icon_path_prefix = ":/icons/"
         except ImportError:
-            pass 
+            pass
         
         self._init_ui()
-        QTimer.singleShot(0, lambda: schedule_task_from_qt(self._load_roles()))
+        QTimer.singleShot(0, lambda: self.toolbar_refresh_action.trigger())
 
     def _init_ui(self):
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setSpacing(5)
+        self.main_layout.setContentsMargins(0,0,0,0) 
 
         self._create_toolbar()
         self.main_layout.addWidget(self.toolbar)
 
-        self.roles_table = QTableView()
-        self.roles_table.setAlternatingRowColors(True)
-        self.roles_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.roles_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.roles_table.horizontalHeader().setStretchLastSection(True) 
-        self.roles_table.setSortingEnabled(True)
-        self.roles_table.doubleClicked.connect(self._on_edit_role_double_click)
+        self._create_filter_area()
+        self.main_layout.addWidget(self.filter_group) 
 
-        self.table_model = RoleTableModel()
-        self.roles_table.setModel(self.table_model)
+        self.bank_accounts_table = QTableView()
+        self.bank_accounts_table.setAlternatingRowColors(True)
+        self.bank_accounts_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.bank_accounts_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection) 
+        self.bank_accounts_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.bank_accounts_table.horizontalHeader().setStretchLastSection(False)
+        self.bank_accounts_table.doubleClicked.connect(self._on_edit_bank_account_double_click) 
+        self.bank_accounts_table.setSortingEnabled(True)
+
+        self.table_model = BankAccountTableModel()
+        self.bank_accounts_table.setModel(self.table_model)
         
-        header = self.roles_table.horizontalHeader()
-        id_col_idx = self.table_model._headers.index("ID") if "ID" in self.table_model._headers else -1
-        if id_col_idx != -1: self.roles_table.setColumnHidden(id_col_idx, True)
+        header = self.bank_accounts_table.horizontalHeader()
+        for i in range(self.table_model.columnCount()):
+            header.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
         
-        header.setSectionResizeMode(self.table_model._headers.index("Name"), QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(self.table_model._headers.index("Description"), QHeaderView.ResizeMode.Stretch)
+        if "ID" in self.table_model._headers:
+            id_col_idx = self.table_model._headers.index("ID")
+            self.bank_accounts_table.setColumnHidden(id_col_idx, True)
         
-        self.main_layout.addWidget(self.roles_table)
+        if "Account Name" in self.table_model._headers:
+            name_col_idx = self.table_model._headers.index("Account Name")
+            visible_name_idx = name_col_idx
+            if "ID" in self.table_model._headers and self.table_model._headers.index("ID") < name_col_idx and self.bank_accounts_table.isColumnHidden(self.table_model._headers.index("ID")):
+                visible_name_idx -=1
+            if not self.bank_accounts_table.isColumnHidden(name_col_idx):
+                 header.setSectionResizeMode(visible_name_idx, QHeaderView.ResizeMode.Stretch)
+        elif self.table_model.columnCount() > 1: 
+            header.setSectionResizeMode(0 if self.bank_accounts_table.isColumnHidden(0) else 1, QHeaderView.ResizeMode.Stretch)
+
+        self.main_layout.addWidget(self.bank_accounts_table)
         self.setLayout(self.main_layout)
 
-        if self.roles_table.selectionModel():
-            self.roles_table.selectionModel().selectionChanged.connect(self._update_action_states)
+        if self.bank_accounts_table.selectionModel():
+            self.bank_accounts_table.selectionModel().selectionChanged.connect(self._on_selection_changed) 
         self._update_action_states()
 
     def _create_toolbar(self):
-        self.toolbar = QToolBar("Role Management Toolbar")
+        self.toolbar = QToolBar("Bank Accounts Toolbar")
         self.toolbar.setIconSize(QSize(16, 16))
 
-        self.toolbar_add_action = QAction(QIcon(self.icon_path_prefix + "add.svg"), "Add Role", self)
-        self.toolbar_add_action.triggered.connect(self._on_add_role)
+        self.toolbar_add_action = QAction(QIcon(self.icon_path_prefix + "add.svg"), "Add Bank Account", self)
+        self.toolbar_add_action.triggered.connect(self._on_add_bank_account)
         self.toolbar.addAction(self.toolbar_add_action)
 
-        self.toolbar_edit_action = QAction(QIcon(self.icon_path_prefix + "edit.svg"), "Edit Role", self)
-        self.toolbar_edit_action.triggered.connect(self._on_edit_role)
+        self.toolbar_edit_action = QAction(QIcon(self.icon_path_prefix + "edit.svg"), "Edit Bank Account", self)
+        self.toolbar_edit_action.triggered.connect(self._on_edit_bank_account)
         self.toolbar.addAction(self.toolbar_edit_action)
 
-        self.toolbar_delete_action = QAction(QIcon(self.icon_path_prefix + "remove.svg"), "Delete Role", self)
-        self.toolbar_delete_action.triggered.connect(self._on_delete_role)
-        self.toolbar.addAction(self.toolbar_delete_action)
+        self.toolbar_toggle_active_action = QAction(QIcon(self.icon_path_prefix + "deactivate.svg"), "Toggle Active", self)
+        self.toolbar_toggle_active_action.triggered.connect(self._on_toggle_active_status)
+        self.toolbar.addAction(self.toolbar_toggle_active_action)
         
         self.toolbar.addSeparator()
         self.toolbar_refresh_action = QAction(QIcon(self.icon_path_prefix + "refresh.svg"), "Refresh List", self)
-        self.toolbar_refresh_action.triggered.connect(lambda: schedule_task_from_qt(self._load_roles()))
+        self.toolbar_refresh_action.triggered.connect(lambda: schedule_task_from_qt(self._load_bank_accounts()))
         self.toolbar.addAction(self.toolbar_refresh_action)
+
+    def _create_filter_area(self):
+        self.filter_group = QGroupBox("Filter Bank Accounts") 
+        filter_layout = QHBoxLayout(self.filter_group) 
+
+        filter_layout.addWidget(QLabel("Status:"))
+        self.status_filter_combo = QComboBox()
+        self.status_filter_combo.addItem("All", None)
+        self.status_filter_combo.addItem("Active", True)
+        self.status_filter_combo.addItem("Inactive", False)
+        self.status_filter_combo.currentIndexChanged.connect(self.toolbar_refresh_action.trigger)
+        filter_layout.addWidget(self.status_filter_combo)
+        filter_layout.addStretch()
+
+    @Slot()
+    def _on_selection_changed(self):
+        self._update_action_states()
+        selected_rows = self.bank_accounts_table.selectionModel().selectedRows()
+        if len(selected_rows) == 1:
+            row = selected_rows[0].row()
+            ba_id = self.table_model.get_bank_account_id_at_row(row)
+            
+            name_item_index = self.table_model.index(row, self.table_model._headers.index("Account Name"))
+            ba_name = self.table_model.data(name_item_index, Qt.ItemDataRole.DisplayRole)
+            if ba_id is not None and ba_name is not None:
+                self.bank_account_selected.emit(ba_id, str(ba_name))
+            else:
+                self.selection_cleared.emit()
+        else:
+            self.selection_cleared.emit()
 
     @Slot()
     def _update_action_states(self):
-        selected_rows = self.roles_table.selectionModel().selectedRows()
+        selected_rows = self.bank_accounts_table.selectionModel().selectedRows()
         single_selection = len(selected_rows) == 1
-        can_modify = False
-        is_admin_role_selected = False
+        self.toolbar_edit_action.setEnabled(single_selection)
+        self.toolbar_toggle_active_action.setEnabled(single_selection)
 
-        if single_selection:
-            can_modify = True
-            row_idx = selected_rows[0].row()
-            role_name = self.table_model.get_role_name_at_row(row_idx)
-            if role_name == "Administrator":
-                is_admin_role_selected = True
-        
-        self.toolbar_edit_action.setEnabled(can_modify) 
-        self.toolbar_delete_action.setEnabled(can_modify and not is_admin_role_selected)
-
-    async def _load_roles(self):
-        if not self.app_core.security_manager:
+    async def _load_bank_accounts(self):
+        if not self.app_core.bank_account_manager:
+            self.app_core.logger.error("BankAccountManager not available.")
             QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
-                Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str,"Security Manager component not available."))
+                Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str,"Bank Account Manager not available."))
             return
         try:
-            roles_orm: List[Role] = await self.app_core.security_manager.get_all_roles()
-            roles_dto: List[RoleData] = [RoleData.model_validate(r) for r in roles_orm]
-            json_data = json.dumps([r.model_dump() for r in roles_dto], default=json_converter)
-            QMetaObject.invokeMethod(self, "_update_table_model_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, json_data))
+            active_filter_data = self.status_filter_combo.currentData()
+            
+            result: Result[List[BankAccountSummaryData]] = await self.app_core.bank_account_manager.get_bank_accounts_for_listing(
+                active_only=active_filter_data if isinstance(active_filter_data, bool) else None, 
+                page=1, page_size=-1 
+            )
+            
+            if result.is_success:
+                data_for_table = result.value if result.value is not None else []
+                json_data = json.dumps([dto.model_dump() for dto in data_for_table], default=json_converter)
+                QMetaObject.invokeMethod(self, "_update_table_model_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, json_data))
+            else:
+                QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "warning", Qt.ConnectionType.QueuedConnection,
+                    Q_ARG(QWidget, self), Q_ARG(str, "Load Error"), Q_ARG(str, f"Failed to load bank accounts: {', '.join(result.errors)}"))
         except Exception as e:
-            self.app_core.logger.error(f"Unexpected error loading roles: {e}", exc_info=True)
             QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
-                Q_ARG(QWidget, self), Q_ARG(str, "Load Error"), Q_ARG(str, f"Unexpected error loading roles: {str(e)}"))
+                Q_ARG(QWidget, self), Q_ARG(str, "Load Error"), Q_ARG(str, f"Unexpected error: {str(e)}"))
 
     @Slot(str)
     def _update_table_model_slot(self, json_data_str: str):
         try:
-            list_of_dicts = json.loads(json_data_str) 
-            role_dtos: List[RoleData] = [RoleData.model_validate(item) for item in list_of_dicts]
-            self.table_model.update_data(role_dtos)
+            list_of_dicts = json.loads(json_data_str, object_hook=json_date_hook)
+            summaries = [BankAccountSummaryData.model_validate(item) for item in list_of_dicts]
+            self.table_model.update_data(summaries)
+            
+            if self.bank_accounts_table.selectionModel().hasSelection():
+                self._on_selection_changed() 
+            else:
+                self.selection_cleared.emit()
+
         except Exception as e: 
-            self.app_core.logger.error(f"Failed to parse/validate role data for table: {e}", exc_info=True)
-            QMessageBox.critical(self, "Data Error", f"Failed to parse/validate role data: {e}")
+            QMessageBox.critical(self, "Data Error", f"Failed to parse/validate bank account data: {e}")
         finally:
             self._update_action_states()
 
     @Slot()
-    def _on_add_role(self):
+    def _on_add_bank_account(self):
         if not self.app_core.current_user: QMessageBox.warning(self, "Auth Error", "Please log in."); return
-        dialog = RoleDialog(self.app_core, self.app_core.current_user.id, parent=self)
-        dialog.role_saved.connect(self._refresh_list_after_save)
+        dialog = BankAccountDialog(self.app_core, self.app_core.current_user.id, parent=self)
+        dialog.bank_account_saved.connect(lambda _id: schedule_task_from_qt(self._load_bank_accounts()))
         dialog.exec()
 
-    def _get_selected_role_id(self) -> Optional[int]:
-        selected_rows = self.roles_table.selectionModel().selectedRows()
-        if not selected_rows: return None
-        if len(selected_rows) > 1: return None # Only operate on single selection for edit/delete
-        return self.table_model.get_role_id_at_row(selected_rows[0].row())
+    def _get_selected_bank_account_id(self) -> Optional[int]:
+        selected_rows = self.bank_accounts_table.selectionModel().selectedRows()
+        if not selected_rows or len(selected_rows) > 1: return None
+        return self.table_model.get_bank_account_id_at_row(selected_rows[0].row())
 
     @Slot()
-    def _on_edit_role(self):
-        role_id = self._get_selected_role_id()
-        if role_id is None: 
-            QMessageBox.information(self, "Selection", "Please select a single role to edit.")
-            return
+    def _on_edit_bank_account(self):
+        bank_account_id = self._get_selected_bank_account_id()
+        if bank_account_id is None: QMessageBox.information(self, "Selection", "Please select a bank account."); return
         if not self.app_core.current_user: QMessageBox.warning(self, "Auth Error", "Please log in."); return
-        
-        role_name = self.table_model.get_role_name_at_row(self.roles_table.currentIndex().row())
-        if role_name == "Administrator" and self.name_edit.text().strip() != "Administrator": # self.name_edit does not exist here. This check is in RoleDialog.
-             # This check is better placed within RoleDialog or SecurityManager. For now, allow opening.
-             pass
-
-        dialog = RoleDialog(self.app_core, self.app_core.current_user.id, role_id_to_edit=role_id, parent=self)
-        dialog.role_saved.connect(self._refresh_list_after_save)
+        dialog = BankAccountDialog(self.app_core, self.app_core.current_user.id, bank_account_id=bank_account_id, parent=self)
+        dialog.bank_account_saved.connect(lambda _id: schedule_task_from_qt(self._load_bank_accounts()))
         dialog.exec()
-
+        
     @Slot(QModelIndex)
-    def _on_edit_role_double_click(self, index: QModelIndex):
+    def _on_edit_bank_account_double_click(self, index: QModelIndex): 
         if not index.isValid(): return
-        role_id = self.table_model.get_role_id_at_row(index.row())
-        if role_id is None: return
+        bank_account_id = self.table_model.get_bank_account_id_at_row(index.row())
+        if bank_account_id is None: return
         if not self.app_core.current_user: QMessageBox.warning(self, "Auth Error", "Please log in."); return
-        
-        dialog = RoleDialog(self.app_core, self.app_core.current_user.id, role_id_to_edit=role_id, parent=self)
-        dialog.role_saved.connect(self._refresh_list_after_save)
+        dialog = BankAccountDialog(self.app_core, self.app_core.current_user.id, bank_account_id=bank_account_id, parent=self)
+        dialog.bank_account_saved.connect(lambda _id: schedule_task_from_qt(self._load_bank_accounts()))
         dialog.exec()
 
     @Slot()
-    def _on_delete_role(self):
-        role_id = self._get_selected_role_id()
-        if role_id is None: 
-            QMessageBox.information(self, "Selection", "Please select a single role to delete.")
-            return
-        
-        role_name = self.table_model.get_role_name_at_row(self.roles_table.currentIndex().row())
-        if role_name == "Administrator":
-            QMessageBox.warning(self, "Action Denied", "The 'Administrator' role cannot be deleted.")
-            return
-
+    def _on_toggle_active_status(self):
+        bank_account_id = self._get_selected_bank_account_id()
+        if bank_account_id is None: QMessageBox.information(self, "Selection", "Please select a bank account."); return
         if not self.app_core.current_user: QMessageBox.warning(self, "Auth Error", "Please log in."); return
-        
-        reply = QMessageBox.question(self, "Confirm Deletion",
-                                     f"Are you sure you want to delete the role '{role_name}' (ID: {role_id})?\nThis action cannot be undone.",
+            
+        is_currently_active = self.table_model.get_bank_account_status_at_row(self.bank_accounts_table.currentIndex().row())
+        action_verb = "deactivate" if is_currently_active else "activate"
+        reply = QMessageBox.question(self, f"Confirm {action_verb.capitalize()}",
+                                     f"Are you sure you want to {action_verb} this bank account?",
                                      QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                                      QMessageBox.StandardButton.No)
         if reply == QMessageBox.StandardButton.No: return
 
         future = schedule_task_from_qt(
-            self.app_core.security_manager.delete_role(role_id, self.app_core.current_user.id)
+            self.app_core.bank_account_manager.toggle_bank_account_active_status(bank_account_id, self.app_core.current_user.id)
         )
-        if future: future.add_done_callback(self._handle_delete_role_result)
-        else: self._handle_delete_role_result(None)
+        if future: future.add_done_callback(self._handle_toggle_active_result)
+        else: self._handle_toggle_active_result(None)
 
-    def _handle_delete_role_result(self, future):
-        if future is None: QMessageBox.critical(self, "Task Error", "Failed to schedule role deletion."); return
+    def _handle_toggle_active_result(self, future):
+        if future is None: QMessageBox.critical(self, "Task Error", "Failed to schedule status toggle."); return
         try:
-            result: Result[None] = future.result()
+            result: Result[BankAccount] = future.result()
             if result.is_success:
-                QMessageBox.information(self, "Success", "Role deleted successfully.")
-                schedule_task_from_qt(self._load_roles()) 
+                QMessageBox.information(self, "Success", f"Bank account status changed successfully.")
+                schedule_task_from_qt(self._load_bank_accounts()) 
             else:
-                QMessageBox.warning(self, "Error", f"Failed to delete role:\n{', '.join(result.errors)}")
+                QMessageBox.warning(self, "Error", f"Failed to toggle status:\n{', '.join(result.errors)}")
         except Exception as e:
-            self.app_core.logger.error(f"Error handling role deletion result: {e}", exc_info=True)
-            QMessageBox.critical(self, "Error", f"An unexpected error occurred during role deletion: {str(e)}")
-        finally:
-            self._update_action_states() 
+            QMessageBox.critical(self, "Error", f"An unexpected error occurred: {str(e)}")
 
-    @Slot(int)
-    def _refresh_list_after_save(self, role_id: int):
-        self.app_core.logger.info(f"RoleDialog reported save for Role ID: {role_id}. Refreshing role list.")
-        schedule_task_from_qt(self._load_roles())
 
 ```
 
-# app/ui/settings/role_dialog.py
+# app/ui/banking/bank_transaction_dialog.py
 ```py
-# app/ui/settings/role_dialog.py
+# File: app/ui/banking/bank_transaction_dialog.py
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QFormLayout, QLineEdit, QPushButton, QDialogButtonBox, 
-    QMessageBox, QLabel, QTextEdit, QListWidget, QListWidgetItem, QAbstractItemView,
-    QGroupBox 
+    QMessageBox, QDateEdit, QComboBox, QTextEdit, QDoubleSpinBox
 )
-from PySide6.QtCore import Qt, Slot, Signal, QTimer, QMetaObject, Q_ARG
+from PySide6.QtCore import Qt, QDate, Slot, Signal, QTimer, QMetaObject, Q_ARG
+from PySide6.QtGui import QIcon
 from typing import Optional, List, Dict, Any, TYPE_CHECKING, Union
 
 import json
+from decimal import Decimal, InvalidOperation
 
 from app.core.application_core import ApplicationCore
 from app.main import schedule_task_from_qt
-from app.utils.pydantic_models import RoleCreateData, RoleUpdateData, RoleData, PermissionData
-from app.models.core.user import Role # ORM for loading
+from app.utils.pydantic_models import BankTransactionCreateData, BankAccountSummaryData
+from app.models.business.bank_transaction import BankTransaction
+from app.common.enums import BankTransactionTypeEnum
 from app.utils.result import Result
-from app.utils.json_helpers import json_converter
+from app.utils.json_helpers import json_converter, json_date_hook
 
 if TYPE_CHECKING:
     from PySide6.QtGui import QPaintDevice
 
-class RoleDialog(QDialog):
-    role_saved = Signal(int) # Emits role ID
+class BankTransactionDialog(QDialog):
+    bank_transaction_saved = Signal(int) # Emits bank_transaction ID
 
-    def __init__(self, app_core: ApplicationCore, 
-                 current_admin_user_id: int, 
-                 role_id_to_edit: Optional[int] = None, 
-                 parent: Optional["QWidget"] = None):
+    def __init__(self, app_core: "ApplicationCore", current_user_id: int, 
+                 preselected_bank_account_id: Optional[int] = None,
+                 parent: Optional["QWidget"] = None): # transaction_id for editing later
         super().__init__(parent)
         self.app_core = app_core
-        self.current_admin_user_id = current_admin_user_id
-        self.role_id_to_edit = role_id_to_edit
-        self.loaded_role_orm: Optional[Role] = None
-        self._all_permissions_cache: List[PermissionData] = []
+        self.current_user_id = current_user_id
+        self.preselected_bank_account_id = preselected_bank_account_id
+        # self.transaction_id = transaction_id # For future edit mode
+        
+        self._bank_accounts_cache: List[Dict[str, Any]] = []
 
-
-        self.is_new_role = self.role_id_to_edit is None
-        self.setWindowTitle("Add New Role" if self.is_new_role else "Edit Role")
-        self.setMinimumWidth(500) 
-        self.setMinimumHeight(450)
+        self.setWindowTitle("New Manual Bank Transaction") # For now, only new
+        self.setMinimumWidth(500)
         self.setModal(True)
 
         self._init_ui()
         self._connect_signals()
 
-        QTimer.singleShot(0, lambda: schedule_task_from_qt(self._load_initial_data()))
-
-    def _init_ui(self):
-        main_layout = QVBoxLayout(self)
-        
-        details_group = QGroupBox("Role Details")
-        form_layout = QFormLayout(details_group)
-        form_layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
-
-        self.name_edit = QLineEdit()
-        self.name_edit.setPlaceholderText("Enter role name (e.g., Sales Manager)")
-        form_layout.addRow("Role Name*:", self.name_edit)
-
-        self.description_edit = QTextEdit()
-        self.description_edit.setPlaceholderText("Enter a brief description for this role.")
-        self.description_edit.setFixedHeight(60) 
-        form_layout.addRow("Description:", self.description_edit)
-        main_layout.addWidget(details_group)
-        
-        permissions_group = QGroupBox("Assign Permissions")
-        permissions_layout = QVBoxLayout(permissions_group)
-        self.permissions_list_widget = QListWidget()
-        self.permissions_list_widget.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
-        permissions_layout.addWidget(self.permissions_list_widget)
-        main_layout.addWidget(permissions_group)
-
-        self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        main_layout.addWidget(self.button_box)
-        self.setLayout(main_layout)
-        
-    def _connect_signals(self):
-        self.button_box.accepted.connect(self.on_save)
-        self.button_box.rejected.connect(self.reject)
-
-    async def _load_initial_data(self):
-        """Load all available permissions and role data if editing."""
-        perms_loaded_successfully = False
-        try:
-            if self.app_core.security_manager:
-                # Fetch all permissions for the list widget
-                self._all_permissions_cache = await self.app_core.security_manager.get_all_permissions()
-                perms_json = json.dumps([p.model_dump() for p in self._all_permissions_cache]) # Use model_dump for Pydantic v2
-                QMetaObject.invokeMethod(self, "_populate_permissions_list_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, perms_json))
-                perms_loaded_successfully = True
-        except Exception as e:
-            self.app_core.logger.error(f"Error loading permissions for RoleDialog: {e}", exc_info=True)
-            QMessageBox.warning(self, "Data Load Error", f"Could not load permissions: {str(e)}")
-        
-        if not perms_loaded_successfully:
-            self.permissions_list_widget.addItem("Error loading permissions.")
-            self.permissions_list_widget.setEnabled(False)
-
-        # If editing, load the specific role's data (which includes its assigned permissions)
-        if self.role_id_to_edit:
-            try:
-                if self.app_core.security_manager:
-                    # get_role_by_id should eager load role.permissions
-                    self.loaded_role_orm = await self.app_core.security_manager.get_role_by_id(self.role_id_to_edit)
-                    if self.loaded_role_orm:
-                        assigned_perm_ids = [p.id for p in self.loaded_role_orm.permissions]
-                        role_dict = {
-                            "id": self.loaded_role_orm.id, "name": self.loaded_role_orm.name,
-                            "description": self.loaded_role_orm.description,
-                            "assigned_permission_ids": assigned_perm_ids
-                        }
-                        role_json_str = json.dumps(role_dict, default=json_converter)
-                        # This slot will populate fields and then call _select_assigned_permissions
-                        QMetaObject.invokeMethod(self, "_populate_fields_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, role_json_str))
-                    else:
-                        QMessageBox.warning(self, "Load Error", f"Role ID {self.role_id_to_edit} not found.")
-                        self.reject()
-            except Exception as e:
-                 self.app_core.logger.error(f"Error loading role (ID: {self.role_id_to_edit}) for edit: {e}", exc_info=True)
-                 QMessageBox.warning(self, "Load Error", f"Could not load role details: {str(e)}"); self.reject()
-        elif self.is_new_role : # New role
-            self.name_edit.setFocus()
-
-
-    @Slot(str)
-    def _populate_permissions_list_slot(self, permissions_json_str: str):
-        self.permissions_list_widget.clear()
-        try:
-            permissions_data_list = json.loads(permissions_json_str)
-            # Cache already updated in _load_initial_data, or update it here if preferred
-            self._all_permissions_cache = [PermissionData.model_validate(p_dict) for p_dict in permissions_data_list]
-            for perm_dto in self._all_permissions_cache:
-                item_text = f"{perm_dto.module}: {perm_dto.code}"
-                if perm_dto.description: item_text += f" - {perm_dto.description}"
-                item = QListWidgetItem(item_text)
-                item.setData(Qt.ItemDataRole.UserRole, perm_dto.id) 
-                self.permissions_list_widget.addItem(item)
-        except json.JSONDecodeError as e:
-            self.app_core.logger.error(f"Error parsing permissions JSON for RoleDialog: {e}")
-            self.permissions_list_widget.addItem("Error parsing permissions.")
-        
-        # If editing and role data was already loaded (which triggered field population),
-        # and field population triggered _select_assigned_permissions, this re-selection might be redundant
-        # or necessary if permissions list is populated after fields.
-        # This is generally safe.
-        if self.role_id_to_edit and self.loaded_role_orm:
-            self._select_assigned_permissions([p.id for p in self.loaded_role_orm.permissions])
-
-
-    @Slot(str)
-    def _populate_fields_slot(self, role_json_str: str):
-        try:
-            role_data = json.loads(role_json_str) 
-        except json.JSONDecodeError:
-            QMessageBox.critical(self, "Error", "Failed to parse role data for editing."); return
-
-        self.name_edit.setText(role_data.get("name", ""))
-        self.description_edit.setText(role_data.get("description", "") or "")
-
-        is_admin_role = (role_data.get("name") == "Administrator")
-        self.name_edit.setReadOnly(is_admin_role)
-        self.name_edit.setToolTip("The 'Administrator' role name cannot be changed." if is_admin_role else "")
-        
-        # For Admin role, all permissions should be selected and the list disabled.
-        if is_admin_role:
-            for i in range(self.permissions_list_widget.count()):
-                self.permissions_list_widget.item(i).setSelected(True)
-            self.permissions_list_widget.setEnabled(False) 
-            self.permissions_list_widget.setToolTip("Administrator role has all permissions by default and cannot be modified here.")
-        else:
-            self.permissions_list_widget.setEnabled(True)
-            assigned_permission_ids = role_data.get("assigned_permission_ids", [])
-            self._select_assigned_permissions(assigned_permission_ids)
-
-
-    def _select_assigned_permissions(self, assigned_ids: List[int]):
-        # Ensure this is called after permissions_list_widget is populated
-        if self.permissions_list_widget.count() == 0 and self._all_permissions_cache:
-             # Permissions list might not be populated yet if this is called too early from _populate_fields_slot
-             # _load_initial_data should ensure permissions are populated first then calls _populate_fields_slot
-             # which then calls this.
-             self.app_core.logger.warning("_select_assigned_permissions called before permissions list populated.")
-             return
-
-        for i in range(self.permissions_list_widget.count()):
-            item = self.permissions_list_widget.item(i)
-            permission_id_in_item = item.data(Qt.ItemDataRole.UserRole)
-            if permission_id_in_item in assigned_ids:
-                item.setSelected(True)
-            else:
-                item.setSelected(False) 
-
-    def _collect_data(self) -> Optional[Union[RoleCreateData, RoleUpdateData]]:
-        name = self.name_edit.text().strip()
-        description = self.description_edit.toPlainText().strip() or None
-        
-        if not name:
-            QMessageBox.warning(self, "Validation Error", "Role Name is required.")
-            return None
-        
-        # Cannot change name of Administrator role if editing it (already handled by read-only)
-        if self.loaded_role_orm and self.loaded_role_orm.name == "Administrator" and name != "Administrator":
-             QMessageBox.warning(self, "Validation Error", "Cannot change the name of 'Administrator' role.")
-             self.name_edit.setText("Administrator") # Reset
-             return None
-
-        selected_permission_ids: List[int] = []
-        if self.permissions_list_widget.isEnabled(): # Only collect if list is enabled (not admin role)
-            for item in self.permissions_list_widget.selectedItems():
-                perm_id = item.data(Qt.ItemDataRole.UserRole)
-                if isinstance(perm_id, int):
-                    selected_permission_ids.append(perm_id)
-        elif self.loaded_role_orm and self.loaded_role_orm.name == "Administrator":
-            # For admin, all permissions are implicitly assigned if list is disabled
-            selected_permission_ids = [p.id for p in self._all_permissions_cache]
-
-
-        common_data = {"name": name, "description": description, "permission_ids": selected_permission_ids}
-
-        try:
-            if self.is_new_role:
-                return RoleCreateData(**common_data) 
-            else:
-                assert self.role_id_to_edit is not None
-                return RoleUpdateData(id=self.role_id_to_edit, **common_data) 
-        except ValueError as pydantic_error: 
-            QMessageBox.warning(self, "Validation Error", f"Invalid data:\n{str(pydantic_error)}")
-            return None
-
-    @Slot()
-    def on_save(self):
-        dto = self._collect_data()
-        if dto:
-            ok_button = self.button_box.button(QDialogButtonBox.StandardButton.Ok)
-            if ok_button: ok_button.setEnabled(False)
-            
-            future = schedule_task_from_qt(self._perform_save(dto))
-            if future:
-                future.add_done_callback(
-                    lambda _: ok_button.setEnabled(True) if ok_button and self.isVisible() else None
-                )
-            else: 
-                if ok_button: ok_button.setEnabled(True)
-
-    async def _perform_save(self, dto: Union[RoleCreateData, RoleUpdateData]):
-        if not self.app_core.security_manager:
-            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
-                Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str, "Security Manager not available."))
-            return
-
-        result: Result[Role]
-        action_verb_present = "update" if isinstance(dto, RoleUpdateData) else "create"
-        action_verb_past = "updated" if isinstance(dto, RoleUpdateData) else "created"
-
-        if isinstance(dto, RoleUpdateData):
-            result = await self.app_core.security_manager.update_role(dto, self.current_admin_user_id)
-        else: 
-            result = await self.app_core.security_manager.create_role(dto, self.current_admin_user_id)
-
-        if result.is_success and result.value:
-            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "information", Qt.ConnectionType.QueuedConnection,
-                Q_ARG(QWidget, self.parentWidget() if self.parentWidget() else self), 
-                Q_ARG(str, "Success"), 
-                Q_ARG(str, f"Role '{result.value.name}' {action_verb_past} successfully."))
-            self.role_saved.emit(result.value.id)
-            QMetaObject.invokeMethod(self, "accept", Qt.ConnectionType.QueuedConnection)
-        else:
-            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "warning", Qt.ConnectionType.QueuedConnection,
-                Q_ARG(QWidget, self), Q_ARG(str, "Save Error"), 
-                Q_ARG(str, f"Failed to {action_verb_present} role:\n{', '.join(result.errors)}"))
-
-
-```
-
-# app/ui/settings/user_dialog.py
-```py
-# File: app/ui/settings/user_dialog.py
-from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QFormLayout, QLineEdit, QPushButton, QDialogButtonBox, 
-    QMessageBox, QCheckBox, QListWidget, QListWidgetItem, QAbstractItemView,
-    QLabel
-)
-from PySide6.QtCore import Qt, Slot, Signal, QTimer, QMetaObject, Q_ARG
-from typing import Optional, List, Dict, Any, TYPE_CHECKING, Union, cast
-
-import json
-
-from app.core.application_core import ApplicationCore
-from app.main import schedule_task_from_qt
-from app.utils.pydantic_models import UserCreateData, UserUpdateData, RoleData
-from app.models.core.user import User, Role # For ORM type hints
-from app.utils.result import Result
-from app.utils.json_helpers import json_converter # For serializing roles if needed
-
-if TYPE_CHECKING:
-    from PySide6.QtGui import QPaintDevice
-
-class UserDialog(QDialog):
-    user_saved = Signal(int) # Emits user ID
-
-    def __init__(self, app_core: ApplicationCore, 
-                 current_admin_user_id: int, 
-                 user_id_to_edit: Optional[int] = None, 
-                 parent: Optional["QWidget"] = None):
-        super().__init__(parent)
-        self.app_core = app_core
-        self.current_admin_user_id = current_admin_user_id
-        self.user_id_to_edit = user_id_to_edit
-        self.loaded_user_orm: Optional[User] = None
-        self._all_roles_cache: List[RoleData] = []
-
-        self.is_new_user = self.user_id_to_edit is None
-        self.setWindowTitle("Add New User" if self.is_new_user else "Edit User")
-        self.setMinimumWidth(450)
-        self.setModal(True)
-
-        self._init_ui()
-        self._connect_signals()
-
-        QTimer.singleShot(0, lambda: schedule_task_from_qt(self._load_initial_data()))
+        QTimer.singleShot(0, lambda: schedule_task_from_qt(self._load_combo_data()))
+        # If self.transaction_id, load existing transaction data
 
     def _init_ui(self):
         main_layout = QVBoxLayout(self)
         form_layout = QFormLayout()
         form_layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
 
-        self.username_edit = QLineEdit()
-        form_layout.addRow("Username*:", self.username_edit)
+        self.bank_account_combo = QComboBox()
+        self.bank_account_combo.setMinimumWidth(250)
+        form_layout.addRow("Bank Account*:", self.bank_account_combo)
 
-        self.full_name_edit = QLineEdit()
-        form_layout.addRow("Full Name:", self.full_name_edit)
-
-        self.email_edit = QLineEdit()
-        self.email_edit.setPlaceholderText("user@example.com")
-        form_layout.addRow("Email:", self.email_edit)
-
-        self.password_label = QLabel("Password*:")
-        self.password_edit = QLineEdit()
-        self.password_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        form_layout.addRow(self.password_label, self.password_edit)
-
-        self.confirm_password_label = QLabel("Confirm Password*:")
-        self.confirm_password_edit = QLineEdit()
-        self.confirm_password_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        form_layout.addRow(self.confirm_password_label, self.confirm_password_edit)
-
-        self.is_active_check = QCheckBox("User is Active")
-        self.is_active_check.setChecked(True)
-        form_layout.addRow(self.is_active_check)
+        self.transaction_date_edit = QDateEdit(QDate.currentDate())
+        self.transaction_date_edit.setCalendarPopup(True); self.transaction_date_edit.setDisplayFormat("dd/MM/yyyy")
+        form_layout.addRow("Transaction Date*:", self.transaction_date_edit)
         
-        form_layout.addRow(QLabel("Assign Roles:"))
-        self.roles_list_widget = QListWidget()
-        self.roles_list_widget.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
-        self.roles_list_widget.setFixedHeight(120) # Adjust height as needed
-        form_layout.addRow(self.roles_list_widget)
+        self.value_date_edit = QDateEdit(QDate.currentDate())
+        self.value_date_edit.setCalendarPopup(True); self.value_date_edit.setDisplayFormat("dd/MM/yyyy")
+        form_layout.addRow("Value Date:", self.value_date_edit)
+
+        self.transaction_type_combo = QComboBox()
+        for type_enum in BankTransactionTypeEnum:
+            self.transaction_type_combo.addItem(type_enum.value, type_enum)
+        form_layout.addRow("Transaction Type*:", self.transaction_type_combo)
+
+        self.description_edit = QLineEdit()
+        self.description_edit.setPlaceholderText("Description of the transaction")
+        form_layout.addRow("Description*:", self.description_edit)
+
+        self.reference_edit = QLineEdit()
+        self.reference_edit.setPlaceholderText("e.g., Check no., transfer ID")
+        form_layout.addRow("Reference:", self.reference_edit)
+
+        self.amount_edit = QDoubleSpinBox()
+        self.amount_edit.setDecimals(2); self.amount_edit.setRange(0.01, 999999999.99) # Magnitude only
+        self.amount_edit.setGroupSeparatorShown(True); self.amount_edit.setPrefix("$ ") # Placeholder, update with currency
+        form_layout.addRow("Amount (Magnitude)*:", self.amount_edit)
+        
+        # Note: GL Contra Account selection could be added here for immediate JE posting.
+        # For basic entry, this is deferred.
 
         main_layout.addLayout(form_layout)
-
         self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         main_layout.addWidget(self.button_box)
         self.setLayout(main_layout)
 
-        if not self.is_new_user: # Editing existing user
-            self.password_label.setVisible(False)
-            self.password_edit.setVisible(False)
-            self.confirm_password_label.setVisible(False)
-            self.confirm_password_edit.setVisible(False)
-            # Username might be non-editable for existing users for simplicity, or based on permissions
-            # self.username_edit.setReadOnly(True) 
-
-
     def _connect_signals(self):
-        self.button_box.accepted.connect(self.on_save)
+        self.button_box.accepted.connect(self.on_save_transaction)
         self.button_box.rejected.connect(self.reject)
+        self.bank_account_combo.currentIndexChanged.connect(self._update_amount_prefix)
+        self.transaction_type_combo.currentDataChanged.connect(self._on_transaction_type_changed)
 
-    async def _load_initial_data(self):
-        """Load all available roles and user data if editing."""
-        roles_loaded_successfully = False
-        try:
-            if self.app_core.security_manager:
-                roles_orm: List[Role] = await self.app_core.security_manager.get_all_roles()
-                self._all_roles_cache = [RoleData.model_validate(r) for r in roles_orm]
-                roles_json = json.dumps([r.model_dump() for r in self._all_roles_cache], default=json_converter)
-                QMetaObject.invokeMethod(self, "_populate_roles_list_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, roles_json))
-                roles_loaded_successfully = True
-        except Exception as e:
-            self.app_core.logger.error(f"Error loading roles for UserDialog: {e}", exc_info=True)
-            QMessageBox.warning(self, "Data Load Error", f"Could not load roles: {str(e)}")
-
-        if not roles_loaded_successfully:
-            self.roles_list_widget.addItem("Error loading roles.")
-            self.roles_list_widget.setEnabled(False)
-
-        if self.user_id_to_edit:
-            try:
-                if self.app_core.security_manager:
-                    self.loaded_user_orm = await self.app_core.security_manager.get_user_by_id_for_edit(self.user_id_to_edit)
-                    if self.loaded_user_orm:
-                        # Serialize user data for thread-safe UI update
-                        user_dict = {
-                            "id": self.loaded_user_orm.id,
-                            "username": self.loaded_user_orm.username,
-                            "full_name": self.loaded_user_orm.full_name,
-                            "email": self.loaded_user_orm.email,
-                            "is_active": self.loaded_user_orm.is_active,
-                            "assigned_role_ids": [role.id for role in self.loaded_user_orm.roles]
-                        }
-                        user_json_str = json.dumps(user_dict, default=json_converter)
-                        QMetaObject.invokeMethod(self, "_populate_fields_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, user_json_str))
-                    else:
-                        QMessageBox.warning(self, "Load Error", f"User ID {self.user_id_to_edit} not found.")
-                        self.reject() # Close dialog if user not found
-            except Exception as e:
-                 self.app_core.logger.error(f"Error loading user (ID: {self.user_id_to_edit}) for edit: {e}", exc_info=True)
-                 QMessageBox.warning(self, "Load Error", f"Could not load user details: {str(e)}")
-                 self.reject()
-
-
-    @Slot(str)
-    def _populate_roles_list_slot(self, roles_json_str: str):
-        self.roles_list_widget.clear()
-        try:
-            roles_data_list = json.loads(roles_json_str)
-            self._all_roles_cache = [RoleData.model_validate(r_dict) for r_dict in roles_data_list]
-            for role_dto in self._all_roles_cache:
-                item = QListWidgetItem(f"{role_dto.name} ({role_dto.description or 'No description'})")
-                item.setData(Qt.ItemDataRole.UserRole, role_dto.id) # Store role ID
-                self.roles_list_widget.addItem(item)
-        except json.JSONDecodeError as e:
-            self.app_core.logger.error(f"Error parsing roles JSON for UserDialog: {e}")
-            self.roles_list_widget.addItem("Error parsing roles.")
-        
-        # If editing, and user data already loaded, re-select roles
-        if self.user_id_to_edit and self.loaded_user_orm:
-            self._select_assigned_roles([role.id for role in self.loaded_user_orm.roles])
-
-
-    @Slot(str)
-    def _populate_fields_slot(self, user_json_str: str):
-        try:
-            user_data = json.loads(user_json_str) # No json_date_hook needed for UserSummaryData fields
-        except json.JSONDecodeError:
-            QMessageBox.critical(self, "Error", "Failed to parse user data for editing."); return
-
-        self.username_edit.setText(user_data.get("username", ""))
-        self.full_name_edit.setText(user_data.get("full_name", "") or "")
-        self.email_edit.setText(user_data.get("email", "") or "")
-        self.is_active_check.setChecked(user_data.get("is_active", True))
-        
-        assigned_role_ids = user_data.get("assigned_role_ids", [])
-        self._select_assigned_roles(assigned_role_ids)
-
-        if self.loaded_user_orm and self.loaded_user_orm.username == "system_init_user":
-            self._set_read_only_for_system_user()
-
-    def _select_assigned_roles(self, assigned_role_ids: List[int]):
-        for i in range(self.roles_list_widget.count()):
-            item = self.roles_list_widget.item(i)
-            role_id_in_item = item.data(Qt.ItemDataRole.UserRole)
-            if role_id_in_item in assigned_role_ids:
-                item.setSelected(True)
-            else:
-                item.setSelected(False)
-    
-    def _set_read_only_for_system_user(self):
-        self.username_edit.setReadOnly(True)
-        self.full_name_edit.setReadOnly(True)
-        self.email_edit.setReadOnly(True)
-        self.is_active_check.setEnabled(False) # Cannot deactivate system_init
-        self.roles_list_widget.setEnabled(False) # Cannot change roles of system_init
-        # Password fields are already hidden for edit mode
-        ok_button = self.button_box.button(QDialogButtonBox.StandardButton.Ok)
-        if ok_button: ok_button.setEnabled(False) # Prevent saving changes
-
-
-    def _collect_data(self) -> Optional[Union[UserCreateData, UserUpdateData]]:
-        username = self.username_edit.text().strip()
-        full_name = self.full_name_edit.text().strip() or None
-        email_str = self.email_edit.text().strip() or None
-        is_active = self.is_active_check.isChecked()
-        
-        selected_role_ids: List[int] = []
-        for item in self.roles_list_widget.selectedItems():
-            role_id = item.data(Qt.ItemDataRole.UserRole)
-            if isinstance(role_id, int):
-                selected_role_ids.append(role_id)
-        
-        common_data = {
-            "username": username, "full_name": full_name, "email": email_str,
-            "is_active": is_active, "assigned_role_ids": selected_role_ids,
-            "user_id": self.current_admin_user_id # The user performing the action
-        }
-
-        try:
-            if self.is_new_user:
-                password = self.password_edit.text()
-                confirm_password = self.confirm_password_edit.text()
-                if not password: # Basic check, Pydantic handles min_length
-                     QMessageBox.warning(self, "Validation Error", "Password is required for new users.")
-                     return None
-                return UserCreateData(password=password, confirm_password=confirm_password, **common_data) # type: ignore
-            else:
-                assert self.user_id_to_edit is not None
-                return UserUpdateData(id=self.user_id_to_edit, **common_data) # type: ignore
-        except ValueError as pydantic_error: # Catches Pydantic validation errors
-            QMessageBox.warning(self, "Validation Error", f"Invalid data:\n{str(pydantic_error)}")
-            return None
 
     @Slot()
-    def on_save(self):
-        dto = self._collect_data()
-        if dto:
-            ok_button = self.button_box.button(QDialogButtonBox.StandardButton.Ok)
-            if ok_button: ok_button.setEnabled(False)
+    def _update_amount_prefix(self):
+        bank_account_id = self.bank_account_combo.currentData()
+        if bank_account_id and bank_account_id != 0:
+            selected_ba = next((ba for ba in self._bank_accounts_cache if ba.get("id") == bank_account_id), None)
+            if selected_ba and selected_ba.get("currency_code"):
+                self.amount_edit.setPrefix(f"{selected_ba.get('currency_code')} ")
+                return
+        self.amount_edit.setPrefix("$ ") # Default/fallback
+
+    @Slot(BankTransactionTypeEnum)
+    def _on_transaction_type_changed(self, txn_type: Optional[BankTransactionTypeEnum]):
+        # Could provide hints or change UI based on type, e.g., suggest positive/negative
+        # For now, mainly for internal logic when saving.
+        pass
+
+    async def _load_combo_data(self):
+        try:
+            if self.app_core.bank_account_manager:
+                result = await self.app_core.bank_account_manager.get_bank_accounts_for_listing(active_only=True, page_size=-1) # Get all active
+                if result.is_success and result.value:
+                    self._bank_accounts_cache = [ba.model_dump() for ba in result.value]
             
-            future = schedule_task_from_qt(self._perform_save(dto))
-            if future:
-                future.add_done_callback(
-                    lambda _: ok_button.setEnabled(True) if ok_button else None
-                )
-            else: # Handle scheduling failure
-                if ok_button: ok_button.setEnabled(True)
+            bank_accounts_json = json.dumps(self._bank_accounts_cache, default=json_converter)
+            QMetaObject.invokeMethod(self, "_populate_combos_slot", Qt.ConnectionType.QueuedConnection, 
+                                     Q_ARG(str, bank_accounts_json))
+        except Exception as e:
+            self.app_core.logger.error(f"Error loading combo data for BankTransactionDialog: {e}", exc_info=True)
+            QMessageBox.warning(self, "Data Load Error", f"Could not load bank accounts: {str(e)}")
+
+    @Slot(str)
+    def _populate_combos_slot(self, bank_accounts_json: str):
+        try:
+            bank_accounts_data = json.loads(bank_accounts_json, object_hook=json_date_hook)
+        except json.JSONDecodeError as e:
+            self.app_core.logger.error(f"Error parsing bank accounts JSON for BankTransactionDialog: {e}")
+            QMessageBox.warning(self, "Data Error", "Error parsing bank account data."); return
+
+        self.bank_account_combo.clear()
+        self.bank_account_combo.addItem("-- Select Bank Account --", 0)
+        for ba in bank_accounts_data:
+            self.bank_account_combo.addItem(f"{ba['account_name']} ({ba['bank_name']} - {ba['account_number'][-4:] if ba['account_number'] else 'N/A'})", ba['id'])
+        
+        if self.preselected_bank_account_id:
+            idx = self.bank_account_combo.findData(self.preselected_bank_account_id)
+            if idx != -1:
+                self.bank_account_combo.setCurrentIndex(idx)
+        elif self.bank_account_combo.count() > 1: # More than just "-- Select..."
+             self.bank_account_combo.setCurrentIndex(1) # Default to first actual account
+        
+        self._update_amount_prefix()
 
 
-    async def _perform_save(self, dto: Union[UserCreateData, UserUpdateData]):
-        if not self.app_core.security_manager:
-            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
-                Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str, "Security Manager not available."))
+    @Slot()
+    def on_save_transaction(self):
+        if not self.app_core.current_user:
+            QMessageBox.warning(self, "Auth Error", "No user logged in."); return
+
+        bank_account_id_data = self.bank_account_combo.currentData()
+        if not bank_account_id_data or bank_account_id_data == 0:
+            QMessageBox.warning(self, "Validation Error", "Bank Account must be selected.")
+            return
+        
+        bank_account_id = int(bank_account_id_data)
+        transaction_date_py = self.transaction_date_edit.date().toPython()
+        value_date_py = self.value_date_edit.date().toPython()
+        
+        selected_type_enum = self.transaction_type_combo.currentData()
+        if not isinstance(selected_type_enum, BankTransactionTypeEnum):
+            QMessageBox.warning(self, "Validation Error", "Invalid transaction type selected.")
             return
 
-        result: Result[User]
-        if isinstance(dto, UserCreateData):
-            result = await self.app_core.security_manager.create_user_with_roles(dto)
-        elif isinstance(dto, UserUpdateData):
-            result = await self.app_core.security_manager.update_user_from_dto(dto)
-        else: # Should not happen
-            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
-                Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str, "Invalid DTO type for save."))
+        description_str = self.description_edit.text().strip()
+        if not description_str:
+            QMessageBox.warning(self, "Validation Error", "Description is required.")
             return
+        
+        reference_str = self.reference_edit.text().strip() or None
+        amount_magnitude = Decimal(str(self.amount_edit.value()))
+
+        # Determine signed amount based on transaction type
+        signed_amount: Decimal
+        if selected_type_enum in [BankTransactionTypeEnum.DEPOSIT, BankTransactionTypeEnum.INTEREST]:
+            signed_amount = amount_magnitude # Positive
+        elif selected_type_enum in [BankTransactionTypeEnum.WITHDRAWAL, BankTransactionTypeEnum.FEE]:
+            signed_amount = -amount_magnitude # Negative
+        elif selected_type_enum == BankTransactionTypeEnum.TRANSFER:
+            # For transfers, amount could be positive or negative depending on direction.
+            # This basic dialog might need a "Transfer In/Out" distinction or more UI.
+            # For now, assume positive for "Transfer In" and user adjusts if it's "Transfer Out".
+            # Better: a separate "Transfer" dialog or more type options.
+            # For "Basic Entry", let's assume transfers handled by specific UIs later or this is generic.
+            # For now, let user decide sign by making a choice.
+            # A simple approach for this dialog: make Transfers require user to specify sign
+            # implicitly by selecting "Deposit" or "Withdrawal" type for the transfer leg.
+            # Or prompt user:
+            reply = QMessageBox.question(self, "Transfer Direction", 
+                                         "Is this transfer an INFLOW (money in) or OUTFLOW (money out) for this bank account?",
+                                         "Inflow", "Outflow")
+            if reply == 0: # Inflow
+                signed_amount = amount_magnitude
+            else: # Outflow
+                signed_amount = -amount_magnitude
+        else: # Adjustment
+            signed_amount = amount_magnitude # Allow positive or negative based on user's intent for adjustment
+
+        try:
+            dto = BankTransactionCreateData(
+                bank_account_id=bank_account_id,
+                transaction_date=transaction_date_py,
+                value_date=value_date_py,
+                transaction_type=selected_type_enum,
+                description=description_str,
+                reference=reference_str,
+                amount=signed_amount,
+                user_id=self.current_user_id
+            )
+        except ValueError as pydantic_error: # Catches Pydantic DTO validation errors
+             QMessageBox.warning(self, "Validation Error", f"Invalid data:\n{str(pydantic_error)}")
+             return
+
+        ok_button = self.button_box.button(QDialogButtonBox.StandardButton.Ok)
+        if ok_button: ok_button.setEnabled(False)
+        
+        schedule_task_from_qt(self._perform_save(dto)).add_done_callback(
+            lambda _: ok_button.setEnabled(True) if ok_button and self.isVisible() else None
+        )
+
+    async def _perform_save(self, dto: BankTransactionCreateData):
+        if not self.app_core.bank_transaction_manager:
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str, "Bank Transaction Manager not available."))
+            return
+
+        result: Result[BankTransaction]
+        result = await self.app_core.bank_transaction_manager.create_manual_bank_transaction(dto)
 
         if result.is_success and result.value:
-            action = "updated" if self.user_id_to_edit else "created"
             QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "information", Qt.ConnectionType.QueuedConnection,
-                Q_ARG(QWidget, self), Q_ARG(str, "Success"), Q_ARG(str, f"User '{result.value.username}' {action} successfully."))
-            self.user_saved.emit(result.value.id)
+                Q_ARG(QWidget, self), Q_ARG(str, "Success"), 
+                Q_ARG(str, f"Bank Transaction created successfully (ID: {result.value.id})."))
+            self.bank_transaction_saved.emit(result.value.id)
             QMetaObject.invokeMethod(self, "accept", Qt.ConnectionType.QueuedConnection)
         else:
             QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "warning", Qt.ConnectionType.QueuedConnection,
-                Q_ARG(QWidget, self), Q_ARG(str, "Save Error"), Q_ARG(str, f"Failed to save user:\n{', '.join(result.errors)}"))
+                Q_ARG(QWidget, self), Q_ARG(str, "Save Error"), 
+                Q_ARG(str, f"Failed to save bank transaction:\n{', '.join(result.errors)}"))
 
 ```
 
-# app/ui/banking/__init__.py
+# app/ui/banking/bank_transactions_widget.py
 ```py
-# File: app/ui/banking/__init__.py
-# (Content as previously generated)
-from .banking_widget import BankingWidget
+# File: app/ui/banking/bank_transactions_widget.py
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QTableView, QPushButton, 
+    QToolBar, QHeaderView, QAbstractItemView, QMessageBox,
+    QLabel, QDateEdit, QComboBox, QGroupBox
+)
+from PySide6.QtCore import Qt, Slot, QTimer, QMetaObject, Q_ARG, QModelIndex, QSize, QDate
+from PySide6.QtGui import QIcon, QAction
+from typing import Optional, List, Dict, Any, TYPE_CHECKING
 
-__all__ = ["BankingWidget"]
+import json
 
-```
-
-# app/ui/banking/banking_widget.py
-```py
-# File: app/ui/banking/banking_widget.py
-# (Stub content as previously generated)
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel
 from app.core.application_core import ApplicationCore
+from app.main import schedule_task_from_qt
+from app.ui.banking.bank_transaction_table_model import BankTransactionTableModel
+from app.ui.banking.bank_transaction_dialog import BankTransactionDialog
+from app.utils.pydantic_models import BankTransactionSummaryData
+from app.common.enums import BankTransactionTypeEnum
+from app.utils.json_helpers import json_converter, json_date_hook
+from app.utils.result import Result
 
-class BankingWidget(QWidget):
-    def __init__(self, app_core: ApplicationCore, parent=None):
+if TYPE_CHECKING:
+    from PySide6.QtGui import QPaintDevice
+
+class BankTransactionsWidget(QWidget):
+    def __init__(self, app_core: ApplicationCore, parent: Optional["QWidget"] = None):
         super().__init__(parent)
         self.app_core = app_core
-        self.layout = QVBoxLayout(self)
-        self.label = QLabel("Banking Operations Widget (Bank Accounts, Reconciliation - To be implemented)")
-        self.setLayout(self.layout)
+        self._current_bank_account_id: Optional[int] = None
+        self._current_bank_account_name: str = "N/A"
+        
+        self.icon_path_prefix = "resources/icons/" 
+        try:
+            import app.resources_rc 
+            self.icon_path_prefix = ":/icons/"
+        except ImportError:
+            pass
+        
+        self._init_ui()
+        # Initial load is triggered by set_current_bank_account
+
+    def _init_ui(self):
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setSpacing(5)
+
+        self.title_label = QLabel("Transactions for: N/A")
+        font = self.title_label.font(); font.setPointSize(font.pointSize() + 2); font.setBold(True)
+        self.title_label.setFont(font)
+        self.main_layout.addWidget(self.title_label)
+
+        self._create_toolbar()
+        self.main_layout.addWidget(self.toolbar)
+
+        self._create_filter_area()
+        self.main_layout.addWidget(self.filter_group) 
+
+        self.transactions_table = QTableView()
+        self.transactions_table.setAlternatingRowColors(True)
+        self.transactions_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.transactions_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        # self.transactions_table.doubleClicked.connect(self._on_view_transaction_double_click) # For future view/edit
+        self.transactions_table.setSortingEnabled(True)
+
+        self.table_model = BankTransactionTableModel()
+        self.transactions_table.setModel(self.table_model)
+        
+        header = self.transactions_table.horizontalHeader()
+        for i in range(self.table_model.columnCount()):
+            header.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
+        
+        if "ID" in self.table_model._headers:
+            id_col_idx = self.table_model._headers.index("ID")
+            self.transactions_table.setColumnHidden(id_col_idx, True)
+        
+        if "Description" in self.table_model._headers:
+            desc_col_idx = self.table_model._headers.index("Description")
+            visible_desc_idx = desc_col_idx
+            if "ID" in self.table_model._headers and self.table_model._headers.index("ID") < desc_col_idx and self.transactions_table.isColumnHidden(self.table_model._headers.index("ID")):
+                visible_desc_idx -=1
+            if not self.transactions_table.isColumnHidden(desc_col_idx):
+                 header.setSectionResizeMode(visible_desc_idx, QHeaderView.ResizeMode.Stretch)
+        
+        self.main_layout.addWidget(self.transactions_table)
+        self.setLayout(self.main_layout)
+
+        self._update_action_states()
+
+    def _create_toolbar(self):
+        self.toolbar = QToolBar("Bank Transactions Toolbar")
+        self.toolbar.setIconSize(QSize(16, 16))
+
+        self.toolbar_add_manual_action = QAction(QIcon(self.icon_path_prefix + "add.svg"), "Add Manual Txn", self)
+        self.toolbar_add_manual_action.triggered.connect(self._on_add_manual_transaction)
+        self.toolbar.addAction(self.toolbar_add_manual_action)
+        
+        # Future actions: Edit, Delete (for manual, unreconciled), Import Statement
+        self.toolbar.addSeparator()
+        self.toolbar_refresh_action = QAction(QIcon(self.icon_path_prefix + "refresh.svg"), "Refresh Transactions", self)
+        self.toolbar_refresh_action.triggered.connect(self.refresh_transactions)
+        self.toolbar.addAction(self.toolbar_refresh_action)
+
+    def _create_filter_area(self):
+        self.filter_group = QGroupBox("Filter Transactions")
+        filter_layout = QHBoxLayout(self.filter_group)
+        
+        filter_layout.addWidget(QLabel("From:"))
+        self.start_date_filter_edit = QDateEdit(QDate.currentDate().addMonths(-1))
+        self.start_date_filter_edit.setCalendarPopup(True); self.start_date_filter_edit.setDisplayFormat("dd/MM/yyyy")
+        filter_layout.addWidget(self.start_date_filter_edit)
+
+        filter_layout.addWidget(QLabel("To:"))
+        self.end_date_filter_edit = QDateEdit(QDate.currentDate())
+        self.end_date_filter_edit.setCalendarPopup(True); self.end_date_filter_edit.setDisplayFormat("dd/MM/yyyy")
+        filter_layout.addWidget(self.end_date_filter_edit)
+        
+        filter_layout.addWidget(QLabel("Type:"))
+        self.type_filter_combo = QComboBox()
+        self.type_filter_combo.addItem("All Types", None)
+        for type_enum in BankTransactionTypeEnum:
+            self.type_filter_combo.addItem(type_enum.value, type_enum)
+        filter_layout.addWidget(self.type_filter_combo)
+
+        filter_layout.addWidget(QLabel("Status:"))
+        self.reconciled_filter_combo = QComboBox()
+        self.reconciled_filter_combo.addItem("All", None)
+        self.reconciled_filter_combo.addItem("Reconciled", True)
+        self.reconciled_filter_combo.addItem("Unreconciled", False)
+        filter_layout.addWidget(self.reconciled_filter_combo)
+
+        self.apply_filter_button = QPushButton(QIcon(self.icon_path_prefix + "filter.svg"), "Apply")
+        self.apply_filter_button.clicked.connect(self.refresh_transactions)
+        filter_layout.addWidget(self.apply_filter_button)
+        
+        self.clear_filter_button = QPushButton(QIcon(self.icon_path_prefix + "refresh.svg"), "Clear")
+        self.clear_filter_button.clicked.connect(self._clear_filters_and_load)
+        filter_layout.addWidget(self.clear_filter_button)
+        filter_layout.addStretch()
+
+    @Slot()
+    def _clear_filters_and_load(self):
+        self.start_date_filter_edit.setDate(QDate.currentDate().addMonths(-1))
+        self.end_date_filter_edit.setDate(QDate.currentDate())
+        self.type_filter_combo.setCurrentIndex(0)
+        self.reconciled_filter_combo.setCurrentIndex(0)
+        self.refresh_transactions()
+
+    @Slot()
+    def _update_action_states(self):
+        can_add = self._current_bank_account_id is not None
+        self.toolbar_add_manual_action.setEnabled(can_add)
+        self.filter_group.setEnabled(can_add) # Enable filters only if an account is selected
+
+    @Slot()
+    def refresh_transactions(self):
+        if self._current_bank_account_id is not None:
+            schedule_task_from_qt(self._load_transactions(self._current_bank_account_id))
+        else:
+            self.table_model.update_data([]) # Clear table if no account selected
+
+    def set_current_bank_account(self, bank_account_id: Optional[int], bank_account_name: Optional[str] = "N/A"):
+        self._current_bank_account_id = bank_account_id
+        self._current_bank_account_name = bank_account_name if bank_account_name else "N/A"
+        
+        if bank_account_id is not None:
+            self.title_label.setText(f"Transactions for: {self._current_bank_account_name} (ID: {bank_account_id})")
+            self.refresh_transactions()
+        else:
+            self.title_label.setText("Transactions for: N/A (No bank account selected)")
+            self.table_model.update_data([])
+        self._update_action_states()
+
+
+    async def _load_transactions(self, bank_account_id: int):
+        if not self.app_core.bank_transaction_manager:
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str,"Bank Transaction Manager not available."))
+            return
+        try:
+            start_date = self.start_date_filter_edit.date().toPython()
+            end_date = self.end_date_filter_edit.date().toPython()
+            txn_type_enum = self.type_filter_combo.currentData()
+            is_reconciled_filter = self.reconciled_filter_combo.currentData() # True, False, or None
+            
+            result: Result[List[BankTransactionSummaryData]] = await self.app_core.bank_transaction_manager.get_transactions_for_bank_account(
+                bank_account_id=bank_account_id,
+                start_date=start_date, end_date=end_date,
+                transaction_type=txn_type_enum,
+                is_reconciled=is_reconciled_filter,
+                page=1, page_size=200 # Example page size
+            )
+            
+            if result.is_success:
+                data_for_table = result.value if result.value is not None else []
+                json_data = json.dumps([dto.model_dump(mode='json') for dto in data_for_table], default=json_converter)
+                QMetaObject.invokeMethod(self, "_update_table_model_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, json_data))
+            else:
+                QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "warning", Qt.ConnectionType.QueuedConnection,
+                    Q_ARG(QWidget, self), Q_ARG(str, "Load Error"), Q_ARG(str, f"Failed to load transactions: {', '.join(result.errors)}"))
+        except Exception as e:
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Load Error"), Q_ARG(str, f"Unexpected error: {str(e)}"))
+
+    @Slot(str)
+    def _update_table_model_slot(self, json_data_str: str):
+        try:
+            list_of_dicts = json.loads(json_data_str, object_hook=json_date_hook)
+            summaries = [BankTransactionSummaryData.model_validate(item) for item in list_of_dicts]
+            self.table_model.update_data(summaries)
+        except Exception as e: 
+            QMessageBox.critical(self, "Data Error", f"Failed to parse/validate transaction data: {e}")
+        finally:
+            self._update_action_states()
+
+    @Slot()
+    def _on_add_manual_transaction(self):
+        if self._current_bank_account_id is None:
+            QMessageBox.warning(self, "Selection Error", "Please select a bank account first from the list on the left.")
+            return
+        if not self.app_core.current_user: 
+            QMessageBox.warning(self, "Auth Error", "Please log in."); return
+        
+        dialog = BankTransactionDialog(self.app_core, self.app_core.current_user.id, 
+                                       preselected_bank_account_id=self._current_bank_account_id, 
+                                       parent=self)
+        dialog.bank_transaction_saved.connect(lambda _id: self.refresh_transactions())
+        dialog.exec()
+
+```
+
+# app/ui/banking/bank_account_table_model.py
+```py
+# File: app/ui/banking/bank_account_table_model.py
+from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
+from typing import List, Dict, Any, Optional
+from decimal import Decimal, InvalidOperation
+
+from app.utils.pydantic_models import BankAccountSummaryData
+
+class BankAccountTableModel(QAbstractTableModel):
+    def __init__(self, data: Optional[List[BankAccountSummaryData]] = None, parent=None):
+        super().__init__(parent)
+        self._headers = [
+            "ID", "Account Name", "Bank Name", "Account Number", 
+            "Currency", "Current Balance", "GL Account", "Active"
+        ]
+        self._data: List[BankAccountSummaryData] = data or []
+
+    def rowCount(self, parent=QModelIndex()) -> int:
+        if parent.isValid():
+            return 0
+        return len(self._data)
+
+    def columnCount(self, parent=QModelIndex()) -> int:
+        return len(self._headers)
+
+    def headerData(self, section: int, orientation: Qt.Orientation, role=Qt.ItemDataRole.DisplayRole) -> Optional[str]:
+        if role == Qt.ItemDataRole.DisplayRole and orientation == Qt.Orientation.Horizontal:
+            if 0 <= section < len(self._headers):
+                return self._headers[section]
+        return None
+
+    def _format_decimal_for_table(self, value: Optional[Decimal]) -> str:
+        if value is None: 
+            return "0.00"
+        try:
+            return f"{Decimal(str(value)):,.2f}"
+        except (InvalidOperation, TypeError):
+            return str(value) 
+
+    def data(self, index: QModelIndex, role=Qt.ItemDataRole.DisplayRole) -> Any:
+        if not index.isValid():
+            return None
+        
+        row = index.row()
+        col = index.column()
+
+        if not (0 <= row < len(self._data)):
+            return None
+            
+        bank_account_summary: BankAccountSummaryData = self._data[row]
+
+        if role == Qt.ItemDataRole.DisplayRole:
+            if col == 0: return str(bank_account_summary.id)
+            if col == 1: return bank_account_summary.account_name
+            if col == 2: return bank_account_summary.bank_name
+            if col == 3: return bank_account_summary.account_number
+            if col == 4: return bank_account_summary.currency_code
+            if col == 5: return self._format_decimal_for_table(bank_account_summary.current_balance)
+            if col == 6: 
+                gl_code = bank_account_summary.gl_account_code
+                gl_name = bank_account_summary.gl_account_name
+                if gl_code and gl_name: return f"{gl_code} - {gl_name}"
+                if gl_code: return gl_code
+                return "N/A"
+            if col == 7: return "Yes" if bank_account_summary.is_active else "No"
+            return ""
+
+        elif role == Qt.ItemDataRole.UserRole: 
+            if col == 0: 
+                return bank_account_summary.id
+        
+        elif role == Qt.ItemDataRole.TextAlignmentRole:
+            if self._headers[col] == "Current Balance":
+                return Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            if self._headers[col] == "Active":
+                return Qt.AlignmentFlag.AlignCenter
+        
+        return None
+
+    def get_bank_account_id_at_row(self, row: int) -> Optional[int]:
+        if 0 <= row < len(self._data):
+            index = self.index(row, 0) 
+            id_val = self.data(index, Qt.ItemDataRole.UserRole)
+            if id_val is not None:
+                return int(id_val)
+            return self._data[row].id 
+        return None
+        
+    def get_bank_account_status_at_row(self, row: int) -> Optional[bool]:
+        if 0 <= row < len(self._data):
+            return self._data[row].is_active
+        return None
+
+    def update_data(self, new_data: List[BankAccountSummaryData]):
+        self.beginResetModel()
+        self._data = new_data or []
+        self.endResetModel()
 
 ```
 
@@ -3727,6 +3166,527 @@ class SalesInvoiceTableModel(QAbstractTableModel):
 
 ```
 
+# app/ui/audit/__init__.py
+```py
+# File: app/ui/audit/__init__.py
+from .audit_log_table_model import AuditLogTableModel
+from .data_change_history_table_model import DataChangeHistoryTableModel
+from .audit_log_widget import AuditLogWidget # New Import
+
+__all__ = [
+    "AuditLogTableModel",
+    "DataChangeHistoryTableModel",
+    "AuditLogWidget", # New Export
+]
+
+```
+
+# app/ui/audit/audit_log_table_model.py
+```py
+# File: app/ui/audit/audit_log_table_model.py
+from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
+from typing import List, Optional, Any
+from datetime import datetime
+
+from app.utils.pydantic_models import AuditLogEntryData
+
+class AuditLogTableModel(QAbstractTableModel):
+    def __init__(self, data: Optional[List[AuditLogEntryData]] = None, parent=None):
+        super().__init__(parent)
+        self._headers = [
+            "ID", "Timestamp", "User", "Action", "Entity Type", 
+            "Entity ID", "Entity Name", "Changes Summary", "IP Address"
+        ]
+        self._data: List[AuditLogEntryData] = data or []
+
+    def rowCount(self, parent=QModelIndex()) -> int:
+        if parent.isValid():
+            return 0
+        return len(self._data)
+
+    def columnCount(self, parent=QModelIndex()) -> int:
+        return len(self._headers)
+
+    def headerData(self, section: int, orientation: Qt.Orientation, role=Qt.ItemDataRole.DisplayRole) -> Optional[str]:
+        if role == Qt.ItemDataRole.DisplayRole and orientation == Qt.Orientation.Horizontal:
+            if 0 <= section < len(self._headers):
+                return self._headers[section]
+        return None
+
+    def data(self, index: QModelIndex, role=Qt.ItemDataRole.DisplayRole) -> Any:
+        if not index.isValid():
+            return None
+        
+        row = index.row()
+        col = index.column()
+
+        if not (0 <= row < len(self._data)):
+            return None
+            
+        log_entry: AuditLogEntryData = self._data[row]
+
+        if role == Qt.ItemDataRole.DisplayRole:
+            if col == 0: return str(log_entry.id)
+            if col == 1: # Timestamp
+                ts = log_entry.timestamp
+                return ts.strftime('%d/%m/%Y %H:%M:%S') if isinstance(ts, datetime) else str(ts)
+            if col == 2: return log_entry.username or "N/A"
+            if col == 3: return log_entry.action
+            if col == 4: return log_entry.entity_type
+            if col == 5: return str(log_entry.entity_id) if log_entry.entity_id is not None else ""
+            if col == 6: return log_entry.entity_name or ""
+            if col == 7: return log_entry.changes_summary or ""
+            if col == 8: return log_entry.ip_address or ""
+            return ""
+
+        elif role == Qt.ItemDataRole.UserRole: # Store full DTO for potential detail view
+            return log_entry
+        
+        return None
+
+    def get_log_entry_at_row(self, row: int) -> Optional[AuditLogEntryData]:
+        if 0 <= row < len(self._data):
+            return self._data[row]
+        return None
+
+    def update_data(self, new_data: List[AuditLogEntryData]):
+        self.beginResetModel()
+        self._data = new_data or []
+        self.endResetModel()
+
+```
+
+# app/ui/audit/data_change_history_table_model.py
+```py
+# File: app/ui/audit/data_change_history_table_model.py
+from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
+from typing import List, Optional, Any
+from datetime import datetime
+
+from app.utils.pydantic_models import DataChangeHistoryEntryData
+from app.common.enums import DataChangeTypeEnum
+
+class DataChangeHistoryTableModel(QAbstractTableModel):
+    def __init__(self, data: Optional[List[DataChangeHistoryEntryData]] = None, parent=None):
+        super().__init__(parent)
+        self._headers = [
+            "ID", "Changed At", "Table", "Record ID", "Field", 
+            "Old Value", "New Value", "Change Type", "Changed By"
+        ]
+        self._data: List[DataChangeHistoryEntryData] = data or []
+
+    def rowCount(self, parent=QModelIndex()) -> int:
+        if parent.isValid():
+            return 0
+        return len(self._data)
+
+    def columnCount(self, parent=QModelIndex()) -> int:
+        return len(self._headers)
+
+    def headerData(self, section: int, orientation: Qt.Orientation, role=Qt.ItemDataRole.DisplayRole) -> Optional[str]:
+        if role == Qt.ItemDataRole.DisplayRole and orientation == Qt.Orientation.Horizontal:
+            if 0 <= section < len(self._headers):
+                return self._headers[section]
+        return None
+
+    def data(self, index: QModelIndex, role=Qt.ItemDataRole.DisplayRole) -> Any:
+        if not index.isValid():
+            return None
+        
+        row = index.row()
+        col = index.column()
+
+        if not (0 <= row < len(self._data)):
+            return None
+            
+        history_entry: DataChangeHistoryEntryData = self._data[row]
+
+        if role == Qt.ItemDataRole.DisplayRole:
+            if col == 0: return str(history_entry.id)
+            if col == 1: # Changed At
+                ts = history_entry.changed_at
+                return ts.strftime('%d/%m/%Y %H:%M:%S') if isinstance(ts, datetime) else str(ts)
+            if col == 2: return history_entry.table_name
+            if col == 3: return str(history_entry.record_id)
+            if col == 4: return history_entry.field_name
+            if col == 5: return str(history_entry.old_value)[:200] if history_entry.old_value is not None else "" # Truncate long values
+            if col == 6: return str(history_entry.new_value)[:200] if history_entry.new_value is not None else "" # Truncate long values
+            if col == 7: # Change Type
+                return history_entry.change_type.value if isinstance(history_entry.change_type, DataChangeTypeEnum) else str(history_entry.change_type)
+            if col == 8: return history_entry.changed_by_username or "N/A"
+            return ""
+            
+        elif role == Qt.ItemDataRole.UserRole: # Store full DTO
+            return history_entry
+            
+        return None
+
+    def get_history_entry_at_row(self, row: int) -> Optional[DataChangeHistoryEntryData]:
+        if 0 <= row < len(self._data):
+            return self._data[row]
+        return None
+
+    def update_data(self, new_data: List[DataChangeHistoryEntryData]):
+        self.beginResetModel()
+        self._data = new_data or []
+        self.endResetModel()
+
+```
+
+# app/ui/audit/audit_log_widget.py
+```py
+# app/ui/audit/audit_log_widget.py
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QTableView, QPushButton, 
+    QHeaderView, QAbstractItemView, QMessageBox, QLabel, QLineEdit, 
+    QComboBox, QDateEdit, QTabWidget, QTextEdit, QSplitter, QGroupBox,
+    QSpinBox, QFormLayout # Added QFormLayout
+)
+from PySide6.QtCore import Qt, Slot, QTimer, QMetaObject, Q_ARG, QModelIndex, QDate
+from PySide6.QtGui import QIcon
+from typing import Optional, List, Dict, Any, TYPE_CHECKING, Tuple
+
+import json
+from datetime import datetime, time
+
+from app.core.application_core import ApplicationCore
+from app.main import schedule_task_from_qt
+from app.ui.audit.audit_log_table_model import AuditLogTableModel
+from app.ui.audit.data_change_history_table_model import DataChangeHistoryTableModel
+from app.utils.pydantic_models import AuditLogEntryData, DataChangeHistoryEntryData, UserSummaryData
+from app.utils.json_helpers import json_converter, json_date_hook
+from app.utils.result import Result
+
+if TYPE_CHECKING:
+    from PySide6.QtGui import QPaintDevice
+
+class AuditLogWidget(QWidget):
+    DEFAULT_PAGE_SIZE = 50
+
+    def __init__(self, app_core: ApplicationCore, parent: Optional["QWidget"] = None):
+        super().__init__(parent)
+        self.app_core = app_core
+        
+        self._users_cache: List[UserSummaryData] = []
+        
+        self._action_log_current_page = 1
+        self._action_log_total_records = 0
+        self._action_log_page_size = self.DEFAULT_PAGE_SIZE
+
+        self._data_change_current_page = 1
+        self._data_change_total_records = 0
+        self._data_change_page_size = self.DEFAULT_PAGE_SIZE
+        
+        self.icon_path_prefix = "resources/icons/" 
+        try:
+            import app.resources_rc 
+            self.icon_path_prefix = ":/icons/"
+        except ImportError:
+            pass
+        
+        self._init_ui()
+        QTimer.singleShot(0, lambda: schedule_task_from_qt(self._load_initial_filter_data()))
+
+
+    def _init_ui(self):
+        self.main_layout = QVBoxLayout(self)
+        self.tab_widget = QTabWidget()
+
+        self._create_action_log_tab()
+        self._create_data_change_history_tab()
+
+        self.main_layout.addWidget(self.tab_widget)
+        self.setLayout(self.main_layout)
+
+    def _create_filter_group(self, title: str) -> Tuple[QGroupBox, QFormLayout]:
+        group = QGroupBox(title)
+        layout = QFormLayout(group)
+        layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
+        layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        return group, layout
+
+    # --- Action Log Tab ---
+    def _create_action_log_tab(self):
+        action_log_widget = QWidget()
+        layout = QVBoxLayout(action_log_widget)
+
+        filter_group, filter_form = self._create_filter_group("Filter Action Log")
+        
+        self.al_user_filter_combo = QComboBox(); self.al_user_filter_combo.addItem("All Users", 0)
+        filter_form.addRow("User:", self.al_user_filter_combo)
+
+        self.al_action_filter_edit = QLineEdit(); self.al_action_filter_edit.setPlaceholderText("e.g., Insert, Update")
+        filter_form.addRow("Action:", self.al_action_filter_edit)
+        
+        self.al_entity_type_filter_edit = QLineEdit(); self.al_entity_type_filter_edit.setPlaceholderText("e.g., core.users, business.sales_invoices")
+        filter_form.addRow("Entity Type:", self.al_entity_type_filter_edit)
+
+        self.al_entity_id_filter_spin = QSpinBox(); self.al_entity_id_filter_spin.setRange(0, 99999999); self.al_entity_id_filter_spin.setSpecialValueText("Any ID")
+        filter_form.addRow("Entity ID:", self.al_entity_id_filter_spin)
+
+        date_filter_layout = QHBoxLayout()
+        self.al_start_date_filter_edit = QDateEdit(QDate.currentDate().addDays(-7)); self.al_start_date_filter_edit.setCalendarPopup(True); self.al_start_date_filter_edit.setDisplayFormat("dd/MM/yyyy")
+        self.al_end_date_filter_edit = QDateEdit(QDate.currentDate()); self.al_end_date_filter_edit.setCalendarPopup(True); self.al_end_date_filter_edit.setDisplayFormat("dd/MM/yyyy")
+        date_filter_layout.addWidget(QLabel("From:")); date_filter_layout.addWidget(self.al_start_date_filter_edit)
+        date_filter_layout.addWidget(QLabel("To:")); date_filter_layout.addWidget(self.al_end_date_filter_edit)
+        filter_form.addRow(date_filter_layout)
+
+        al_filter_buttons_layout = QHBoxLayout()
+        self.al_apply_filter_button = QPushButton(QIcon(self.icon_path_prefix + "filter.svg"), "Apply Filters")
+        self.al_clear_filter_button = QPushButton(QIcon(self.icon_path_prefix + "refresh.svg"), "Clear Filters")
+        al_filter_buttons_layout.addStretch(); al_filter_buttons_layout.addWidget(self.al_apply_filter_button); al_filter_buttons_layout.addWidget(self.al_clear_filter_button)
+        filter_form.addRow(al_filter_buttons_layout)
+        layout.addWidget(filter_group)
+
+        al_splitter = QSplitter(Qt.Orientation.Vertical)
+        
+        self.action_log_table = QTableView()
+        self.action_log_table.setAlternatingRowColors(True)
+        self.action_log_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.action_log_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.action_log_table.horizontalHeader().setStretchLastSection(True)
+        self.action_log_table_model = AuditLogTableModel()
+        self.action_log_table.setModel(self.action_log_table_model)
+        self.action_log_table.setColumnHidden(self.action_log_table_model._headers.index("ID"), True)
+        al_splitter.addWidget(self.action_log_table)
+
+        self.al_changes_detail_edit = QTextEdit(); self.al_changes_detail_edit.setReadOnly(True)
+        self.al_changes_detail_edit.setPlaceholderText("Select a log entry to view change details...")
+        al_splitter.addWidget(self.al_changes_detail_edit)
+        al_splitter.setSizes([400, 200]) 
+        layout.addWidget(al_splitter)
+
+        al_pagination_layout = QHBoxLayout()
+        self.al_prev_page_button = QPushButton("Previous"); self.al_prev_page_button.setEnabled(False)
+        self.al_page_info_label = QLabel("Page 1 of 1 (0 records)")
+        self.al_next_page_button = QPushButton("Next"); self.al_next_page_button.setEnabled(False)
+        al_pagination_layout.addStretch(); al_pagination_layout.addWidget(self.al_prev_page_button); al_pagination_layout.addWidget(self.al_page_info_label); al_pagination_layout.addWidget(self.al_next_page_button); al_pagination_layout.addStretch()
+        layout.addLayout(al_pagination_layout)
+
+        self.tab_widget.addTab(action_log_widget, "Action Log")
+
+        self.al_apply_filter_button.clicked.connect(lambda: self._load_audit_logs_page(1))
+        self.al_clear_filter_button.clicked.connect(self._clear_action_log_filters)
+        self.action_log_table.selectionModel().selectionChanged.connect(self._on_action_log_selection_changed)
+        self.al_prev_page_button.clicked.connect(lambda: self._load_audit_logs_page(self._action_log_current_page - 1))
+        self.al_next_page_button.clicked.connect(lambda: self._load_audit_logs_page(self._action_log_current_page + 1))
+
+    def _create_data_change_history_tab(self):
+        data_change_widget = QWidget()
+        layout = QVBoxLayout(data_change_widget)
+
+        filter_group, filter_form = self._create_filter_group("Filter Data Changes")
+
+        self.dch_table_name_filter_edit = QLineEdit(); self.dch_table_name_filter_edit.setPlaceholderText("e.g., accounting.accounts")
+        filter_form.addRow("Table Name:", self.dch_table_name_filter_edit)
+
+        self.dch_record_id_filter_spin = QSpinBox(); self.dch_record_id_filter_spin.setRange(0, 99999999); self.dch_record_id_filter_spin.setSpecialValueText("Any ID")
+        filter_form.addRow("Record ID:", self.dch_record_id_filter_spin)
+
+        self.dch_user_filter_combo = QComboBox(); self.dch_user_filter_combo.addItem("All Users", 0)
+        filter_form.addRow("Changed By User:", self.dch_user_filter_combo)
+
+        dch_date_filter_layout = QHBoxLayout()
+        self.dch_start_date_filter_edit = QDateEdit(QDate.currentDate().addDays(-7)); self.dch_start_date_filter_edit.setCalendarPopup(True); self.dch_start_date_filter_edit.setDisplayFormat("dd/MM/yyyy")
+        self.dch_end_date_filter_edit = QDateEdit(QDate.currentDate()); self.dch_end_date_filter_edit.setCalendarPopup(True); self.dch_end_date_filter_edit.setDisplayFormat("dd/MM/yyyy")
+        dch_date_filter_layout.addWidget(QLabel("From:")); dch_date_filter_layout.addWidget(self.dch_start_date_filter_edit)
+        dch_date_filter_layout.addWidget(QLabel("To:")); dch_date_filter_layout.addWidget(self.dch_end_date_filter_edit)
+        filter_form.addRow(dch_date_filter_layout)
+
+        dch_filter_buttons_layout = QHBoxLayout()
+        self.dch_apply_filter_button = QPushButton(QIcon(self.icon_path_prefix + "filter.svg"), "Apply Filters")
+        self.dch_clear_filter_button = QPushButton(QIcon(self.icon_path_prefix + "refresh.svg"), "Clear Filters")
+        dch_filter_buttons_layout.addStretch(); dch_filter_buttons_layout.addWidget(self.dch_apply_filter_button); dch_filter_buttons_layout.addWidget(self.dch_clear_filter_button)
+        filter_form.addRow(dch_filter_buttons_layout)
+        layout.addWidget(filter_group)
+
+        self.data_change_table = QTableView()
+        self.data_change_table.setAlternatingRowColors(True)
+        self.data_change_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.data_change_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.data_change_table.horizontalHeader().setStretchLastSection(False) 
+        self.data_change_table_model = DataChangeHistoryTableModel()
+        self.data_change_table.setModel(self.data_change_table_model)
+        self.data_change_table.setColumnHidden(self.data_change_table_model._headers.index("ID"), True)
+        
+        for i in range(self.data_change_table_model.columnCount()):
+            self.data_change_table.horizontalHeader().setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
+        if "Old Value" in self.data_change_table_model._headers:
+            self.data_change_table.horizontalHeader().setSectionResizeMode(self.data_change_table_model._headers.index("Old Value"), QHeaderView.ResizeMode.Stretch)
+        if "New Value" in self.data_change_table_model._headers:
+            self.data_change_table.horizontalHeader().setSectionResizeMode(self.data_change_table_model._headers.index("New Value"), QHeaderView.ResizeMode.Stretch)
+
+        layout.addWidget(self.data_change_table)
+
+        dch_pagination_layout = QHBoxLayout()
+        self.dch_prev_page_button = QPushButton("Previous"); self.dch_prev_page_button.setEnabled(False)
+        self.dch_page_info_label = QLabel("Page 1 of 1 (0 records)")
+        self.dch_next_page_button = QPushButton("Next"); self.dch_next_page_button.setEnabled(False)
+        dch_pagination_layout.addStretch(); dch_pagination_layout.addWidget(self.dch_prev_page_button); dch_pagination_layout.addWidget(self.dch_page_info_label); dch_pagination_layout.addWidget(self.dch_next_page_button); dch_pagination_layout.addStretch()
+        layout.addLayout(dch_pagination_layout)
+
+        self.tab_widget.addTab(data_change_widget, "Data Change History")
+        
+        self.dch_apply_filter_button.clicked.connect(lambda: self._load_data_changes_page(1))
+        self.dch_clear_filter_button.clicked.connect(self._clear_data_change_filters)
+        self.dch_prev_page_button.clicked.connect(lambda: self._load_data_changes_page(self._data_change_current_page - 1))
+        self.dch_next_page_button.clicked.connect(lambda: self._load_data_changes_page(self._data_change_current_page + 1))
+
+    async def _load_initial_filter_data(self):
+        if self.app_core.security_manager:
+            users = await self.app_core.security_manager.get_all_users_summary()
+            self._users_cache = users
+            user_items_json = json.dumps([u.model_dump(mode='json') for u in users])
+            QMetaObject.invokeMethod(self, "_populate_user_filters_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, user_items_json))
+        
+        self._load_audit_logs_page(1)
+        self._load_data_changes_page(1)
+
+    @Slot(str)
+    def _populate_user_filters_slot(self, users_json_str: str):
+        try:
+            users_data = json.loads(users_json_str)
+            self._users_cache = [UserSummaryData.model_validate(u) for u in users_data]
+            
+            current_al_user = self.al_user_filter_combo.currentData()
+            current_dch_user = self.dch_user_filter_combo.currentData()
+
+            self.al_user_filter_combo.clear(); self.al_user_filter_combo.addItem("All Users", 0)
+            self.dch_user_filter_combo.clear(); self.dch_user_filter_combo.addItem("All Users", 0)
+            
+            for user_summary in self._users_cache:
+                display_text = f"{user_summary.username} ({user_summary.full_name or 'N/A'})"
+                self.al_user_filter_combo.addItem(display_text, user_summary.id)
+                self.dch_user_filter_combo.addItem(display_text, user_summary.id)
+            
+            if current_al_user: self.al_user_filter_combo.setCurrentIndex(self.al_user_filter_combo.findData(current_al_user))
+            if current_dch_user: self.dch_user_filter_combo.setCurrentIndex(self.dch_user_filter_combo.findData(current_dch_user))
+
+        except json.JSONDecodeError:
+            self.app_core.logger.error("Failed to parse users for audit log filters.")
+
+    @Slot()
+    def _clear_action_log_filters(self):
+        self.al_user_filter_combo.setCurrentIndex(0)
+        self.al_action_filter_edit.clear()
+        self.al_entity_type_filter_edit.clear()
+        self.al_entity_id_filter_spin.setValue(0)
+        self.al_start_date_filter_edit.setDate(QDate.currentDate().addDays(-7))
+        self.al_end_date_filter_edit.setDate(QDate.currentDate())
+        self._load_audit_logs_page(1)
+
+    def _load_audit_logs_page(self, page_number: int):
+        self._action_log_current_page = page_number
+        schedule_task_from_qt(self._fetch_audit_logs())
+
+    async def _fetch_audit_logs(self):
+        if not self.app_core.audit_log_service: return
+        
+        user_id = self.al_user_filter_combo.currentData()
+        start_dt = datetime.combine(self.al_start_date_filter_edit.date().toPython(), time.min)
+        end_dt = datetime.combine(self.al_end_date_filter_edit.date().toPython(), time.max)
+
+        logs, total_records = await self.app_core.audit_log_service.get_audit_logs_paginated(
+            user_id_filter=int(user_id) if user_id and user_id != 0 else None,
+            action_filter=self.al_action_filter_edit.text().strip() or None,
+            entity_type_filter=self.al_entity_type_filter_edit.text().strip() or None,
+            entity_id_filter=self.al_entity_id_filter_spin.value() if self.al_entity_id_filter_spin.value() != 0 else None,
+            start_date_filter=start_dt,
+            end_date_filter=end_dt,
+            page=self._action_log_current_page,
+            page_size=self._action_log_page_size
+        )
+        self._action_log_total_records = total_records
+        
+        logs_json = json.dumps([log.model_dump(mode='json') for log in logs], default=json_converter)
+        QMetaObject.invokeMethod(self, "_update_action_log_table_slot", Qt.ConnectionType.QueuedConnection, 
+                                 Q_ARG(str, logs_json))
+        self._update_action_log_pagination_controls()
+
+    @Slot(str)
+    def _update_action_log_table_slot(self, logs_json_str: str):
+        try:
+            log_dicts = json.loads(logs_json_str, object_hook=json_date_hook)
+            log_entries = [AuditLogEntryData.model_validate(d) for d in log_dicts]
+            self.action_log_table_model.update_data(log_entries)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to display action logs: {e}")
+        self.al_changes_detail_edit.clear()
+
+    def _update_action_log_pagination_controls(self):
+        total_pages = (self._action_log_total_records + self._action_log_page_size - 1) // self._action_log_page_size
+        if total_pages == 0: total_pages = 1 
+        self.al_page_info_label.setText(f"Page {self._action_log_current_page} of {total_pages} ({self._action_log_total_records} records)")
+        self.al_prev_page_button.setEnabled(self._action_log_current_page > 1)
+        self.al_next_page_button.setEnabled(self._action_log_current_page < total_pages)
+        
+    @Slot(QModelIndex, QModelIndex)
+    def _on_action_log_selection_changed(self, selected: QModelIndex, deselected: QModelIndex):
+        selected_rows = self.action_log_table.selectionModel().selectedRows()
+        if selected_rows:
+            log_entry = self.action_log_table_model.get_log_entry_at_row(selected_rows[0].row())
+            if log_entry and log_entry.changes_summary:
+                self.al_changes_detail_edit.setText(log_entry.changes_summary)
+            else:
+                self.al_changes_detail_edit.clear()
+        else:
+            self.al_changes_detail_edit.clear()
+
+    @Slot()
+    def _clear_data_change_filters(self):
+        self.dch_table_name_filter_edit.clear()
+        self.dch_record_id_filter_spin.setValue(0)
+        self.dch_user_filter_combo.setCurrentIndex(0)
+        self.dch_start_date_filter_edit.setDate(QDate.currentDate().addDays(-7))
+        self.dch_end_date_filter_edit.setDate(QDate.currentDate())
+        self._load_data_changes_page(1)
+
+    def _load_data_changes_page(self, page_number: int):
+        self._data_change_current_page = page_number
+        schedule_task_from_qt(self._fetch_data_changes())
+
+    async def _fetch_data_changes(self):
+        if not self.app_core.audit_log_service: return
+
+        user_id = self.dch_user_filter_combo.currentData()
+        start_dt = datetime.combine(self.dch_start_date_filter_edit.date().toPython(), time.min)
+        end_dt = datetime.combine(self.dch_end_date_filter_edit.date().toPython(), time.max)
+
+        history_entries, total_records = await self.app_core.audit_log_service.get_data_change_history_paginated(
+            table_name_filter=self.dch_table_name_filter_edit.text().strip() or None,
+            record_id_filter=self.dch_record_id_filter_spin.value() if self.dch_record_id_filter_spin.value() != 0 else None,
+            changed_by_user_id_filter=int(user_id) if user_id and user_id != 0 else None,
+            start_date_filter=start_dt,
+            end_date_filter=end_dt,
+            page=self._data_change_current_page,
+            page_size=self._data_change_page_size
+        )
+        self._data_change_total_records = total_records
+        
+        history_json = json.dumps([h.model_dump(mode='json') for h in history_entries], default=json_converter)
+        QMetaObject.invokeMethod(self, "_update_data_change_table_slot", Qt.ConnectionType.QueuedConnection,
+                                 Q_ARG(str, history_json))
+        self._update_data_change_pagination_controls()
+
+    @Slot(str)
+    def _update_data_change_table_slot(self, history_json_str: str):
+        try:
+            history_dicts = json.loads(history_json_str, object_hook=json_date_hook)
+            history_entries = [DataChangeHistoryEntryData.model_validate(d) for d in history_dicts]
+            self.data_change_table_model.update_data(history_entries)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to display data change history: {e}")
+    
+    def _update_data_change_pagination_controls(self):
+        total_pages = (self._data_change_total_records + self._data_change_page_size - 1) // self._data_change_page_size
+        if total_pages == 0: total_pages = 1
+        self.dch_page_info_label.setText(f"Page {self._data_change_current_page} of {total_pages} ({self._data_change_total_records} records)")
+        self.dch_prev_page_button.setEnabled(self._data_change_current_page > 1)
+        self.dch_next_page_button.setEnabled(self._data_change_current_page < total_pages)
+
+
+```
+
 # app/ui/vendors/vendor_table_model.py
 ```py
 # File: app/ui/vendors/vendor_table_model.py
@@ -4421,1027 +4381,6 @@ class VendorsWidget(QWidget):
             self.app_core.logger.error(f"Error handling toggle active status result for vendor: {e}", exc_info=True)
             QMessageBox.critical(self, "Error", f"An unexpected error occurred: {str(e)}")
 
-
-```
-
-# app/ui/dashboard/__init__.py
-```py
-# File: app/ui/dashboard/__init__.py
-# (Content as previously generated)
-from .dashboard_widget import DashboardWidget
-
-__all__ = ["DashboardWidget"]
-
-```
-
-# app/ui/dashboard/dashboard_widget.py
-```py
-# File: app/ui/dashboard/dashboard_widget.py
-# (Stub content as previously generated)
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel
-from app.core.application_core import ApplicationCore 
-
-class DashboardWidget(QWidget):
-    def __init__(self, app_core: ApplicationCore, parent=None): 
-        super().__init__(parent)
-        self.app_core = app_core
-        
-        self.layout = QVBoxLayout(self)
-        self.label = QLabel("Dashboard Widget Content (Financial Snapshots, KPIs - To be implemented)")
-        self.layout.addWidget(self.label)
-        self.setLayout(self.layout)
-
-```
-
-# app/ui/main_window.py
-```py
-# File: app/ui/main_window.py
-from PySide6.QtWidgets import (
-    QMainWindow, QTabWidget, QToolBar, QStatusBar, 
-    QVBoxLayout, QWidget, QMessageBox, QLabel 
-)
-from PySide6.QtGui import QIcon, QKeySequence, QAction 
-from PySide6.QtCore import Qt, QSettings, Signal, Slot, QCoreApplication, QSize 
-
-from app.ui.dashboard.dashboard_widget import DashboardWidget
-from app.ui.accounting.accounting_widget import AccountingWidget
-from app.ui.sales_invoices.sales_invoices_widget import SalesInvoicesWidget
-from app.ui.purchase_invoices.purchase_invoices_widget import PurchaseInvoicesWidget # New Import
-from app.ui.customers.customers_widget import CustomersWidget
-from app.ui.vendors.vendors_widget import VendorsWidget
-from app.ui.products.products_widget import ProductsWidget
-from app.ui.banking.banking_widget import BankingWidget
-from app.ui.reports.reports_widget import ReportsWidget
-from app.ui.settings.settings_widget import SettingsWidget
-from app.core.application_core import ApplicationCore
-
-class MainWindow(QMainWindow):
-    def __init__(self, app_core: ApplicationCore):
-        super().__init__()
-        self.app_core = app_core
-        
-        self.setWindowTitle(f"{QCoreApplication.applicationName()} - {QCoreApplication.applicationVersion()}")
-        self.setMinimumSize(1024, 768)
-        
-        self.icon_path_prefix = "resources/icons/" 
-        try:
-            import app.resources_rc 
-            self.icon_path_prefix = ":/icons/"
-        except ImportError:
-            pass
-
-        settings = QSettings() 
-        if settings.contains("MainWindow/geometry"):
-            self.restoreGeometry(settings.value("MainWindow/geometry")) 
-        else:
-            self.resize(1280, 800)
-        
-        self._init_ui()
-        
-        if settings.contains("MainWindow/state"):
-            self.restoreState(settings.value("MainWindow/state")) 
-    
-    def _init_ui(self):
-        self.central_widget = QWidget()
-        self.setCentralWidget(self.central_widget)
-        
-        self.main_layout = QVBoxLayout(self.central_widget)
-        self.main_layout.setContentsMargins(0, 0, 0, 0)
-        self.main_layout.setSpacing(0)
-        
-        self._create_toolbar()
-        
-        self.tab_widget = QTabWidget()
-        self.tab_widget.setTabPosition(QTabWidget.TabPosition.North)
-        self.tab_widget.setDocumentMode(True)
-        self.tab_widget.setMovable(True)
-        self.main_layout.addWidget(self.tab_widget)
-        
-        self._add_module_tabs()
-        self._create_status_bar()
-        self._create_actions()
-        self._create_menus()
-    
-    def _create_toolbar(self):
-        self.toolbar = QToolBar("Main Toolbar")
-        self.toolbar.setObjectName("MainToolbar") 
-        self.toolbar.setMovable(False)
-        self.toolbar.setIconSize(QSize(24, 24)) 
-        self.toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
-        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.toolbar) 
-    
-    def _add_module_tabs(self):
-        self.dashboard_widget = DashboardWidget(self.app_core)
-        self.tab_widget.addTab(self.dashboard_widget, QIcon(self.icon_path_prefix + "dashboard.svg"), "Dashboard")
-        
-        self.accounting_widget = AccountingWidget(self.app_core)
-        self.tab_widget.addTab(self.accounting_widget, QIcon(self.icon_path_prefix + "accounting.svg"), "Accounting")
-        
-        self.sales_invoices_widget = SalesInvoicesWidget(self.app_core)
-        self.tab_widget.addTab(self.sales_invoices_widget, QIcon(self.icon_path_prefix + "transactions.svg"), "Sales") 
-
-        self.purchase_invoices_widget = PurchaseInvoicesWidget(self.app_core) # New Widget
-        self.tab_widget.addTab(self.purchase_invoices_widget, QIcon(self.icon_path_prefix + "vendors.svg"), "Purchases") # Using vendors.svg for now
-
-        self.customers_widget = CustomersWidget(self.app_core)
-        self.tab_widget.addTab(self.customers_widget, QIcon(self.icon_path_prefix + "customers.svg"), "Customers")
-        
-        self.vendors_widget = VendorsWidget(self.app_core)
-        self.tab_widget.addTab(self.vendors_widget, QIcon(self.icon_path_prefix + "vendors.svg"), "Vendors")
-
-        self.products_widget = ProductsWidget(self.app_core) 
-        self.tab_widget.addTab(self.products_widget, QIcon(self.icon_path_prefix + "product.svg"), "Products & Services")
-        
-        self.banking_widget = BankingWidget(self.app_core)
-        self.tab_widget.addTab(self.banking_widget, QIcon(self.icon_path_prefix + "banking.svg"), "Banking")
-        
-        self.reports_widget = ReportsWidget(self.app_core)
-        self.tab_widget.addTab(self.reports_widget, QIcon(self.icon_path_prefix + "reports.svg"), "Reports")
-        
-        self.settings_widget = SettingsWidget(self.app_core)
-        self.tab_widget.addTab(self.settings_widget, QIcon(self.icon_path_prefix + "settings.svg"), "Settings")
-    
-    def _create_status_bar(self):
-        self.status_bar = QStatusBar(); self.setStatusBar(self.status_bar)
-        self.status_label = QLabel("Ready"); self.status_bar.addWidget(self.status_label, 1) 
-        user_text = "User: Guest"; 
-        if self.app_core.current_user: user_text = f"User: {self.app_core.current_user.username}"
-        self.user_label = QLabel(user_text); self.status_bar.addPermanentWidget(self.user_label)
-        self.version_label = QLabel(f"Version: {QCoreApplication.applicationVersion()}"); self.status_bar.addPermanentWidget(self.version_label)
-
-    def _create_actions(self):
-        self.new_company_action = QAction(QIcon(self.icon_path_prefix + "new_company.svg"), "New Company...", self); self.new_company_action.setShortcut(QKeySequence(QKeySequence.StandardKey.New)); self.new_company_action.triggered.connect(self.on_new_company)
-        self.open_company_action = QAction(QIcon(self.icon_path_prefix + "open_company.svg"), "Open Company...", self); self.open_company_action.setShortcut(QKeySequence(QKeySequence.StandardKey.Open)); self.open_company_action.triggered.connect(self.on_open_company)
-        self.backup_action = QAction(QIcon(self.icon_path_prefix + "backup.svg"), "Backup Data...", self); self.backup_action.triggered.connect(self.on_backup)
-        self.restore_action = QAction(QIcon(self.icon_path_prefix + "restore.svg"), "Restore Data...", self); self.restore_action.triggered.connect(self.on_restore)
-        self.exit_action = QAction(QIcon(self.icon_path_prefix + "exit.svg"), "Exit", self); self.exit_action.setShortcut(QKeySequence(QKeySequence.StandardKey.Quit)); self.exit_action.triggered.connect(self.close) 
-        self.preferences_action = QAction(QIcon(self.icon_path_prefix + "preferences.svg"), "Preferences...", self); self.preferences_action.setShortcut(QKeySequence(QKeySequence.StandardKey.Preferences)); self.preferences_action.triggered.connect(self.on_preferences)
-        self.help_contents_action = QAction(QIcon(self.icon_path_prefix + "help.svg"), "Help Contents", self); self.help_contents_action.setShortcut(QKeySequence(QKeySequence.StandardKey.HelpContents)); self.help_contents_action.triggered.connect(self.on_help_contents)
-        self.about_action = QAction(QIcon(self.icon_path_prefix + "about.svg"), "About " + QCoreApplication.applicationName(), self); self.about_action.triggered.connect(self.on_about)
-
-    def _create_menus(self):
-        self.file_menu = self.menuBar().addMenu("&File"); self.file_menu.addAction(self.new_company_action); self.file_menu.addAction(self.open_company_action); self.file_menu.addSeparator(); self.file_menu.addAction(self.backup_action); self.file_menu.addAction(self.restore_action); self.file_menu.addSeparator(); self.file_menu.addAction(self.exit_action)
-        self.edit_menu = self.menuBar().addMenu("&Edit"); self.edit_menu.addAction(self.preferences_action)
-        self.view_menu = self.menuBar().addMenu("&View"); self.tools_menu = self.menuBar().addMenu("&Tools")
-        self.help_menu = self.menuBar().addMenu("&Help"); self.help_menu.addAction(self.help_contents_action); self.help_menu.addSeparator(); self.help_menu.addAction(self.about_action)
-        self.toolbar.addAction(self.new_company_action); self.toolbar.addAction(self.open_company_action); self.toolbar.addSeparator(); self.toolbar.addAction(self.backup_action); self.toolbar.addAction(self.preferences_action)
-    
-    @Slot()
-    def on_new_company(self): QMessageBox.information(self, "New Company", "New company wizard not yet implemented.")
-    @Slot()
-    def on_open_company(self): QMessageBox.information(self, "Open Company", "Open company dialog not yet implemented.")
-    @Slot()
-    def on_backup(self): QMessageBox.information(self, "Backup Data", "Backup functionality not yet implemented.")
-    @Slot()
-    def on_restore(self): QMessageBox.information(self, "Restore Data", "Restore functionality not yet implemented.")
-    @Slot()
-    def on_preferences(self): 
-        settings_tab_index = -1
-        for i in range(self.tab_widget.count()):
-            if self.tab_widget.widget(i) == self.settings_widget:
-                settings_tab_index = i
-                break
-        if settings_tab_index != -1:
-            self.tab_widget.setCurrentIndex(settings_tab_index)
-        else:
-            QMessageBox.information(self, "Preferences", "Preferences (Settings Tab) not found or full dialog not yet implemented.")
-
-    @Slot()
-    def on_help_contents(self): QMessageBox.information(self, "Help", "Help system not yet implemented.")
-    @Slot()
-    def on_about(self): QMessageBox.about(self, f"About {QCoreApplication.applicationName()}", f"{QCoreApplication.applicationName()} {QCoreApplication.applicationVersion()}\n\nA comprehensive bookkeeping application for Singapore small businesses.\n\n© 2024 {QCoreApplication.organizationName()}"); 
-    def closeEvent(self, event): 
-        settings = QSettings(); settings.setValue("MainWindow/geometry", self.saveGeometry()); settings.setValue("MainWindow/state", self.saveState()); settings.sync()
-        reply = QMessageBox.question(self, "Confirm Exit", "Are you sure you want to exit?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
-        if reply == QMessageBox.StandardButton.Yes: event.accept() 
-        else: event.ignore()
-
-```
-
-# app/ui/reports/__init__.py
-```py
-# app/ui/reports/__init__.py
-from .reports_widget import ReportsWidget
-from .trial_balance_table_model import TrialBalanceTableModel # New Export
-from .general_ledger_table_model import GeneralLedgerTableModel # New Export
-
-__all__ = [
-    "ReportsWidget",
-    "TrialBalanceTableModel", # New Export
-    "GeneralLedgerTableModel", # New Export
-]
-
-
-```
-
-# app/ui/reports/reports_widget.py
-```py
-# app/ui/reports/reports_widget.py
-from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QLabel, QDateEdit, QPushButton, QFormLayout, 
-    QLineEdit, QGroupBox, QHBoxLayout, QMessageBox, QSpacerItem, QSizePolicy,
-    QTabWidget, QTextEdit, QComboBox, QFileDialog, QInputDialog, QCompleter,
-    QStackedWidget, QTreeView, QTableView, 
-    QAbstractItemView, QCheckBox 
-)
-from PySide6.QtCore import Qt, Slot, QDate, QTimer, QMetaObject, Q_ARG, QStandardPaths
-from PySide6.QtGui import QIcon, QStandardItemModel, QStandardItem, QFont, QColor
-from typing import Optional, Dict, Any, TYPE_CHECKING, List 
-
-import json
-from decimal import Decimal, InvalidOperation
-import os 
-from datetime import date as python_date, timedelta 
-
-from app.core.application_core import ApplicationCore
-from app.main import schedule_task_from_qt
-from app.utils.json_helpers import json_converter, json_date_hook
-from app.utils.pydantic_models import GSTReturnData 
-from app.utils.result import Result 
-from app.models.accounting.gst_return import GSTReturn 
-from app.models.accounting.account import Account 
-from app.models.accounting.dimension import Dimension 
-
-from .trial_balance_table_model import TrialBalanceTableModel
-from .general_ledger_table_model import GeneralLedgerTableModel
-
-if TYPE_CHECKING:
-    from PySide6.QtGui import QPaintDevice 
-
-class ReportsWidget(QWidget):
-    def __init__(self, app_core: ApplicationCore, parent: Optional["QWidget"] = None):
-        super().__init__(parent)
-        self.app_core = app_core
-        self._prepared_gst_data: Optional[GSTReturnData] = None 
-        self._saved_draft_gst_return_orm: Optional[GSTReturn] = None 
-        self._current_financial_report_data: Optional[Dict[str, Any]] = None
-        self._gl_accounts_cache: List[Dict[str, Any]] = [] 
-        self._dimension_types_cache: List[str] = []
-        self._dimension_codes_cache: Dict[str, List[Dict[str, Any]]] = {} 
-
-        self.icon_path_prefix = "resources/icons/" 
-        try:
-            import app.resources_rc 
-            self.icon_path_prefix = ":/icons/"
-        except ImportError:
-            pass
-
-        self.main_layout = QVBoxLayout(self)
-        
-        self.tab_widget = QTabWidget()
-        self.main_layout.addWidget(self.tab_widget)
-
-        self._create_gst_f5_tab()
-        self._create_financial_statements_tab()
-        
-        self.setLayout(self.main_layout)
-
-    def _format_decimal_for_display(self, value: Optional[Decimal], default_str: str = "0.00", show_blank_for_zero: bool = False) -> str:
-        if value is None:
-            return default_str if not show_blank_for_zero else ""
-        try:
-            d_value = Decimal(str(value)) 
-            if show_blank_for_zero and d_value.is_zero(): 
-                return ""
-            return f"{d_value:,.2f}"
-        except (InvalidOperation, TypeError):
-            return "Error" 
-
-    def _create_gst_f5_tab(self):
-        gst_f5_widget = QWidget(); gst_f5_main_layout = QVBoxLayout(gst_f5_widget); gst_f5_group = QGroupBox("GST F5 Return Data Preparation"); gst_f5_group_layout = QVBoxLayout(gst_f5_group) 
-        date_selection_layout = QHBoxLayout(); date_form = QFormLayout()
-        self.gst_start_date_edit = QDateEdit(QDate.currentDate().addMonths(-3).addDays(-QDate.currentDate().day()+1)); self.gst_start_date_edit.setCalendarPopup(True); self.gst_start_date_edit.setDisplayFormat("dd/MM/yyyy"); date_form.addRow("Period Start Date:", self.gst_start_date_edit)
-        self.gst_end_date_edit = QDateEdit(QDate.currentDate().addDays(-QDate.currentDate().day())); 
-        if self.gst_end_date_edit.date() < self.gst_start_date_edit.date(): self.gst_end_date_edit.setDate(self.gst_start_date_edit.date().addMonths(1).addDays(-1))
-        self.gst_end_date_edit.setCalendarPopup(True); self.gst_end_date_edit.setDisplayFormat("dd/MM/yyyy"); date_form.addRow("Period End Date:", self.gst_end_date_edit)
-        date_selection_layout.addLayout(date_form); prepare_button_layout = QVBoxLayout()
-        self.prepare_gst_button = QPushButton(QIcon(self.icon_path_prefix + "reports.svg"), "Prepare GST F5 Data"); self.prepare_gst_button.clicked.connect(self._on_prepare_gst_f5_clicked)
-        prepare_button_layout.addWidget(self.prepare_gst_button); prepare_button_layout.addStretch(); date_selection_layout.addLayout(prepare_button_layout); date_selection_layout.addStretch(1); gst_f5_group_layout.addLayout(date_selection_layout)
-        self.gst_display_form = QFormLayout(); self.gst_std_rated_supplies_display = QLineEdit(); self.gst_std_rated_supplies_display.setReadOnly(True); self.gst_zero_rated_supplies_display = QLineEdit(); self.gst_zero_rated_supplies_display.setReadOnly(True); self.gst_exempt_supplies_display = QLineEdit(); self.gst_exempt_supplies_display.setReadOnly(True); self.gst_total_supplies_display = QLineEdit(); self.gst_total_supplies_display.setReadOnly(True); self.gst_total_supplies_display.setStyleSheet("font-weight: bold;"); self.gst_taxable_purchases_display = QLineEdit(); self.gst_taxable_purchases_display.setReadOnly(True); self.gst_output_tax_display = QLineEdit(); self.gst_output_tax_display.setReadOnly(True); self.gst_input_tax_display = QLineEdit(); self.gst_input_tax_display.setReadOnly(True); self.gst_adjustments_display = QLineEdit("0.00"); self.gst_adjustments_display.setReadOnly(True); self.gst_net_payable_display = QLineEdit(); self.gst_net_payable_display.setReadOnly(True); self.gst_net_payable_display.setStyleSheet("font-weight: bold;"); self.gst_filing_due_date_display = QLineEdit(); self.gst_filing_due_date_display.setReadOnly(True)
-        self.gst_display_form.addRow("1. Standard-Rated Supplies:", self.gst_std_rated_supplies_display); self.gst_display_form.addRow("2. Zero-Rated Supplies:", self.gst_zero_rated_supplies_display); self.gst_display_form.addRow("3. Exempt Supplies:", self.gst_exempt_supplies_display); self.gst_display_form.addRow("4. Total Supplies (1+2+3):", self.gst_total_supplies_display); self.gst_display_form.addRow("5. Taxable Purchases:", self.gst_taxable_purchases_display); self.gst_display_form.addRow("6. Output Tax Due:", self.gst_output_tax_display); self.gst_display_form.addRow("7. Input Tax and Refunds Claimed:", self.gst_input_tax_display); self.gst_display_form.addRow("8. GST Adjustments:", self.gst_adjustments_display); self.gst_display_form.addRow("9. Net GST Payable / (Claimable):", self.gst_net_payable_display); self.gst_display_form.addRow("Filing Due Date:", self.gst_filing_due_date_display)
-        gst_f5_group_layout.addLayout(self.gst_display_form); gst_action_button_layout = QHBoxLayout(); self.save_draft_gst_button = QPushButton("Save Draft GST Return"); self.save_draft_gst_button.setEnabled(False); self.save_draft_gst_button.clicked.connect(self._on_save_draft_gst_return_clicked); self.finalize_gst_button = QPushButton("Finalize GST Return"); self.finalize_gst_button.setEnabled(False); self.finalize_gst_button.clicked.connect(self._on_finalize_gst_return_clicked); gst_action_button_layout.addStretch(); gst_action_button_layout.addWidget(self.save_draft_gst_button); gst_action_button_layout.addWidget(self.finalize_gst_button); gst_f5_group_layout.addLayout(gst_action_button_layout)
-        gst_f5_main_layout.addWidget(gst_f5_group); gst_f5_main_layout.addStretch(); self.tab_widget.addTab(gst_f5_widget, "GST F5 Preparation")
-
-    @Slot()
-    def _on_prepare_gst_f5_clicked(self):
-        start_date = self.gst_start_date_edit.date().toPython(); end_date = self.gst_end_date_edit.date().toPython()
-        if start_date > end_date: QMessageBox.warning(self, "Date Error", "Start date cannot be after end date."); return
-        if not self.app_core.current_user: QMessageBox.warning(self, "Authentication Error", "No user logged in."); return
-        if not self.app_core.gst_manager: QMessageBox.critical(self, "Error", "GST Manager not available."); return
-        self.prepare_gst_button.setEnabled(False); self.prepare_gst_button.setText("Preparing...")
-        self._saved_draft_gst_return_orm = None; self.finalize_gst_button.setEnabled(False)
-        current_user_id = self.app_core.current_user.id
-        future = schedule_task_from_qt(self.app_core.gst_manager.prepare_gst_return_data(start_date, end_date, current_user_id))
-        
-        if future:
-            future.add_done_callback(
-                lambda res: QMetaObject.invokeMethod(
-                    self, "_safe_handle_prepare_gst_f5_result_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(object, future)
-                )
-            )
-        else:
-            self.app_core.logger.error("Failed to schedule GST data preparation task.")
-            self._handle_prepare_gst_f5_result(None) 
-
-    @Slot(object)
-    def _safe_handle_prepare_gst_f5_result_slot(self, future_arg):
-        self._handle_prepare_gst_f5_result(future_arg)
-
-    def _handle_prepare_gst_f5_result(self, future):
-        self.prepare_gst_button.setEnabled(True); self.prepare_gst_button.setText("Prepare GST F5 Data")
-        if future is None: 
-            QMessageBox.critical(self, "Task Error", "Failed to schedule GST data preparation.")
-            self._clear_gst_display_fields(); self.save_draft_gst_button.setEnabled(False); self.finalize_gst_button.setEnabled(False)
-            return
-        try:
-            result: Result[GSTReturnData] = future.result()
-            if result.is_success and result.value: 
-                self._prepared_gst_data = result.value
-                self._update_gst_f5_display(self._prepared_gst_data)
-                self.save_draft_gst_button.setEnabled(True)
-                self.finalize_gst_button.setEnabled(False) 
-            else: 
-                self._clear_gst_display_fields(); self.save_draft_gst_button.setEnabled(False); self.finalize_gst_button.setEnabled(False)
-                QMessageBox.warning(self, "GST Data Error", f"Failed to prepare GST data:\n{', '.join(result.errors)}")
-        except Exception as e: 
-            self._clear_gst_display_fields(); self.save_draft_gst_button.setEnabled(False); self.finalize_gst_button.setEnabled(False)
-            self.app_core.logger.error(f"Exception handling GST F5 preparation result: {e}", exc_info=True)
-            QMessageBox.critical(self, "GST Data Error", f"An unexpected error occurred: {str(e)}")
-
-    def _update_gst_f5_display(self, gst_data: GSTReturnData):
-        self.gst_std_rated_supplies_display.setText(self._format_decimal_for_display(gst_data.standard_rated_supplies)); self.gst_zero_rated_supplies_display.setText(self._format_decimal_for_display(gst_data.zero_rated_supplies)); self.gst_exempt_supplies_display.setText(self._format_decimal_for_display(gst_data.exempt_supplies)); self.gst_total_supplies_display.setText(self._format_decimal_for_display(gst_data.total_supplies)); self.gst_taxable_purchases_display.setText(self._format_decimal_for_display(gst_data.taxable_purchases)); self.gst_output_tax_display.setText(self._format_decimal_for_display(gst_data.output_tax)); self.gst_input_tax_display.setText(self._format_decimal_for_display(gst_data.input_tax)); self.gst_adjustments_display.setText(self._format_decimal_for_display(gst_data.tax_adjustments)); self.gst_net_payable_display.setText(self._format_decimal_for_display(gst_data.tax_payable)); self.gst_filing_due_date_display.setText(gst_data.filing_due_date.strftime('%d/%m/%Y') if gst_data.filing_due_date else "")
-    
-    def _clear_gst_display_fields(self):
-        for w in [self.gst_std_rated_supplies_display, self.gst_zero_rated_supplies_display, self.gst_exempt_supplies_display, self.gst_total_supplies_display, self.gst_taxable_purchases_display, self.gst_output_tax_display, self.gst_input_tax_display, self.gst_net_payable_display, self.gst_filing_due_date_display]: w.clear()
-        self.gst_adjustments_display.setText("0.00"); self._prepared_gst_data = None; self._saved_draft_gst_return_orm = None
-    
-    @Slot()
-    def _on_save_draft_gst_return_clicked(self):
-        if not self._prepared_gst_data: QMessageBox.warning(self, "No Data", "Please prepare GST data first."); return
-        if not self.app_core.current_user: QMessageBox.warning(self, "Authentication Error", "No user logged in."); return
-        self._prepared_gst_data.user_id = self.app_core.current_user.id
-        if self._saved_draft_gst_return_orm and self._saved_draft_gst_return_orm.id: 
-            self._prepared_gst_data.id = self._saved_draft_gst_return_orm.id
-            
-        self.save_draft_gst_button.setEnabled(False); self.save_draft_gst_button.setText("Saving Draft..."); self.finalize_gst_button.setEnabled(False)
-        future = schedule_task_from_qt(self.app_core.gst_manager.save_gst_return(self._prepared_gst_data))
-        
-        if future:
-            future.add_done_callback(
-                lambda res: QMetaObject.invokeMethod(
-                    self, "_safe_handle_save_draft_gst_result_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(object, future)
-                )
-            )
-        else:
-            self.app_core.logger.error("Failed to schedule GST draft save task.")
-            self._handle_save_draft_gst_result(None)
-
-    @Slot(object)
-    def _safe_handle_save_draft_gst_result_slot(self, future_arg):
-        self._handle_save_draft_gst_result(future_arg)
-
-    def _handle_save_draft_gst_result(self, future):
-        self.save_draft_gst_button.setEnabled(True); self.save_draft_gst_button.setText("Save Draft GST Return")
-        if future is None: QMessageBox.critical(self, "Task Error", "Failed to schedule GST draft save."); return
-        try:
-            result: Result[GSTReturn] = future.result()
-            if result.is_success and result.value: 
-                self._saved_draft_gst_return_orm = result.value
-                if self._prepared_gst_data: 
-                    self._prepared_gst_data.id = result.value.id 
-                QMessageBox.information(self, "Success", f"GST Return draft saved successfully (ID: {result.value.id}).")
-                self.finalize_gst_button.setEnabled(True) 
-            else: 
-                QMessageBox.warning(self, "Save Error", f"Failed to save GST Return draft:\n{', '.join(result.errors)}")
-                self.finalize_gst_button.setEnabled(False)
-        except Exception as e: 
-            self.app_core.logger.error(f"Exception handling save draft GST result: {e}", exc_info=True)
-            QMessageBox.critical(self, "Save Error", f"An unexpected error occurred: {str(e)}")
-            self.finalize_gst_button.setEnabled(False)
-
-    @Slot()
-    def _on_finalize_gst_return_clicked(self):
-        if not self._saved_draft_gst_return_orm or not self._saved_draft_gst_return_orm.id: QMessageBox.warning(self, "No Draft", "Please prepare and save a draft GST return first."); return
-        if self._saved_draft_gst_return_orm.status != "Draft": QMessageBox.information(self, "Already Processed", f"This GST Return (ID: {self._saved_draft_gst_return_orm.id}) is already '{self._saved_draft_gst_return_orm.status}'."); return
-        if not self.app_core.current_user: QMessageBox.warning(self, "Authentication Error", "No user logged in."); return
-        submission_ref, ok_ref = QInputDialog.getText(self, "Finalize GST Return", "Enter Submission Reference No.:")
-        if not ok_ref or not submission_ref.strip(): QMessageBox.information(self, "Cancelled", "Submission reference not provided. Finalization cancelled."); return
-        submission_date_str, ok_date = QInputDialog.getText(self, "Finalize GST Return", "Enter Submission Date (YYYY-MM-DD):", text=python_date.today().isoformat())
-        if not ok_date or not submission_date_str.strip(): QMessageBox.information(self, "Cancelled", "Submission date not provided. Finalization cancelled."); return
-        try: parsed_submission_date = python_date.fromisoformat(submission_date_str)
-        except ValueError: QMessageBox.warning(self, "Invalid Date", "Submission date format is invalid. Please use YYYY-MM-DD."); return
-        self.finalize_gst_button.setEnabled(False); self.finalize_gst_button.setText("Finalizing..."); self.save_draft_gst_button.setEnabled(False)
-        future = schedule_task_from_qt(self.app_core.gst_manager.finalize_gst_return(return_id=self._saved_draft_gst_return_orm.id, submission_reference=submission_ref.strip(), submission_date=parsed_submission_date, user_id=self.app_core.current_user.id))
-        
-        if future:
-            future.add_done_callback(
-                lambda res: QMetaObject.invokeMethod(
-                    self, "_safe_handle_finalize_gst_result_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(object, future)
-                )
-            )
-        else:
-            self.app_core.logger.error("Failed to schedule GST finalization task.")
-            self._handle_finalize_gst_result(None)
-
-    @Slot(object)
-    def _safe_handle_finalize_gst_result_slot(self, future_arg):
-        self._handle_finalize_gst_result(future_arg)
-
-    def _handle_finalize_gst_result(self, future): # Line 155 is around here
-        self.finalize_gst_button.setText("Finalize GST Return") 
-        
-        can_finalize_default = self._saved_draft_gst_return_orm and self._saved_draft_gst_return_orm.status == "Draft"
-        can_save_draft_default = self._prepared_gst_data is not None and \
-                                 (not self._saved_draft_gst_return_orm or self._saved_draft_gst_return_orm.status == "Draft")
-
-        if future is None: 
-            QMessageBox.critical(self, "Task Error", "Failed to schedule GST finalization.")
-            self.finalize_gst_button.setEnabled(can_finalize_default)
-            self.save_draft_gst_button.setEnabled(can_save_draft_default)
-            return # Corrected return
-        
-        try:
-            result: Result[GSTReturn] = future.result()
-            if result.is_success and result.value: 
-                QMessageBox.information(self, "Success", f"GST Return (ID: {result.value.id}) finalized successfully.\nStatus: {result.value.status}.\nSettlement JE ID: {result.value.journal_entry_id or 'N/A'}")
-                self._saved_draft_gst_return_orm = result.value 
-                self.save_draft_gst_button.setEnabled(False) 
-                self.finalize_gst_button.setEnabled(False)
-                if self._prepared_gst_data: 
-                    self._prepared_gst_data.status = result.value.status
-            else: 
-                QMessageBox.warning(self, "Finalization Error", f"Failed to finalize GST Return:\n{', '.join(result.errors)}")
-                self.finalize_gst_button.setEnabled(can_finalize_default)
-                self.save_draft_gst_button.setEnabled(can_save_draft_default) 
-        except Exception as e: 
-            self.app_core.logger.error(f"Exception handling finalize GST result: {e}", exc_info=True)
-            QMessageBox.critical(self, "Finalization Error", f"An unexpected error occurred: {str(e)}")
-            self.finalize_gst_button.setEnabled(can_finalize_default)
-            self.save_draft_gst_button.setEnabled(can_save_draft_default)
-    
-    def _create_financial_statements_tab(self):
-        fs_widget = QWidget(); fs_main_layout = QVBoxLayout(fs_widget)
-        fs_group = QGroupBox("Financial Statements"); fs_group_layout = QVBoxLayout(fs_group) 
-        controls_layout = QHBoxLayout(); self.fs_params_form = QFormLayout() 
-        self.fs_report_type_combo = QComboBox(); self.fs_report_type_combo.addItems(["Balance Sheet", "Profit & Loss Statement", "Trial Balance", "General Ledger"]); self.fs_params_form.addRow("Report Type:", self.fs_report_type_combo)
-        self.fs_gl_account_label = QLabel("Account for GL:"); self.fs_gl_account_combo = QComboBox(); self.fs_gl_account_combo.setMinimumWidth(250); self.fs_gl_account_combo.setEditable(True)
-        completer = QCompleter([f"{item.get('code')} - {item.get('name')}" for item in self._gl_accounts_cache]); completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion); completer.setFilterMode(Qt.MatchFlag.MatchContains); self.fs_gl_account_combo.setCompleter(completer); self.fs_params_form.addRow(self.fs_gl_account_label, self.fs_gl_account_combo)
-        self.fs_as_of_date_edit = QDateEdit(QDate.currentDate()); self.fs_as_of_date_edit.setCalendarPopup(True); self.fs_as_of_date_edit.setDisplayFormat("dd/MM/yyyy"); self.fs_params_form.addRow("As of Date:", self.fs_as_of_date_edit)
-        self.fs_start_date_edit = QDateEdit(QDate.currentDate().addMonths(-1).addDays(-QDate.currentDate().day()+1)); self.fs_start_date_edit.setCalendarPopup(True); self.fs_start_date_edit.setDisplayFormat("dd/MM/yyyy"); self.fs_params_form.addRow("Period Start Date:", self.fs_start_date_edit)
-        self.fs_end_date_edit = QDateEdit(QDate.currentDate().addDays(-QDate.currentDate().day())); self.fs_end_date_edit.setCalendarPopup(True); self.fs_end_date_edit.setDisplayFormat("dd/MM/yyyy"); self.fs_params_form.addRow("Period End Date:", self.fs_end_date_edit)
-        self.fs_include_zero_balance_check = QCheckBox("Include Zero-Balance Accounts"); self.fs_params_form.addRow(self.fs_include_zero_balance_check) 
-        self.fs_include_comparative_check = QCheckBox("Include Comparative Period"); self.fs_params_form.addRow(self.fs_include_comparative_check)
-        self.fs_comparative_as_of_date_label = QLabel("Comparative As of Date:"); self.fs_comparative_as_of_date_edit = QDateEdit(QDate.currentDate().addYears(-1)); self.fs_comparative_as_of_date_edit.setCalendarPopup(True); self.fs_comparative_as_of_date_edit.setDisplayFormat("dd/MM/yyyy"); self.fs_params_form.addRow(self.fs_comparative_as_of_date_label, self.fs_comparative_as_of_date_edit)
-        self.fs_comparative_start_date_label = QLabel("Comparative Start Date:"); self.fs_comparative_start_date_edit = QDateEdit(QDate.currentDate().addYears(-1).addMonths(-1).addDays(-QDate.currentDate().day()+1)); self.fs_comparative_start_date_edit.setCalendarPopup(True); self.fs_comparative_start_date_edit.setDisplayFormat("dd/MM/yyyy"); self.fs_params_form.addRow(self.fs_comparative_start_date_label, self.fs_comparative_start_date_edit)
-        self.fs_comparative_end_date_label = QLabel("Comparative End Date:"); self.fs_comparative_end_date_edit = QDateEdit(QDate.currentDate().addYears(-1).addDays(-QDate.currentDate().day())); self.fs_comparative_end_date_edit.setCalendarPopup(True); self.fs_comparative_end_date_edit.setDisplayFormat("dd/MM/yyyy"); self.fs_params_form.addRow(self.fs_comparative_end_date_label, self.fs_comparative_end_date_edit)
-        self.fs_dim1_type_label = QLabel("Dimension 1 Type:"); self.fs_dim1_type_combo = QComboBox(); self.fs_dim1_type_combo.addItem("All Types", None); self.fs_dim1_type_combo.setObjectName("fs_dim1_type_combo"); self.fs_params_form.addRow(self.fs_dim1_type_label, self.fs_dim1_type_combo)
-        self.fs_dim1_code_label = QLabel("Dimension 1 Code:"); self.fs_dim1_code_combo = QComboBox(); self.fs_dim1_code_combo.addItem("All Codes", None); self.fs_dim1_code_combo.setObjectName("fs_dim1_code_combo"); self.fs_params_form.addRow(self.fs_dim1_code_label, self.fs_dim1_code_combo)
-        self.fs_dim2_type_label = QLabel("Dimension 2 Type:"); self.fs_dim2_type_combo = QComboBox(); self.fs_dim2_type_combo.addItem("All Types", None); self.fs_dim2_type_combo.setObjectName("fs_dim2_type_combo"); self.fs_params_form.addRow(self.fs_dim2_type_label, self.fs_dim2_type_combo)
-        self.fs_dim2_code_label = QLabel("Dimension 2 Code:"); self.fs_dim2_code_combo = QComboBox(); self.fs_dim2_code_combo.addItem("All Codes", None); self.fs_dim2_code_combo.setObjectName("fs_dim2_code_combo"); self.fs_params_form.addRow(self.fs_dim2_code_label, self.fs_dim2_code_combo)
-        controls_layout.addLayout(self.fs_params_form)
-        generate_fs_button_layout = QVBoxLayout(); self.generate_fs_button = QPushButton(QIcon(self.icon_path_prefix + "reports.svg"), "Generate Report"); self.generate_fs_button.clicked.connect(self._on_generate_financial_report_clicked)
-        generate_fs_button_layout.addWidget(self.generate_fs_button); generate_fs_button_layout.addStretch(); controls_layout.addLayout(generate_fs_button_layout); controls_layout.addStretch(1); fs_group_layout.addLayout(controls_layout)
-        self.fs_display_stack = QStackedWidget(); fs_group_layout.addWidget(self.fs_display_stack, 1)
-        self.bs_tree_view = QTreeView(); self.bs_tree_view.setAlternatingRowColors(True); self.bs_tree_view.setHeaderHidden(False); self.bs_tree_view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.bs_model = QStandardItemModel(); self.bs_tree_view.setModel(self.bs_model); self.fs_display_stack.addWidget(self.bs_tree_view)
-        self.pl_tree_view = QTreeView(); self.pl_tree_view.setAlternatingRowColors(True); self.pl_tree_view.setHeaderHidden(False); self.pl_tree_view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.pl_model = QStandardItemModel(); self.pl_tree_view.setModel(self.pl_model); self.fs_display_stack.addWidget(self.pl_tree_view)
-        self.tb_table_view = QTableView(); self.tb_table_view.setAlternatingRowColors(True); self.tb_table_view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.tb_table_view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection); self.tb_table_view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.tb_table_view.setSortingEnabled(True); self.tb_model = TrialBalanceTableModel(); self.tb_table_view.setModel(self.tb_model); self.fs_display_stack.addWidget(self.tb_table_view)
-        gl_widget_container = QWidget(); gl_layout = QVBoxLayout(gl_widget_container); gl_layout.setContentsMargins(0,0,0,0)
-        self.gl_summary_label_account = QLabel("Account: N/A"); self.gl_summary_label_account.setStyleSheet("font-weight: bold;")
-        self.gl_summary_label_period = QLabel("Period: N/A")
-        self.gl_summary_label_ob = QLabel("Opening Balance: 0.00")
-        gl_summary_header_layout = QHBoxLayout(); gl_summary_header_layout.addWidget(self.gl_summary_label_account); gl_summary_header_layout.addStretch(); gl_summary_header_layout.addWidget(self.gl_summary_label_period); gl_layout.addLayout(gl_summary_header_layout); gl_layout.addWidget(self.gl_summary_label_ob)
-        self.gl_table_view = QTableView(); self.gl_table_view.setAlternatingRowColors(True); self.gl_table_view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.gl_table_view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection); self.gl_table_view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.gl_table_view.setSortingEnabled(True); self.gl_model = GeneralLedgerTableModel(); self.gl_table_view.setModel(self.gl_model); gl_layout.addWidget(self.gl_table_view)
-        self.gl_summary_label_cb = QLabel("Closing Balance: 0.00"); self.gl_summary_label_cb.setAlignment(Qt.AlignmentFlag.AlignRight); gl_layout.addWidget(self.gl_summary_label_cb)
-        self.fs_display_stack.addWidget(gl_widget_container); self.gl_widget_container = gl_widget_container 
-        export_button_layout = QHBoxLayout(); self.export_pdf_button = QPushButton("Export to PDF"); self.export_pdf_button.setEnabled(False); self.export_pdf_button.clicked.connect(lambda: self._on_export_report_clicked("pdf")); self.export_excel_button = QPushButton("Export to Excel"); self.export_excel_button.setEnabled(False); self.export_excel_button.clicked.connect(lambda: self._on_export_report_clicked("excel")); export_button_layout.addStretch(); export_button_layout.addWidget(self.export_pdf_button); export_button_layout.addWidget(self.export_excel_button); fs_group_layout.addLayout(export_button_layout)
-        fs_main_layout.addWidget(fs_group); self.tab_widget.addTab(fs_widget, "Financial Statements")
-        self.fs_report_type_combo.currentTextChanged.connect(self._on_fs_report_type_changed)
-        self.fs_include_comparative_check.stateChanged.connect(self._on_comparative_check_changed)
-        self.fs_dim1_type_combo.currentIndexChanged.connect(lambda index, tc=self.fs_dim1_type_combo, cc=self.fs_dim1_code_combo: self._on_dimension_type_selected(tc, cc))
-        self.fs_dim2_type_combo.currentIndexChanged.connect(lambda index, tc=self.fs_dim2_type_combo, cc=self.fs_dim2_code_combo: self._on_dimension_type_selected(tc, cc))
-        self._on_fs_report_type_changed(self.fs_report_type_combo.currentText()) 
-    @Slot(str)
-    def _on_fs_report_type_changed(self, report_type: str):
-        is_bs = (report_type == "Balance Sheet"); is_pl = (report_type == "Profit & Loss Statement"); is_gl = (report_type == "General Ledger"); is_tb = (report_type == "Trial Balance")
-        self.fs_as_of_date_edit.setVisible(is_bs or is_tb); self.fs_start_date_edit.setVisible(is_pl or is_gl); self.fs_end_date_edit.setVisible(is_pl or is_gl)
-        self.fs_gl_account_combo.setVisible(is_gl); self.fs_gl_account_label.setVisible(is_gl); self.fs_include_zero_balance_check.setVisible(is_bs); self.fs_include_comparative_check.setVisible(is_bs or is_pl)
-        for w in [self.fs_dim1_type_label, self.fs_dim1_type_combo, self.fs_dim1_code_label, self.fs_dim1_code_combo, self.fs_dim2_type_label, self.fs_dim2_type_combo, self.fs_dim2_code_label, self.fs_dim2_code_combo]: w.setVisible(is_gl)
-        if is_gl and self.fs_dim1_type_combo.count() <= 1 : schedule_task_from_qt(self._load_dimension_types())
-        self._on_comparative_check_changed(self.fs_include_comparative_check.checkState().value) 
-        # Removed the problematic loop from here
-        if is_gl: self.fs_display_stack.setCurrentWidget(self.gl_widget_container)
-        elif is_bs: self.fs_display_stack.setCurrentWidget(self.bs_tree_view)
-        elif is_pl: self.fs_display_stack.setCurrentWidget(self.pl_tree_view)
-        elif is_tb: self.fs_display_stack.setCurrentWidget(self.tb_table_view)
-        self._clear_current_financial_report_display(); self.export_pdf_button.setEnabled(False); self.export_excel_button.setEnabled(False)
-    async def _load_dimension_types(self):
-        if not self.app_core.dimension_service: self.app_core.logger.error("DimensionService not available."); return
-        try:
-            dim_types = await self.app_core.dimension_service.get_distinct_dimension_types(); json_data = json.dumps(dim_types)
-            QMetaObject.invokeMethod(self, "_populate_dimension_types_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, json_data))
-        except Exception as e: self.app_core.logger.error(f"Error loading dimension types: {e}", exc_info=True)
-    @Slot(str)
-    def _populate_dimension_types_slot(self, dim_types_json_str: str):
-        try: dim_types = json.loads(dim_types_json_str)
-        except json.JSONDecodeError: self.app_core.logger.error("Failed to parse dimension types JSON."); return
-        self._dimension_types_cache = ["All Types"] + dim_types 
-        for combo in [self.fs_dim1_type_combo, self.fs_dim2_type_combo]:
-            current_data = combo.currentData(); combo.clear(); combo.addItem("All Types", None)
-            for dt in dim_types: combo.addItem(dt, dt)
-            idx = combo.findData(current_data)
-            if idx != -1:
-                combo.setCurrentIndex(idx)
-            else:
-                combo.setCurrentIndex(0) 
-        self._on_dimension_type_selected(self.fs_dim1_type_combo, self.fs_dim1_code_combo); self._on_dimension_type_selected(self.fs_dim2_type_combo, self.fs_dim2_code_combo)
-    @Slot(QComboBox, QComboBox) # type: ignore 
-    def _on_dimension_type_selected(self, type_combo: QComboBox, code_combo: QComboBox):
-        selected_type_str = type_combo.currentData() 
-        if selected_type_str: schedule_task_from_qt(self._load_dimension_codes_for_type(selected_type_str, code_combo.objectName() or ""))
-        else: code_combo.clear(); code_combo.addItem("All Codes", None)
-    async def _load_dimension_codes_for_type(self, dim_type_str: str, target_code_combo_name: str):
-        if not self.app_core.dimension_service: self.app_core.logger.error("DimensionService not available."); return
-        try:
-            dimensions: List[Dimension] = await self.app_core.dimension_service.get_dimensions_by_type(dim_type_str)
-            dim_codes_data = [{"id": d.id, "code": d.code, "name": d.name} for d in dimensions]; self._dimension_codes_cache[dim_type_str] = dim_codes_data
-            json_data = json.dumps(dim_codes_data, default=json_converter)
-            QMetaObject.invokeMethod(self, "_populate_dimension_codes_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, json_data), Q_ARG(str, target_code_combo_name))
-        except Exception as e: self.app_core.logger.error(f"Error loading dimension codes for type '{dim_type_str}': {e}", exc_info=True)
-    @Slot(str, str)
-    def _populate_dimension_codes_slot(self, dim_codes_json_str: str, target_code_combo_name: str):
-        target_combo: Optional[QComboBox] = None
-        if target_code_combo_name == self.fs_dim1_code_combo.objectName(): target_combo = self.fs_dim1_code_combo
-        elif target_code_combo_name == self.fs_dim2_code_combo.objectName(): target_combo = self.fs_dim2_code_combo
-        if not target_combo: self.app_core.logger.error(f"Target code combo '{target_code_combo_name}' not found."); return
-        current_data = target_combo.currentData(); target_combo.clear(); target_combo.addItem("All Codes", None) 
-        try:
-            dim_codes = json.loads(dim_codes_json_str, object_hook=json_date_hook)
-            for dc in dim_codes: target_combo.addItem(f"{dc['code']} - {dc['name']}", dc['id'])
-            idx = target_combo.findData(current_data)
-            if idx != -1:
-                target_combo.setCurrentIndex(idx)
-            else:
-                target_combo.setCurrentIndex(0) 
-        except json.JSONDecodeError: self.app_core.logger.error(f"Failed to parse dim codes JSON for {target_code_combo_name}")
-    @Slot(int)
-    def _on_comparative_check_changed(self, state: int):
-        is_checked = (state == Qt.CheckState.Checked.value); report_type = self.fs_report_type_combo.currentText(); is_bs = (report_type == "Balance Sheet"); is_pl = (report_type == "Profit & Loss Statement")
-        self.fs_comparative_as_of_date_label.setVisible(is_bs and is_checked); self.fs_comparative_as_of_date_edit.setVisible(is_bs and is_checked)
-        self.fs_comparative_start_date_label.setVisible(is_pl and is_checked); self.fs_comparative_start_date_edit.setVisible(is_pl and is_checked)
-        self.fs_comparative_end_date_label.setVisible(is_pl and is_checked); self.fs_comparative_end_date_edit.setVisible(is_pl and is_checked)
-    async def _load_gl_accounts_for_combo(self):
-        if not self.app_core.chart_of_accounts_manager: self.app_core.logger.error("ChartOfAccountsManager not available for GL account combo."); return
-        try:
-            accounts_orm: List[Account] = await self.app_core.chart_of_accounts_manager.get_accounts_for_selection(active_only=True)
-            self._gl_accounts_cache = [{"id": acc.id, "code": acc.code, "name": acc.name} for acc in accounts_orm]
-            accounts_json = json.dumps(self._gl_accounts_cache, default=json_converter)
-            QMetaObject.invokeMethod(self, "_populate_gl_account_combo_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, accounts_json))
-        except Exception as e: self.app_core.logger.error(f"Error loading accounts for GL combo: {e}", exc_info=True); QMessageBox.warning(self, "Account Load Error", "Could not load accounts for General Ledger selection.")
-    @Slot(str)
-    def _populate_gl_account_combo_slot(self, accounts_json_str: str):
-        self.fs_gl_account_combo.clear()
-        try:
-            accounts_data = json.loads(accounts_json_str); self._gl_accounts_cache = accounts_data if accounts_data else []
-            self.fs_gl_account_combo.addItem("-- Select Account --", 0) 
-            for acc_data in self._gl_accounts_cache: self.fs_gl_account_combo.addItem(f"{acc_data['code']} - {acc_data['name']}", acc_data['id'])
-            if isinstance(self.fs_gl_account_combo.completer(), QCompleter): self.fs_gl_account_combo.completer().setModel(self.fs_gl_account_combo.model())
-        except json.JSONDecodeError: self.app_core.logger.error("Failed to parse accounts JSON for GL combo."); self.fs_gl_account_combo.addItem("Error loading accounts", 0)
-    def _clear_current_financial_report_display(self):
-        self._current_financial_report_data = None; current_view = self.fs_display_stack.currentWidget()
-        if isinstance(current_view, QTreeView): model = current_view.model(); 
-        if isinstance(model, QStandardItemModel): model.clear() # type: ignore
-        elif isinstance(current_view, QTableView): model = current_view.model(); 
-        if hasattr(model, 'update_data'): model.update_data({}) 
-        elif current_view == self.gl_widget_container : self.gl_model.update_data({}); self.gl_summary_label_account.setText("Account: N/A"); self.gl_summary_label_period.setText("Period: N/A"); self.gl_summary_label_ob.setText("Opening Balance: 0.00"); self.gl_summary_label_cb.setText("Closing Balance: 0.00")
-    
-    @Slot()
-    def _on_generate_financial_report_clicked(self):
-        report_type = self.fs_report_type_combo.currentText()
-        if not self.app_core.financial_statement_generator: 
-            QMessageBox.critical(self, "Error", "Financial Statement Generator not available.")
-            return
-        
-        self._clear_current_financial_report_display()
-        self.generate_fs_button.setEnabled(False); self.generate_fs_button.setText("Generating...")
-        self.export_pdf_button.setEnabled(False); self.export_excel_button.setEnabled(False)
-        
-        coro: Optional[Any] = None
-        comparative_date_bs: Optional[python_date] = None
-        comparative_start_pl: Optional[python_date] = None
-        comparative_end_pl: Optional[python_date] = None
-        include_zero_bal_bs: bool = False
-        
-        dim1_id_val = self.fs_dim1_code_combo.currentData() if self.fs_dim1_type_label.isVisible() else None 
-        dim2_id_val = self.fs_dim2_code_combo.currentData() if self.fs_dim2_type_label.isVisible() else None
-        dimension1_id = int(dim1_id_val) if dim1_id_val and dim1_id_val !=0 else None
-        dimension2_id = int(dim2_id_val) if dim2_id_val and dim2_id_val !=0 else None
-
-        if self.fs_include_comparative_check.isVisible() and self.fs_include_comparative_check.isChecked():
-            if report_type == "Balance Sheet": 
-                comparative_date_bs = self.fs_comparative_as_of_date_edit.date().toPython()
-            elif report_type == "Profit & Loss Statement":
-                comparative_start_pl = self.fs_comparative_start_date_edit.date().toPython()
-                comparative_end_pl = self.fs_comparative_end_date_edit.date().toPython()
-                if comparative_start_pl and comparative_end_pl and comparative_start_pl > comparative_end_pl: 
-                    QMessageBox.warning(self, "Date Error", "Comparative start date cannot be after comparative end date for P&L.")
-                    self.generate_fs_button.setEnabled(True); self.generate_fs_button.setText("Generate Report")
-                    return
-        
-        if report_type == "Balance Sheet": 
-            as_of_date_val = self.fs_as_of_date_edit.date().toPython()
-            include_zero_bal_bs = self.fs_include_zero_balance_check.isChecked() if self.fs_include_zero_balance_check.isVisible() else False
-            coro = self.app_core.financial_statement_generator.generate_balance_sheet(as_of_date_val, comparative_date=comparative_date_bs, include_zero_balances=include_zero_bal_bs)
-        elif report_type == "Profit & Loss Statement": 
-            start_date_val = self.fs_start_date_edit.date().toPython()
-            end_date_val = self.fs_end_date_edit.date().toPython()
-            if start_date_val > end_date_val: 
-                QMessageBox.warning(self, "Date Error", "Start date cannot be after end date for P&L.")
-                self.generate_fs_button.setEnabled(True); self.generate_fs_button.setText("Generate Report")
-                return
-            coro = self.app_core.financial_statement_generator.generate_profit_loss(start_date_val, end_date_val, comparative_start=comparative_start_pl, comparative_end=comparative_end_pl)
-        elif report_type == "Trial Balance": 
-            as_of_date_val = self.fs_as_of_date_edit.date().toPython()
-            coro = self.app_core.financial_statement_generator.generate_trial_balance(as_of_date_val)
-        elif report_type == "General Ledger":
-            account_id = self.fs_gl_account_combo.currentData(); 
-            if not isinstance(account_id, int) or account_id == 0: 
-                QMessageBox.warning(self, "Selection Error", "Please select a valid account for the General Ledger report.")
-                self.generate_fs_button.setEnabled(True); self.generate_fs_button.setText("Generate Report")
-                return
-            start_date_val = self.fs_start_date_edit.date().toPython()
-            end_date_val = self.fs_end_date_edit.date().toPython() 
-            if start_date_val > end_date_val: 
-                QMessageBox.warning(self, "Date Error", "Start date cannot be after end date for General Ledger.")
-                self.generate_fs_button.setEnabled(True); self.generate_fs_button.setText("Generate Report")
-                return
-            coro = self.app_core.financial_statement_generator.generate_general_ledger(account_id, start_date_val, end_date_val, dimension1_id, dimension2_id)
-        
-        future_obj: Optional[Any] = None 
-        if coro: 
-            future_obj = schedule_task_from_qt(coro)
-        
-        if future_obj: 
-             future_obj.add_done_callback(
-                lambda res: QMetaObject.invokeMethod(
-                    self, "_safe_handle_financial_report_result_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(object, future_obj)
-                )
-            )
-        else: 
-            self.app_core.logger.error(f"Failed to schedule report generation for {report_type}.")
-            self.generate_fs_button.setEnabled(True); self.generate_fs_button.setText("Generate Report")
-            self._handle_financial_report_result(None) 
-    
-    @Slot(object)
-    def _safe_handle_financial_report_result_slot(self, future_arg):
-        self._handle_financial_report_result(future_arg)
-
-    def _handle_financial_report_result(self, future):
-        self.generate_fs_button.setEnabled(True)
-        self.generate_fs_button.setText("Generate Report")
-        
-        self.export_pdf_button.setEnabled(False) 
-        self.export_excel_button.setEnabled(False)
-        self._current_financial_report_data = None
-
-        if future is None: 
-            QMessageBox.critical(self, "Task Error", "Failed to schedule report generation.")
-            return
-        
-        try:
-            report_data: Optional[Dict[str, Any]] = future.result()
-            if report_data: 
-                self._current_financial_report_data = report_data
-                self._display_financial_report(report_data)
-                self.export_pdf_button.setEnabled(True)
-                self.export_excel_button.setEnabled(True)
-            else: 
-                QMessageBox.warning(self, "Report Error", "Failed to generate report data or report data is empty.")
-        except Exception as e: 
-            self.app_core.logger.error(f"Exception handling financial report result: {e}", exc_info=True)
-            QMessageBox.critical(self, "Report Generation Error", f"An unexpected error occurred: {str(e)}")
-
-    def _populate_balance_sheet_model(self, model: QStandardItemModel, report_data: Dict[str, Any]):
-        model.clear(); has_comparative = bool(report_data.get('comparative_date')); headers = ["Description", "Amount"]; 
-        if has_comparative: headers.append(f"Comparative ({report_data.get('comparative_date','Prev').strftime('%d/%m/%Y') if isinstance(report_data.get('comparative_date'), python_date) else 'Prev'})")
-        model.setHorizontalHeaderLabels(headers); root_node = model.invisibleRootItem(); bold_font = QFont(); bold_font.setBold(True)
-        def add_account_rows(parent_item: QStandardItem, accounts: List[Dict[str,Any]], comparative_accounts: Optional[List[Dict[str,Any]]]):
-            for acc_dict in accounts:
-                desc_item = QStandardItem(f"  {acc_dict.get('code','')} - {acc_dict.get('name','')}"); amount_item = QStandardItem(self._format_decimal_for_display(acc_dict.get('balance'))); amount_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); row_items = [desc_item, amount_item]
-                if has_comparative:
-                    comp_val_str = ""; 
-                    if comparative_accounts: comp_acc = next((ca for ca in comparative_accounts if ca['id'] == acc_dict['id']), None); comp_val_str = self._format_decimal_for_display(comp_acc['balance']) if comp_acc and comp_acc['balance'] is not None else ""
-                    comp_amount_item = QStandardItem(comp_val_str); comp_amount_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); row_items.append(comp_amount_item)
-                parent_item.appendRow(row_items)
-        for section_key, section_title_display in [('assets', "Assets"), ('liabilities', "Liabilities"), ('equity', "Equity")]:
-            section_data = report_data.get(section_key); 
-            if not section_data or not isinstance(section_data, dict): continue
-            section_header_item = QStandardItem(section_title_display); section_header_item.setFont(bold_font); empty_amount_item = QStandardItem(""); empty_amount_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); header_row = [section_header_item, empty_amount_item]; 
-            if has_comparative: header_row.append(QStandardItem("")); root_node.appendRow(header_row)
-            add_account_rows(section_header_item, section_data.get("accounts", []), section_data.get("comparative_accounts"))
-            total_desc_item = QStandardItem(f"Total {section_title_display}"); total_desc_item.setFont(bold_font); total_amount_item = QStandardItem(self._format_decimal_for_display(section_data.get("total"))); total_amount_item.setFont(bold_font); total_amount_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); total_row_items = [total_desc_item, total_amount_item]; 
-            if has_comparative: comp_total_item = QStandardItem(self._format_decimal_for_display(section_data.get("comparative_total"))); comp_total_item.setFont(bold_font); comp_total_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); total_row_items.append(comp_total_item)
-            root_node.appendRow(total_row_items); 
-            if section_key != 'equity': root_node.appendRow([QStandardItem(""), QStandardItem("")] + ([QStandardItem("")] if has_comparative else []))
-        if 'total_liabilities_equity' in report_data:
-            root_node.appendRow([QStandardItem(""), QStandardItem("")] + ([QStandardItem("")] if has_comparative else [])); tle_desc = QStandardItem("Total Liabilities & Equity"); tle_desc.setFont(bold_font); tle_amount = QStandardItem(self._format_decimal_for_display(report_data.get('total_liabilities_equity'))); tle_amount.setFont(bold_font); tle_amount.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); tle_row = [tle_desc, tle_amount]; 
-            if has_comparative: comp_tle_amount = QStandardItem(self._format_decimal_for_display(report_data.get('comparative_total_liabilities_equity'))); comp_tle_amount.setFont(bold_font); comp_tle_amount.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); tle_row.append(comp_tle_amount)
-            root_node.appendRow(tle_row)
-        if report_data.get('is_balanced') is False: warning_item = QStandardItem("Warning: Balance Sheet is out of balance!"); warning_item.setForeground(QColor("red")); warning_item.setFont(bold_font); warning_row = [warning_item, QStandardItem("")]; 
-        if has_comparative: warning_row.append(QStandardItem("")); root_node.appendRow(warning_row)
-    
-    def _populate_profit_loss_model(self, model: QStandardItemModel, report_data: Dict[str, Any]):
-        model.clear(); has_comparative = bool(report_data.get('comparative_start')); comp_header_text = "Comparative"; 
-        if has_comparative and report_data.get('comparative_start') and report_data.get('comparative_end'): comp_start_str = report_data['comparative_start'].strftime('%d/%m/%y'); comp_end_str = report_data['comparative_end'].strftime('%d/%m/%y'); comp_header_text = f"Comp. ({comp_start_str}-{comp_end_str})"
-        headers = ["Description", "Amount"]; 
-        if has_comparative: headers.append(comp_header_text); model.setHorizontalHeaderLabels(headers); root_node = model.invisibleRootItem(); bold_font = QFont(); bold_font.setBold(True)
-        def add_pl_account_rows(parent_item: QStandardItem, accounts: List[Dict[str,Any]], comparative_accounts: Optional[List[Dict[str,Any]]]):
-            for acc_dict in accounts:
-                desc_item = QStandardItem(f"  {acc_dict.get('code','')} - {acc_dict.get('name','')}"); amount_item = QStandardItem(self._format_decimal_for_display(acc_dict.get('balance'))); amount_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); row_items = [desc_item, amount_item]
-                if has_comparative:
-                    comp_val_str = ""; 
-                    if comparative_accounts: comp_acc = next((ca for ca in comparative_accounts if ca['id'] == acc_dict['id']), None); comp_val_str = self._format_decimal_for_display(comp_acc['balance']) if comp_acc and comp_acc['balance'] is not None else ""
-                    comp_amount_item = QStandardItem(comp_val_str); comp_amount_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); row_items.append(comp_amount_item)
-                parent_item.appendRow(row_items)
-        for section_key, section_title_display in [('revenue', "Revenue"), ('expenses', "Operating Expenses")]: 
-            section_data = report_data.get(section_key); 
-            if not section_data or not isinstance(section_data, dict): continue
-            section_header_item = QStandardItem(section_title_display); section_header_item.setFont(bold_font); empty_amount_item = QStandardItem(""); empty_amount_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); header_row = [section_header_item, empty_amount_item]; 
-            if has_comparative: header_row.append(QStandardItem("")); root_node.appendRow(header_row)
-            add_pl_account_rows(section_header_item, section_data.get("accounts", []), section_data.get("comparative_accounts"))
-            total_desc_item = QStandardItem(f"Total {section_title_display}"); total_desc_item.setFont(bold_font); total_amount_item = QStandardItem(self._format_decimal_for_display(section_data.get("total"))); total_amount_item.setFont(bold_font); total_amount_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); total_row_items = [total_desc_item, total_amount_item]; 
-            if has_comparative: comp_total_item = QStandardItem(self._format_decimal_for_display(section_data.get("comparative_total"))); comp_total_item.setFont(bold_font); comp_total_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); total_row_items.append(comp_total_item)
-            root_node.appendRow(total_row_items); root_node.appendRow([QStandardItem(""), QStandardItem("")] + ([QStandardItem("")] if has_comparative else [])) 
-        if 'net_profit' in report_data:
-            np_desc = QStandardItem("Net Profit / (Loss)"); np_desc.setFont(bold_font); np_amount = QStandardItem(self._format_decimal_for_display(report_data.get('net_profit'))); np_amount.setFont(bold_font); np_amount.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); np_row = [np_desc, np_amount]; 
-            if has_comparative: comp_np_amount = QStandardItem(self._format_decimal_for_display(report_data.get('comparative_net_profit'))); comp_np_amount.setFont(bold_font); comp_np_amount.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); np_row.append(comp_np_amount)
-            root_node.appendRow(np_row)
-
-    def _display_financial_report(self, report_data: Dict[str, Any]):
-        report_title = report_data.get('title', '')
-        
-        if report_title == "Balance Sheet":
-            self.fs_display_stack.setCurrentWidget(self.bs_tree_view)
-            self._populate_balance_sheet_model(self.bs_model, report_data)
-            self.bs_tree_view.expandAll()
-            for i in range(self.bs_model.columnCount()): 
-                self.bs_tree_view.resizeColumnToContents(i)
-        elif report_title == "Profit & Loss Statement":
-            self.fs_display_stack.setCurrentWidget(self.pl_tree_view)
-            self._populate_profit_loss_model(self.pl_model, report_data)
-            self.pl_tree_view.expandAll()
-            for i in range(self.pl_model.columnCount()): 
-                self.pl_tree_view.resizeColumnToContents(i)
-        elif report_title == "Trial Balance":
-            self.fs_display_stack.setCurrentWidget(self.tb_table_view)
-            self.tb_model.update_data(report_data)
-            for i in range(self.tb_model.columnCount()): 
-                self.tb_table_view.resizeColumnToContents(i)
-        elif report_title == "General Ledger":
-            self.fs_display_stack.setCurrentWidget(self.gl_widget_container)
-            self.gl_model.update_data(report_data)
-            gl_summary_data = self.gl_model.get_report_summary()
-            self.gl_summary_label_account.setText(f"Account: {gl_summary_data['account_name']}")
-            self.gl_summary_label_period.setText(gl_summary_data['period_description'])
-            self.gl_summary_label_ob.setText(f"Opening Balance: {self._format_decimal_for_display(gl_summary_data['opening_balance'], show_blank_for_zero=False)}")
-            self.gl_summary_label_cb.setText(f"Closing Balance: {self._format_decimal_for_display(gl_summary_data['closing_balance'], show_blank_for_zero=False)}")
-            for i in range(self.gl_model.columnCount()): 
-                self.gl_table_view.resizeColumnToContents(i)
-        else:
-            self._clear_current_financial_report_display()
-            self.app_core.logger.warning(f"Unhandled report title '{report_title}' for specific display.")
-            QMessageBox.warning(self, "Display Error", f"Display format for '{report_title}' is not fully implemented in this view.")
-
-    @Slot(str)
-    def _on_export_report_clicked(self, format_type: str):
-        if not self._current_financial_report_data: QMessageBox.warning(self, "No Report", "Please generate a report first before exporting."); return
-        report_title = self._current_financial_report_data.get('title', 'FinancialReport').replace(' ', '_').replace('&', 'And').replace('/', '-').replace(':', ''); default_filename = f"{report_title}_{python_date.today().strftime('%Y%m%d')}.{format_type}"
-        documents_path = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DocumentsLocation); 
-        if not documents_path: documents_path = os.path.expanduser("~") 
-        file_path, _ = QFileDialog.getSaveFileName(self, f"Save {format_type.upper()} Report", os.path.join(documents_path, default_filename), f"{format_type.upper()} Files (*.{format_type});;All Files (*)")
-        if file_path: 
-            self.export_pdf_button.setEnabled(False); self.export_excel_button.setEnabled(False)
-            future = schedule_task_from_qt(self.app_core.report_engine.export_report(self._current_financial_report_data, format_type)); 
-            if future: 
-                future.add_done_callback(
-                    lambda res, fp=file_path, ft=format_type: QMetaObject.invokeMethod(
-                        self, "_safe_handle_export_result_slot", Qt.ConnectionType.QueuedConnection, 
-                        Q_ARG(object, future), Q_ARG(str, fp), Q_ARG(str, ft)
-                    )
-                )
-            else: 
-                self.app_core.logger.error("Failed to schedule report export task.")
-                self._handle_export_result(None, file_path, format_type) # Call directly to reset UI
-
-    @Slot(object, str, str)
-    def _safe_handle_export_result_slot(self, future_arg, file_path_arg: str, format_type_arg: str):
-        self._handle_export_result(future_arg, file_path_arg, format_type_arg)
-
-    def _handle_export_result(self, future, file_path: str, format_type: str):
-        self.export_pdf_button.setEnabled(True); self.export_excel_button.setEnabled(True)
-        if future is None: QMessageBox.critical(self, "Task Error", "Failed to schedule report export."); return
-        
-        try:
-            report_bytes: Optional[bytes] = future.result()
-            if report_bytes:
-                with open(file_path, "wb") as f: f.write(report_bytes)
-                QMessageBox.information(self, "Export Successful", f"Report exported to:\n{file_path}")
-            else: 
-                QMessageBox.warning(self, "Export Failed", f"Failed to generate report bytes for {format_type.upper()}.")
-        except Exception as e: 
-            self.app_core.logger.error(f"Exception handling report export result: {e}", exc_info=True)
-            QMessageBox.critical(self, "Export Error", f"An error occurred during export: {str(e)}")
-
-
-```
-
-# app/ui/reports/general_ledger_table_model.py
-```py
-# app/ui/reports/general_ledger_table_model.py
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
-from typing import List, Dict, Any, Optional
-from decimal import Decimal
-from datetime import date as python_date
-
-class GeneralLedgerTableModel(QAbstractTableModel):
-    def __init__(self, data: Optional[Dict[str, Any]] = None, parent=None):
-        super().__init__(parent)
-        self._headers = ["Date", "Entry No.", "Description", "Debit", "Credit", "Balance"]
-        self._transactions: List[Dict[str, Any]] = []
-        self._opening_balance = Decimal(0)
-        self._closing_balance = Decimal(0)
-        self._account_name = ""
-        self._period_description = ""
-
-        if data:
-            self.update_data(data)
-
-    def rowCount(self, parent=QModelIndex()) -> int:
-        if parent.isValid(): return 0
-        # +2 for opening and closing balance rows if we display them in table
-        # For now, let's assume they are displayed outside the table by the widget
-        return len(self._transactions)
-
-    def columnCount(self, parent=QModelIndex()) -> int:
-        return len(self._headers)
-
-    def headerData(self, section: int, orientation: Qt.Orientation, role=Qt.ItemDataRole.DisplayRole) -> Optional[str]:
-        if role == Qt.ItemDataRole.DisplayRole and orientation == Qt.Orientation.Horizontal:
-            if 0 <= section < len(self._headers):
-                return self._headers[section]
-        return None
-
-    def _format_decimal_for_display(self, value: Optional[Decimal], show_zero_as_blank: bool = True) -> str:
-        if value is None: return ""
-        if show_zero_as_blank and value == Decimal(0): return ""
-        return f"{value:,.2f}"
-
-    def data(self, index: QModelIndex, role=Qt.ItemDataRole.DisplayRole) -> Any:
-        if not index.isValid(): return None
-        
-        row = index.row()
-        col = index.column()
-
-        if not (0 <= row < len(self._transactions)): return None
-            
-        txn = self._transactions[row]
-
-        if role == Qt.ItemDataRole.DisplayRole:
-            if col == 0: # Date
-                raw_date = txn.get("date")
-                return raw_date.strftime('%d/%m/%Y') if isinstance(raw_date, python_date) else str(raw_date)
-            if col == 1: return txn.get("entry_no", "") # Entry No.
-            if col == 2: # Description
-                desc = txn.get("je_description", "")
-                line_desc = txn.get("line_description", "")
-                return f"{desc} // {line_desc}" if desc and line_desc else (desc or line_desc)
-            if col == 3: return self._format_decimal_for_display(txn.get("debit"), True)  # Debit
-            if col == 4: return self._format_decimal_for_display(txn.get("credit"), True) # Credit
-            if col == 5: return self._format_decimal_for_display(txn.get("balance"), False) # Balance (show zero)
-        
-        elif role == Qt.ItemDataRole.TextAlignmentRole:
-            if col in [3, 4, 5]: # Debit, Credit, Balance
-                return Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-        
-        return None
-
-    def update_data(self, report_data: Dict[str, Any]):
-        self.beginResetModel()
-        self._transactions = report_data.get('transactions', [])
-        self._opening_balance = report_data.get('opening_balance', Decimal(0))
-        self._closing_balance = report_data.get('closing_balance', Decimal(0))
-        self._account_name = f"{report_data.get('account_code','')} - {report_data.get('account_name','')}"
-        start = report_data.get('start_date')
-        end = report_data.get('end_date')
-        self._period_description = f"For {start.strftime('%d/%m/%Y') if start else ''} to {end.strftime('%d/%m/%Y') if end else ''}"
-        self.endResetModel()
-
-    def get_report_summary(self) -> Dict[str, Any]:
-        return {
-            "account_name": self._account_name,
-            "period_description": self._period_description,
-            "opening_balance": self._opening_balance,
-            "closing_balance": self._closing_balance
-        }
-
-```
-
-# app/ui/reports/trial_balance_table_model.py
-```py
-# app/ui/reports/trial_balance_table_model.py
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
-from typing import List, Dict, Any, Optional
-from decimal import Decimal
-
-class TrialBalanceTableModel(QAbstractTableModel):
-    def __init__(self, data: Optional[Dict[str, Any]] = None, parent=None):
-        super().__init__(parent)
-        self._headers = ["Account Code", "Account Name", "Debit", "Credit"]
-        self._debit_accounts: List[Dict[str, Any]] = []
-        self._credit_accounts: List[Dict[str, Any]] = []
-        self._totals: Dict[str, Decimal] = {"debits": Decimal(0), "credits": Decimal(0)}
-        self._is_balanced: bool = False
-        if data:
-            self.update_data(data)
-
-    def rowCount(self, parent=QModelIndex()) -> int:
-        if parent.isValid(): return 0
-        # +1 for the totals row
-        return len(self._debit_accounts) + len(self._credit_accounts) + 1 
-
-    def columnCount(self, parent=QModelIndex()) -> int:
-        return len(self._headers)
-
-    def headerData(self, section: int, orientation: Qt.Orientation, role=Qt.ItemDataRole.DisplayRole) -> Optional[str]:
-        if role == Qt.ItemDataRole.DisplayRole and orientation == Qt.Orientation.Horizontal:
-            if 0 <= section < len(self._headers):
-                return self._headers[section]
-        return None
-
-    def _format_decimal_for_display(self, value: Optional[Decimal]) -> str:
-        if value is None or value == Decimal(0): return "" # Show blank for zero in TB lines
-        return f"{value:,.2f}"
-
-    def data(self, index: QModelIndex, role=Qt.ItemDataRole.DisplayRole) -> Any:
-        if not index.isValid(): return None
-        
-        row = index.row()
-        col = index.column()
-
-        num_debit_accounts = len(self._debit_accounts)
-        num_credit_accounts = len(self._credit_accounts)
-
-        # Totals Row
-        if row == num_debit_accounts + num_credit_accounts:
-            if role == Qt.ItemDataRole.DisplayRole:
-                if col == 1: return "TOTALS"
-                if col == 2: return f"{self._totals['debits']:,.2f}"
-                if col == 3: return f"{self._totals['credits']:,.2f}"
-                return ""
-            elif role == Qt.ItemDataRole.FontRole:
-                from PySide6.QtGui import QFont
-                font = QFont(); font.setBold(True); return font
-            elif role == Qt.ItemDataRole.TextAlignmentRole and col in [2,3]:
-                 return Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-            return None
-
-        # Debit Accounts
-        if row < num_debit_accounts:
-            account = self._debit_accounts[row]
-            if role == Qt.ItemDataRole.DisplayRole:
-                if col == 0: return account.get("code", "")
-                if col == 1: return account.get("name", "")
-                if col == 2: return self._format_decimal_for_display(account.get("balance"))
-                if col == 3: return "" # Credit column is blank for debit accounts
-            elif role == Qt.ItemDataRole.TextAlignmentRole and col == 2:
-                 return Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-            return None
-        
-        # Credit Accounts
-        credit_row_index = row - num_debit_accounts
-        if credit_row_index < num_credit_accounts:
-            account = self._credit_accounts[credit_row_index]
-            if role == Qt.ItemDataRole.DisplayRole:
-                if col == 0: return account.get("code", "")
-                if col == 1: return account.get("name", "")
-                if col == 2: return "" # Debit column is blank for credit accounts
-                if col == 3: return self._format_decimal_for_display(account.get("balance"))
-            elif role == Qt.ItemDataRole.TextAlignmentRole and col == 3:
-                 return Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-            return None
-            
-        return None
-
-    def update_data(self, report_data: Dict[str, Any]):
-        self.beginResetModel()
-        self._debit_accounts = report_data.get('debit_accounts', [])
-        self._credit_accounts = report_data.get('credit_accounts', [])
-        self._totals["debits"] = report_data.get('total_debits', Decimal(0))
-        self._totals["credits"] = report_data.get('total_credits', Decimal(0))
-        self._is_balanced = report_data.get('is_balanced', False)
-        self.endResetModel()
-
-    def get_balance_status(self) -> str:
-        return "Balanced" if self._is_balanced else f"Out of Balance by: {abs(self._totals['debits'] - self._totals['credits']):,.2f}"
 
 ```
 

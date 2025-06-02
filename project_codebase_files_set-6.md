@@ -1,3 +1,33 @@
+# app/models/accounting/currency.py
+```py
+# File: app/models/accounting/currency.py
+# (Moved from app/models/currency.py and fields updated)
+from sqlalchemy import Column, String, Boolean, Integer, DateTime, ForeignKey
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.sql import func
+from app.models.base import Base, TimestampMixin
+from app.models.core.user import User 
+from typing import Optional
+
+class Currency(Base, TimestampMixin):
+    __tablename__ = 'currencies'
+    __table_args__ = {'schema': 'accounting'}
+
+    code: Mapped[str] = mapped_column(String(3), primary_key=True) 
+    name: Mapped[str] = mapped_column(String(50), nullable=False)
+    symbol: Mapped[str] = mapped_column(String(10), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    decimal_places: Mapped[int] = mapped_column(Integer, default=2)
+    format_string: Mapped[str] = mapped_column(String(20), default='#,##0.00') 
+
+    created_by_user_id: Mapped[Optional[int]] = mapped_column("created_by", Integer, ForeignKey('core.users.id'), nullable=True)
+    updated_by_user_id: Mapped[Optional[int]] = mapped_column("updated_by", Integer, ForeignKey('core.users.id'), nullable=True)
+
+    created_by_user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[created_by_user_id])
+    updated_by_user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[updated_by_user_id])
+
+```
+
 # app/reporting/financial_statement_generator.py
 ```py
 # File: app/reporting/financial_statement_generator.py
@@ -207,7 +237,7 @@ __all__ = [
 
 # app/reporting/report_engine.py
 ```py
-# app/reporting/report_engine.py
+# File: app/reporting/report_engine.py
 from typing import Dict, Any, Literal, List, Optional, TYPE_CHECKING 
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, KeepInFrame
 from reportlab.platypus.flowables import KeepTogether
@@ -222,6 +252,8 @@ from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
 from openpyxl.utils import get_column_letter 
 from decimal import Decimal, InvalidOperation
 from datetime import date
+
+from app.utils.pydantic_models import GSTReturnData, GSTTransactionLineDetail # Import new DTOs
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore 
@@ -247,35 +279,31 @@ class ReportEngine:
         self.styles.add(ParagraphStyle(name='GLAccountHeader', parent=self.styles['h3'], fontSize=10, spaceBefore=0.1*inch, spaceAfter=0.05*inch, alignment=TA_LEFT))
 
 
-    async def export_report(self, report_data: Dict[str, Any], format_type: Literal["pdf", "excel"]) -> bytes:
+    async def export_report(self, report_data: Dict[str, Any], format_type: Literal["pdf", "excel", "gst_excel_detail"]) -> bytes: # Added "gst_excel_detail"
         title = report_data.get('title', "Financial Report")
+        # Special handling if report_data is GSTReturnData for detail export
+        is_gst_detail_export = isinstance(report_data, GSTReturnData) and "gst_excel_detail" in format_type
+
         if format_type == "pdf":
-            if title == "Balance Sheet":
-                return await self._export_balance_sheet_to_pdf(report_data)
-            elif title == "Profit & Loss Statement":
-                return await self._export_profit_loss_to_pdf(report_data)
-            elif title == "Trial Balance": 
-                return await self._export_trial_balance_to_pdf(report_data)
-            elif title == "General Ledger": 
-                return await self._export_general_ledger_to_pdf(report_data)
-            else: 
-                return self._export_generic_table_to_pdf(report_data) # Fallback for other types
+            if title == "Balance Sheet": return await self._export_balance_sheet_to_pdf(report_data)
+            elif title == "Profit & Loss Statement": return await self._export_profit_loss_to_pdf(report_data)
+            elif title == "Trial Balance": return await self._export_trial_balance_to_pdf(report_data)
+            elif title == "General Ledger": return await self._export_general_ledger_to_pdf(report_data)
+            else: return self._export_generic_table_to_pdf(report_data) 
         elif format_type == "excel":
-            if title == "Balance Sheet":
-                return await self._export_balance_sheet_to_excel(report_data)
-            elif title == "Profit & Loss Statement":
-                return await self._export_profit_loss_to_excel(report_data)
-            elif title == "Trial Balance": 
-                return await self._export_trial_balance_to_excel(report_data)
-            elif title == "General Ledger": 
-                return await self._export_general_ledger_to_excel(report_data)
-            else: 
-                return self._export_generic_table_to_excel(report_data) # Fallback for other types
+            if title == "Balance Sheet": return await self._export_balance_sheet_to_excel(report_data)
+            elif title == "Profit & Loss Statement": return await self._export_profit_loss_to_excel(report_data)
+            elif title == "Trial Balance": return await self._export_trial_balance_to_excel(report_data)
+            elif title == "General Ledger": return await self._export_general_ledger_to_excel(report_data)
+            else: return self._export_generic_table_to_excel(report_data) 
+        elif is_gst_detail_export: # Check for specific GST detail export type
+            # Cast is safe here due to the check above
+            return await self._export_gst_f5_details_to_excel(cast(GSTReturnData, report_data))
         else:
-            raise ValueError(f"Unsupported report format: {format_type}")
+            raise ValueError(f"Unsupported report format or data type mismatch: {format_type}, type: {type(report_data)}")
 
     def _format_decimal(self, value: Optional[Decimal], places: int = 2, show_blank_for_zero: bool = False) -> str:
-        if value is None: return "" if show_blank_for_zero else self._format_decimal(Decimal(0), places) # Ensure 0.00 for non-blank zero
+        if value is None: return "" if show_blank_for_zero else self._format_decimal(Decimal(0), places) 
         if not isinstance(value, Decimal): 
             try: value = Decimal(str(value))
             except InvalidOperation: return "ERR_DEC" 
@@ -290,25 +318,17 @@ class ReportEngine:
         canvas.saveState()
         page_width = doc.width + doc.leftMargin + doc.rightMargin
         header_y_start = doc.height + doc.topMargin - 0.5*inch
-        canvas.setFont('Helvetica-Bold', 14)
-        canvas.drawCentredString(page_width/2, header_y_start, company_name)
-        canvas.setFont('Helvetica-Bold', 12)
-        canvas.drawCentredString(page_width/2, header_y_start - 0.25*inch, report_title)
-        canvas.setFont('Helvetica', 10)
-        canvas.drawCentredString(page_width/2, header_y_start - 0.5*inch, date_desc)
-        footer_y = 0.5*inch
-        canvas.setFont('Helvetica', 8)
+        canvas.setFont('Helvetica-Bold', 14); canvas.drawCentredString(page_width/2, header_y_start, company_name)
+        canvas.setFont('Helvetica-Bold', 12); canvas.drawCentredString(page_width/2, header_y_start - 0.25*inch, report_title)
+        canvas.setFont('Helvetica', 10); canvas.drawCentredString(page_width/2, header_y_start - 0.5*inch, date_desc)
+        footer_y = 0.5*inch; canvas.setFont('Helvetica', 8)
         canvas.drawString(doc.leftMargin, footer_y, f"Generated on: {date.today().strftime('%d %b %Y')}")
         canvas.drawRightString(page_width - doc.rightMargin, footer_y, f"Page {doc.page}")
         canvas.restoreState()
 
-    # --- Balance Sheet Specific PDF ---
-    # ... (Method unchanged from previous version)
+    # ... (Existing PDF export methods for BS, P&L, TB, GL, Generic - unchanged) ...
     async def _export_balance_sheet_to_pdf(self, report_data: Dict[str, Any]) -> bytes:
-        buffer = BytesIO()
-        company_name = await self._get_company_name()
-        report_title = report_data.get('title', "Balance Sheet")
-        date_desc = report_data.get('report_date_description', "")
+        buffer = BytesIO(); company_name = await self._get_company_name(); report_title = report_data.get('title', "Balance Sheet"); date_desc = report_data.get('report_date_description', "")
         doc = SimpleDocTemplate(buffer, pagesize=A4,rightMargin=0.75*inch, leftMargin=0.75*inch,topMargin=1.25*inch, bottomMargin=0.75*inch)
         story: List[Any] = []; has_comparative = bool(report_data.get('comparative_date'))
         col_widths = [3.5*inch, 1.5*inch]; 
@@ -343,8 +363,6 @@ class ReportEngine:
         if report_data.get('is_balanced') is False: story.append(Spacer(1, 0.2*inch)); story.append(Paragraph("Warning: Balance Sheet is out of balance!", ParagraphStyle(name='Warning', parent=self.styles['Normal'], textColor=colors.red, fontName='Helvetica-Bold')))
         doc.build(story, onFirstPage=lambda c, d: self._add_pdf_header_footer(c, d, company_name, report_title, date_desc), onLaterPages=lambda c, d: self._add_pdf_header_footer(c, d, company_name, report_title, date_desc)); return buffer.getvalue()
 
-    # --- Profit & Loss Specific PDF ---
-    # ... (Method unchanged from previous version)
     async def _export_profit_loss_to_pdf(self, report_data: Dict[str, Any]) -> bytes:
         buffer = BytesIO(); company_name = await self._get_company_name(); report_title = report_data.get('title', "Profit & Loss Statement"); date_desc = report_data.get('report_date_description', "")
         doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=0.75*inch, leftMargin=0.75*inch,topMargin=1.25*inch, bottomMargin=0.75*inch)
@@ -384,8 +402,6 @@ class ReportEngine:
         pl_table.setStyle(style); story.append(pl_table)
         doc.build(story, onFirstPage=lambda c, d: self._add_pdf_header_footer(c, d, company_name, report_title, date_desc), onLaterPages=lambda c, d: self._add_pdf_header_footer(c, d, company_name, report_title, date_desc)); return buffer.getvalue()
 
-    # --- Trial Balance PDF Export ---
-    # ... (Method unchanged from previous version)
     async def _export_trial_balance_to_pdf(self, report_data: Dict[str, Any]) -> bytes:
         buffer = BytesIO(); company_name = await self._get_company_name(); report_title = report_data.get('title', "Trial Balance"); date_desc = report_data.get('report_date_description', f"As of {date.today().strftime('%d %b %Y')}")
         doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=0.75*inch, leftMargin=0.75*inch,topMargin=1.25*inch, bottomMargin=0.75*inch)
@@ -400,103 +416,33 @@ class ReportEngine:
         if report_data.get('is_balanced') is False: story.append(Spacer(1,0.2*inch)); story.append(Paragraph("Warning: Trial Balance is out of balance!", ParagraphStyle(name='Warning', parent=self.styles['Normal'], textColor=colors.red, fontName='Helvetica-Bold')))
         doc.build(story, onFirstPage=lambda c, d: self._add_pdf_header_footer(c, d, company_name, report_title, date_desc), onLaterPages=lambda c, d: self._add_pdf_header_footer(c, d, company_name, report_title, date_desc)); return buffer.getvalue()
 
-    # --- General Ledger PDF Export ---
     async def _export_general_ledger_to_pdf(self, report_data: Dict[str, Any]) -> bytes:
-        buffer = BytesIO()
-        company_name = await self._get_company_name()
-        report_title = report_data.get('title', "General Ledger")
-        # GL report_date_description includes account code and name, so use it directly
-        date_desc = report_data.get('report_date_description', "") 
-
-        doc = SimpleDocTemplate(buffer, pagesize=landscape(A4),
-                                rightMargin=0.5*inch, leftMargin=0.5*inch,
-                                topMargin=1.25*inch, bottomMargin=0.75*inch) # Use standard margins for GL header
-        story: List[Any] = []
-
-        # Account Specific Header (inside the main story, not page frame)
-        story.append(Paragraph(f"Account: {report_data.get('account_code')} - {report_data.get('account_name')}", self.styles['GLAccountHeader']))
-        story.append(Spacer(1, 0.1*inch))
-        story.append(Paragraph(f"Opening Balance: {self._format_decimal(report_data.get('opening_balance'))}", self.styles['AccountNameBold']))
-        story.append(Spacer(1, 0.2*inch))
-
-        # Transaction Table
+        buffer = BytesIO(); company_name = await self._get_company_name(); report_title = report_data.get('title', "General Ledger"); date_desc = report_data.get('report_date_description', "") 
+        doc = SimpleDocTemplate(buffer, pagesize=landscape(A4), rightMargin=0.5*inch, leftMargin=0.5*inch, topMargin=1.25*inch, bottomMargin=0.75*inch)
+        story: List[Any] = []; story.append(Paragraph(f"Account: {report_data.get('account_code')} - {report_data.get('account_name')}", self.styles['GLAccountHeader'])); story.append(Spacer(1, 0.1*inch)); story.append(Paragraph(f"Opening Balance: {self._format_decimal(report_data.get('opening_balance'))}", self.styles['AccountNameBold'])); story.append(Spacer(1, 0.2*inch))
         headers = ["Date", "Entry No.", "JE Description", "Line Description", "Debit", "Credit", "Balance"]
-        table_header_row = [Paragraph(h, self.styles['TableHeader']) for h in headers]
-        
-        gl_data: List[List[Any]] = [table_header_row]
-        for txn in report_data.get('transactions', []):
-            gl_data.append([
-                Paragraph(txn['date'].strftime('%d/%m/%Y') if isinstance(txn['date'], date) else str(txn['date']), self.styles['NormalCenter']),
-                Paragraph(txn['entry_no'], self.styles['Normal']),
-                Paragraph(txn.get('je_description','')[:40], self.styles['Normal']), # Truncate for PDF
-                Paragraph(txn.get('line_description','')[:40], self.styles['Normal']), # Truncate
-                Paragraph(self._format_decimal(txn['debit'], show_blank_for_zero=True), self.styles['NormalRight']),
-                Paragraph(self._format_decimal(txn['credit'], show_blank_for_zero=True), self.styles['NormalRight']),
-                Paragraph(self._format_decimal(txn['balance']), self.styles['NormalRight'])
-            ])
-        
-        # Column Widths for GL (Landscape A4)
-        # Total width available: landscape(A4)[0] - leftMargin - rightMargin = 11.69*inch - 1*inch = 10.69*inch
-        col_widths_gl = [0.9*inch, # Date
-                         1.0*inch, # Entry No.
-                         2.8*inch, # JE Desc
-                         2.8*inch, # Line Desc
-                         1.0*inch, # Debit
-                         1.0*inch, # Credit
-                         1.19*inch] # Balance
+        table_header_row = [Paragraph(h, self.styles['TableHeader']) for h in headers]; gl_data: List[List[Any]] = [table_header_row]
+        for txn in report_data.get('transactions', []): gl_data.append([Paragraph(txn['date'].strftime('%d/%m/%Y') if isinstance(txn['date'], date) else str(txn['date']), self.styles['NormalCenter']), Paragraph(txn['entry_no'], self.styles['Normal']), Paragraph(txn.get('je_description','')[:40], self.styles['Normal']), Paragraph(txn.get('line_description','')[:40], self.styles['Normal']), Paragraph(self._format_decimal(txn['debit'], show_blank_for_zero=True), self.styles['NormalRight']), Paragraph(self._format_decimal(txn['credit'], show_blank_for_zero=True), self.styles['NormalRight']), Paragraph(self._format_decimal(txn['balance']), self.styles['NormalRight'])])
+        col_widths_gl = [0.9*inch, 1.0*inch, 2.8*inch, 2.8*inch, 1.0*inch, 1.0*inch, 1.19*inch]
+        gl_table = Table(gl_data, colWidths=col_widths_gl); style = TableStyle([('GRID', (0,0), (-1,-1), 0.5, colors.grey), ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#4F81BD")), ('VALIGN', (0,0), (-1,-1), 'MIDDLE'), ('ALIGN', (0,1), (1,-1), 'CENTER'), ('ALIGN', (4,1), (6,-1), 'RIGHT'),]); gl_table.setStyle(style); story.append(gl_table); story.append(Spacer(1, 0.1*inch)); story.append(Paragraph(f"Closing Balance: {self._format_decimal(report_data.get('closing_balance'))}", self.styles['AmountBold']))
+        doc.build(story, onFirstPage=lambda c, d: self._add_pdf_header_footer(c, d, company_name, report_title, date_desc), onLaterPages=lambda c, d: self._add_pdf_header_footer(c, d, company_name, report_title, date_desc)); return buffer.getvalue()
 
-        gl_table = Table(gl_data, colWidths=col_widths_gl)
-        style = TableStyle([
-            ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
-            ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#4F81BD")),
-            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-            ('ALIGN', (0,1), (1,-1), 'CENTER'), # Date, Entry No.
-            ('ALIGN', (4,1), (6,-1), 'RIGHT'), # Amounts
-        ])
-        gl_table.setStyle(style)
-        story.append(gl_table)
-        story.append(Spacer(1, 0.1*inch))
-        story.append(Paragraph(f"Closing Balance: {self._format_decimal(report_data.get('closing_balance'))}", self.styles['AmountBold']))
-        
-        doc.build(story, onFirstPage=lambda c, d: self._add_pdf_header_footer(c, d, company_name, report_title, date_desc), 
-                         onLaterPages=lambda c, d: self._add_pdf_header_footer(c, d, company_name, report_title, date_desc))
-        return buffer.getvalue()
-
-
-    # --- Generic PDF Exporter (Fallback, if ever needed) ---
     def _export_generic_table_to_pdf(self, report_data: Dict[str, Any]) -> bytes:
-        # This method is now primarily a fallback.
-        # Specific GL PDF export will be richer.
-        # If GL is called here, it will be very basic.
         self.app_core.logger.warning(f"Using generic PDF export for report: {report_data.get('title')}")
-        buffer = BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=A4,
-                                rightMargin=0.5*inch, leftMargin=0.5*inch,
-                                topMargin=0.5*inch, bottomMargin=0.5*inch)
-        story: List[Any] = [Paragraph(report_data.get('title', "Report"), self.styles['h1'])]
+        buffer = BytesIO(); doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=0.5*inch, leftMargin=0.5*inch, topMargin=0.5*inch, bottomMargin=0.5*inch)
+        story: List[Any] = [Paragraph(report_data.get('title', "Report"), self.styles['h1'])]; 
         if report_data.get('report_date_description'): story.append(Paragraph(report_data.get('report_date_description'), self.styles['h3']))
-        story.append(Spacer(1, 0.2*inch))
-        
-        # Simplified table creation - assumes flat data structure if this fallback is hit
-        data_to_display = report_data.get('data_rows', []) # Expect 'data_rows' if generic
-        headers = report_data.get('headers', [])
+        story.append(Spacer(1, 0.2*inch)); data_to_display = report_data.get('data_rows', []); headers = report_data.get('headers', [])
         if headers and data_to_display:
             table_data: List[List[Any]] = [[Paragraph(str(h), self.styles['TableHeader']) for h in headers]]
-            for row_dict in data_to_display:
-                table_data.append([Paragraph(str(row_dict.get(h_key, '')), self.styles['Normal']) for h_key in headers]) # Assuming headers are keys
-            
-            num_cols = len(headers)
-            col_widths_generic = [doc.width/num_cols]*num_cols
-            table = Table(table_data, colWidths=col_widths_generic)
-            table.setStyle(TableStyle([('GRID', (0,0), (-1,-1), 0.5, colors.grey), ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#4F81BD"))]))
-            story.append(table)
+            for row_dict in data_to_display: table_data.append([Paragraph(str(row_dict.get(h_key, '')), self.styles['Normal']) for h_key in headers]) 
+            num_cols = len(headers); col_widths_generic = [doc.width/num_cols]*num_cols
+            table = Table(table_data, colWidths=col_widths_generic); table.setStyle(TableStyle([('GRID', (0,0), (-1,-1), 0.5, colors.grey), ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#4F81BD"))])); story.append(table)
         else: story.append(Paragraph("No data or headers provided for generic export.", self.styles['Normal']))
-
-        doc.build(story)
-        return buffer.getvalue()
+        doc.build(story); return buffer.getvalue()
 
     # --- Excel Export Methods ---
-    # ... (_apply_excel_header_style, _apply_excel_amount_style, _export_balance_sheet_to_excel, _export_profit_loss_to_excel, _export_trial_balance_to_excel - unchanged from previous version)
+    # ... ( _apply_excel_header_style, _apply_excel_amount_style, _export_balance_sheet_to_excel, _export_profit_loss_to_excel, _export_trial_balance_to_excel, _export_general_ledger_to_excel, _export_generic_table_to_excel - unchanged)
     def _apply_excel_header_style(self, cell, bold=True, size=12, alignment='center', fill_color: Optional[str]=None):
         cell.font = Font(bold=bold, size=size, color="FFFFFF" if fill_color else "000000")
         if alignment == 'center': cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
@@ -511,15 +457,10 @@ class ReportEngine:
         if underline: cell.border = Border(bottom=Side(style=underline))
         
     async def _export_balance_sheet_to_excel(self, report_data: Dict[str, Any]) -> bytes:
-        wb = openpyxl.Workbook(); ws = wb.active; ws.title = "Balance Sheet"
-        company_name = await self._get_company_name(); has_comparative = bool(report_data.get('comparative_date'))
-        row_num = 1
-        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3 if has_comparative else 2)
-        self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=company_name), size=14); row_num +=1
-        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3 if has_comparative else 2)
-        self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=report_data.get('title')), size=12); row_num +=1
-        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3 if has_comparative else 2)
-        self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=report_data.get('report_date_description')), size=10, bold=False); row_num += 2
+        wb = openpyxl.Workbook(); ws = wb.active; ws.title = "Balance Sheet"; company_name = await self._get_company_name(); has_comparative = bool(report_data.get('comparative_date')); row_num = 1
+        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3 if has_comparative else 2); self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=company_name), size=14); row_num +=1
+        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3 if has_comparative else 2); self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=report_data.get('title')), size=12); row_num +=1
+        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3 if has_comparative else 2); self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=report_data.get('report_date_description')), size=10, bold=False); row_num += 2
         headers = ["Description", "Current Period"]; 
         if has_comparative: headers.append("Comparative")
         for col, header_text in enumerate(headers, 1): self._apply_excel_header_style(ws.cell(row=row_num, column=col, value=header_text), alignment='center' if col>0 else 'left', fill_color="4F81BD")
@@ -551,15 +492,10 @@ class ReportEngine:
         excel_bytes_io = BytesIO(); wb.save(excel_bytes_io); return excel_bytes_io.getvalue()
 
     async def _export_profit_loss_to_excel(self, report_data: Dict[str, Any]) -> bytes:
-        wb = openpyxl.Workbook(); ws = wb.active; ws.title = "Profit and Loss"
-        company_name = await self._get_company_name(); has_comparative = bool(report_data.get('comparative_start'))
-        row_num = 1
-        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3 if has_comparative else 2)
-        self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=company_name), size=14); row_num +=1
-        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3 if has_comparative else 2)
-        self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=report_data.get('title')), size=12); row_num +=1
-        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3 if has_comparative else 2)
-        self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=report_data.get('report_date_description')), size=10, bold=False); row_num += 2
+        wb = openpyxl.Workbook(); ws = wb.active; ws.title = "Profit and Loss"; company_name = await self._get_company_name(); has_comparative = bool(report_data.get('comparative_start')); row_num = 1
+        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3 if has_comparative else 2); self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=company_name), size=14); row_num +=1
+        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3 if has_comparative else 2); self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=report_data.get('title')), size=12); row_num +=1
+        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3 if has_comparative else 2); self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=report_data.get('report_date_description')), size=10, bold=False); row_num += 2
         headers = ["Description", "Current Period"]; 
         if has_comparative: headers.append("Comparative")
         for col, header_text in enumerate(headers, 1): self._apply_excel_header_style(ws.cell(row=row_num, column=col, value=header_text), alignment='center' if col>0 else 'left', fill_color="4F81BD")
@@ -580,12 +516,9 @@ class ReportEngine:
             ws.cell(row=row_num, column=1, value=f"Total {title}").font = Font(bold=True)
             self._apply_excel_amount_style(ws.cell(row=row_num, column=2, value=float(section.get('total',0))), bold=True, underline="thin")
             if has_comparative: self._apply_excel_amount_style(ws.cell(row=row_num, column=3, value=float(section.get('comparative_total',0))), bold=True, underline="thin")
-            row_num +=1
-            return section.get('total', Decimal(0)), section.get('comparative_total') if has_comparative else Decimal(0)
-        total_revenue, comp_total_revenue = write_pl_section('revenue', 'Revenue')
-        row_num +=1 
-        total_expenses, comp_total_expenses = write_pl_section('expenses', 'Operating Expenses')
-        row_num +=1 
+            row_num +=1; return section.get('total', Decimal(0)), section.get('comparative_total') if has_comparative else Decimal(0)
+        total_revenue, comp_total_revenue = write_pl_section('revenue', 'Revenue'); row_num +=1 
+        total_expenses, comp_total_expenses = write_pl_section('expenses', 'Operating Expenses'); row_num +=1 
         ws.cell(row=row_num, column=1, value="Net Profit / (Loss)").font = Font(bold=True, size=11)
         self._apply_excel_amount_style(ws.cell(row=row_num, column=2, value=float(report_data.get('net_profit',0))), bold=True, underline="double")
         if has_comparative: self._apply_excel_amount_style(ws.cell(row=row_num, column=3, value=float(report_data.get('comparative_net_profit',0))), bold=True, underline="double")
@@ -593,7 +526,6 @@ class ReportEngine:
         excel_bytes_io = BytesIO(); wb.save(excel_bytes_io); return excel_bytes_io.getvalue()
     
     async def _export_trial_balance_to_excel(self, report_data: Dict[str, Any]) -> bytes:
-        # ... (Method unchanged from previous version)
         wb = openpyxl.Workbook(); ws = wb.active; ws.title = "Trial Balance"; company_name = await self._get_company_name(); row_num = 1
         ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=4); self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=company_name), size=14, alignment='center'); row_num += 1
         ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=4); self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=report_data.get('title')), size=12, alignment='center'); row_num += 1
@@ -601,110 +533,134 @@ class ReportEngine:
         headers = ["Account Code", "Account Name", "Debit", "Credit"]
         for col, header_text in enumerate(headers, 1): self._apply_excel_header_style(ws.cell(row=row_num, column=col, value=header_text), fill_color="4F81BD", alignment='center' if col > 1 else 'left')
         row_num += 1
-        for acc in report_data.get('debit_accounts', []):
-            ws.cell(row=row_num, column=1, value=acc['code']); ws.cell(row=row_num, column=2, value=acc['name'])
-            self._apply_excel_amount_style(ws.cell(row=row_num, column=3, value=float(acc['balance'] if acc.get('balance') is not None else 0))); ws.cell(row=row_num, column=4, value=None); row_num += 1
-        for acc in report_data.get('credit_accounts', []):
-            ws.cell(row=row_num, column=1, value=acc['code']); ws.cell(row=row_num, column=2, value=acc['name'])
-            ws.cell(row=row_num, column=3, value=None); self._apply_excel_amount_style(ws.cell(row=row_num, column=4, value=float(acc['balance'] if acc.get('balance') is not None else 0))); row_num += 1
+        for acc in report_data.get('debit_accounts', []): ws.cell(row=row_num, column=1, value=acc['code']); ws.cell(row=row_num, column=2, value=acc['name']); self._apply_excel_amount_style(ws.cell(row=row_num, column=3, value=float(acc['balance'] if acc.get('balance') is not None else 0))); ws.cell(row=row_num, column=4, value=None); row_num += 1
+        for acc in report_data.get('credit_accounts', []): ws.cell(row=row_num, column=1, value=acc['code']); ws.cell(row=row_num, column=2, value=acc['name']); ws.cell(row=row_num, column=3, value=None); self._apply_excel_amount_style(ws.cell(row=row_num, column=4, value=float(acc['balance'] if acc.get('balance') is not None else 0))); row_num += 1
         row_num +=1; ws.cell(row=row_num, column=2, value="TOTALS").font = Font(bold=True); ws.cell(row=row_num, column=2).alignment = Alignment(horizontal='right')
-        self._apply_excel_amount_style(ws.cell(row=row_num, column=3, value=float(report_data.get('total_debits', 0))), bold=True, underline="thin")
-        self._apply_excel_amount_style(ws.cell(row=row_num, column=4, value=float(report_data.get('total_credits', 0))), bold=True, underline="thin")
+        self._apply_excel_amount_style(ws.cell(row=row_num, column=3, value=float(report_data.get('total_debits', 0))), bold=True, underline="thin"); self._apply_excel_amount_style(ws.cell(row=row_num, column=4, value=float(report_data.get('total_credits', 0))), bold=True, underline="thin")
         if report_data.get('is_balanced', True) is False: row_num +=2; ws.cell(row=row_num, column=1, value="Warning: Trial Balance is out of balance!").font = Font(color="FF0000", bold=True)
         ws.column_dimensions[get_column_letter(1)].width = 15; ws.column_dimensions[get_column_letter(2)].width = 45; ws.column_dimensions[get_column_letter(3)].width = 20; ws.column_dimensions[get_column_letter(4)].width = 20
         excel_bytes_io = BytesIO(); wb.save(excel_bytes_io); return excel_bytes_io.getvalue()
 
-    # --- General Ledger Excel Export ---
     async def _export_general_ledger_to_excel(self, report_data: Dict[str, Any]) -> bytes:
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.title = f"GL-{report_data.get('account_code', 'Account')}"[:30]
-        company_name = await self._get_company_name()
+        wb = openpyxl.Workbook(); ws = wb.active; ws.title = f"GL-{report_data.get('account_code', 'Account')}"[:30]; company_name = await self._get_company_name(); row_num = 1
+        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=7); self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=company_name), size=14, alignment='center'); row_num += 1
+        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=7); self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=report_data.get('title')), size=12, alignment='center'); row_num += 1
+        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=7); self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=report_data.get('report_date_description')), size=10, bold=False, alignment='center'); row_num += 2
+        headers = ["Date", "Entry No.", "JE Description", "Line Description", "Debit", "Credit", "Balance"]
+        for col, header_text in enumerate(headers, 1): self._apply_excel_header_style(ws.cell(row=row_num, column=col, value=header_text), fill_color="4F81BD", alignment='center' if col > 3 else 'left')
+        row_num += 1
+        ws.cell(row=row_num, column=4, value="Opening Balance").font = Font(bold=True); ws.cell(row=row_num, column=4).alignment = Alignment(horizontal='right'); self._apply_excel_amount_style(ws.cell(row=row_num, column=7, value=float(report_data.get('opening_balance',0))), bold=True); row_num += 1
+        for txn in report_data.get('transactions', []):
+            ws.cell(row=row_num, column=1, value=txn['date'].strftime('%d/%m/%Y') if isinstance(txn['date'], date) else txn['date']); ws.cell(row=row_num, column=1).alignment = Alignment(horizontal='center')
+            ws.cell(row=row_num, column=2, value=txn['entry_no']); ws.cell(row=row_num, column=3, value=txn.get('je_description','')); ws.cell(row=row_num, column=4, value=txn.get('line_description',''))
+            self._apply_excel_amount_style(ws.cell(row=row_num, column=5, value=float(txn['debit'] if txn['debit'] else 0))); self._apply_excel_amount_style(ws.cell(row=row_num, column=6, value=float(txn['credit'] if txn['credit'] else 0))); self._apply_excel_amount_style(ws.cell(row=row_num, column=7, value=float(txn['balance']))); row_num += 1
+        ws.cell(row=row_num, column=4, value="Closing Balance").font = Font(bold=True); ws.cell(row=row_num, column=4).alignment = Alignment(horizontal='right'); self._apply_excel_amount_style(ws.cell(row=row_num, column=7, value=float(report_data.get('closing_balance',0))), bold=True, underline="thin")
+        ws.column_dimensions[get_column_letter(1)].width = 12; ws.column_dimensions[get_column_letter(2)].width = 15; ws.column_dimensions[get_column_letter(3)].width = 40; ws.column_dimensions[get_column_letter(4)].width = 40
+        for i in [5,6,7]: ws.column_dimensions[get_column_letter(i)].width = 18
+        excel_bytes_io = BytesIO(); wb.save(excel_bytes_io); return excel_bytes_io.getvalue()
 
+    # --- New GST F5 Detail Excel Export ---
+    async def _export_gst_f5_details_to_excel(self, report_data: GSTReturnData) -> bytes:
+        wb = openpyxl.Workbook()
+        
+        # Summary Sheet
+        ws_summary = wb.active
+        ws_summary.title = "GST F5 Summary"
+        company_name = await self._get_company_name()
         row_num = 1
-        # Report Headers
-        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=7)
-        self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=company_name), size=14, alignment='center')
+        ws_summary.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3)
+        self._apply_excel_header_style(ws_summary.cell(row=row_num, column=1, value=company_name), size=14)
         row_num += 1
-        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=7)
-        self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=report_data.get('title')), size=12, alignment='center')
+        ws_summary.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3)
+        self._apply_excel_header_style(ws_summary.cell(row=row_num, column=1, value="GST F5 Return"), size=12)
         row_num += 1
-        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=7)
-        self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=report_data.get('report_date_description')), size=10, bold=False, alignment='center')
+        ws_summary.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3)
+        date_desc = f"For period: {report_data.start_date.strftime('%d %b %Y')} to {report_data.end_date.strftime('%d %b %Y')}"
+        self._apply_excel_header_style(ws_summary.cell(row=row_num, column=1, value=date_desc), size=10, bold=False)
         row_num += 2
 
-        # Column Headers
-        headers = ["Date", "Entry No.", "JE Description", "Line Description", "Debit", "Credit", "Balance"]
-        for col, header_text in enumerate(headers, 1):
-            self._apply_excel_header_style(ws.cell(row=row_num, column=col, value=header_text), fill_color="4F81BD", alignment='center' if col > 3 else 'left')
-        row_num += 1
+        f5_boxes = [
+            ("1. Standard-Rated Supplies", report_data.standard_rated_supplies),
+            ("2. Zero-Rated Supplies", report_data.zero_rated_supplies),
+            ("3. Exempt Supplies", report_data.exempt_supplies),
+            ("4. Total Supplies (1+2+3)", report_data.total_supplies, True), # Bold
+            ("5. Taxable Purchases", report_data.taxable_purchases),
+            ("6. Output Tax Due", report_data.output_tax),
+            ("7. Input Tax and Refunds Claimed", report_data.input_tax),
+            ("8. GST Adjustments (e.g. Bad Debt Relief)", report_data.tax_adjustments),
+            ("9. Net GST Payable / (Claimable)", report_data.tax_payable, True) # Bold
+        ]
+        for desc, val, *is_bold in f5_boxes:
+            ws_summary.cell(row=row_num, column=1, value=desc).font = Font(bold=bool(is_bold and is_bold[0]))
+            self._apply_excel_amount_style(ws_summary.cell(row=row_num, column=2, value=float(val)), bold=bool(is_bold and is_bold[0]))
+            row_num +=1
         
-        # Opening Balance
-        ws.cell(row=row_num, column=4, value="Opening Balance").font = Font(bold=True) # Column D for 'Line Description' aligns with values
-        ws.cell(row=row_num, column=4).alignment = Alignment(horizontal='right')
-        self._apply_excel_amount_style(ws.cell(row=row_num, column=7, value=float(report_data.get('opening_balance',0))), bold=True)
-        row_num += 1
-
-        # Transaction Rows
-        for txn in report_data.get('transactions', []):
-            ws.cell(row=row_num, column=1, value=txn['date'].strftime('%d/%m/%Y') if isinstance(txn['date'], date) else txn['date'])
-            ws.cell(row=row_num, column=1).alignment = Alignment(horizontal='center')
-            ws.cell(row=row_num, column=2, value=txn['entry_no'])
-            ws.cell(row=row_num, column=3, value=txn.get('je_description',''))
-            ws.cell(row=row_num, column=4, value=txn.get('line_description',''))
-            self._apply_excel_amount_style(ws.cell(row=row_num, column=5, value=float(txn['debit'] if txn['debit'] else 0)))
-            self._apply_excel_amount_style(ws.cell(row=row_num, column=6, value=float(txn['credit'] if txn['credit'] else 0)))
-            self._apply_excel_amount_style(ws.cell(row=row_num, column=7, value=float(txn['balance'])))
-            row_num += 1
+        ws_summary.column_dimensions['A'].width = 45
+        ws_summary.column_dimensions['B'].width = 20
         
-        # Closing Balance
-        ws.cell(row=row_num, column=4, value="Closing Balance").font = Font(bold=True)
-        ws.cell(row=row_num, column=4).alignment = Alignment(horizontal='right')
-        self._apply_excel_amount_style(ws.cell(row=row_num, column=7, value=float(report_data.get('closing_balance',0))), bold=True, underline="thin") # Single underline for CB
+        # Detail Sheets
+        detail_headers = ["Date", "Doc No.", "Entity", "Description", "GL Code", "GL Name", "Net Amount", "GST Amount", "Tax Code"]
+        
+        box_map_to_detail_key = {
+            "Box 1: Std Supplies": "box1_standard_rated_supplies",
+            "Box 2: Zero Supplies": "box2_zero_rated_supplies",
+            "Box 3: Exempt Supplies": "box3_exempt_supplies",
+            "Box 5: Taxable Purchases": "box5_taxable_purchases",
+            "Box 6: Output Tax": "box6_output_tax_details", # Transactions where GST was charged
+            "Box 7: Input Tax": "box7_input_tax_details",   # Transactions where GST was claimed
+        }
 
-        # Column Widths
-        ws.column_dimensions[get_column_letter(1)].width = 12  # Date
-        ws.column_dimensions[get_column_letter(2)].width = 15  # Entry No
-        ws.column_dimensions[get_column_letter(3)].width = 40  # JE Desc
-        ws.column_dimensions[get_column_letter(4)].width = 40  # Line Desc
-        for i in [5,6,7]: ws.column_dimensions[get_column_letter(i)].width = 18 # Amounts
+        if report_data.detailed_breakdown:
+            for sheet_title_prefix, detail_key in box_map_to_detail_key.items():
+                transactions: List[GSTTransactionLineDetail] = report_data.detailed_breakdown.get(detail_key, [])
+                if not transactions: continue # Skip sheet if no details
+                
+                ws_detail = wb.create_sheet(title=sheet_title_prefix[:30]) # Max 31 chars for sheet title
+                row_num_detail = 1
+                for col, header_text in enumerate(detail_headers, 1):
+                    self._apply_excel_header_style(ws_detail.cell(row=row_num_detail, column=col, value=header_text), fill_color="4F81BD")
+                row_num_detail +=1
+                
+                for txn in transactions:
+                    ws_detail.cell(row=row_num_detail, column=1, value=txn.transaction_date.strftime('%d/%m/%Y') if txn.transaction_date else None)
+                    ws_detail.cell(row=row_num_detail, column=2, value=txn.document_no)
+                    ws_detail.cell(row=row_num_detail, column=3, value=txn.entity_name)
+                    ws_detail.cell(row=row_num_detail, column=4, value=txn.description)
+                    ws_detail.cell(row=row_num_detail, column=5, value=txn.account_code)
+                    ws_detail.cell(row=row_num_detail, column=6, value=txn.account_name)
+                    self._apply_excel_amount_style(ws_detail.cell(row=row_num_detail, column=7, value=float(txn.net_amount)))
+                    self._apply_excel_amount_style(ws_detail.cell(row=row_num_detail, column=8, value=float(txn.gst_amount)))
+                    ws_detail.cell(row=row_num_detail, column=9, value=txn.tax_code_applied)
+                    row_num_detail += 1
+                
+                for i, col_letter in enumerate([get_column_letter(j+1) for j in range(len(detail_headers))]):
+                    if i in [0,1,8]: ws_detail.column_dimensions[col_letter].width = 15 # Date, Doc No, Tax Code
+                    elif i in [2,3,4,5]: ws_detail.column_dimensions[col_letter].width = 30 # Entity, Desc, GL Code, GL Name
+                    else: ws_detail.column_dimensions[col_letter].width = 18 # Amounts
 
         excel_bytes_io = BytesIO()
         wb.save(excel_bytes_io)
         return excel_bytes_io.getvalue()
-
-    # --- Generic Excel Exporter (Fallback) ---
+        
     def _export_generic_table_to_excel(self, report_data: Dict[str, Any]) -> bytes:
-        # This is now truly a fallback for any other report types
         self.app_core.logger.warning(f"Using generic Excel export for report: {report_data.get('title')}")
         wb = openpyxl.Workbook(); ws = wb.active; ws.title = report_data.get('title', "Report")[:30] # type: ignore
         row_num = 1
         ws.cell(row=row_num, column=1, value=report_data.get('title')).font = Font(bold=True, size=14); row_num += 1 # type: ignore
         if report_data.get('report_date_description'): ws.cell(row=row_num, column=1, value=report_data.get('report_date_description')).font = Font(italic=True); row_num += 1 # type: ignore
-        row_num += 1
-        
-        headers = report_data.get('headers', [])
-        data_rows = report_data.get('data_rows', []) # Expects a list of dicts or lists
-
+        row_num += 1; headers = report_data.get('headers', []); data_rows = report_data.get('data_rows', []) 
         if headers:
             for col, header_text in enumerate(headers,1): self._apply_excel_header_style(ws.cell(row=row_num, column=col, value=header_text), fill_color="4F81BD")
             row_num +=1
-        
         if data_rows:
             for data_item in data_rows:
                 if isinstance(data_item, dict):
-                    for col, header_text in enumerate(headers, 1):
-                        ws.cell(row=row_num, column=col, value=data_item.get(header_text, data_item.get(header_text.lower().replace(' ','_'))))
+                    for col, header_text in enumerate(headers, 1): ws.cell(row=row_num, column=col, value=data_item.get(header_text, data_item.get(header_text.lower().replace(' ','_'))))
                 elif isinstance(data_item, list):
-                     for col, cell_val in enumerate(data_item, 1):
-                        ws.cell(row=row_num, column=col, value=cell_val)
+                     for col, cell_val in enumerate(data_item, 1): ws.cell(row=row_num, column=col, value=cell_val)
                 row_num +=1
-        
-        for col_idx_generic in range(1, len(headers) + 1): 
-            ws.column_dimensions[get_column_letter(col_idx_generic)].width = 20
-
+        for col_idx_generic in range(1, len(headers) + 1): ws.column_dimensions[get_column_letter(col_idx_generic)].width = 20
         excel_bytes_io = BytesIO(); wb.save(excel_bytes_io); return excel_bytes_io.getvalue()
-
 
 ```
 
@@ -908,6 +864,9 @@ from .vendor_manager import VendorManager
 from .product_manager import ProductManager
 from .sales_invoice_manager import SalesInvoiceManager
 from .purchase_invoice_manager import PurchaseInvoiceManager 
+from .bank_account_manager import BankAccountManager 
+from .bank_transaction_manager import BankTransactionManager
+from .payment_manager import PaymentManager # New import
 
 __all__ = [
     "CustomerManager",
@@ -915,7 +874,270 @@ __all__ = [
     "ProductManager",
     "SalesInvoiceManager",
     "PurchaseInvoiceManager", 
+    "BankAccountManager", 
+    "BankTransactionManager",
+    "PaymentManager", # New export
 ]
+
+```
+
+# app/business_logic/payment_manager.py
+```py
+# File: app/business_logic/payment_manager.py
+from typing import List, Optional, Dict, Any, TYPE_CHECKING, Union, cast
+from decimal import Decimal, ROUND_HALF_UP
+from datetime import date
+
+from app.models.business.payment import Payment, PaymentAllocation
+from app.models.business.sales_invoice import SalesInvoice
+from app.models.business.purchase_invoice import PurchaseInvoice
+from app.models.accounting.account import Account
+from app.models.accounting.journal_entry import JournalEntry 
+from app.models.business.bank_account import BankAccount
+
+from app.services.business_services import (
+    PaymentService, BankAccountService, CustomerService, VendorService,
+    SalesInvoiceService, PurchaseInvoiceService
+)
+from app.services.core_services import SequenceService, ConfigurationService
+from app.services.account_service import AccountService
+from app.accounting.journal_entry_manager import JournalEntryManager 
+
+from app.utils.result import Result
+from app.utils.pydantic_models import (
+    PaymentCreateData, PaymentSummaryData, PaymentAllocationBaseData,
+    JournalEntryData, JournalEntryLineData
+)
+from app.common.enums import (
+    PaymentEntityTypeEnum, PaymentTypeEnum, PaymentStatusEnum,
+    InvoiceStatusEnum, JournalTypeEnum, PaymentAllocationDocTypeEnum # Added PaymentAllocationDocTypeEnum
+)
+
+if TYPE_CHECKING:
+    from app.core.application_core import ApplicationCore
+    from sqlalchemy.ext.asyncio import AsyncSession # For type hinting session
+
+class PaymentManager:
+    def __init__(self,
+                 payment_service: PaymentService,
+                 sequence_service: SequenceService,
+                 bank_account_service: BankAccountService,
+                 customer_service: CustomerService,
+                 vendor_service: VendorService,
+                 sales_invoice_service: SalesInvoiceService,
+                 purchase_invoice_service: PurchaseInvoiceService,
+                 journal_entry_manager: JournalEntryManager,
+                 account_service: AccountService,
+                 configuration_service: ConfigurationService,
+                 app_core: "ApplicationCore"):
+        self.payment_service = payment_service
+        self.sequence_service = sequence_service
+        self.bank_account_service = bank_account_service
+        self.customer_service = customer_service
+        self.vendor_service = vendor_service
+        self.sales_invoice_service = sales_invoice_service
+        self.purchase_invoice_service = purchase_invoice_service
+        self.journal_entry_manager = journal_entry_manager
+        self.account_service = account_service
+        self.configuration_service = configuration_service
+        self.app_core = app_core
+        self.logger = app_core.logger
+
+    async def _validate_payment_data(self, dto: PaymentCreateData, session: "AsyncSession") -> List[str]:
+        errors: List[str] = []
+        
+        # Validate Entity
+        entity_name_for_desc: str = "Entity"
+        if dto.entity_type == PaymentEntityTypeEnum.CUSTOMER:
+            entity = await self.customer_service.get_by_id(dto.entity_id) # Use service, not direct session get
+            if not entity or not entity.is_active: errors.append(f"Active Customer ID {dto.entity_id} not found.")
+            else: entity_name_for_desc = entity.name
+        elif dto.entity_type == PaymentEntityTypeEnum.VENDOR:
+            entity = await self.vendor_service.get_by_id(dto.entity_id) # Use service
+            if not entity or not entity.is_active: errors.append(f"Active Vendor ID {dto.entity_id} not found.")
+            else: entity_name_for_desc = entity.name
+        
+        # Validate Bank Account if not cash
+        if dto.payment_method != PaymentMethodEnum.CASH: # Use enum member for comparison
+            if not dto.bank_account_id: errors.append("Bank Account is required for non-cash payments.")
+            else:
+                bank_acc = await self.bank_account_service.get_by_id(dto.bank_account_id) # Use service
+                if not bank_acc or not bank_acc.is_active: errors.append(f"Active Bank Account ID {dto.bank_account_id} not found.")
+                elif bank_acc.currency_code != dto.currency_code: errors.append(f"Payment currency ({dto.currency_code}) does not match bank account currency ({bank_acc.currency_code}).")
+        
+        # Validate Currency
+        currency = await self.app_core.currency_manager.get_currency_by_code(dto.currency_code)
+        if not currency or not currency.is_active: errors.append(f"Currency '{dto.currency_code}' is invalid or inactive.")
+
+        # Validate Allocations
+        total_allocated = Decimal(0)
+        for i, alloc_dto in enumerate(dto.allocations):
+            total_allocated += alloc_dto.amount_allocated
+            invoice_orm: Union[SalesInvoice, PurchaseInvoice, None] = None
+            doc_type_str = ""
+            if alloc_dto.document_type == PaymentAllocationDocTypeEnum.SALES_INVOICE:
+                invoice_orm = await self.sales_invoice_service.get_by_id(alloc_dto.document_id) # Use service
+                doc_type_str = "Sales Invoice"
+            elif alloc_dto.document_type == PaymentAllocationDocTypeEnum.PURCHASE_INVOICE:
+                invoice_orm = await self.purchase_invoice_service.get_by_id(alloc_dto.document_id) # Use service
+                doc_type_str = "Purchase Invoice"
+            
+            if not invoice_orm: errors.append(f"Allocation {i+1}: {doc_type_str} ID {alloc_dto.document_id} not found.")
+            elif invoice_orm.status not in [InvoiceStatusEnum.APPROVED, InvoiceStatusEnum.PARTIALLY_PAID, InvoiceStatusEnum.OVERDUE]:
+                errors.append(f"Allocation {i+1}: {doc_type_str} {invoice_orm.invoice_no} is not in an allocatable status ({invoice_orm.status.value}).") # Use .value for enum
+            elif isinstance(invoice_orm, SalesInvoice) and invoice_orm.customer_id != dto.entity_id:
+                 errors.append(f"Allocation {i+1}: Sales Invoice {invoice_orm.invoice_no} does not belong to selected customer.")
+            elif isinstance(invoice_orm, PurchaseInvoice) and invoice_orm.vendor_id != dto.entity_id:
+                 errors.append(f"Allocation {i+1}: Purchase Invoice {invoice_orm.invoice_no} does not belong to selected vendor.")
+            elif (invoice_orm.total_amount - invoice_orm.amount_paid) < alloc_dto.amount_allocated:
+                 outstanding_bal = invoice_orm.total_amount - invoice_orm.amount_paid
+                 errors.append(f"Allocation {i+1}: Amount for {doc_type_str} {invoice_orm.invoice_no} ({alloc_dto.amount_allocated:.2f}) exceeds outstanding balance ({outstanding_bal:.2f}).")
+        
+        if total_allocated > dto.amount:
+            errors.append(f"Total allocated amount ({total_allocated}) cannot exceed total payment amount ({dto.amount}).")
+        
+        return errors
+
+    async def create_payment(self, dto: PaymentCreateData) -> Result[Payment]:
+        async with self.app_core.db_manager.session() as session: 
+            try:
+                validation_errors = await self._validate_payment_data(dto, session=session)
+                if validation_errors:
+                    return Result.failure(validation_errors)
+
+                payment_no_str = await self.app_core.db_manager.execute_scalar("SELECT core.get_next_sequence_value($1);", "payment", session=session)
+                if not payment_no_str: return Result.failure(["Failed to generate payment number."])
+
+                cash_or_bank_gl_id: Optional[int] = None
+                ar_ap_gl_id: Optional[int] = None
+                entity_name_for_desc: str = "Entity"
+
+                if dto.payment_method != PaymentMethodEnum.CASH:
+                    bank_account = await self.bank_account_service.get_by_id(dto.bank_account_id) # type: ignore
+                    if not bank_account or not bank_account.gl_account_id: return Result.failure(["Bank account or its GL link not found."])
+                    cash_or_bank_gl_id = bank_account.gl_account_id
+                else: 
+                    cash_acc_code = await self.configuration_service.get_config_value("SysAcc_DefaultCash", "1112") 
+                    cash_gl_acc = await self.account_service.get_by_code(cash_acc_code) if cash_acc_code else None
+                    if not cash_gl_acc or not cash_gl_acc.is_active: return Result.failure([f"Default Cash account ({cash_acc_code}) not configured or inactive."])
+                    cash_or_bank_gl_id = cash_gl_acc.id
+
+                if dto.entity_type == PaymentEntityTypeEnum.CUSTOMER:
+                    customer = await self.customer_service.get_by_id(dto.entity_id)
+                    if not customer or not customer.receivables_account_id: return Result.failure(["Customer AR account not found."])
+                    ar_ap_gl_id = customer.receivables_account_id
+                    entity_name_for_desc = customer.name
+                elif dto.entity_type == PaymentEntityTypeEnum.VENDOR:
+                    vendor = await self.vendor_service.get_by_id(dto.entity_id)
+                    if not vendor or not vendor.payables_account_id: return Result.failure(["Vendor AP account not found."])
+                    ar_ap_gl_id = vendor.payables_account_id
+                    entity_name_for_desc = vendor.name
+                
+                if not cash_or_bank_gl_id or not ar_ap_gl_id:
+                    return Result.failure(["Could not determine all necessary GL accounts for the payment journal."])
+
+                payment_orm = Payment(
+                    payment_no=payment_no_str, payment_type=dto.payment_type.value,
+                    payment_method=dto.payment_method.value, payment_date=dto.payment_date,
+                    entity_type=dto.entity_type.value, entity_id=dto.entity_id,
+                    bank_account_id=dto.bank_account_id, currency_code=dto.currency_code,
+                    exchange_rate=dto.exchange_rate, amount=dto.amount, reference=dto.reference,
+                    description=dto.description, cheque_no=dto.cheque_no,
+                    status=PaymentStatusEnum.APPROVED.value, 
+                    created_by_user_id=dto.user_id, updated_by_user_id=dto.user_id
+                )
+                for alloc_dto in dto.allocations:
+                    payment_orm.allocations.append(PaymentAllocation(
+                        document_type=alloc_dto.document_type.value,
+                        document_id=alloc_dto.document_id,
+                        amount=alloc_dto.amount_allocated,
+                        created_by_user_id=dto.user_id # Audit for allocation line
+                    ))
+                
+                je_lines_data: List[JournalEntryLineData] = []
+                desc_suffix = f"Pmt No: {payment_no_str} for {entity_name_for_desc}"
+                
+                if dto.payment_type == PaymentTypeEnum.CUSTOMER_PAYMENT: 
+                    je_lines_data.append(JournalEntryLineData(account_id=cash_or_bank_gl_id, debit_amount=dto.amount, credit_amount=Decimal(0), description=f"Customer Receipt - {desc_suffix}"))
+                    je_lines_data.append(JournalEntryLineData(account_id=ar_ap_gl_id, debit_amount=Decimal(0), credit_amount=dto.amount, description=f"Clear A/R - {desc_suffix}"))
+                elif dto.payment_type == PaymentTypeEnum.VENDOR_PAYMENT: 
+                    je_lines_data.append(JournalEntryLineData(account_id=ar_ap_gl_id, debit_amount=dto.amount, credit_amount=Decimal(0), description=f"Clear A/P - {desc_suffix}"))
+                    je_lines_data.append(JournalEntryLineData(account_id=cash_or_bank_gl_id, debit_amount=Decimal(0), credit_amount=dto.amount, description=f"Vendor Payment - {desc_suffix}"))
+                
+                je_dto = JournalEntryData(
+                    journal_type=JournalTypeEnum.CASH_RECEIPT.value if dto.payment_type == PaymentTypeEnum.CUSTOMER_PAYMENT else JournalTypeEnum.CASH_DISBURSEMENT.value,
+                    entry_date=dto.payment_date, description=f"{dto.payment_type.value} - {entity_name_for_desc}",
+                    reference=dto.reference or payment_no_str, user_id=dto.user_id, lines=je_lines_data,
+                    source_type="Payment", source_id=0 
+                )
+                
+                saved_payment = await self.payment_service.save(payment_orm, session=session)
+                je_dto.source_id = saved_payment.id 
+
+                create_je_result = await self.journal_entry_manager.create_journal_entry(je_dto, session=session)
+                if not create_je_result.is_success or not create_je_result.value:
+                    raise Exception(f"Failed to create JE for payment: {', '.join(create_je_result.errors)}") 
+                
+                created_je: JournalEntry = create_je_result.value
+                post_je_result = await self.journal_entry_manager.post_journal_entry(created_je.id, dto.user_id, session=session)
+                if not post_je_result.is_success:
+                    raise Exception(f"JE (ID: {created_je.id}) created but failed to post: {', '.join(post_je_result.errors)}")
+
+                saved_payment.journal_entry_id = created_je.id
+                session.add(saved_payment) 
+                
+                for alloc_orm in saved_payment.allocations:
+                    if alloc_orm.document_type == PaymentAllocationDocTypeEnum.SALES_INVOICE.value:
+                        inv = await session.get(SalesInvoice, alloc_orm.document_id)
+                        if inv: 
+                            inv.amount_paid = (inv.amount_paid or Decimal(0)) + alloc_orm.amount
+                            inv.status = InvoiceStatusEnum.PAID.value if inv.amount_paid >= inv.total_amount else InvoiceStatusEnum.PARTIALLY_PAID.value
+                            session.add(inv)
+                    elif alloc_orm.document_type == PaymentAllocationDocTypeEnum.PURCHASE_INVOICE.value:
+                        inv = await session.get(PurchaseInvoice, alloc_orm.document_id)
+                        if inv: 
+                            inv.amount_paid = (inv.amount_paid or Decimal(0)) + alloc_orm.amount
+                            inv.status = InvoiceStatusEnum.PAID.value if inv.amount_paid >= inv.total_amount else InvoiceStatusEnum.PARTIALLY_PAID.value
+                            session.add(inv)
+
+                await session.flush()
+                await session.refresh(saved_payment, attribute_names=['allocations', 'journal_entry']) # Refresh all relevant attributes
+                
+                self.logger.info(f"Payment '{saved_payment.payment_no}' created and posted successfully. JE ID: {created_je.id}")
+                return Result.success(saved_payment)
+
+            except Exception as e:
+                self.logger.error(f"Error in create_payment transaction: {e}", exc_info=True)
+                return Result.failure([f"Failed to create payment: {str(e)}"])
+
+
+    async def get_payment_for_dialog(self, payment_id: int) -> Optional[Payment]:
+        try:
+            return await self.payment_service.get_by_id(payment_id)
+        except Exception as e:
+            self.logger.error(f"Error fetching Payment ID {payment_id} for dialog: {e}", exc_info=True)
+            return None
+
+    async def get_payments_for_listing(
+        self,
+        entity_type: Optional[PaymentEntityTypeEnum] = None,
+        entity_id: Optional[int] = None,
+        status: Optional[PaymentStatusEnum] = None,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        page: int = 1,
+        page_size: int = 50
+    ) -> Result[List[PaymentSummaryData]]:
+        try:
+            summaries = await self.payment_service.get_all_summary(
+                entity_type=entity_type, entity_id=entity_id, status=status,
+                start_date=start_date, end_date=end_date,
+                page=page, page_size=page_size
+            )
+            return Result.success(summaries)
+        except Exception as e:
+            self.logger.error(f"Error fetching payment listing: {e}", exc_info=True)
+            return Result.failure([f"Failed to retrieve payment list: {str(e)}"])
 
 ```
 
@@ -1535,6 +1757,182 @@ class PurchaseInvoiceManager:
 
 ```
 
+# app/business_logic/bank_account_manager.py
+```py
+# File: app/business_logic/bank_account_manager.py
+from typing import List, Optional, Dict, Any, TYPE_CHECKING, Union
+from decimal import Decimal
+
+from app.models.business.bank_account import BankAccount
+from app.services.business_services import BankAccountService
+from app.services.account_service import AccountService
+from app.services.accounting_services import CurrencyService
+from app.utils.result import Result
+from app.utils.pydantic_models import (
+    BankAccountCreateData, BankAccountUpdateData, BankAccountSummaryData
+)
+
+if TYPE_CHECKING:
+    from app.core.application_core import ApplicationCore
+
+class BankAccountManager:
+    def __init__(self,
+                 bank_account_service: BankAccountService,
+                 account_service: AccountService,
+                 currency_service: CurrencyService,
+                 app_core: "ApplicationCore"):
+        self.bank_account_service = bank_account_service
+        self.account_service = account_service
+        self.currency_service = currency_service
+        self.app_core = app_core
+        self.logger = app_core.logger
+
+    async def get_bank_account_for_dialog(self, bank_account_id: int) -> Optional[BankAccount]:
+        try:
+            return await self.bank_account_service.get_by_id(bank_account_id)
+        except Exception as e:
+            self.logger.error(f"Error fetching BankAccount ID {bank_account_id} for dialog: {e}", exc_info=True)
+            return None
+
+    async def get_bank_accounts_for_listing(
+        self,
+        active_only: bool = True,
+        currency_code: Optional[str] = None,
+        page: int = 1,
+        page_size: int = 50
+    ) -> Result[List[BankAccountSummaryData]]:
+        try:
+            summaries = await self.bank_account_service.get_all_summary(
+                active_only=active_only,
+                currency_code=currency_code,
+                page=page,
+                page_size=page_size
+            )
+            return Result.success(summaries)
+        except Exception as e:
+            self.logger.error(f"Error fetching bank account listing: {e}", exc_info=True)
+            return Result.failure([f"Failed to retrieve bank account list: {str(e)}"])
+
+    async def _validate_bank_account_data(
+        self,
+        dto: Union[BankAccountCreateData, BankAccountUpdateData],
+        existing_bank_account_id: Optional[int] = None
+    ) -> List[str]:
+        errors: List[str] = []
+
+        # Pydantic handles basic field presence/type. This is for business rules.
+        
+        # Validate GL Account
+        gl_account = await self.account_service.get_by_id(dto.gl_account_id)
+        if not gl_account:
+            errors.append(f"GL Account ID '{dto.gl_account_id}' not found.")
+        else:
+            if not gl_account.is_active:
+                errors.append(f"GL Account '{gl_account.code} - {gl_account.name}' is not active.")
+            if gl_account.account_type != 'Asset':
+                errors.append(f"GL Account '{gl_account.code}' must be an Asset type account.")
+            if not gl_account.is_bank_account: # Check the flag on Account model
+                errors.append(f"GL Account '{gl_account.code}' is not flagged as a bank account. Please update the Chart of Accounts.")
+
+        # Validate Currency
+        currency = await self.currency_service.get_by_id(dto.currency_code)
+        if not currency:
+            errors.append(f"Currency Code '{dto.currency_code}' not found.")
+        elif not currency.is_active:
+            errors.append(f"Currency '{dto.currency_code}' is not active.")
+            
+        # Check for duplicate account number (globally, not just per bank)
+        # In a real system, account_number + bank_name might be unique. For now, just account_number.
+        existing_by_acc_no = await self.bank_account_service.get_by_account_number(dto.account_number)
+        if existing_by_acc_no and \
+           (existing_bank_account_id is None or existing_by_acc_no.id != existing_bank_account_id):
+            errors.append(f"Bank account number '{dto.account_number}' already exists.")
+
+        return errors
+
+    async def create_bank_account(self, dto: BankAccountCreateData) -> Result[BankAccount]:
+        validation_errors = await self._validate_bank_account_data(dto)
+        if validation_errors:
+            return Result.failure(validation_errors)
+
+        try:
+            bank_account_orm = BankAccount(
+                account_name=dto.account_name,
+                account_number=dto.account_number,
+                bank_name=dto.bank_name,
+                bank_branch=dto.bank_branch,
+                bank_swift_code=dto.bank_swift_code,
+                currency_code=dto.currency_code,
+                opening_balance=dto.opening_balance,
+                opening_balance_date=dto.opening_balance_date,
+                gl_account_id=dto.gl_account_id,
+                is_active=dto.is_active,
+                description=dto.description,
+                # current_balance will be opening_balance initially for new accounts
+                current_balance=dto.opening_balance, 
+                created_by_user_id=dto.user_id,
+                updated_by_user_id=dto.user_id
+            )
+            saved_bank_account = await self.bank_account_service.save(bank_account_orm)
+            self.logger.info(f"Bank account '{saved_bank_account.account_name}' created successfully.")
+            return Result.success(saved_bank_account)
+        except Exception as e:
+            self.logger.error(f"Error creating bank account '{dto.account_name}': {e}", exc_info=True)
+            return Result.failure([f"An unexpected error occurred: {str(e)}"])
+
+    async def update_bank_account(self, bank_account_id: int, dto: BankAccountUpdateData) -> Result[BankAccount]:
+        existing_bank_account = await self.bank_account_service.get_by_id(bank_account_id)
+        if not existing_bank_account:
+            return Result.failure([f"Bank Account with ID {bank_account_id} not found."])
+
+        validation_errors = await self._validate_bank_account_data(dto, existing_bank_account_id=bank_account_id)
+        if validation_errors:
+            return Result.failure(validation_errors)
+
+        try:
+            update_data_dict = dto.model_dump(exclude={'id', 'user_id'}, exclude_unset=True)
+            for key, value in update_data_dict.items():
+                if hasattr(existing_bank_account, key):
+                    setattr(existing_bank_account, key, value)
+            
+            existing_bank_account.updated_by_user_id = dto.user_id
+            
+            # Note: current_balance update logic is typically handled by transactions, not direct edit here.
+            # If opening_balance is changed, current_balance might need re-evaluation if it's simply OB + transactions.
+            # For now, assume current_balance is not directly editable here.
+
+            updated_bank_account = await self.bank_account_service.save(existing_bank_account)
+            self.logger.info(f"Bank account '{updated_bank_account.account_name}' (ID: {bank_account_id}) updated.")
+            return Result.success(updated_bank_account)
+        except Exception as e:
+            self.logger.error(f"Error updating bank account ID {bank_account_id}: {e}", exc_info=True)
+            return Result.failure([f"An unexpected error occurred: {str(e)}"])
+
+    async def toggle_bank_account_active_status(self, bank_account_id: int, user_id: int) -> Result[BankAccount]:
+        bank_account = await self.bank_account_service.get_by_id(bank_account_id)
+        if not bank_account:
+            return Result.failure([f"Bank Account with ID {bank_account_id} not found."])
+        
+        # Future check: if current_balance is non-zero, or has unreconciled transactions, warn or prevent deactivation.
+        # For now, simple toggle.
+        if bank_account.current_balance != Decimal(0) and bank_account.is_active:
+            self.logger.warning(f"Deactivating bank account ID {bank_account_id} ('{bank_account.account_name}') which has a non-zero balance of {bank_account.current_balance}.")
+            # Not returning failure, just logging. UI might want to confirm.
+
+        bank_account.is_active = not bank_account.is_active
+        bank_account.updated_by_user_id = user_id
+
+        try:
+            updated_bank_account = await self.bank_account_service.save(bank_account)
+            action = "activated" if updated_bank_account.is_active else "deactivated"
+            self.logger.info(f"Bank Account '{updated_bank_account.account_name}' (ID: {bank_account_id}) {action} by user ID {user_id}.")
+            return Result.success(updated_bank_account)
+        except Exception as e:
+            self.logger.error(f"Error toggling active status for bank account ID {bank_account_id}: {e}", exc_info=True)
+            return Result.failure([f"Failed to toggle active status: {str(e)}"])
+
+```
+
 # app/business_logic/product_manager.py
 ```py
 # app/business_logic/product_manager.py
@@ -1710,6 +2108,125 @@ class ProductManager:
             self.logger.error(f"Error toggling active status for product ID {product_id}: {e}", exc_info=True)
             return Result.failure([f"Failed to toggle active status for product/service: {str(e)}"])
 
+
+```
+
+# app/business_logic/bank_transaction_manager.py
+```py
+# File: app/business_logic/bank_transaction_manager.py
+from typing import List, Optional, Dict, Any, TYPE_CHECKING, Union
+from decimal import Decimal
+from datetime import date
+
+from app.models.business.bank_transaction import BankTransaction
+from app.services.business_services import BankTransactionService, BankAccountService
+from app.utils.result import Result
+from app.utils.pydantic_models import (
+    BankTransactionCreateData, BankTransactionSummaryData
+)
+from app.common.enums import BankTransactionTypeEnum
+
+if TYPE_CHECKING:
+    from app.core.application_core import ApplicationCore
+
+class BankTransactionManager:
+    def __init__(self,
+                 bank_transaction_service: BankTransactionService,
+                 bank_account_service: BankAccountService, # To validate bank account
+                 app_core: "ApplicationCore"):
+        self.bank_transaction_service = bank_transaction_service
+        self.bank_account_service = bank_account_service
+        self.app_core = app_core
+        self.logger = app_core.logger
+
+    async def _validate_transaction_data(
+        self,
+        dto: BankTransactionCreateData,
+        existing_transaction_id: Optional[int] = None # For future update validation
+    ) -> List[str]:
+        errors: List[str] = []
+
+        bank_account = await self.bank_account_service.get_by_id(dto.bank_account_id)
+        if not bank_account:
+            errors.append(f"Bank Account with ID {dto.bank_account_id} not found.")
+        elif not bank_account.is_active:
+            errors.append(f"Bank Account '{bank_account.account_name}' is not active.")
+        
+        # Pydantic DTO already validates amount sign vs type.
+        # Additional business rules can go here.
+        # For example, for 'Transfer' type, a corresponding transaction might be expected.
+        # Or limits on certain transaction types.
+
+        if dto.value_date and dto.value_date < dto.transaction_date:
+            errors.append("Value date cannot be before transaction date.")
+
+        return errors
+
+    async def create_manual_bank_transaction(self, dto: BankTransactionCreateData) -> Result[BankTransaction]:
+        validation_errors = await self._validate_transaction_data(dto)
+        if validation_errors:
+            return Result.failure(validation_errors)
+
+        try:
+            # Ensure amount has correct sign based on type (Pydantic validator should handle this, but double-check here if needed)
+            # For this basic entry, we rely on the UI/DTO to provide the correctly signed amount.
+            
+            bank_transaction_orm = BankTransaction(
+                bank_account_id=dto.bank_account_id,
+                transaction_date=dto.transaction_date,
+                value_date=dto.value_date,
+                transaction_type=dto.transaction_type.value, # Store enum value
+                description=dto.description,
+                reference=dto.reference,
+                amount=dto.amount, # Assumed to be signed correctly from DTO
+                is_reconciled=False, # Manual entries are initially unreconciled
+                created_by_user_id=dto.user_id,
+                updated_by_user_id=dto.user_id
+                # journal_entry_id will be None for now
+            )
+            
+            # The database trigger `update_bank_account_balance_trigger_func`
+            # is expected to handle updating BankAccount.current_balance.
+            saved_transaction = await self.bank_transaction_service.save(bank_transaction_orm)
+            
+            self.logger.info(f"Manual bank transaction ID {saved_transaction.id} created for bank account ID {dto.bank_account_id}.")
+            return Result.success(saved_transaction)
+        except Exception as e:
+            self.logger.error(f"Error creating manual bank transaction: {e}", exc_info=True)
+            return Result.failure([f"An unexpected error occurred: {str(e)}"])
+
+    async def get_transactions_for_bank_account(
+        self,
+        bank_account_id: int,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        transaction_type: Optional[BankTransactionTypeEnum] = None,
+        is_reconciled: Optional[bool] = None,
+        page: int = 1,
+        page_size: int = 50
+    ) -> Result[List[BankTransactionSummaryData]]:
+        try:
+            summaries = await self.bank_transaction_service.get_all_for_bank_account(
+                bank_account_id=bank_account_id,
+                start_date=start_date,
+                end_date=end_date,
+                transaction_type=transaction_type,
+                is_reconciled=is_reconciled,
+                page=page,
+                page_size=page_size
+            )
+            return Result.success(summaries)
+        except Exception as e:
+            self.logger.error(f"Error fetching bank transactions for account ID {bank_account_id}: {e}", exc_info=True)
+            return Result.failure([f"Failed to retrieve bank transaction list: {str(e)}"])
+
+    async def get_bank_transaction_for_dialog(self, transaction_id: int) -> Optional[BankTransaction]:
+        # For viewing/editing a specific transaction
+        try:
+            return await self.bank_transaction_service.get_by_id(transaction_id)
+        except Exception as e:
+            self.logger.error(f"Error fetching BankTransaction ID {transaction_id} for dialog: {e}", exc_info=True)
+            return None
 
 ```
 
@@ -2491,1752 +3008,6 @@ class FiscalPeriodManager:
             return Result.success(updated_fy)
         except Exception as e:
             return Result.failure([f"Error closing fiscal year: {str(e)}"])
-
-```
-
-# app/common/enums.py
-```py
-# File: app/common/enums.py
-# (Content as previously generated and verified)
-from enum import Enum
-
-class AccountCategory(Enum): 
-    ASSET = "Asset"
-    LIABILITY = "Liability"
-    EQUITY = "Equity"
-    REVENUE = "Revenue"
-    EXPENSE = "Expense"
-
-class AccountTypeEnum(Enum): 
-    ASSET = "Asset"
-    LIABILITY = "Liability"
-    EQUITY = "Equity"
-    REVENUE = "Revenue"
-    EXPENSE = "Expense"
-
-
-class JournalTypeEnum(Enum): 
-    GENERAL = "General" 
-    SALES = "Sales"
-    PURCHASE = "Purchase"
-    CASH_RECEIPT = "Cash Receipt" 
-    CASH_DISBURSEMENT = "Cash Disbursement" 
-    PAYROLL = "Payroll"
-    OPENING_BALANCE = "Opening Balance"
-    ADJUSTMENT = "Adjustment"
-
-class FiscalPeriodTypeEnum(Enum): 
-    MONTH = "Month"
-    QUARTER = "Quarter"
-    YEAR = "Year" 
-
-class FiscalPeriodStatusEnum(Enum): 
-    OPEN = "Open"
-    CLOSED = "Closed"
-    ARCHIVED = "Archived"
-
-class TaxTypeEnum(Enum): 
-    GST = "GST"
-    INCOME_TAX = "Income Tax"
-    WITHHOLDING_TAX = "Withholding Tax"
-
-class ProductTypeEnum(Enum): 
-    INVENTORY = "Inventory"
-    SERVICE = "Service"
-    NON_INVENTORY = "Non-Inventory"
-
-class GSTReturnStatusEnum(Enum): 
-    DRAFT = "Draft"
-    SUBMITTED = "Submitted"
-    AMENDED = "Amended"
-
-class InventoryMovementTypeEnum(Enum): 
-    PURCHASE = "Purchase"
-    SALE = "Sale"
-    ADJUSTMENT = "Adjustment"
-    TRANSFER = "Transfer"
-    RETURN = "Return"
-    OPENING = "Opening"
-
-class InvoiceStatusEnum(Enum): 
-    DRAFT = "Draft"
-    APPROVED = "Approved"
-    SENT = "Sent" 
-    PARTIALLY_PAID = "Partially Paid"
-    PAID = "Paid"
-    OVERDUE = "Overdue"
-    VOIDED = "Voided"
-    DISPUTED = "Disputed" 
-
-class BankTransactionTypeEnum(Enum): 
-    DEPOSIT = "Deposit"
-    WITHDRAWAL = "Withdrawal"
-    TRANSFER = "Transfer"
-    INTEREST = "Interest"
-    FEE = "Fee"
-    ADJUSTMENT = "Adjustment"
-
-class PaymentTypeEnum(Enum): 
-    CUSTOMER_PAYMENT = "Customer Payment"
-    VENDOR_PAYMENT = "Vendor Payment"
-    REFUND = "Refund"
-    CREDIT_NOTE_APPLICATION = "Credit Note" 
-    OTHER = "Other"
-
-class PaymentMethodEnum(Enum): 
-    CASH = "Cash"
-    CHECK = "Check"
-    BANK_TRANSFER = "Bank Transfer"
-    CREDIT_CARD = "Credit Card"
-    GIRO = "GIRO"
-    PAYNOW = "PayNow"
-    OTHER = "Other"
-
-class PaymentEntityTypeEnum(Enum): 
-    CUSTOMER = "Customer"
-    VENDOR = "Vendor"
-    OTHER = "Other"
-
-class PaymentStatusEnum(Enum): 
-    DRAFT = "Draft"
-    APPROVED = "Approved"
-    COMPLETED = "Completed" 
-    VOIDED = "Voided"
-    RETURNED = "Returned" 
-
-class PaymentAllocationDocTypeEnum(Enum): 
-    SALES_INVOICE = "Sales Invoice"
-    PURCHASE_INVOICE = "Purchase Invoice"
-    CREDIT_NOTE = "Credit Note"
-    DEBIT_NOTE = "Debit Note"
-    OTHER = "Other"
-
-class WHCertificateStatusEnum(Enum): 
-    DRAFT = "Draft"
-    ISSUED = "Issued"
-    VOIDED = "Voided"
-
-class DataChangeTypeEnum(Enum): 
-    INSERT = "Insert"
-    UPDATE = "Update"
-    DELETE = "Delete"
-
-class RecurringFrequencyEnum(Enum): 
-    DAILY = "Daily"
-    WEEKLY = "Weekly"
-    MONTHLY = "Monthly"
-    QUARTERLY = "Quarterly"
-    YEARLY = "Yearly"
-
-```
-
-# data/report_templates/balance_sheet_default.json
-```json
-# File: data/report_templates/balance_sheet_default.json
-# (Content as provided before - example structure)
-"""
-{
-  "report_name": "Balance Sheet",
-  "sections": [
-    {
-      "title": "Assets",
-      "account_type": "Asset",
-      "sub_sections": [
-        {"title": "Current Assets", "account_sub_type_pattern": "Current Asset.*|Accounts Receivable|Cash.*"},
-        {"title": "Non-Current Assets", "account_sub_type_pattern": "Fixed Asset.*|Non-Current Asset.*"}
-      ]
-    },
-    {
-      "title": "Liabilities",
-      "account_type": "Liability",
-      "sub_sections": [
-        {"title": "Current Liabilities", "account_sub_type_pattern": "Current Liability.*|Accounts Payable|GST Payable"},
-        {"title": "Non-Current Liabilities", "account_sub_type_pattern": "Non-Current Liability.*|Loan.*"}
-      ]
-    },
-    {
-      "title": "Equity",
-      "account_type": "Equity"
-    }
-  ],
-  "options": {
-    "show_zero_balance": false,
-    "comparative_periods": 1
-  }
-}
-"""
-
-```
-
-# data/tax_codes/sg_gst_codes_2023.csv
-```csv
-# File: data/tax_codes/sg_gst_codes_2023.csv
-# (Content as provided before, verified against initial_data.sql SYS-GST-* accounts)
-"""Code,Description,TaxType,Rate,IsActive,AffectsAccountCode
-SR,Standard-Rated Supplies,GST,7.00,TRUE,SYS-GST-OUTPUT
-ZR,Zero-Rated Supplies,GST,0.00,TRUE,
-ES,Exempt Supplies,GST,0.00,TRUE,
-TX,Taxable Purchases (Standard-Rated),GST,7.00,TRUE,SYS-GST-INPUT
-BL,Blocked Input Tax (e.g. Club Subscriptions),GST,7.00,TRUE,
-OP,Out-of-Scope Supplies,GST,0.00,TRUE,
-"""
-
-```
-
-# data/chart_of_accounts/general_template.csv
-```csv
-# File: data/chart_of_accounts/general_template.csv
-# (Content as provided before, verified with new Account fields)
-"""Code,Name,AccountType,SubType,TaxTreatment,GSTApplicable,ParentCode,ReportGroup,IsControlAccount,IsBankAccount,OpeningBalance,OpeningBalanceDate
-1000,ASSETS,Asset,,,,,,,,0.00,
-1100,Current Assets,Asset,,,,1000,CURRENT_ASSETS,FALSE,FALSE,0.00,
-1110,Cash and Bank,Asset,Current Asset,,,1100,CASH_BANK,FALSE,TRUE,0.00,
-1111,Main Bank Account SGD,Asset,Cash and Cash Equivalents,Non-Taxable,FALSE,1110,CASH_BANK,FALSE,TRUE,1000.00,2023-01-01
-1112,Petty Cash,Asset,Cash and Cash Equivalents,Non-Taxable,FALSE,1110,CASH_BANK,FALSE,FALSE,100.00,2023-01-01
-1120,Accounts Receivable,Asset,Accounts Receivable,,,1100,ACCOUNTS_RECEIVABLE,TRUE,FALSE,500.00,2023-01-01
-1130,Inventory,Asset,Inventory,,,1100,INVENTORY,TRUE,FALSE,0.00,
-1200,Non-Current Assets,Asset,,,,1000,NON_CURRENT_ASSETS,FALSE,FALSE,0.00,
-1210,Property, Plant & Equipment,Asset,Fixed Assets,,,1200,PPE,FALSE,FALSE,0.00,
-1211,Office Equipment,Asset,Fixed Assets,,,1210,PPE,FALSE,FALSE,5000.00,2023-01-01
-1212,Accumulated Depreciation - Office Equipment,Asset,Fixed Assets,,,1210,PPE_ACCUM_DEPR,FALSE,FALSE,-500.00,2023-01-01
-2000,LIABILITIES,Liability,,,,,,,,0.00,
-2100,Current Liabilities,Liability,,,,2000,CURRENT_LIABILITIES,FALSE,FALSE,0.00,
-2110,Accounts Payable,Liability,Accounts Payable,,,2100,ACCOUNTS_PAYABLE,TRUE,FALSE,0.00,
-2120,GST Payable,Liability,GST Payable,Taxable,TRUE,2100,TAX_LIABILITIES,FALSE,FALSE,0.00,
-2200,Non-Current Liabilities,Liability,,,,2000,NON_CURRENT_LIABILITIES,FALSE,FALSE,0.00,
-2210,Bank Loan (Long Term),Liability,Long-term Liability,,,2200,LOANS_PAYABLE,FALSE,FALSE,0.00,
-3000,EQUITY,Equity,,,,,,,,0.00,
-3100,Owner's Capital,Equity,Owner''s Equity,,,3000,OWNERS_EQUITY,FALSE,FALSE,0.00,
-3200,Retained Earnings,Equity,Retained Earnings,,,3000,RETAINED_EARNINGS,FALSE,FALSE,0.00,SYS-RETAINED-EARNINGS
-4000,REVENUE,Revenue,,,,,,,,0.00,
-4100,Sales Revenue,Revenue,Sales,Taxable,TRUE,4000,OPERATING_REVENUE,FALSE,FALSE,0.00,
-4200,Service Revenue,Revenue,Services,Taxable,TRUE,4000,OPERATING_REVENUE,FALSE,FALSE,0.00,
-5000,COST OF SALES,Expense,,,,,,,,0.00,
-5100,Cost of Goods Sold,Expense,Cost of Sales,Taxable,TRUE,5000,COST_OF_SALES,FALSE,FALSE,0.00,
-6000,OPERATING EXPENSES,Expense,,,,,,,,0.00,
-6100,Salaries & Wages,Expense,Operating Expenses,Non-Taxable,FALSE,6000,SALARIES,FALSE,FALSE,0.00,
-6110,Rent Expense,Expense,Operating Expenses,Taxable,TRUE,6000,RENT,FALSE,FALSE,0.00,
-6120,Utilities Expense,Expense,Operating Expenses,Taxable,TRUE,6000,UTILITIES,FALSE,FALSE,0.00,
-7000,OTHER INCOME,Revenue,,,,,,,,0.00,
-7100,Interest Income,Revenue,Other Income,Taxable,FALSE,7000,INTEREST_INCOME,FALSE,FALSE,0.00,
-8000,OTHER EXPENSES,Expense,,,,,,,,0.00,
-8100,Bank Charges,Expense,Other Expenses,Non-Taxable,FALSE,8000,BANK_CHARGES,FALSE,FALSE,0.00,
-"""
-
-```
-
-# data/chart_of_accounts/retail_template.csv
-```csv
-# File: data/chart_of_accounts/retail_template.csv
-# (Content as provided before, verified with new Account fields)
-"""Code,Name,AccountType,SubType,TaxTreatment,GSTApplicable,ParentCode,ReportGroup,IsControlAccount,IsBankAccount,OpeningBalance,OpeningBalanceDate
-1135,Inventory - Retail Goods,Asset,Inventory,Non-Taxable,FALSE,1130,INVENTORY_RETAIL,TRUE,FALSE,5000.00,2023-01-01
-4110,Sales Returns & Allowances,Revenue,Sales Adjustments,Taxable,TRUE,4000,REVENUE_ADJUSTMENTS,FALSE,FALSE,0.00,
-4120,Sales Discounts,Revenue,Sales Adjustments,Taxable,TRUE,4000,REVENUE_ADJUSTMENTS,FALSE,FALSE,0.00,
-5110,Purchase Returns & Allowances,Expense,Cost of Sales Adjustments,Taxable,TRUE,5100,COGS_ADJUSTMENTS,FALSE,FALSE,0.00,
-5120,Purchase Discounts,Expense,Cost of Sales Adjustments,Taxable,TRUE,5100,COGS_ADJUSTMENTS,FALSE,FALSE,0.00,
-6200,Shop Supplies Expense,Expense,Operating Expenses,Taxable,TRUE,6000,SHOP_SUPPLIES,FALSE,FALSE,0.00,
-"""
-
-```
-
-# scripts/initial_data.sql
-```sql
--- File: scripts/initial_data.sql
--- ============================================================================
--- INITIAL DATA (Version 1.0.2 - Added Configuration Keys for Default Accounts)
--- ============================================================================
-
--- ----------------------------------------------------------------------------
--- Insert default roles
--- ----------------------------------------------------------------------------
-INSERT INTO core.roles (name, description) VALUES
-('Administrator', 'Full system access'),
-('Accountant', 'Access to accounting functions'),
-('Bookkeeper', 'Basic transaction entry and reporting'),
-('Manager', 'Access to reports and dashboards'),
-('Viewer', 'Read-only access to data')
-ON CONFLICT (name) DO UPDATE SET 
-    description = EXCLUDED.description, 
-    updated_at = CURRENT_TIMESTAMP;
-
--- ----------------------------------------------------------------------------
--- Insert default permissions
--- ----------------------------------------------------------------------------
-INSERT INTO core.permissions (code, description, module) VALUES
--- Core permissions
-('SYSTEM_SETTINGS', 'Manage system settings', 'System'),
-('USER_MANAGE', 'Manage users', 'System'),
-('ROLE_MANAGE', 'Manage roles and permissions', 'System'),
-('DATA_BACKUP', 'Backup and restore data', 'System'),
-('DATA_IMPORT', 'Import data', 'System'),
-('DATA_EXPORT', 'Export data', 'System'),
--- Accounting permissions
-('ACCOUNT_VIEW', 'View chart of accounts', 'Accounting'),
-('ACCOUNT_CREATE', 'Create accounts', 'Accounting'),
-('ACCOUNT_EDIT', 'Edit accounts', 'Accounting'),
-('ACCOUNT_DELETE', 'Delete/deactivate accounts', 'Accounting'),
-('JOURNAL_VIEW', 'View journal entries', 'Accounting'),
-('JOURNAL_CREATE', 'Create journal entries', 'Accounting'),
-('JOURNAL_EDIT', 'Edit draft journal entries', 'Accounting'),
-('JOURNAL_POST', 'Post journal entries', 'Accounting'),
-('JOURNAL_REVERSE', 'Reverse posted journal entries', 'Accounting'),
-('PERIOD_MANAGE', 'Manage fiscal periods', 'Accounting'),
-('YEAR_CLOSE', 'Close fiscal years', 'Accounting'),
--- Business permissions
-('CUSTOMER_VIEW', 'View customers', 'Business'),
-('CUSTOMER_CREATE', 'Create customers', 'Business'),
-('CUSTOMER_EDIT', 'Edit customers', 'Business'),
-('CUSTOMER_DELETE', 'Delete customers', 'Business'),
-('VENDOR_VIEW', 'View vendors', 'Business'),
-('VENDOR_CREATE', 'Create vendors', 'Business'),
-('VENDOR_EDIT', 'Edit vendors', 'Business'),
-('VENDOR_DELETE', 'Delete vendors', 'Business'),
-('PRODUCT_VIEW', 'View products', 'Business'),
-('PRODUCT_CREATE', 'Create products', 'Business'),
-('PRODUCT_EDIT', 'Edit products', 'Business'),
-('PRODUCT_DELETE', 'Delete products', 'Business'),
--- Transaction permissions
-('INVOICE_VIEW', 'View invoices', 'Transactions'),
-('INVOICE_CREATE', 'Create invoices', 'Transactions'),
-('INVOICE_EDIT', 'Edit invoices', 'Transactions'),
-('INVOICE_DELETE', 'Delete invoices', 'Transactions'),
-('INVOICE_APPROVE', 'Approve invoices', 'Transactions'),
-('PAYMENT_VIEW', 'View payments', 'Transactions'),
-('PAYMENT_CREATE', 'Create payments', 'Transactions'),
-('PAYMENT_EDIT', 'Edit payments', 'Transactions'),
-('PAYMENT_DELETE', 'Delete payments', 'Transactions'),
-('PAYMENT_APPROVE', 'Approve payments', 'Transactions'),
--- Banking permissions
-('BANK_VIEW', 'View bank accounts', 'Banking'),
-('BANK_CREATE', 'Create bank accounts', 'Banking'),
-('BANK_EDIT', 'Edit bank accounts', 'Banking'),
-('BANK_DELETE', 'Delete bank accounts', 'Banking'),
-('BANK_RECONCILE', 'Reconcile bank accounts', 'Banking'),
-('BANK_STATEMENT', 'Import bank statements', 'Banking'),
--- Tax permissions
-('TAX_VIEW', 'View tax settings', 'Tax'),
-('TAX_EDIT', 'Edit tax settings', 'Tax'),
-('GST_PREPARE', 'Prepare GST returns', 'Tax'),
-('GST_SUBMIT', 'Mark GST returns as submitted', 'Tax'),
-('TAX_REPORT', 'Generate tax reports', 'Tax'),
--- Reporting permissions
-('REPORT_FINANCIAL', 'Access financial reports', 'Reporting'),
-('REPORT_TAX', 'Access tax reports', 'Reporting'),
-('REPORT_MANAGEMENT', 'Access management reports', 'Reporting'),
-('REPORT_CUSTOM', 'Create custom reports', 'Reporting'),
-('REPORT_EXPORT', 'Export reports', 'Reporting')
-ON CONFLICT (code) DO UPDATE SET
-    description = EXCLUDED.description,
-    module = EXCLUDED.module;
-
--- ----------------------------------------------------------------------------
--- Insert System Init User (ID 1) - MUST BE CREATED EARLY
--- ----------------------------------------------------------------------------
-INSERT INTO core.users (id, username, password_hash, email, full_name, is_active, require_password_change)
-VALUES (1, 'system_init_user', crypt('system_init_secure_password_!PLACEHOLDER!', gen_salt('bf')), 'system_init@sgbookkeeper.com', 'System Initializer', FALSE, FALSE) 
-ON CONFLICT (id) DO UPDATE SET 
-    username = EXCLUDED.username, 
-    password_hash = EXCLUDED.password_hash, 
-    email = EXCLUDED.email, 
-    full_name = EXCLUDED.full_name, 
-    is_active = EXCLUDED.is_active,
-    require_password_change = EXCLUDED.require_password_change,
-    updated_at = CURRENT_TIMESTAMP;
-
--- Synchronize the sequence for core.users.id after inserting user with ID 1
--- This ensures the next user (e.g., 'admin') gets a correct auto-generated ID
-SELECT setval(pg_get_serial_sequence('core.users', 'id'), COALESCE((SELECT MAX(id) FROM core.users), 1), true);
-
--- ----------------------------------------------------------------------------
--- Insert default currencies (SGD must be first for company_settings FK if it's the base)
--- ----------------------------------------------------------------------------
-INSERT INTO accounting.currencies (code, name, symbol, is_active, decimal_places, created_by, updated_by) VALUES
-('SGD', 'Singapore Dollar', '$', TRUE, 2, 1, 1)
-ON CONFLICT (code) DO UPDATE SET 
-    name = EXCLUDED.name, symbol = EXCLUDED.symbol, is_active = EXCLUDED.is_active, 
-    decimal_places = EXCLUDED.decimal_places, created_by = COALESCE(accounting.currencies.created_by, EXCLUDED.created_by), 
-    updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
-
-INSERT INTO accounting.currencies (code, name, symbol, is_active, decimal_places, created_by, updated_by) VALUES
-('USD', 'US Dollar', '$', TRUE, 2, 1, 1),
-('EUR', 'Euro', '€', TRUE, 2, 1, 1),
-('GBP', 'British Pound', '£', TRUE, 2, 1, 1),
-('AUD', 'Australian Dollar', '$', TRUE, 2, 1, 1),
-('JPY', 'Japanese Yen', '¥', TRUE, 0, 1, 1),
-('CNY', 'Chinese Yuan', '¥', TRUE, 2, 1, 1),
-('MYR', 'Malaysian Ringgit', 'RM', TRUE, 2, 1, 1),
-('IDR', 'Indonesian Rupiah', 'Rp', TRUE, 0, 1, 1)
-ON CONFLICT (code) DO UPDATE SET 
-    name = EXCLUDED.name, symbol = EXCLUDED.symbol, is_active = EXCLUDED.is_active, 
-    decimal_places = EXCLUDED.decimal_places, created_by = COALESCE(accounting.currencies.created_by, EXCLUDED.created_by), 
-    updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
-
--- ----------------------------------------------------------------------------
--- Insert Default Company Settings (ID = 1)
--- This MUST come AFTER core.users ID 1 is created and base currency (SGD) is defined.
--- ----------------------------------------------------------------------------
-INSERT INTO core.company_settings (
-    id, company_name, legal_name, uen_no, gst_registration_no, gst_registered, 
-    address_line1, postal_code, city, country, 
-    fiscal_year_start_month, fiscal_year_start_day, base_currency, tax_id_label, date_format, 
-    updated_by 
-) VALUES (
-    1, 
-    'My Demo Company Pte. Ltd.', 
-    'My Demo Company Private Limited',
-    '202400001Z', 
-    'M90000001Z', 
-    TRUE,
-    '1 Marina Boulevard', 
-    '018989',
-    'Singapore',
-    'Singapore',
-    1, 
-    1, 
-    'SGD',
-    'UEN',
-    'dd/MM/yyyy',
-    1 
-)
-ON CONFLICT (id) DO UPDATE SET
-    company_name = EXCLUDED.company_name, legal_name = EXCLUDED.legal_name, uen_no = EXCLUDED.uen_no,
-    gst_registration_no = EXCLUDED.gst_registration_no, gst_registered = EXCLUDED.gst_registered,
-    address_line1 = EXCLUDED.address_line1, postal_code = EXCLUDED.postal_code, city = EXCLUDED.city, country = EXCLUDED.country,
-    fiscal_year_start_month = EXCLUDED.fiscal_year_start_month, fiscal_year_start_day = EXCLUDED.fiscal_year_start_day,
-    base_currency = EXCLUDED.base_currency, tax_id_label = EXCLUDED.tax_id_label, date_format = EXCLUDED.date_format,
-    updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
-
--- ----------------------------------------------------------------------------
--- Insert default document sequences
--- ----------------------------------------------------------------------------
-INSERT INTO core.sequences (sequence_name, prefix, next_value, format_template) VALUES
-('journal_entry', 'JE', 1, '{PREFIX}{VALUE:06}'), ('sales_invoice', 'INV', 1, '{PREFIX}{VALUE:06}'),
-('purchase_invoice', 'PUR', 1, '{PREFIX}{VALUE:06}'), ('payment', 'PAY', 1, '{PREFIX}{VALUE:06}'),
-('receipt', 'REC', 1, '{PREFIX}{VALUE:06}'), ('customer', 'CUS', 1, '{PREFIX}{VALUE:04}'),
-('vendor', 'VEN', 1, '{PREFIX}{VALUE:04}'), ('product', 'PRD', 1, '{PREFIX}{VALUE:04}'),
-('wht_certificate', 'WHT', 1, '{PREFIX}{VALUE:06}')
-ON CONFLICT (sequence_name) DO UPDATE SET
-    prefix = EXCLUDED.prefix, next_value = GREATEST(core.sequences.next_value, EXCLUDED.next_value), 
-    format_template = EXCLUDED.format_template, updated_at = CURRENT_TIMESTAMP;
-
--- ----------------------------------------------------------------------------
--- Insert default configuration values (NEW SECTION from previous fix)
--- These account codes MUST exist from chart_of_accounts CSV or be system accounts
--- ----------------------------------------------------------------------------
-INSERT INTO core.configuration (config_key, config_value, description, updated_by) VALUES
-('SysAcc_DefaultAR', '1120', 'Default Accounts Receivable account code', 1),
-('SysAcc_DefaultSalesRevenue', '4100', 'Default Sales Revenue account code', 1),
-('SysAcc_DefaultGSTOutput', 'SYS-GST-OUTPUT', 'Default GST Output Tax account code', 1),
-('SysAcc_DefaultAP', '2110', 'Default Accounts Payable account code', 1),
-('SysAcc_DefaultPurchaseExpense', '5100', 'Default Purchase/COGS account code', 1),
-('SysAcc_DefaultGSTInput', 'SYS-GST-INPUT', 'Default GST Input Tax account code', 1)
-ON CONFLICT (config_key) DO UPDATE SET
-    config_value = EXCLUDED.config_value,
-    description = EXCLUDED.description,
-    updated_by = EXCLUDED.updated_by,
-    updated_at = CURRENT_TIMESTAMP;
-
--- ----------------------------------------------------------------------------
--- Insert account types
--- ----------------------------------------------------------------------------
-INSERT INTO accounting.account_types (name, category, is_debit_balance, report_type, display_order, description) VALUES
-('Current Asset', 'Asset', TRUE, 'Balance Sheet', 10, 'Assets expected to be converted to cash within one year'),
-('Fixed Asset', 'Asset', TRUE, 'Balance Sheet', 20, 'Long-term tangible assets'),
-('Other Asset', 'Asset', TRUE, 'Balance Sheet', 30, 'Assets that don''t fit in other categories'),
-('Current Liability', 'Liability', FALSE, 'Balance Sheet', 40, 'Obligations due within one year'),
-('Long-term Liability', 'Liability', FALSE, 'Balance Sheet', 50, 'Obligations due beyond one year'),
-('Equity', 'Equity', FALSE, 'Balance Sheet', 60, 'Owner''s equity and retained earnings'),
-('Revenue', 'Revenue', FALSE, 'Income Statement', 70, 'Income from business operations'),
-('Cost of Sales', 'Expense', TRUE, 'Income Statement', 80, 'Direct costs of goods sold'),
-('Expense', 'Expense', TRUE, 'Income Statement', 90, 'General business expenses'),
-('Other Income', 'Revenue', FALSE, 'Income Statement', 100, 'Income from non-core activities'),
-('Other Expense', 'Expense', TRUE, 'Income Statement', 110, 'Expenses from non-core activities')
-ON CONFLICT (name) DO UPDATE SET
-    category = EXCLUDED.category, is_debit_balance = EXCLUDED.is_debit_balance, report_type = EXCLUDED.report_type,
-    display_order = EXCLUDED.display_order, description = EXCLUDED.description, updated_at = CURRENT_TIMESTAMP;
-
--- Ensure key GL accounts from default CoA exist if not already inserted by CSV import via app (NEW SECTION from previous fix)
--- These are referenced by the core.configuration defaults
-INSERT INTO accounting.accounts (code, name, account_type, sub_type, created_by, updated_by, is_active, is_control_account) VALUES
-('1120', 'Accounts Receivable Control', 'Asset', 'Accounts Receivable', 1, 1, TRUE, TRUE),
-('2110', 'Accounts Payable Control', 'Liability', 'Accounts Payable', 1, 1, TRUE, TRUE),
-('4100', 'General Sales Revenue', 'Revenue', 'Sales', 1, 1, TRUE, FALSE),
-('5100', 'General Cost of Goods Sold', 'Expense', 'Cost of Sales', 1, 1, TRUE, FALSE)
-ON CONFLICT (code) DO NOTHING; -- Do nothing if they already exist (e.g. from CSV)
-
--- ----------------------------------------------------------------------------
--- Insert default tax codes related accounts
--- ----------------------------------------------------------------------------
-INSERT INTO accounting.accounts (code, name, account_type, created_by, updated_by, is_active) VALUES
-('SYS-GST-OUTPUT', 'System GST Output Tax', 'Liability', 1, 1, TRUE),
-('SYS-GST-INPUT', 'System GST Input Tax', 'Asset', 1, 1, TRUE)
-ON CONFLICT (code) DO UPDATE SET
-    name = EXCLUDED.name, account_type = EXCLUDED.account_type, updated_by = EXCLUDED.updated_by, 
-    is_active = EXCLUDED.is_active, updated_at = CURRENT_TIMESTAMP;
-
--- ----------------------------------------------------------------------------
--- Insert default tax codes (GST updated to 9%)
--- ----------------------------------------------------------------------------
-INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id)
-SELECT 'SR', 'Standard Rate (9%)', 'GST', 9.00, TRUE, TRUE, 1, 1, acc.id FROM accounting.accounts acc WHERE acc.code = 'SYS-GST-OUTPUT'
-ON CONFLICT (code) DO UPDATE SET
-    description = EXCLUDED.description, tax_type = EXCLUDED.tax_type, rate = EXCLUDED.rate,
-    is_default = EXCLUDED.is_default, is_active = EXCLUDED.is_active, updated_by = EXCLUDED.updated_by, 
-    affects_account_id = EXCLUDED.affects_account_id, updated_at = CURRENT_TIMESTAMP;
-
-INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
-('ZR', 'Zero Rate', 'GST', 0.00, FALSE, TRUE, 1, 1, NULL)
-ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
-
-INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
-('ES', 'Exempt Supply', 'GST', 0.00, FALSE, TRUE, 1, 1, NULL)
-ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
-
-INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
-('OP', 'Out of Scope', 'GST', 0.00, FALSE, TRUE, 1, 1, NULL)
-ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
-
-INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id)
-SELECT 'TX', 'Taxable Purchase (9%)', 'GST', 9.00, FALSE, TRUE, 1, 1, acc.id FROM accounting.accounts acc WHERE acc.code = 'SYS-GST-INPUT'
-ON CONFLICT (code) DO UPDATE SET
-    description = EXCLUDED.description, tax_type = EXCLUDED.tax_type, rate = EXCLUDED.rate,
-    is_default = EXCLUDED.is_default, is_active = EXCLUDED.is_active, updated_by = EXCLUDED.updated_by, 
-    affects_account_id = EXCLUDED.affects_account_id, updated_at = CURRENT_TIMESTAMP;
-
-INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
-('BL', 'Blocked Input Tax (9%)', 'GST', 9.00, FALSE, TRUE, 1, 1, NULL)
-ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, rate = EXCLUDED.rate, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
-
-INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
-('NR', 'Non-Resident Services', 'Withholding Tax', 15.00, FALSE, TRUE, 1, 1, NULL)
-ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
-
-INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
-('ND', 'Non-Deductible', 'Income Tax', 0.00, FALSE, TRUE, 1, 1, NULL)
-ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
-
-INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
-('CA', 'Capital Allowance', 'Income Tax', 0.00, FALSE, TRUE, 1, 1, NULL)
-ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
-
--- Create an active 'admin' user for application login
-INSERT INTO core.users (username, password_hash, email, full_name, is_active, require_password_change)
-VALUES ('admin', crypt('password', gen_salt('bf')), 'admin@sgbookkeeper.com', 'Administrator', TRUE, TRUE)
-ON CONFLICT (username) DO UPDATE SET
-    password_hash = EXCLUDED.password_hash, email = EXCLUDED.email, full_name = EXCLUDED.full_name,
-    is_active = EXCLUDED.is_active, require_password_change = EXCLUDED.require_password_change,
-    updated_at = CURRENT_TIMESTAMP;
-
--- Assign 'Administrator' role to 'admin' user
-WITH admin_user_id_cte AS (SELECT id FROM core.users WHERE username = 'admin'),
-     admin_role_id_cte AS (SELECT id FROM core.roles WHERE name = 'Administrator')
-INSERT INTO core.user_roles (user_id, role_id, created_at)
-SELECT admin_user_id_cte.id, admin_role_id_cte.id, CURRENT_TIMESTAMP FROM admin_user_id_cte, admin_role_id_cte
-WHERE admin_user_id_cte.id IS NOT NULL AND admin_role_id_cte.id IS NOT NULL
-ON CONFLICT (user_id, role_id) DO NOTHING;
-
--- For all permissions, grant them to the 'Administrator' role
-INSERT INTO core.role_permissions (role_id, permission_id, created_at)
-SELECT r.id, p.id, CURRENT_TIMESTAMP
-FROM core.roles r, core.permissions p
-WHERE r.name = 'Administrator'
-ON CONFLICT (role_id, permission_id) DO NOTHING;
-
-COMMIT; 
--- End of initial data
-
-```
-
-# scripts/db_init.py
-```py
-# File: scripts/db_init.py
-import asyncio
-import asyncpg # type: ignore
-import argparse
-import getpass
-import os
-import sys
-from pathlib import Path
-
-SCRIPT_DIR = Path(__file__).resolve().parent
-SCHEMA_SQL_PATH = SCRIPT_DIR / 'schema.sql'
-INITIAL_DATA_SQL_PATH = SCRIPT_DIR / 'initial_data.sql'
-
-async def create_database(args):
-    """Create PostgreSQL database and initialize schema using reference SQL files."""
-    conn_admin = None 
-    db_conn = None 
-    try:
-        conn_params_admin = { 
-            "user": args.user,
-            "password": args.password,
-            "host": args.host,
-            "port": args.port,
-        }
-        conn_admin = await asyncpg.connect(**conn_params_admin, database='postgres') 
-    except Exception as e:
-        print(f"Error connecting to PostgreSQL server (postgres DB): {type(e).__name__} - {str(e)}", file=sys.stderr)
-        return False
-    
-    try:
-        exists = await conn_admin.fetchval(
-            "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)",
-            args.dbname
-        )
-        
-        if exists:
-            if args.drop_existing:
-                print(f"Terminating connections to '{args.dbname}'...")
-                await conn_admin.execute(f"""
-                    SELECT pg_terminate_backend(pid)
-                    FROM pg_stat_activity
-                    WHERE datname = '{args.dbname}' AND pid <> pg_backend_pid();
-                """)
-                print(f"Dropping existing database '{args.dbname}'...")
-                await conn_admin.execute(f"DROP DATABASE IF EXISTS \"{args.dbname}\"") 
-            else:
-                print(f"Database '{args.dbname}' already exists. Use --drop-existing to recreate.")
-                await conn_admin.close()
-                return False 
-        
-        print(f"Creating database '{args.dbname}'...")
-        await conn_admin.execute(f"CREATE DATABASE \"{args.dbname}\"") 
-        
-        await conn_admin.close() 
-        conn_admin = None 
-        
-        conn_params_db = {**conn_params_admin, "database": args.dbname}
-        db_conn = await asyncpg.connect(**conn_params_db) 
-        
-        if not SCHEMA_SQL_PATH.exists():
-            print(f"Error: schema.sql not found at {SCHEMA_SQL_PATH}", file=sys.stderr)
-            return False
-            
-        print(f"Initializing database schema from {SCHEMA_SQL_PATH}...")
-        with open(SCHEMA_SQL_PATH, 'r', encoding='utf-8') as f:
-            schema_sql = f.read()
-        await db_conn.execute(schema_sql)
-        print("Schema execution completed.")
-        
-        if not INITIAL_DATA_SQL_PATH.exists():
-            print(f"Warning: initial_data.sql not found at {INITIAL_DATA_SQL_PATH}. Skipping initial data.", file=sys.stderr)
-        else:
-            print(f"Loading initial data from {INITIAL_DATA_SQL_PATH}...")
-            with open(INITIAL_DATA_SQL_PATH, 'r', encoding='utf-8') as f:
-                data_sql = f.read()
-            await db_conn.execute(data_sql)
-            print("Initial data loading completed.")
-
-        print(f"Setting default search_path for database '{args.dbname}'...")
-        await db_conn.execute(f"""
-            ALTER DATABASE "{args.dbname}" 
-            SET search_path TO core, accounting, business, audit, public;
-        """)
-        print("Default search_path set.")
-        
-        print(f"Database '{args.dbname}' created and initialized successfully.")
-        return True
-    
-    except Exception as e:
-        print(f"Error during database creation/initialization: {type(e).__name__} - {str(e)}", file=sys.stderr)
-        if hasattr(e, 'sqlstate') and e.sqlstate: # type: ignore
-            print(f"  SQLSTATE: {e.sqlstate}", file=sys.stderr) # type: ignore
-        if hasattr(e, 'detail') and e.detail: # type: ignore
-             print(f"  DETAIL: {e.detail}", file=sys.stderr) # type: ignore
-        if hasattr(e, 'query') and e.query: # type: ignore
-            print(f"  Query context: {e.query[:200]}...", file=sys.stderr) # type: ignore
-        return False
-    
-    finally:
-        if conn_admin and not conn_admin.is_closed():
-            await conn_admin.close()
-        if db_conn and not db_conn.is_closed():
-            await db_conn.close()
-
-def parse_args():
-    parser = argparse.ArgumentParser(description='Initialize SG Bookkeeper database from reference SQL files.')
-    parser.add_argument('--host', default=os.getenv('PGHOST', 'localhost'), help='PostgreSQL server host (Env: PGHOST)')
-    parser.add_argument('--port', type=int, default=os.getenv('PGPORT', 5432), help='PostgreSQL server port (Env: PGPORT)')
-    parser.add_argument('--user', default=os.getenv('PGUSER', 'postgres'), help='PostgreSQL username (Env: PGUSER)')
-    parser.add_argument('--password', help='PostgreSQL password (Env: PGPASSWORD, or prompts if empty)')
-    parser.add_argument('--dbname', default=os.getenv('PGDATABASE', 'sg_bookkeeper'), help='Database name (Env: PGDATABASE)')
-    parser.add_argument('--drop-existing', action='store_true', help='Drop database if it already exists')
-    return parser.parse_args()
-
-def main():
-    args = parse_args()
-    
-    if not args.password:
-        pgpassword_env = os.getenv('PGPASSWORD')
-        if pgpassword_env:
-            args.password = pgpassword_env
-        else:
-            try:
-                args.password = getpass.getpass(f"Password for PostgreSQL user '{args.user}' on host '{args.host}': ")
-            except (EOFError, KeyboardInterrupt): 
-                print("\nPassword prompt cancelled or non-interactive environment. Exiting.", file=sys.stderr)
-                sys.exit(1)
-            except Exception as e: 
-                print(f"Could not read password securely: {e}. Try setting PGPASSWORD environment variable or using --password.", file=sys.stderr)
-                sys.exit(1)
-
-    try:
-        success = asyncio.run(create_database(args))
-    except KeyboardInterrupt:
-        print("\nDatabase initialization cancelled by user.", file=sys.stderr)
-        sys.exit(1)
-    except Exception as e: 
-        print(f"An unexpected error occurred in main: {type(e).__name__} - {str(e)}", file=sys.stderr)
-        if hasattr(e, 'sqlstate') and e.sqlstate: # type: ignore
-             print(f"  SQLSTATE: {e.sqlstate}", file=sys.stderr) # type: ignore
-        success = False
-        
-    sys.exit(0 if success else 1)
-
-if __name__ == '__main__':
-    main()
-
-```
-
-# scripts/schema.sql
-```sql
--- File: scripts/schema.sql
--- ============================================================================
--- SG Bookkeeper - Complete Database Schema - Version 1.0.1 (Reordered FKs)
--- ============================================================================
--- This script creates the complete database schema for the SG Bookkeeper application.
--- Changes from 1.0.0:
---  - All CREATE TABLE statements are grouped first.
---  - All ALTER TABLE ADD CONSTRAINT FOREIGN KEY statements are grouped at the end.
---  - Full table definitions restored.
--- ============================================================================
-
--- ============================================================================
--- INITIAL SETUP
--- ============================================================================
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
-CREATE EXTENSION IF NOT EXISTS btree_gist;
-
-CREATE SCHEMA IF NOT EXISTS core;
-CREATE SCHEMA IF NOT EXISTS accounting;
-CREATE SCHEMA IF NOT EXISTS business;
-CREATE SCHEMA IF NOT EXISTS audit;
-
-SET search_path TO core, accounting, business, audit, public;
-
--- ============================================================================
--- CORE SCHEMA TABLES
--- ============================================================================
-CREATE TABLE core.users (
-    id SERIAL PRIMARY KEY,
-    username VARCHAR(50) NOT NULL UNIQUE,
-    password_hash VARCHAR(255) NOT NULL,
-    email VARCHAR(100) UNIQUE, -- Added UNIQUE constraint from reference logic
-    full_name VARCHAR(100),
-    is_active BOOLEAN DEFAULT TRUE,
-    failed_login_attempts INTEGER DEFAULT 0,
-    last_login_attempt TIMESTAMP WITH TIME ZONE,
-    last_login TIMESTAMP WITH TIME ZONE,
-    require_password_change BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
--- Comments for core.users (omitted here for brevity, assume they are as per reference)
-
-CREATE TABLE core.roles (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(50) NOT NULL UNIQUE,
-    description VARCHAR(200),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE core.permissions (
-    id SERIAL PRIMARY KEY,
-    code VARCHAR(50) NOT NULL UNIQUE,
-    description VARCHAR(200),
-    module VARCHAR(50) NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE core.role_permissions (
-    role_id INTEGER NOT NULL, -- FK added later
-    permission_id INTEGER NOT NULL, -- FK added later
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (role_id, permission_id)
-);
-
-CREATE TABLE core.user_roles (
-    user_id INTEGER NOT NULL, -- FK added later
-    role_id INTEGER NOT NULL, -- FK added later
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (user_id, role_id)
-);
-
-CREATE TABLE core.company_settings (
-    id SERIAL PRIMARY KEY,
-    company_name VARCHAR(100) NOT NULL,
-    legal_name VARCHAR(200),
-    uen_no VARCHAR(20),
-    gst_registration_no VARCHAR(20),
-    gst_registered BOOLEAN DEFAULT FALSE,
-    address_line1 VARCHAR(100),
-    address_line2 VARCHAR(100),
-    postal_code VARCHAR(20),
-    city VARCHAR(50) DEFAULT 'Singapore',
-    country VARCHAR(50) DEFAULT 'Singapore',
-    contact_person VARCHAR(100),
-    phone VARCHAR(20),
-    email VARCHAR(100),
-    website VARCHAR(100),
-    logo BYTEA,
-    fiscal_year_start_month INTEGER DEFAULT 1 CHECK (fiscal_year_start_month BETWEEN 1 AND 12),
-    fiscal_year_start_day INTEGER DEFAULT 1 CHECK (fiscal_year_start_day BETWEEN 1 AND 31),
-    base_currency VARCHAR(3) DEFAULT 'SGD', -- FK added later
-    tax_id_label VARCHAR(50) DEFAULT 'UEN',
-    date_format VARCHAR(20) DEFAULT 'yyyy-MM-dd',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_by INTEGER -- FK added later
-);
-
-CREATE TABLE core.configuration (
-    id SERIAL PRIMARY KEY,
-    config_key VARCHAR(50) NOT NULL UNIQUE,
-    config_value TEXT,
-    description VARCHAR(200),
-    is_encrypted BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_by INTEGER -- FK added later
-);
-
-CREATE TABLE core.sequences (
-    id SERIAL PRIMARY KEY,
-    sequence_name VARCHAR(50) NOT NULL UNIQUE,
-    prefix VARCHAR(10),
-    suffix VARCHAR(10),
-    next_value INTEGER NOT NULL DEFAULT 1,
-    increment_by INTEGER NOT NULL DEFAULT 1,
-    min_value INTEGER NOT NULL DEFAULT 1,
-    max_value INTEGER NOT NULL DEFAULT 2147483647,
-    cycle BOOLEAN DEFAULT FALSE,
-    format_template VARCHAR(50) DEFAULT '{PREFIX}{VALUE}{SUFFIX}',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- ============================================================================
--- ACCOUNTING SCHEMA TABLES
--- ============================================================================
-CREATE TABLE accounting.account_types (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(50) NOT NULL UNIQUE,
-    category VARCHAR(20) NOT NULL CHECK (category IN ('Asset', 'Liability', 'Equity', 'Revenue', 'Expense')),
-    is_debit_balance BOOLEAN NOT NULL,
-    report_type VARCHAR(30) NOT NULL,
-    display_order INTEGER NOT NULL,
-    description VARCHAR(200),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE accounting.accounts (
-    id SERIAL PRIMARY KEY,
-    code VARCHAR(20) NOT NULL UNIQUE,
-    name VARCHAR(100) NOT NULL,
-    account_type VARCHAR(20) NOT NULL CHECK (account_type IN ('Asset', 'Liability', 'Equity', 'Revenue', 'Expense')),
-    sub_type VARCHAR(30),
-    tax_treatment VARCHAR(20),
-    gst_applicable BOOLEAN DEFAULT FALSE,
-    is_active BOOLEAN DEFAULT TRUE,
-    description TEXT,
-    parent_id INTEGER, -- FK to self, added later
-    report_group VARCHAR(50),
-    is_control_account BOOLEAN DEFAULT FALSE,
-    is_bank_account BOOLEAN DEFAULT FALSE,
-    opening_balance NUMERIC(15,2) DEFAULT 0,
-    opening_balance_date DATE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER NOT NULL, -- FK added later
-    updated_by INTEGER NOT NULL -- FK added later
-);
-CREATE INDEX idx_accounts_parent_id ON accounting.accounts(parent_id);
-CREATE INDEX idx_accounts_is_active ON accounting.accounts(is_active);
-CREATE INDEX idx_accounts_account_type ON accounting.accounts(account_type);
-
-CREATE TABLE accounting.fiscal_years (
-    id SERIAL PRIMARY KEY,
-    year_name VARCHAR(20) NOT NULL UNIQUE,
-    start_date DATE NOT NULL,
-    end_date DATE NOT NULL,
-    is_closed BOOLEAN DEFAULT FALSE,
-    closed_date TIMESTAMP WITH TIME ZONE,
-    closed_by INTEGER, -- FK added later
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER NOT NULL, -- FK added later
-    updated_by INTEGER NOT NULL, -- FK added later
-    CONSTRAINT fy_date_range_check CHECK (start_date <= end_date),
-    CONSTRAINT fy_unique_date_ranges EXCLUDE USING gist (daterange(start_date, end_date, '[]') WITH &&)
-);
-
-CREATE TABLE accounting.fiscal_periods (
-    id SERIAL PRIMARY KEY,
-    fiscal_year_id INTEGER NOT NULL, -- FK added later
-    name VARCHAR(50) NOT NULL,
-    start_date DATE NOT NULL,
-    end_date DATE NOT NULL,
-    period_type VARCHAR(10) NOT NULL CHECK (period_type IN ('Month', 'Quarter', 'Year')),
-    status VARCHAR(10) NOT NULL CHECK (status IN ('Open', 'Closed', 'Archived')),
-    period_number INTEGER NOT NULL,
-    is_adjustment BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER NOT NULL, -- FK added later
-    updated_by INTEGER NOT NULL, -- FK added later
-    CONSTRAINT fp_date_range_check CHECK (start_date <= end_date),
-    CONSTRAINT fp_unique_period_dates UNIQUE (fiscal_year_id, period_type, period_number)
-);
-CREATE INDEX idx_fiscal_periods_dates ON accounting.fiscal_periods(start_date, end_date);
-CREATE INDEX idx_fiscal_periods_status ON accounting.fiscal_periods(status);
-
-CREATE TABLE accounting.currencies (
-    code CHAR(3) PRIMARY KEY,
-    name VARCHAR(50) NOT NULL,
-    symbol VARCHAR(10) NOT NULL,
-    is_active BOOLEAN DEFAULT TRUE,
-    decimal_places INTEGER DEFAULT 2,
-    format_string VARCHAR(20) DEFAULT '#,##0.00',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER, -- FK added later
-    updated_by INTEGER -- FK added later
-);
-
-CREATE TABLE accounting.exchange_rates (
-    id SERIAL PRIMARY KEY,
-    from_currency CHAR(3) NOT NULL, -- FK added later
-    to_currency CHAR(3) NOT NULL, -- FK added later
-    rate_date DATE NOT NULL,
-    exchange_rate NUMERIC(15,6) NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER, -- FK added later
-    updated_by INTEGER, -- FK added later
-    CONSTRAINT uq_exchange_rates_pair_date UNIQUE (from_currency, to_currency, rate_date)
-);
-CREATE INDEX idx_exchange_rates_lookup ON accounting.exchange_rates(from_currency, to_currency, rate_date);
-
-CREATE TABLE accounting.journal_entries (
-    id SERIAL PRIMARY KEY,
-    entry_no VARCHAR(20) NOT NULL UNIQUE,
-    journal_type VARCHAR(20) NOT NULL,
-    entry_date DATE NOT NULL,
-    fiscal_period_id INTEGER NOT NULL, -- FK added later
-    description VARCHAR(500),
-    reference VARCHAR(100),
-    is_recurring BOOLEAN DEFAULT FALSE,
-    recurring_pattern_id INTEGER, -- FK added later
-    is_posted BOOLEAN DEFAULT FALSE,
-    is_reversed BOOLEAN DEFAULT FALSE,
-    reversing_entry_id INTEGER, -- FK to self, added later
-    source_type VARCHAR(50),
-    source_id INTEGER,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER NOT NULL, -- FK added later
-    updated_by INTEGER NOT NULL -- FK added later
-);
-CREATE INDEX idx_journal_entries_date ON accounting.journal_entries(entry_date);
-CREATE INDEX idx_journal_entries_fiscal_period ON accounting.journal_entries(fiscal_period_id);
-CREATE INDEX idx_journal_entries_source ON accounting.journal_entries(source_type, source_id);
-CREATE INDEX idx_journal_entries_posted ON accounting.journal_entries(is_posted);
-
-CREATE TABLE accounting.journal_entry_lines (
-    id SERIAL PRIMARY KEY,
-    journal_entry_id INTEGER NOT NULL, -- FK added later
-    line_number INTEGER NOT NULL,
-    account_id INTEGER NOT NULL, -- FK added later
-    description VARCHAR(200),
-    debit_amount NUMERIC(15,2) DEFAULT 0,
-    credit_amount NUMERIC(15,2) DEFAULT 0,
-    currency_code CHAR(3) DEFAULT 'SGD', -- FK added later
-    exchange_rate NUMERIC(15,6) DEFAULT 1,
-    tax_code VARCHAR(20), -- FK added later
-    tax_amount NUMERIC(15,2) DEFAULT 0,
-    dimension1_id INTEGER, -- FK added later
-    dimension2_id INTEGER, -- FK added later
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT jel_check_debit_credit CHECK ((debit_amount > 0 AND credit_amount = 0) OR (credit_amount > 0 AND debit_amount = 0) OR (debit_amount = 0 AND credit_amount = 0))
-);
-CREATE INDEX idx_journal_entry_lines_entry ON accounting.journal_entry_lines(journal_entry_id);
-CREATE INDEX idx_journal_entry_lines_account ON accounting.journal_entry_lines(account_id);
-
-CREATE TABLE accounting.recurring_patterns (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
-    description TEXT,
-    template_entry_id INTEGER NOT NULL, -- FK added later
-    frequency VARCHAR(20) NOT NULL CHECK (frequency IN ('Daily', 'Weekly', 'Monthly', 'Quarterly', 'Yearly')),
-    interval_value INTEGER NOT NULL DEFAULT 1,
-    start_date DATE NOT NULL,
-    end_date DATE,
-    day_of_month INTEGER CHECK (day_of_month BETWEEN 1 AND 31),
-    day_of_week INTEGER CHECK (day_of_week BETWEEN 0 AND 6),
-    last_generated_date DATE,
-    next_generation_date DATE,
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER NOT NULL, -- FK added later
-    updated_by INTEGER NOT NULL -- FK added later
-);
-
-CREATE TABLE accounting.dimensions (
-    id SERIAL PRIMARY KEY,
-    dimension_type VARCHAR(50) NOT NULL,
-    code VARCHAR(20) NOT NULL,
-    name VARCHAR(100) NOT NULL,
-    description TEXT,
-    is_active BOOLEAN DEFAULT TRUE,
-    parent_id INTEGER, -- FK to self, added later
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER NOT NULL, -- FK added later
-    updated_by INTEGER NOT NULL, -- FK added later
-    UNIQUE (dimension_type, code)
-);
-
-CREATE TABLE accounting.budgets (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
-    fiscal_year_id INTEGER NOT NULL, -- FK added later
-    description TEXT,
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER NOT NULL, -- FK added later
-    updated_by INTEGER NOT NULL -- FK added later
-);
-
-CREATE TABLE accounting.budget_details (
-    id SERIAL PRIMARY KEY,
-    budget_id INTEGER NOT NULL, -- FK added later
-    account_id INTEGER NOT NULL, -- FK added later
-    fiscal_period_id INTEGER NOT NULL, -- FK added later
-    amount NUMERIC(15,2) NOT NULL,
-    dimension1_id INTEGER, -- FK added later
-    dimension2_id INTEGER, -- FK added later
-    notes TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER NOT NULL, -- FK added later
-    updated_by INTEGER NOT NULL -- FK added later
-);
-CREATE UNIQUE INDEX uix_budget_details_key ON accounting.budget_details (budget_id, account_id, fiscal_period_id, COALESCE(dimension1_id, 0), COALESCE(dimension2_id, 0));
-
-CREATE TABLE accounting.tax_codes (
-    id SERIAL PRIMARY KEY,
-    code VARCHAR(20) NOT NULL UNIQUE,
-    description VARCHAR(100) NOT NULL,
-    tax_type VARCHAR(20) NOT NULL CHECK (tax_type IN ('GST', 'Income Tax', 'Withholding Tax')),
-    rate NUMERIC(5,2) NOT NULL,
-    is_default BOOLEAN DEFAULT FALSE,
-    is_active BOOLEAN DEFAULT TRUE,
-    affects_account_id INTEGER, -- FK added later
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER NOT NULL, -- FK added later
-    updated_by INTEGER NOT NULL -- FK added later
-);
-
-CREATE TABLE accounting.gst_returns (
-    id SERIAL PRIMARY KEY,
-    return_period VARCHAR(20) NOT NULL UNIQUE,
-    start_date DATE NOT NULL,
-    end_date DATE NOT NULL,
-    filing_due_date DATE NOT NULL,
-    standard_rated_supplies NUMERIC(15,2) DEFAULT 0,
-    zero_rated_supplies NUMERIC(15,2) DEFAULT 0,
-    exempt_supplies NUMERIC(15,2) DEFAULT 0,
-    total_supplies NUMERIC(15,2) DEFAULT 0,
-    taxable_purchases NUMERIC(15,2) DEFAULT 0,
-    output_tax NUMERIC(15,2) DEFAULT 0,
-    input_tax NUMERIC(15,2) DEFAULT 0,
-    tax_adjustments NUMERIC(15,2) DEFAULT 0,
-    tax_payable NUMERIC(15,2) DEFAULT 0,
-    status VARCHAR(20) DEFAULT 'Draft' CHECK (status IN ('Draft', 'Submitted', 'Amended')),
-    submission_date DATE,
-    submission_reference VARCHAR(50),
-    journal_entry_id INTEGER, -- FK added later
-    notes TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER NOT NULL, -- FK added later
-    updated_by INTEGER NOT NULL -- FK added later
-);
-
-CREATE TABLE accounting.withholding_tax_certificates (
-    id SERIAL PRIMARY KEY,
-    certificate_no VARCHAR(20) NOT NULL UNIQUE,
-    vendor_id INTEGER NOT NULL, -- FK added later
-    tax_type VARCHAR(50) NOT NULL,
-    tax_rate NUMERIC(5,2) NOT NULL,
-    payment_date DATE NOT NULL,
-    amount_before_tax NUMERIC(15,2) NOT NULL,
-    tax_amount NUMERIC(15,2) NOT NULL,
-    payment_reference VARCHAR(50),
-    status VARCHAR(20) DEFAULT 'Draft' CHECK (status IN ('Draft', 'Issued', 'Voided')),
-    issue_date DATE,
-    journal_entry_id INTEGER, -- FK added later
-    notes TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER NOT NULL, -- FK added later
-    updated_by INTEGER NOT NULL -- FK added later
-);
-
--- ============================================================================
--- BUSINESS SCHEMA TABLES
--- ============================================================================
-CREATE TABLE business.customers (
-    id SERIAL PRIMARY KEY, customer_code VARCHAR(20) NOT NULL UNIQUE, name VARCHAR(100) NOT NULL, legal_name VARCHAR(200), uen_no VARCHAR(20), gst_registered BOOLEAN DEFAULT FALSE, gst_no VARCHAR(20), contact_person VARCHAR(100), email VARCHAR(100), phone VARCHAR(20), address_line1 VARCHAR(100), address_line2 VARCHAR(100), postal_code VARCHAR(20), city VARCHAR(50), country VARCHAR(50) DEFAULT 'Singapore', credit_terms INTEGER DEFAULT 30, credit_limit NUMERIC(15,2), currency_code CHAR(3) DEFAULT 'SGD', is_active BOOLEAN DEFAULT TRUE, customer_since DATE, notes TEXT, receivables_account_id INTEGER, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, created_by INTEGER NOT NULL, updated_by INTEGER NOT NULL);
-CREATE INDEX idx_customers_name ON business.customers(name); CREATE INDEX idx_customers_is_active ON business.customers(is_active);
-
-CREATE TABLE business.vendors (
-    id SERIAL PRIMARY KEY, vendor_code VARCHAR(20) NOT NULL UNIQUE, name VARCHAR(100) NOT NULL, legal_name VARCHAR(200), uen_no VARCHAR(20), gst_registered BOOLEAN DEFAULT FALSE, gst_no VARCHAR(20), withholding_tax_applicable BOOLEAN DEFAULT FALSE, withholding_tax_rate NUMERIC(5,2), contact_person VARCHAR(100), email VARCHAR(100), phone VARCHAR(20), address_line1 VARCHAR(100), address_line2 VARCHAR(100), postal_code VARCHAR(20), city VARCHAR(50), country VARCHAR(50) DEFAULT 'Singapore', payment_terms INTEGER DEFAULT 30, currency_code CHAR(3) DEFAULT 'SGD', is_active BOOLEAN DEFAULT TRUE, vendor_since DATE, notes TEXT, bank_account_name VARCHAR(100), bank_account_number VARCHAR(50), bank_name VARCHAR(100), bank_branch VARCHAR(100), bank_swift_code VARCHAR(20), payables_account_id INTEGER, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, created_by INTEGER NOT NULL, updated_by INTEGER NOT NULL);
-CREATE INDEX idx_vendors_name ON business.vendors(name); CREATE INDEX idx_vendors_is_active ON business.vendors(is_active);
-
-CREATE TABLE business.products (
-    id SERIAL PRIMARY KEY, product_code VARCHAR(20) NOT NULL UNIQUE, name VARCHAR(100) NOT NULL, description TEXT, product_type VARCHAR(20) NOT NULL CHECK (product_type IN ('Inventory', 'Service', 'Non-Inventory')), category VARCHAR(50), unit_of_measure VARCHAR(20), barcode VARCHAR(50), sales_price NUMERIC(15,2), purchase_price NUMERIC(15,2), sales_account_id INTEGER, purchase_account_id INTEGER, inventory_account_id INTEGER, tax_code VARCHAR(20), is_active BOOLEAN DEFAULT TRUE, min_stock_level NUMERIC(15,2), reorder_point NUMERIC(15,2), created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, created_by INTEGER NOT NULL, updated_by INTEGER NOT NULL);
-CREATE INDEX idx_products_name ON business.products(name); CREATE INDEX idx_products_is_active ON business.products(is_active); CREATE INDEX idx_products_type ON business.products(product_type);
-
-CREATE TABLE business.inventory_movements (
-    id SERIAL PRIMARY KEY, product_id INTEGER NOT NULL, movement_date DATE NOT NULL, movement_type VARCHAR(20) NOT NULL CHECK (movement_type IN ('Purchase', 'Sale', 'Adjustment', 'Transfer', 'Return', 'Opening')), quantity NUMERIC(15,2) NOT NULL, unit_cost NUMERIC(15,4), total_cost NUMERIC(15,2), reference_type VARCHAR(50), reference_id INTEGER, notes TEXT, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, created_by INTEGER NOT NULL);
-CREATE INDEX idx_inventory_movements_product ON business.inventory_movements(product_id, movement_date); CREATE INDEX idx_inventory_movements_reference ON business.inventory_movements(reference_type, reference_id);
-
-CREATE TABLE business.sales_invoices (
-    id SERIAL PRIMARY KEY, invoice_no VARCHAR(20) NOT NULL UNIQUE, customer_id INTEGER NOT NULL, invoice_date DATE NOT NULL, due_date DATE NOT NULL, currency_code CHAR(3) NOT NULL, exchange_rate NUMERIC(15,6) DEFAULT 1, subtotal NUMERIC(15,2) NOT NULL, tax_amount NUMERIC(15,2) NOT NULL DEFAULT 0, total_amount NUMERIC(15,2) NOT NULL, amount_paid NUMERIC(15,2) NOT NULL DEFAULT 0, status VARCHAR(20) NOT NULL DEFAULT 'Draft' CHECK (status IN ('Draft', 'Approved', 'Sent', 'Partially Paid', 'Paid', 'Overdue', 'Voided')), notes TEXT, terms_and_conditions TEXT, journal_entry_id INTEGER, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, created_by INTEGER NOT NULL, updated_by INTEGER NOT NULL);
-CREATE INDEX idx_sales_invoices_customer ON business.sales_invoices(customer_id); CREATE INDEX idx_sales_invoices_dates ON business.sales_invoices(invoice_date, due_date); CREATE INDEX idx_sales_invoices_status ON business.sales_invoices(status);
-
-CREATE TABLE business.sales_invoice_lines (
-    id SERIAL PRIMARY KEY, invoice_id INTEGER NOT NULL, line_number INTEGER NOT NULL, product_id INTEGER, description VARCHAR(200) NOT NULL, quantity NUMERIC(15,2) NOT NULL, unit_price NUMERIC(15,2) NOT NULL, discount_percent NUMERIC(5,2) DEFAULT 0, discount_amount NUMERIC(15,2) DEFAULT 0, line_subtotal NUMERIC(15,2) NOT NULL, tax_code VARCHAR(20), tax_amount NUMERIC(15,2) DEFAULT 0, line_total NUMERIC(15,2) NOT NULL, dimension1_id INTEGER, dimension2_id INTEGER, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP);
-CREATE INDEX idx_sales_invoice_lines_invoice ON business.sales_invoice_lines(invoice_id); CREATE INDEX idx_sales_invoice_lines_product ON business.sales_invoice_lines(product_id);
-
-CREATE TABLE business.purchase_invoices (
-    id SERIAL PRIMARY KEY, invoice_no VARCHAR(20) NOT NULL UNIQUE, vendor_id INTEGER NOT NULL, vendor_invoice_no VARCHAR(50), invoice_date DATE NOT NULL, due_date DATE NOT NULL, currency_code CHAR(3) NOT NULL, exchange_rate NUMERIC(15,6) DEFAULT 1, subtotal NUMERIC(15,2) NOT NULL, tax_amount NUMERIC(15,2) NOT NULL DEFAULT 0, total_amount NUMERIC(15,2) NOT NULL, amount_paid NUMERIC(15,2) NOT NULL DEFAULT 0, status VARCHAR(20) NOT NULL DEFAULT 'Draft' CHECK (status IN ('Draft', 'Approved', 'Partially Paid', 'Paid', 'Overdue', 'Disputed', 'Voided')), notes TEXT, journal_entry_id INTEGER, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, created_by INTEGER NOT NULL, updated_by INTEGER NOT NULL);
-CREATE INDEX idx_purchase_invoices_vendor ON business.purchase_invoices(vendor_id); CREATE INDEX idx_purchase_invoices_dates ON business.purchase_invoices(invoice_date, due_date); CREATE INDEX idx_purchase_invoices_status ON business.purchase_invoices(status);
-
-CREATE TABLE business.purchase_invoice_lines (
-    id SERIAL PRIMARY KEY, invoice_id INTEGER NOT NULL, line_number INTEGER NOT NULL, product_id INTEGER, description VARCHAR(200) NOT NULL, quantity NUMERIC(15,2) NOT NULL, unit_price NUMERIC(15,2) NOT NULL, discount_percent NUMERIC(5,2) DEFAULT 0, discount_amount NUMERIC(15,2) DEFAULT 0, line_subtotal NUMERIC(15,2) NOT NULL, tax_code VARCHAR(20), tax_amount NUMERIC(15,2) DEFAULT 0, line_total NUMERIC(15,2) NOT NULL, dimension1_id INTEGER, dimension2_id INTEGER, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP);
-CREATE INDEX idx_purchase_invoice_lines_invoice ON business.purchase_invoice_lines(invoice_id); CREATE INDEX idx_purchase_invoice_lines_product ON business.purchase_invoice_lines(product_id);
-
-CREATE TABLE business.bank_accounts (
-    id SERIAL PRIMARY KEY, account_name VARCHAR(100) NOT NULL, account_number VARCHAR(50) NOT NULL, bank_name VARCHAR(100) NOT NULL, bank_branch VARCHAR(100), bank_swift_code VARCHAR(20), currency_code CHAR(3) NOT NULL, opening_balance NUMERIC(15,2) DEFAULT 0, current_balance NUMERIC(15,2) DEFAULT 0, last_reconciled_date DATE, gl_account_id INTEGER NOT NULL, is_active BOOLEAN DEFAULT TRUE, description TEXT, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, created_by INTEGER NOT NULL, updated_by INTEGER NOT NULL);
-
-CREATE TABLE business.bank_transactions (
-    id SERIAL PRIMARY KEY, bank_account_id INTEGER NOT NULL, transaction_date DATE NOT NULL, value_date DATE, transaction_type VARCHAR(20) NOT NULL CHECK (transaction_type IN ('Deposit', 'Withdrawal', 'Transfer', 'Interest', 'Fee', 'Adjustment')), description VARCHAR(200) NOT NULL, reference VARCHAR(100), amount NUMERIC(15,2) NOT NULL, is_reconciled BOOLEAN DEFAULT FALSE, reconciled_date DATE, statement_date DATE, statement_id VARCHAR(50), journal_entry_id INTEGER, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, created_by INTEGER NOT NULL, updated_by INTEGER NOT NULL);
-CREATE INDEX idx_bank_transactions_account ON business.bank_transactions(bank_account_id); CREATE INDEX idx_bank_transactions_date ON business.bank_transactions(transaction_date); CREATE INDEX idx_bank_transactions_reconciled ON business.bank_transactions(is_reconciled);
-
-CREATE TABLE business.payments (
-    id SERIAL PRIMARY KEY, payment_no VARCHAR(20) NOT NULL UNIQUE, payment_type VARCHAR(20) NOT NULL CHECK (payment_type IN ('Customer Payment', 'Vendor Payment', 'Refund', 'Credit Note', 'Other')), payment_method VARCHAR(20) NOT NULL CHECK (payment_method IN ('Cash', 'Check', 'Bank Transfer', 'Credit Card', 'GIRO', 'PayNow', 'Other')), payment_date DATE NOT NULL, entity_type VARCHAR(20) NOT NULL CHECK (entity_type IN ('Customer', 'Vendor', 'Other')), entity_id INTEGER NOT NULL, bank_account_id INTEGER, currency_code CHAR(3) NOT NULL, exchange_rate NUMERIC(15,6) DEFAULT 1, amount NUMERIC(15,2) NOT NULL, reference VARCHAR(100), description TEXT, cheque_no VARCHAR(50), status VARCHAR(20) NOT NULL DEFAULT 'Draft' CHECK (status IN ('Draft', 'Approved', 'Completed', 'Voided', 'Returned')), journal_entry_id INTEGER, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, created_by INTEGER NOT NULL, updated_by INTEGER NOT NULL);
-CREATE INDEX idx_payments_date ON business.payments(payment_date); CREATE INDEX idx_payments_entity ON business.payments(entity_type, entity_id); CREATE INDEX idx_payments_status ON business.payments(status);
-
-CREATE TABLE business.payment_allocations (
-    id SERIAL PRIMARY KEY, payment_id INTEGER NOT NULL, document_type VARCHAR(20) NOT NULL CHECK (document_type IN ('Sales Invoice', 'Purchase Invoice', 'Credit Note', 'Debit Note', 'Other')), document_id INTEGER NOT NULL, amount NUMERIC(15,2) NOT NULL, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, created_by INTEGER NOT NULL);
-CREATE INDEX idx_payment_allocations_payment ON business.payment_allocations(payment_id); CREATE INDEX idx_payment_allocations_document ON business.payment_allocations(document_type, document_id);
-
--- ============================================================================
--- AUDIT SCHEMA TABLES
--- ============================================================================
-CREATE TABLE audit.audit_log (
-    id SERIAL PRIMARY KEY, user_id INTEGER, action VARCHAR(50) NOT NULL, entity_type VARCHAR(50) NOT NULL, entity_id INTEGER, entity_name VARCHAR(200), changes JSONB, ip_address VARCHAR(45), user_agent VARCHAR(255), timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP);
-CREATE INDEX idx_audit_log_user ON audit.audit_log(user_id); CREATE INDEX idx_audit_log_entity ON audit.audit_log(entity_type, entity_id); CREATE INDEX idx_audit_log_timestamp ON audit.audit_log(timestamp);
-
-CREATE TABLE audit.data_change_history (
-    id SERIAL PRIMARY KEY, table_name VARCHAR(100) NOT NULL, record_id INTEGER NOT NULL, field_name VARCHAR(100) NOT NULL, old_value TEXT, new_value TEXT, change_type VARCHAR(20) NOT NULL CHECK (change_type IN ('Insert', 'Update', 'Delete')), changed_by INTEGER, changed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP);
-CREATE INDEX idx_data_change_history_table_record ON audit.data_change_history(table_name, record_id); CREATE INDEX idx_data_change_history_changed_at ON audit.data_change_history(changed_at);
-
--- ============================================================================
--- ADDING FOREIGN KEY CONSTRAINTS (Grouped at the end)
--- ============================================================================
-
--- Core Schema FKs
-ALTER TABLE core.role_permissions ADD CONSTRAINT fk_rp_role FOREIGN KEY (role_id) REFERENCES core.roles(id) ON DELETE CASCADE;
-ALTER TABLE core.role_permissions ADD CONSTRAINT fk_rp_permission FOREIGN KEY (permission_id) REFERENCES core.permissions(id) ON DELETE CASCADE;
-ALTER TABLE core.user_roles ADD CONSTRAINT fk_ur_user FOREIGN KEY (user_id) REFERENCES core.users(id) ON DELETE CASCADE;
-ALTER TABLE core.user_roles ADD CONSTRAINT fk_ur_role FOREIGN KEY (role_id) REFERENCES core.roles(id) ON DELETE CASCADE;
-ALTER TABLE core.company_settings ADD CONSTRAINT fk_cs_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-ALTER TABLE core.company_settings ADD CONSTRAINT fk_cs_base_currency FOREIGN KEY (base_currency) REFERENCES accounting.currencies(code);
-ALTER TABLE core.configuration ADD CONSTRAINT fk_cfg_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
--- Accounting Schema FKs
-ALTER TABLE accounting.accounts ADD CONSTRAINT fk_acc_parent FOREIGN KEY (parent_id) REFERENCES accounting.accounts(id);
-ALTER TABLE accounting.accounts ADD CONSTRAINT fk_acc_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE accounting.accounts ADD CONSTRAINT fk_acc_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE accounting.fiscal_years ADD CONSTRAINT fk_fy_closed_by FOREIGN KEY (closed_by) REFERENCES core.users(id);
-ALTER TABLE accounting.fiscal_years ADD CONSTRAINT fk_fy_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE accounting.fiscal_years ADD CONSTRAINT fk_fy_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE accounting.fiscal_periods ADD CONSTRAINT fk_fp_fiscal_year FOREIGN KEY (fiscal_year_id) REFERENCES accounting.fiscal_years(id);
-ALTER TABLE accounting.fiscal_periods ADD CONSTRAINT fk_fp_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE accounting.fiscal_periods ADD CONSTRAINT fk_fp_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE accounting.currencies ADD CONSTRAINT fk_curr_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE accounting.currencies ADD CONSTRAINT fk_curr_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE accounting.exchange_rates ADD CONSTRAINT fk_er_from_curr FOREIGN KEY (from_currency) REFERENCES accounting.currencies(code);
-ALTER TABLE accounting.exchange_rates ADD CONSTRAINT fk_er_to_curr FOREIGN KEY (to_currency) REFERENCES accounting.currencies(code);
-ALTER TABLE accounting.exchange_rates ADD CONSTRAINT fk_er_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE accounting.exchange_rates ADD CONSTRAINT fk_er_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE accounting.journal_entries ADD CONSTRAINT fk_je_fiscal_period FOREIGN KEY (fiscal_period_id) REFERENCES accounting.fiscal_periods(id);
-ALTER TABLE accounting.journal_entries ADD CONSTRAINT fk_je_reversing_entry FOREIGN KEY (reversing_entry_id) REFERENCES accounting.journal_entries(id);
-ALTER TABLE accounting.journal_entries ADD CONSTRAINT fk_je_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE accounting.journal_entries ADD CONSTRAINT fk_je_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
--- Deferred FK for recurring_patterns cycle:
-ALTER TABLE accounting.journal_entries ADD CONSTRAINT fk_je_recurring_pattern FOREIGN KEY (recurring_pattern_id) REFERENCES accounting.recurring_patterns(id) DEFERRABLE INITIALLY DEFERRED;
-
-ALTER TABLE accounting.journal_entry_lines ADD CONSTRAINT fk_jel_journal_entry FOREIGN KEY (journal_entry_id) REFERENCES accounting.journal_entries(id) ON DELETE CASCADE;
-ALTER TABLE accounting.journal_entry_lines ADD CONSTRAINT fk_jel_account FOREIGN KEY (account_id) REFERENCES accounting.accounts(id);
-ALTER TABLE accounting.journal_entry_lines ADD CONSTRAINT fk_jel_currency FOREIGN KEY (currency_code) REFERENCES accounting.currencies(code);
-ALTER TABLE accounting.journal_entry_lines ADD CONSTRAINT fk_jel_tax_code FOREIGN KEY (tax_code) REFERENCES accounting.tax_codes(code);
-ALTER TABLE accounting.journal_entry_lines ADD CONSTRAINT fk_jel_dimension1 FOREIGN KEY (dimension1_id) REFERENCES accounting.dimensions(id);
-ALTER TABLE accounting.journal_entry_lines ADD CONSTRAINT fk_jel_dimension2 FOREIGN KEY (dimension2_id) REFERENCES accounting.dimensions(id);
-
-ALTER TABLE accounting.recurring_patterns ADD CONSTRAINT fk_rp_template_entry FOREIGN KEY (template_entry_id) REFERENCES accounting.journal_entries(id);
-ALTER TABLE accounting.recurring_patterns ADD CONSTRAINT fk_rp_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE accounting.recurring_patterns ADD CONSTRAINT fk_rp_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE accounting.dimensions ADD CONSTRAINT fk_dim_parent FOREIGN KEY (parent_id) REFERENCES accounting.dimensions(id);
-ALTER TABLE accounting.dimensions ADD CONSTRAINT fk_dim_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE accounting.dimensions ADD CONSTRAINT fk_dim_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE accounting.budgets ADD CONSTRAINT fk_bud_fiscal_year FOREIGN KEY (fiscal_year_id) REFERENCES accounting.fiscal_years(id);
-ALTER TABLE accounting.budgets ADD CONSTRAINT fk_bud_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE accounting.budgets ADD CONSTRAINT fk_bud_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE accounting.budget_details ADD CONSTRAINT fk_bd_budget FOREIGN KEY (budget_id) REFERENCES accounting.budgets(id) ON DELETE CASCADE;
-ALTER TABLE accounting.budget_details ADD CONSTRAINT fk_bd_account FOREIGN KEY (account_id) REFERENCES accounting.accounts(id);
-ALTER TABLE accounting.budget_details ADD CONSTRAINT fk_bd_fiscal_period FOREIGN KEY (fiscal_period_id) REFERENCES accounting.fiscal_periods(id);
-ALTER TABLE accounting.budget_details ADD CONSTRAINT fk_bd_dimension1 FOREIGN KEY (dimension1_id) REFERENCES accounting.dimensions(id);
-ALTER TABLE accounting.budget_details ADD CONSTRAINT fk_bd_dimension2 FOREIGN KEY (dimension2_id) REFERENCES accounting.dimensions(id);
-ALTER TABLE accounting.budget_details ADD CONSTRAINT fk_bd_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE accounting.budget_details ADD CONSTRAINT fk_bd_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE accounting.tax_codes ADD CONSTRAINT fk_tc_affects_account FOREIGN KEY (affects_account_id) REFERENCES accounting.accounts(id);
-ALTER TABLE accounting.tax_codes ADD CONSTRAINT fk_tc_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE accounting.tax_codes ADD CONSTRAINT fk_tc_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE accounting.gst_returns ADD CONSTRAINT fk_gstr_journal_entry FOREIGN KEY (journal_entry_id) REFERENCES accounting.journal_entries(id);
-ALTER TABLE accounting.gst_returns ADD CONSTRAINT fk_gstr_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE accounting.gst_returns ADD CONSTRAINT fk_gstr_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE accounting.withholding_tax_certificates ADD CONSTRAINT fk_whtc_vendor FOREIGN KEY (vendor_id) REFERENCES business.vendors(id);
-ALTER TABLE accounting.withholding_tax_certificates ADD CONSTRAINT fk_whtc_journal_entry FOREIGN KEY (journal_entry_id) REFERENCES accounting.journal_entries(id);
-ALTER TABLE accounting.withholding_tax_certificates ADD CONSTRAINT fk_whtc_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE accounting.withholding_tax_certificates ADD CONSTRAINT fk_whtc_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
--- Business Schema FKs
-ALTER TABLE business.customers ADD CONSTRAINT fk_cust_currency FOREIGN KEY (currency_code) REFERENCES accounting.currencies(code);
-ALTER TABLE business.customers ADD CONSTRAINT fk_cust_receivables_acc FOREIGN KEY (receivables_account_id) REFERENCES accounting.accounts(id);
-ALTER TABLE business.customers ADD CONSTRAINT fk_cust_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE business.customers ADD CONSTRAINT fk_cust_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE business.vendors ADD CONSTRAINT fk_vend_currency FOREIGN KEY (currency_code) REFERENCES accounting.currencies(code);
-ALTER TABLE business.vendors ADD CONSTRAINT fk_vend_payables_acc FOREIGN KEY (payables_account_id) REFERENCES accounting.accounts(id);
-ALTER TABLE business.vendors ADD CONSTRAINT fk_vend_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE business.vendors ADD CONSTRAINT fk_vend_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE business.products ADD CONSTRAINT fk_prod_sales_acc FOREIGN KEY (sales_account_id) REFERENCES accounting.accounts(id);
-ALTER TABLE business.products ADD CONSTRAINT fk_prod_purchase_acc FOREIGN KEY (purchase_account_id) REFERENCES accounting.accounts(id);
-ALTER TABLE business.products ADD CONSTRAINT fk_prod_inventory_acc FOREIGN KEY (inventory_account_id) REFERENCES accounting.accounts(id);
-ALTER TABLE business.products ADD CONSTRAINT fk_prod_tax_code FOREIGN KEY (tax_code) REFERENCES accounting.tax_codes(code);
-ALTER TABLE business.products ADD CONSTRAINT fk_prod_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE business.products ADD CONSTRAINT fk_prod_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE business.inventory_movements ADD CONSTRAINT fk_im_product FOREIGN KEY (product_id) REFERENCES business.products(id);
-ALTER TABLE business.inventory_movements ADD CONSTRAINT fk_im_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-
-ALTER TABLE business.sales_invoices ADD CONSTRAINT fk_si_customer FOREIGN KEY (customer_id) REFERENCES business.customers(id);
-ALTER TABLE business.sales_invoices ADD CONSTRAINT fk_si_currency FOREIGN KEY (currency_code) REFERENCES accounting.currencies(code);
-ALTER TABLE business.sales_invoices ADD CONSTRAINT fk_si_journal_entry FOREIGN KEY (journal_entry_id) REFERENCES accounting.journal_entries(id);
-ALTER TABLE business.sales_invoices ADD CONSTRAINT fk_si_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE business.sales_invoices ADD CONSTRAINT fk_si_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE business.sales_invoice_lines ADD CONSTRAINT fk_sil_invoice FOREIGN KEY (invoice_id) REFERENCES business.sales_invoices(id) ON DELETE CASCADE;
-ALTER TABLE business.sales_invoice_lines ADD CONSTRAINT fk_sil_product FOREIGN KEY (product_id) REFERENCES business.products(id);
-ALTER TABLE business.sales_invoice_lines ADD CONSTRAINT fk_sil_tax_code FOREIGN KEY (tax_code) REFERENCES accounting.tax_codes(code);
-ALTER TABLE business.sales_invoice_lines ADD CONSTRAINT fk_sil_dimension1 FOREIGN KEY (dimension1_id) REFERENCES accounting.dimensions(id);
-ALTER TABLE business.sales_invoice_lines ADD CONSTRAINT fk_sil_dimension2 FOREIGN KEY (dimension2_id) REFERENCES accounting.dimensions(id);
-
-ALTER TABLE business.purchase_invoices ADD CONSTRAINT fk_pi_vendor FOREIGN KEY (vendor_id) REFERENCES business.vendors(id);
-ALTER TABLE business.purchase_invoices ADD CONSTRAINT fk_pi_currency FOREIGN KEY (currency_code) REFERENCES accounting.currencies(code);
-ALTER TABLE business.purchase_invoices ADD CONSTRAINT fk_pi_journal_entry FOREIGN KEY (journal_entry_id) REFERENCES accounting.journal_entries(id);
-ALTER TABLE business.purchase_invoices ADD CONSTRAINT fk_pi_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE business.purchase_invoices ADD CONSTRAINT fk_pi_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE business.purchase_invoice_lines ADD CONSTRAINT fk_pil_invoice FOREIGN KEY (invoice_id) REFERENCES business.purchase_invoices(id) ON DELETE CASCADE;
-ALTER TABLE business.purchase_invoice_lines ADD CONSTRAINT fk_pil_product FOREIGN KEY (product_id) REFERENCES business.products(id);
-ALTER TABLE business.purchase_invoice_lines ADD CONSTRAINT fk_pil_tax_code FOREIGN KEY (tax_code) REFERENCES accounting.tax_codes(code);
-ALTER TABLE business.purchase_invoice_lines ADD CONSTRAINT fk_pil_dimension1 FOREIGN KEY (dimension1_id) REFERENCES accounting.dimensions(id);
-ALTER TABLE business.purchase_invoice_lines ADD CONSTRAINT fk_pil_dimension2 FOREIGN KEY (dimension2_id) REFERENCES accounting.dimensions(id);
-
-ALTER TABLE business.bank_accounts ADD CONSTRAINT fk_ba_currency FOREIGN KEY (currency_code) REFERENCES accounting.currencies(code);
-ALTER TABLE business.bank_accounts ADD CONSTRAINT fk_ba_gl_account FOREIGN KEY (gl_account_id) REFERENCES accounting.accounts(id);
-ALTER TABLE business.bank_accounts ADD CONSTRAINT fk_ba_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE business.bank_accounts ADD CONSTRAINT fk_ba_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE business.bank_transactions ADD CONSTRAINT fk_bt_bank_account FOREIGN KEY (bank_account_id) REFERENCES business.bank_accounts(id);
-ALTER TABLE business.bank_transactions ADD CONSTRAINT fk_bt_journal_entry FOREIGN KEY (journal_entry_id) REFERENCES accounting.journal_entries(id);
-ALTER TABLE business.bank_transactions ADD CONSTRAINT fk_bt_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE business.bank_transactions ADD CONSTRAINT fk_bt_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE business.payments ADD CONSTRAINT fk_pay_bank_account FOREIGN KEY (bank_account_id) REFERENCES business.bank_accounts(id);
-ALTER TABLE business.payments ADD CONSTRAINT fk_pay_currency FOREIGN KEY (currency_code) REFERENCES accounting.currencies(code);
-ALTER TABLE business.payments ADD CONSTRAINT fk_pay_journal_entry FOREIGN KEY (journal_entry_id) REFERENCES accounting.journal_entries(id);
-ALTER TABLE business.payments ADD CONSTRAINT fk_pay_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-ALTER TABLE business.payments ADD CONSTRAINT fk_pay_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
--- Note: entity_id in payments refers to customers.id or vendors.id; requires application logic or triggers to enforce based on entity_type.
-
-ALTER TABLE business.payment_allocations ADD CONSTRAINT fk_pa_payment FOREIGN KEY (payment_id) REFERENCES business.payments(id) ON DELETE CASCADE;
-ALTER TABLE business.payment_allocations ADD CONSTRAINT fk_pa_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
-
--- Audit Schema FKs
-ALTER TABLE audit.audit_log ADD CONSTRAINT fk_al_user FOREIGN KEY (user_id) REFERENCES core.users(id);
-ALTER TABLE audit.data_change_history ADD CONSTRAINT fk_dch_changed_by FOREIGN KEY (changed_by) REFERENCES core.users(id);
-
--- ============================================================================
--- VIEWS
--- ============================================================================
-CREATE OR REPLACE VIEW accounting.account_balances AS
-SELECT 
-    a.id AS account_id, a.code AS account_code, a.name AS account_name, a.account_type, a.parent_id,
-    COALESCE(SUM(CASE WHEN jel.debit_amount > 0 THEN jel.debit_amount ELSE -jel.credit_amount END), 0) + a.opening_balance AS balance,
-    COALESCE(SUM(CASE WHEN jel.debit_amount > 0 THEN jel.debit_amount ELSE 0 END), 0) AS total_debits_activity,
-    COALESCE(SUM(CASE WHEN jel.credit_amount > 0 THEN jel.credit_amount ELSE 0 END), 0) AS total_credits_activity,
-    MAX(je.entry_date) AS last_activity_date
-FROM accounting.accounts a
-LEFT JOIN accounting.journal_entry_lines jel ON a.id = jel.account_id
-LEFT JOIN accounting.journal_entries je ON jel.journal_entry_id = je.id AND je.is_posted = TRUE
-GROUP BY a.id, a.code, a.name, a.account_type, a.parent_id, a.opening_balance;
-
-CREATE OR REPLACE VIEW accounting.trial_balance AS
-SELECT 
-    a.id AS account_id, a.code AS account_code, a.name AS account_name, a.account_type, a.sub_type,
-    CASE WHEN a.account_type IN ('Asset', 'Expense') THEN CASE WHEN ab.balance >= 0 THEN ab.balance ELSE 0 END ELSE CASE WHEN ab.balance < 0 THEN -ab.balance ELSE 0 END END AS debit_balance,
-    CASE WHEN a.account_type IN ('Asset', 'Expense') THEN CASE WHEN ab.balance < 0 THEN -ab.balance ELSE 0 END ELSE CASE WHEN ab.balance >= 0 THEN ab.balance ELSE 0 END END AS credit_balance
-FROM accounting.accounts a
-JOIN accounting.account_balances ab ON a.id = ab.account_id
-WHERE a.is_active = TRUE AND ab.balance != 0;
-
-CREATE OR REPLACE VIEW business.customer_balances AS
-SELECT c.id AS customer_id, c.customer_code, c.name AS customer_name,
-    COALESCE(SUM(si.total_amount - si.amount_paid), 0) AS outstanding_balance,
-    COALESCE(SUM(CASE WHEN si.due_date < CURRENT_DATE AND si.status NOT IN ('Paid', 'Voided') THEN si.total_amount - si.amount_paid ELSE 0 END), 0) AS overdue_amount,
-    COALESCE(SUM(CASE WHEN si.status = 'Draft' THEN si.total_amount ELSE 0 END), 0) AS draft_amount,
-    COALESCE(MAX(si.due_date), NULL) AS latest_due_date
-FROM business.customers c LEFT JOIN business.sales_invoices si ON c.id = si.customer_id AND si.status NOT IN ('Paid', 'Voided')
-GROUP BY c.id, c.customer_code, c.name;
-
-CREATE OR REPLACE VIEW business.vendor_balances AS
-SELECT v.id AS vendor_id, v.vendor_code, v.name AS vendor_name,
-    COALESCE(SUM(pi.total_amount - pi.amount_paid), 0) AS outstanding_balance,
-    COALESCE(SUM(CASE WHEN pi.due_date < CURRENT_DATE AND pi.status NOT IN ('Paid', 'Voided') THEN pi.total_amount - pi.amount_paid ELSE 0 END), 0) AS overdue_amount,
-    COALESCE(SUM(CASE WHEN pi.status = 'Draft' THEN pi.total_amount ELSE 0 END), 0) AS draft_amount,
-    COALESCE(MAX(pi.due_date), NULL) AS latest_due_date
-FROM business.vendors v LEFT JOIN business.purchase_invoices pi ON v.id = pi.vendor_id AND pi.status NOT IN ('Paid', 'Voided')
-GROUP BY v.id, v.vendor_code, v.name;
-
-CREATE OR REPLACE VIEW business.inventory_summary AS
-SELECT 
-    p.id AS product_id, p.product_code, p.name AS product_name, p.product_type, p.category, p.unit_of_measure,
-    COALESCE(SUM(im.quantity), 0) AS current_quantity,
-    CASE WHEN COALESCE(SUM(im.quantity), 0) != 0 THEN COALESCE(SUM(im.total_cost), 0) / SUM(im.quantity) ELSE p.purchase_price END AS average_cost,
-    COALESCE(SUM(im.total_cost), 0) AS inventory_value,
-    p.sales_price AS current_sales_price, p.min_stock_level, p.reorder_point,
-    CASE WHEN p.min_stock_level IS NOT NULL AND COALESCE(SUM(im.quantity), 0) <= p.min_stock_level THEN TRUE ELSE FALSE END AS below_minimum,
-    CASE WHEN p.reorder_point IS NOT NULL AND COALESCE(SUM(im.quantity), 0) <= p.reorder_point THEN TRUE ELSE FALSE END AS reorder_needed
-FROM business.products p LEFT JOIN business.inventory_movements im ON p.id = im.product_id
-WHERE p.product_type = 'Inventory' AND p.is_active = TRUE
-GROUP BY p.id, p.product_code, p.name, p.product_type, p.category, p.unit_of_measure, p.purchase_price, p.sales_price, p.min_stock_level, p.reorder_point;
-
--- ============================================================================
--- FUNCTIONS
--- ============================================================================
-CREATE OR REPLACE FUNCTION core.get_next_sequence_value(p_sequence_name VARCHAR)
-RETURNS VARCHAR AS $$
-DECLARE v_sequence RECORD; v_next_value INTEGER; v_result VARCHAR;
-BEGIN
-    SELECT * INTO v_sequence FROM core.sequences WHERE sequence_name = p_sequence_name FOR UPDATE;
-    IF NOT FOUND THEN RAISE EXCEPTION 'Sequence % not found', p_sequence_name; END IF;
-    v_next_value := v_sequence.next_value;
-    UPDATE core.sequences SET next_value = next_value + increment_by, updated_at = CURRENT_TIMESTAMP WHERE sequence_name = p_sequence_name;
-    v_result := v_sequence.format_template;
-    v_result := REPLACE(v_result, '{PREFIX}', COALESCE(v_sequence.prefix, ''));
-    v_result := REPLACE(v_result, '{VALUE}', LPAD(v_next_value::TEXT, 6, '0'));
-    v_result := REPLACE(v_result, '{SUFFIX}', COALESCE(v_sequence.suffix, ''));
-    RETURN v_result;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE FUNCTION accounting.generate_journal_entry(p_journal_type VARCHAR, p_entry_date DATE, p_description VARCHAR, p_reference VARCHAR, p_source_type VARCHAR, p_source_id INTEGER, p_lines JSONB, p_user_id INTEGER)
-RETURNS INTEGER AS $$ 
-DECLARE v_fiscal_period_id INTEGER; v_entry_no VARCHAR; v_journal_id INTEGER; v_line JSONB; v_line_number INTEGER := 1; v_total_debits NUMERIC(15,2) := 0; v_total_credits NUMERIC(15,2) := 0;
-BEGIN
-    SELECT id INTO v_fiscal_period_id FROM accounting.fiscal_periods WHERE p_entry_date BETWEEN start_date AND end_date AND status = 'Open';
-    IF v_fiscal_period_id IS NULL THEN RAISE EXCEPTION 'No open fiscal period found for date %', p_entry_date; END IF;
-    v_entry_no := core.get_next_sequence_value('journal_entry');
-    INSERT INTO accounting.journal_entries (entry_no, journal_type, entry_date, fiscal_period_id, description, reference, is_posted, source_type, source_id, created_by, updated_by) VALUES (v_entry_no, p_journal_type, p_entry_date, v_fiscal_period_id, p_description, p_reference, FALSE, p_source_type, p_source_id, p_user_id, p_user_id) RETURNING id INTO v_journal_id;
-    FOR v_line IN SELECT * FROM jsonb_array_elements(p_lines) LOOP
-        INSERT INTO accounting.journal_entry_lines (journal_entry_id, line_number, account_id, description, debit_amount, credit_amount, currency_code, exchange_rate, tax_code, tax_amount, dimension1_id, dimension2_id) 
-        VALUES (v_journal_id, v_line_number, (v_line->>'account_id')::INTEGER, v_line->>'description', COALESCE((v_line->>'debit_amount')::NUMERIC, 0), COALESCE((v_line->>'credit_amount')::NUMERIC, 0), COALESCE(v_line->>'currency_code', 'SGD'), COALESCE((v_line->>'exchange_rate')::NUMERIC, 1), v_line->>'tax_code', COALESCE((v_line->>'tax_amount')::NUMERIC, 0), NULLIF(TRIM(v_line->>'dimension1_id'), '')::INTEGER, NULLIF(TRIM(v_line->>'dimension2_id'), '')::INTEGER);
-        v_line_number := v_line_number + 1; v_total_debits := v_total_debits + COALESCE((v_line->>'debit_amount')::NUMERIC, 0); v_total_credits := v_total_credits + COALESCE((v_line->>'credit_amount')::NUMERIC, 0);
-    END LOOP;
-    IF round(v_total_debits, 2) != round(v_total_credits, 2) THEN RAISE EXCEPTION 'Journal entry is not balanced. Debits: %, Credits: %', v_total_debits, v_total_credits; END IF;
-    RETURN v_journal_id;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE FUNCTION accounting.post_journal_entry(p_journal_id INTEGER, p_user_id INTEGER)
-RETURNS BOOLEAN AS $$
-DECLARE v_fiscal_period_status VARCHAR; v_is_already_posted BOOLEAN;
-BEGIN
-    SELECT is_posted INTO v_is_already_posted FROM accounting.journal_entries WHERE id = p_journal_id;
-    IF v_is_already_posted THEN RAISE EXCEPTION 'Journal entry % is already posted', p_journal_id; END IF;
-    SELECT fp.status INTO v_fiscal_period_status FROM accounting.journal_entries je JOIN accounting.fiscal_periods fp ON je.fiscal_period_id = fp.id WHERE je.id = p_journal_id;
-    IF v_fiscal_period_status != 'Open' THEN RAISE EXCEPTION 'Cannot post to a closed or archived fiscal period'; END IF;
-    UPDATE accounting.journal_entries SET is_posted = TRUE, updated_at = CURRENT_TIMESTAMP, updated_by = p_user_id WHERE id = p_journal_id;
-    RETURN TRUE;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE FUNCTION accounting.calculate_account_balance(p_account_id INTEGER, p_as_of_date DATE)
-RETURNS NUMERIC AS $$
-DECLARE v_balance NUMERIC(15,2) := 0; v_opening_balance NUMERIC(15,2); v_account_opening_balance_date DATE; 
-BEGIN
-    SELECT acc.opening_balance, acc.opening_balance_date INTO v_opening_balance, v_account_opening_balance_date FROM accounting.accounts acc WHERE acc.id = p_account_id;
-    IF NOT FOUND THEN RAISE EXCEPTION 'Account with ID % not found', p_account_id; END IF;
-    SELECT COALESCE(SUM(CASE WHEN jel.debit_amount > 0 THEN jel.debit_amount ELSE -jel.credit_amount END), 0) INTO v_balance FROM accounting.journal_entry_lines jel JOIN accounting.journal_entries je ON jel.journal_entry_id = je.id WHERE jel.account_id = p_account_id AND je.is_posted = TRUE AND je.entry_date <= p_as_of_date AND (v_account_opening_balance_date IS NULL OR je.entry_date >= v_account_opening_balance_date);
-    v_balance := v_balance + COALESCE(v_opening_balance, 0);
-    RETURN v_balance;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE FUNCTION core.update_timestamp_trigger_func()
-RETURNS TRIGGER AS $$ BEGIN NEW.updated_at = CURRENT_TIMESTAMP; RETURN NEW; END; $$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE FUNCTION audit.log_data_change_trigger_func()
-RETURNS TRIGGER AS $$
-DECLARE
-    v_old_data JSONB; v_new_data JSONB; v_change_type VARCHAR(20); v_user_id INTEGER; v_entity_id INTEGER; v_entity_name VARCHAR(200); temp_val TEXT; current_field_name_from_json TEXT;
-BEGIN
-    BEGIN v_user_id := current_setting('app.current_user_id', TRUE)::INTEGER; EXCEPTION WHEN OTHERS THEN v_user_id := NULL; END;
-    IF v_user_id IS NULL THEN
-        IF TG_OP = 'INSERT' THEN BEGIN v_user_id := NEW.created_by; EXCEPTION WHEN undefined_column THEN IF TG_TABLE_SCHEMA = 'core' AND TG_TABLE_NAME = 'users' THEN v_user_id := NEW.id; ELSE v_user_id := NULL; END IF; END;
-        ELSIF TG_OP = 'UPDATE' THEN BEGIN v_user_id := NEW.updated_by; EXCEPTION WHEN undefined_column THEN IF TG_TABLE_SCHEMA = 'core' AND TG_TABLE_NAME = 'users' THEN v_user_id := NEW.id; ELSE v_user_id := NULL; END IF; END;
-        END IF;
-    END IF;
-    IF TG_TABLE_SCHEMA = 'audit' AND TG_TABLE_NAME IN ('audit_log', 'data_change_history') THEN RETURN NULL; END IF;
-    IF TG_OP = 'INSERT' THEN v_change_type := 'Insert'; v_old_data := NULL; v_new_data := to_jsonb(NEW);
-    ELSIF TG_OP = 'UPDATE' THEN v_change_type := 'Update'; v_old_data := to_jsonb(OLD); v_new_data := to_jsonb(NEW);
-    ELSIF TG_OP = 'DELETE' THEN v_change_type := 'Delete'; v_old_data := to_jsonb(OLD); v_new_data := NULL; END IF;
-    BEGIN IF TG_OP = 'DELETE' THEN v_entity_id := OLD.id; ELSE v_entity_id := NEW.id; END IF; EXCEPTION WHEN undefined_column THEN v_entity_id := NULL; END;
-    BEGIN IF TG_OP = 'DELETE' THEN temp_val := CASE WHEN TG_TABLE_NAME IN ('accounts','customers','vendors','products','roles','account_types','dimensions','fiscal_years','budgets') THEN OLD.name WHEN TG_TABLE_NAME = 'journal_entries' THEN OLD.entry_no WHEN TG_TABLE_NAME = 'sales_invoices' THEN OLD.invoice_no WHEN TG_TABLE_NAME = 'purchase_invoices' THEN OLD.invoice_no WHEN TG_TABLE_NAME = 'payments' THEN OLD.payment_no WHEN TG_TABLE_NAME = 'users' THEN OLD.username WHEN TG_TABLE_NAME = 'tax_codes' THEN OLD.code WHEN TG_TABLE_NAME = 'gst_returns' THEN OLD.return_period ELSE OLD.id::TEXT END;
-    ELSE temp_val := CASE WHEN TG_TABLE_NAME IN ('accounts','customers','vendors','products','roles','account_types','dimensions','fiscal_years','budgets') THEN NEW.name WHEN TG_TABLE_NAME = 'journal_entries' THEN NEW.entry_no WHEN TG_TABLE_NAME = 'sales_invoices' THEN NEW.invoice_no WHEN TG_TABLE_NAME = 'purchase_invoices' THEN NEW.invoice_no WHEN TG_TABLE_NAME = 'payments' THEN NEW.payment_no WHEN TG_TABLE_NAME = 'users' THEN NEW.username WHEN TG_TABLE_NAME = 'tax_codes' THEN NEW.code WHEN TG_TABLE_NAME = 'gst_returns' THEN NEW.return_period ELSE NEW.id::TEXT END; END IF; v_entity_name := temp_val;
-    EXCEPTION WHEN undefined_column THEN BEGIN IF TG_OP = 'DELETE' THEN v_entity_name := OLD.id::TEXT; ELSE v_entity_name := NEW.id::TEXT; END IF; EXCEPTION WHEN undefined_column THEN v_entity_name := NULL; END; END;
-    INSERT INTO audit.audit_log (user_id,action,entity_type,entity_id,entity_name,changes,timestamp) VALUES (v_user_id,v_change_type,TG_TABLE_SCHEMA||'.'||TG_TABLE_NAME,v_entity_id,v_entity_name,jsonb_build_object('old',v_old_data,'new',v_new_data),CURRENT_TIMESTAMP);
-    IF TG_OP = 'UPDATE' THEN
-        FOR current_field_name_from_json IN SELECT key_alias FROM jsonb_object_keys(v_old_data) AS t(key_alias) LOOP
-            IF (v_new_data ? current_field_name_from_json) AND ((v_old_data -> current_field_name_from_json) IS DISTINCT FROM (v_new_data -> current_field_name_from_json)) THEN
-                INSERT INTO audit.data_change_history (table_name,record_id,field_name,old_value,new_value,change_type,changed_by,changed_at) VALUES (TG_TABLE_SCHEMA||'.'||TG_TABLE_NAME,NEW.id,current_field_name_from_json,v_old_data->>current_field_name_from_json,v_new_data->>current_field_name_from_json,'Update',v_user_id,CURRENT_TIMESTAMP);
-            END IF;
-        END LOOP;
-    END IF;
-    RETURN NULL; 
-END;
-$$ LANGUAGE plpgsql;
-
--- ============================================================================
--- APPLYING TRIGGERS
--- ============================================================================
-DO $$ DECLARE r RECORD; BEGIN FOR r IN SELECT table_schema, table_name FROM information_schema.columns WHERE column_name = 'updated_at' AND table_schema IN ('core','accounting','business','audit') GROUP BY table_schema, table_name LOOP EXECUTE format('DROP TRIGGER IF EXISTS trg_update_timestamp ON %I.%I; CREATE TRIGGER trg_update_timestamp BEFORE UPDATE ON %I.%I FOR EACH ROW EXECUTE FUNCTION core.update_timestamp_trigger_func();',r.table_schema,r.table_name,r.table_schema,r.table_name); END LOOP; END; $$;
-DO $$ DECLARE tables_to_audit TEXT[] := ARRAY['accounting.accounts','accounting.journal_entries','accounting.fiscal_periods','accounting.fiscal_years','business.customers','business.vendors','business.products','business.sales_invoices','business.purchase_invoices','business.payments','accounting.tax_codes','accounting.gst_returns','core.users','core.roles','core.company_settings']; table_fullname TEXT; schema_name TEXT; table_name_var TEXT; BEGIN FOREACH table_fullname IN ARRAY tables_to_audit LOOP SELECT split_part(table_fullname,'.',1) INTO schema_name; SELECT split_part(table_fullname,'.',2) INTO table_name_var; EXECUTE format('DROP TRIGGER IF EXISTS trg_audit_log ON %I.%I; CREATE TRIGGER trg_audit_log AFTER INSERT OR UPDATE OR DELETE ON %I.%I FOR EACH ROW EXECUTE FUNCTION audit.log_data_change_trigger_func();',schema_name,table_name_var,schema_name,table_name_var); END LOOP; END; $$;
-
--- End of script
-
-```
-
-# resources/icons/banking.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M4 10h3v7H4v-7zm6.5 0h3v7h-3v-7zM2 19h20v3H2v-3zm15-9h3v7h-3v-7zm-5-9L2 6v2h20V6L12 1z"/></svg>
-
-```
-
-# resources/icons/vendors.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M16.5 12c1.38 0 2.5-1.12 2.5-2.5S17.88 7 16.5 7C15.12 7 14 8.12 14 9.5s1.12 2.5 2.5 2.5zM9 11c1.66 0 2.99-1.34 2.99-3S10.66 5 9 5C7.34 5 6 6.34 6 8s1.34 3 3 3zm7.5 3c-1.83 0-5.5.92-5.5 2.75V19h11v-2.25c0-1.83-3.67-2.75-5.5-2.75zM9 13c-2.33 0-7 1.17-7 3.5V19h7v-2.5c0-.85.33-2.34 2.37-3.47C10.5 13.1 9.66 13 9 13z"/></svg>
-
-```
-
-# resources/icons/deactivate.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
-  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm3.59-13L12 10.59 8.41 7 7 8.41 10.59 12 7 15.59 8.41 17 12 13.41 15.59 17 17 15.59 13.41 12 17 8.41z"/>
-</svg>
-
-```
-
-# resources/icons/product.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
-  <path d="M20 4H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm-1 14H5c-.55 0-1-.45-1-1V7c0-.55.45-1 1-1h14c.55 0 1 .45 1 1v10c0 .55-.45 1-1 1z"/>
-  <path d="M8 10h2v2H8zm0 4h2v2H8zm4-4h2v2h-2zm0 4h2v2h-2z"/>
-</svg>
-
-```
-
-# resources/icons/post.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>
-
-```
-
-# resources/icons/collapse_all.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
-  <path d="M12 18.17L8.83 15l-1.41 1.41L12 21l4.59-4.59L15.17 15 12 18.17zm0-12.34L15.17 9l1.41-1.41L12 3 7.41 7.59 8.83 9 12 5.83zM19 11h-2v2h2v-2zm-12 0H5v2h2v-2z"/>
-  <path d="M0 0h24v24H0z" fill="none"/>
-</svg>
-
-```
-
-# resources/icons/restore.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.25 2.52.77-1.28-3.52-2.09V8H12z"/></svg>
-
-```
-
-# resources/icons/refresh.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
-  <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
-</svg>
-
-```
-
-# resources/icons/exit.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M10.09 15.59L11.5 17l5-5-5-5-1.41 1.41L12.67 11H3v2h9.67l-2.58 2.59zM19 3H5c-1.11 0-2 .9-2 2v4h2V5h14v14H5v-4H3v4c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/></svg>
-
-```
-
-# resources/icons/about.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-5h2v-2h-2v2zm0-4h2V7h-2v4z"/></svg>
-
-```
-
-# resources/icons/settings.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.08-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.08.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"/></svg>
-
-```
-
-# resources/icons/accounting.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M4 10h16v2H4v-2zm0 4h16v2H4v-2zm0-8h16v2H4V6zm0 12h10v2H4v-2zM16 18h4v2h-4v-2z"/></svg>
-
-```
-
-# resources/icons/reports.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
-
-```
-
-# resources/icons/new_company.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11h-4v4h-2v-4H7v-2h4V7h2v4h4v2z"/></svg>
-
-```
-
-# resources/icons/remove.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M19 13H5v-2h14v2z"/></svg>
-
-```
-
-# resources/icons/preferences.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.08-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.08.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"/></svg>
-
-```
-
-# resources/icons/transactions.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
-  <path d="M20 6h-4V4c0-1.11-.89-2-2-2h-4c-1.11 0-2 .89-2 2v2H4c-1.11 0-1.99.89-1.99 2L2 18c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2zm-6 0h-4V4h4v2zM4 18V8h2v10H4zm4 0V8h8v10H8zm12 0h-2V8h2v10z"/>
-  <path d="M0 0h24v24H0V0z" fill="none"/>
-</svg>
-
-```
-
-# resources/icons/customers.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
-
-```
-
-# resources/icons/backup.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/></svg>
-
-```
-
-# resources/icons/filter.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
-  <path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z"/>
-</svg>
-
-```
-
-# resources/icons/help.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/></svg>
-
-```
-
-# resources/icons/view.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
-
-```
-
-# resources/icons/add.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
-
-```
-
-# resources/icons/reverse.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C20.36 11.36 16.79 8 12.5 8z"/></svg>
-
-```
-
-# resources/icons/expand_all.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
-  <path d="M12 5.83L15.17 9l1.41-1.41L12 3 7.41 7.59 8.83 9 12 5.83zm0 12.34L8.83 15l-1.41 1.41L12 21l4.59-4.59L15.17 15 12 18.17zM5 13h2v-2H5v2zm12 0h2v-2h-2v2z"/>
-  <path d="M0 0h24v24H0z" fill="none"/>
-</svg>
-
-```
-
-# resources/icons/open_company.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V6h5.17l2 2H20v10z"/></svg>
-
-```
-
-# resources/icons/edit.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
-  <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
-</svg>
-
-```
-
-# resources/icons/dashboard.svg
-```svg
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect>
-</svg>
-
-```
-
-# resources/resources.qrc
-```qrc
-<!DOCTYPE RCC><RCC version="1.0"> 
-<qresource prefix="/">
-    <file alias="icons/dashboard.svg">icons/dashboard.svg</file>
-    <file alias="icons/accounting.svg">icons/accounting.svg</file>
-    <file alias="icons/customers.svg">icons/customers.svg</file>
-    <file alias="icons/vendors.svg">icons/vendors.svg</file>
-    <file alias="icons/product.svg">icons/product.svg</file> <!-- New Icon -->
-    <file alias="icons/banking.svg">icons/banking.svg</file>
-    <file alias="icons/reports.svg">icons/reports.svg</file>
-    <file alias="icons/settings.svg">icons/settings.svg</file>
-    <file alias="icons/new_company.svg">icons/new_company.svg</file>
-    <file alias="icons/open_company.svg">icons/open_company.svg</file>
-    <file alias="icons/backup.svg">icons/backup.svg</file>
-    <file alias="icons/restore.svg">icons/restore.svg</file>
-    <file alias="icons/exit.svg">icons/exit.svg</file>
-    <file alias="icons/preferences.svg">icons/preferences.svg</file>
-    <file alias="icons/help.svg">icons/help.svg</file>
-    <file alias="icons/about.svg">icons/about.svg</file>
-    <file alias="icons/filter.svg">icons/filter.svg</file>
-    <file alias="icons/expand_all.svg">icons/expand_all.svg</file>
-    <file alias="icons/collapse_all.svg">icons/collapse_all.svg</file>
-    <file alias="icons/refresh.svg">icons/refresh.svg</file>
-    <file alias="icons/edit.svg">icons/edit.svg</file>
-    <file alias="icons/transactions.svg">icons/transactions.svg</file>
-    <file alias="icons/deactivate.svg">icons/deactivate.svg</file>
-    <file alias="icons/add.svg">icons/add.svg</file>
-    <file alias="icons/remove.svg">icons/remove.svg</file>
-    <file alias="icons/view.svg">icons/view.svg</file>
-    <file alias="icons/post.svg">icons/post.svg</file>
-    <file alias="icons/reverse.svg">icons/reverse.svg</file>
-    <file alias="images/splash.png">images/splash.png</file>
-</qresource>
-</RCC>
-
-```
-
-# tests/integration/__init__.py
-```py
-
-```
-
-# tests/integration/test_example_integration.py
-```py
-
-```
-
-# tests/__init__.py
-```py
-
-```
-
-# tests/ui/__init__.py
-```py
-
-```
-
-# tests/ui/test_example_ui.py
-```py
-
-```
-
-# tests/conftest.py
-```py
-
-```
-
-# tests/unit/__init__.py
-```py
-
-```
-
-# tests/unit/test_example_unit.py
-```py
 
 ```
 

@@ -1,3 +1,2073 @@
+# app/ui/dashboard/__init__.py
+```py
+# File: app/ui/dashboard/__init__.py
+# (Content as previously generated)
+from .dashboard_widget import DashboardWidget
+
+__all__ = ["DashboardWidget"]
+
+```
+
+# app/ui/dashboard/dashboard_widget.py
+```py
+# File: app/ui/dashboard/dashboard_widget.py
+# (Stub content as previously generated)
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel
+from app.core.application_core import ApplicationCore 
+
+class DashboardWidget(QWidget):
+    def __init__(self, app_core: ApplicationCore, parent=None): 
+        super().__init__(parent)
+        self.app_core = app_core
+        
+        self.layout = QVBoxLayout(self)
+        self.label = QLabel("Dashboard Widget Content (Financial Snapshots, KPIs - To be implemented)")
+        self.layout.addWidget(self.label)
+        self.setLayout(self.layout)
+
+```
+
+# app/ui/payments/__init__.py
+```py
+# File: app/ui/payments/__init__.py
+# This directory will house UI components for the Payments module.
+from .payment_table_model import PaymentTableModel
+from .payment_dialog import PaymentDialog 
+from .payments_widget import PaymentsWidget # New Import
+
+__all__ = [
+    "PaymentTableModel",
+    "PaymentDialog", 
+    "PaymentsWidget", # New Export
+]
+
+```
+
+# app/ui/payments/payments_widget.py
+```py
+# File: app/ui/payments/payments_widget.py
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QTableView, QPushButton, 
+    QToolBar, QHeaderView, QAbstractItemView, QMessageBox,
+    QLabel, QLineEdit, QCheckBox, QComboBox, QDateEdit, QCompleter
+)
+from PySide6.QtCore import Qt, Slot, QTimer, QMetaObject, Q_ARG, QModelIndex, QSize, QDate
+from PySide6.QtGui import QIcon, QAction
+from typing import Optional, List, Dict, Any, TYPE_CHECKING
+
+import json
+
+from app.core.application_core import ApplicationCore
+from app.main import schedule_task_from_qt
+from app.ui.payments.payment_table_model import PaymentTableModel
+from app.ui.payments.payment_dialog import PaymentDialog
+from app.utils.pydantic_models import PaymentSummaryData, CustomerSummaryData, VendorSummaryData
+from app.common.enums import PaymentStatusEnum, PaymentEntityTypeEnum
+from app.utils.json_helpers import json_converter, json_date_hook
+from app.utils.result import Result
+
+if TYPE_CHECKING:
+    from PySide6.QtGui import QPaintDevice
+
+class PaymentsWidget(QWidget):
+    def __init__(self, app_core: ApplicationCore, parent: Optional["QWidget"] = None):
+        super().__init__(parent)
+        self.app_core = app_core
+        self._customers_cache_for_filter: List[Dict[str, Any]] = []
+        self._vendors_cache_for_filter: List[Dict[str, Any]] = []
+        
+        self.icon_path_prefix = "resources/icons/" 
+        try:
+            import app.resources_rc 
+            self.icon_path_prefix = ":/icons/"
+        except ImportError:
+            pass
+        
+        self._init_ui()
+        QTimer.singleShot(0, lambda: schedule_task_from_qt(self._load_filter_combos()))
+        QTimer.singleShot(100, lambda: self.apply_filter_button.click()) # Initial load
+
+    def _init_ui(self):
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setSpacing(5)
+
+        self._create_toolbar()
+        self.main_layout.addWidget(self.toolbar)
+
+        self._create_filter_area()
+        self.main_layout.addLayout(self.filter_layout_main) 
+
+        self.payments_table = QTableView()
+        self.payments_table.setAlternatingRowColors(True)
+        self.payments_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.payments_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        # self.payments_table.doubleClicked.connect(self._on_view_payment_double_click) # For future view
+        self.payments_table.setSortingEnabled(True)
+
+        self.table_model = PaymentTableModel()
+        self.payments_table.setModel(self.table_model)
+        
+        header = self.payments_table.horizontalHeader()
+        # Adjust column widths - example
+        if "ID" in self.table_model._headers:
+            self.payments_table.setColumnHidden(self.table_model._headers.index("ID"), True)
+        if "Payment No" in self.table_model._headers:
+            header.setSectionResizeMode(self.table_model._headers.index("Payment No"), QHeaderView.ResizeMode.ResizeToContents)
+        if "Entity Name" in self.table_model._headers:
+             header.setSectionResizeMode(self.table_model._headers.index("Entity Name"), QHeaderView.ResizeMode.Stretch)
+        if "Amount" in self.table_model._headers:
+             header.setSectionResizeMode(self.table_model._headers.index("Amount"), QHeaderView.ResizeMode.ResizeToContents)
+
+        self.main_layout.addWidget(self.payments_table)
+        self.setLayout(self.main_layout)
+
+        if self.payments_table.selectionModel():
+            self.payments_table.selectionModel().selectionChanged.connect(self._update_action_states)
+        self._update_action_states()
+
+    def _create_toolbar(self):
+        self.toolbar = QToolBar("Payments Toolbar")
+        self.toolbar.setIconSize(QSize(16, 16))
+
+        self.toolbar_add_payment_action = QAction(QIcon(self.icon_path_prefix + "add.svg"), "New Payment/Receipt", self)
+        self.toolbar_add_payment_action.triggered.connect(self._on_add_payment)
+        self.toolbar.addAction(self.toolbar_add_payment_action)
+
+        # Add View, Void actions later
+        # self.toolbar_view_action = QAction(QIcon(self.icon_path_prefix + "view.svg"), "View Payment", self)
+        # self.toolbar_view_action.triggered.connect(self._on_view_payment)
+        # self.toolbar.addAction(self.toolbar_view_action)
+        
+        self.toolbar.addSeparator()
+        self.toolbar_refresh_action = QAction(QIcon(self.icon_path_prefix + "refresh.svg"), "Refresh List", self)
+        self.toolbar_refresh_action.triggered.connect(lambda: schedule_task_from_qt(self._load_payments()))
+        self.toolbar.addAction(self.toolbar_refresh_action)
+
+    def _create_filter_area(self):
+        self.filter_layout_main = QHBoxLayout()
+        
+        self.filter_layout_main.addWidget(QLabel("Entity Type:"))
+        self.entity_type_filter_combo = QComboBox()
+        self.entity_type_filter_combo.addItem("All Entities", None)
+        self.entity_type_filter_combo.addItem(PaymentEntityTypeEnum.CUSTOMER.value, PaymentEntityTypeEnum.CUSTOMER)
+        self.entity_type_filter_combo.addItem(PaymentEntityTypeEnum.VENDOR.value, PaymentEntityTypeEnum.VENDOR)
+        self.entity_type_filter_combo.currentIndexChanged.connect(self._on_entity_type_filter_changed)
+        self.filter_layout_main.addWidget(self.entity_type_filter_combo)
+
+        self.entity_filter_label = QLabel("Entity:")
+        self.filter_layout_main.addWidget(self.entity_filter_label)
+        self.entity_filter_combo = QComboBox(); self.entity_filter_combo.setMinimumWidth(180)
+        self.entity_filter_combo.addItem("All", 0)
+        self.entity_filter_combo.setEditable(True)
+        entity_completer = QCompleter(self); entity_completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        entity_completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        self.entity_filter_combo.setCompleter(entity_completer)
+        self.filter_layout_main.addWidget(self.entity_filter_combo)
+
+        self.filter_layout_main.addWidget(QLabel("Status:"))
+        self.status_filter_combo = QComboBox()
+        self.status_filter_combo.addItem("All Statuses", None) 
+        for status_enum in PaymentStatusEnum: self.status_filter_combo.addItem(status_enum.value, status_enum)
+        self.filter_layout_main.addWidget(self.status_filter_combo)
+
+        self.filter_layout_main.addWidget(QLabel("From:"))
+        self.start_date_filter_edit = QDateEdit(QDate.currentDate().addMonths(-1))
+        self.start_date_filter_edit.setCalendarPopup(True); self.start_date_filter_edit.setDisplayFormat("dd/MM/yyyy")
+        self.filter_layout_main.addWidget(self.start_date_filter_edit)
+
+        self.filter_layout_main.addWidget(QLabel("To:"))
+        self.end_date_filter_edit = QDateEdit(QDate.currentDate())
+        self.end_date_filter_edit.setCalendarPopup(True); self.end_date_filter_edit.setDisplayFormat("dd/MM/yyyy")
+        self.filter_layout_main.addWidget(self.end_date_filter_edit)
+
+        self.apply_filter_button = QPushButton(QIcon(self.icon_path_prefix + "filter.svg"), "Apply")
+        self.apply_filter_button.clicked.connect(lambda: schedule_task_from_qt(self._load_payments()))
+        self.filter_layout_main.addWidget(self.apply_filter_button)
+        
+        self.clear_filter_button = QPushButton(QIcon(self.icon_path_prefix + "refresh.svg"), "Clear")
+        self.clear_filter_button.clicked.connect(self._clear_filters_and_load)
+        self.filter_layout_main.addWidget(self.clear_filter_button)
+        self.filter_layout_main.addStretch()
+
+    async def _load_filter_combos(self):
+        # Load customers and vendors for the entity filter combo
+        if self.app_core.customer_manager:
+            cust_res = await self.app_core.customer_manager.get_customers_for_listing(active_only=True, page_size=-1)
+            if cust_res.is_success and cust_res.value:
+                self._customers_cache_for_filter = [c.model_dump() for c in cust_result.value] if cust_result.is_success and cust_result.value else []
+        if self.app_core.vendor_manager:
+            vend_res = await self.app_core.vendor_manager.get_vendors_for_listing(active_only=True, page_size=-1)
+            if vend_res.is_success and vend_res.value:
+                self._vendors_cache_for_filter = [v.model_dump() for v in vend_result.value] if vend_result.is_success and vend_result.value else []
+        
+        # Initial population based on "All Entities"
+        self._on_entity_type_filter_changed()
+
+
+    @Slot()
+    def _on_entity_type_filter_changed(self):
+        self.entity_filter_combo.clear()
+        self.entity_filter_combo.addItem("All", 0)
+        entity_type_enum = self.entity_type_filter_combo.currentData()
+        
+        cache_to_use: List[Dict[str, Any]] = []
+        code_field = "customer_code"
+
+        if entity_type_enum == PaymentEntityTypeEnum.CUSTOMER:
+            cache_to_use = self._customers_cache_for_filter
+            code_field = "customer_code"
+            self.entity_filter_label.setText("Customer:")
+        elif entity_type_enum == PaymentEntityTypeEnum.VENDOR:
+            cache_to_use = self._vendors_cache_for_filter
+            code_field = "vendor_code"
+            self.entity_filter_label.setText("Vendor:")
+        else: # All Entities
+            self.entity_filter_label.setText("Entity:")
+            # Optionally, could add all customers then all vendors to the list
+            # For now, if "All Entities" is selected, the entity_filter_combo can remain "All"
+            # and the manager will not filter by specific entity_id.
+            pass
+        
+        for entity in cache_to_use:
+            self.entity_filter_combo.addItem(f"{entity.get(code_field, '')} - {entity.get('name', '')}", entity.get('id'))
+        
+        if isinstance(self.entity_filter_combo.completer(), QCompleter):
+            self.entity_filter_combo.completer().setModel(self.entity_filter_combo.model())
+        
+        # Trigger a refresh if entity type changes
+        self.toolbar_refresh_action.trigger()
+
+
+    @Slot()
+    def _clear_filters_and_load(self):
+        self.entity_type_filter_combo.setCurrentIndex(0) 
+        # _on_entity_type_filter_changed will clear entity_filter_combo and trigger refresh
+        self.status_filter_combo.setCurrentIndex(0)   
+        self.start_date_filter_edit.setDate(QDate.currentDate().addMonths(-1))
+        self.end_date_filter_edit.setDate(QDate.currentDate())
+        # schedule_task_from_qt(self._load_payments()) # Already triggered by combo changes
+
+    @Slot()
+    def _update_action_states(self):
+        # For now, only Add action is primary. View/Void can be added later.
+        self.toolbar_add_payment_action.setEnabled(True) 
+
+    async def _load_payments(self):
+        if not self.app_core.payment_manager:
+            self.app_core.logger.error("PaymentManager not available."); return
+        try:
+            entity_type_filter = self.entity_type_filter_combo.currentData()
+            entity_id_filter_data = self.entity_filter_combo.currentData()
+            entity_id_filter = int(entity_id_filter_data) if entity_id_filter_data and entity_id_filter_data != 0 else None
+            
+            status_filter = self.status_filter_combo.currentData()
+            start_date = self.start_date_filter_edit.date().toPython()
+            end_date = self.end_date_filter_edit.date().toPython()
+
+            result: Result[List[PaymentSummaryData]] = await self.app_core.payment_manager.get_payments_for_listing(
+                entity_type=entity_type_filter, entity_id=entity_id_filter,
+                status=status_filter, start_date=start_date, end_date=end_date,
+                page=1, page_size=200 
+            )
+            
+            if result.is_success:
+                data_for_table = result.value if result.value is not None else []
+                json_data = json.dumps([dto.model_dump(mode='json') for dto in data_for_table], default=json_converter)
+                QMetaObject.invokeMethod(self, "_update_table_model_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, json_data))
+            else:
+                QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "warning", Qt.ConnectionType.QueuedConnection,
+                    Q_ARG(QWidget, self), Q_ARG(str, "Load Error"), Q_ARG(str, f"Failed to load payments: {', '.join(result.errors)}"))
+        except Exception as e:
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Load Error"), Q_ARG(str, f"Unexpected error loading payments: {str(e)}"))
+
+    @Slot(str)
+    def _update_table_model_slot(self, json_data_str: str):
+        try:
+            list_of_dicts = json.loads(json_data_str, object_hook=json_date_hook)
+            summaries = [PaymentSummaryData.model_validate(item) for item in list_of_dicts]
+            self.table_model.update_data(summaries)
+        except Exception as e: 
+            QMessageBox.critical(self, "Data Error", f"Failed to parse/validate payment data: {e}")
+        finally:
+            self._update_action_states()
+
+    @Slot()
+    def _on_add_payment(self):
+        if not self.app_core.current_user: QMessageBox.warning(self, "Auth Error", "Please log in."); return
+        
+        # Determine if a specific entity type or entity is pre-selected from filters
+        preselected_entity_type = self.entity_type_filter_combo.currentData()
+        preselected_entity_id = self.entity_filter_combo.currentData()
+        if preselected_entity_id == 0: preselected_entity_id = None # Treat "All" as no preselection
+
+        dialog = PaymentDialog(self.app_core, self.app_core.current_user.id, 
+                               # Pass preselected_entity_type and _id to dialog if needed for defaulting
+                               # For now, PaymentDialog manages its own entity selection.
+                               parent=self)
+        dialog.payment_saved.connect(lambda _id: schedule_task_from_qt(self._load_payments()))
+        dialog.exec()
+
+```
+
+# app/ui/payments/payment_dialog.py
+```py
+# app/ui/payments/payment_dialog.py
+from PySide6.QtWidgets import (
+    QDialog, QVBoxLayout, QFormLayout, QLineEdit, QPushButton, QDialogButtonBox, 
+    QMessageBox, QDateEdit, QComboBox, QTextEdit, QDoubleSpinBox,
+    QTableWidget, QTableWidgetItem, QAbstractItemView, QHeaderView, QLabel, 
+    QFrame, QCompleter, QCheckBox, QApplication, QAbstractSpinBox
+)
+from PySide6.QtCore import Qt, QDate, Slot, Signal, QTimer, QMetaObject, Q_ARG, QModelIndex, QAbstractItemModel 
+from PySide6.QtGui import QIcon, QColor
+from typing import Optional, List, Dict, Any, TYPE_CHECKING, Union, cast
+
+import json
+from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
+
+from app.core.application_core import ApplicationCore
+from app.main import schedule_task_from_qt
+from app.utils.pydantic_models import (
+    PaymentCreateData, PaymentAllocationBaseData, 
+    CustomerSummaryData, VendorSummaryData, BankAccountSummaryData,
+    SalesInvoiceSummaryData, PurchaseInvoiceSummaryData 
+)
+from app.models.business.payment import Payment, PaymentAllocation # Corrected import
+from app.common.enums import (
+    PaymentTypeEnum, PaymentMethodEnum, PaymentEntityTypeEnum, 
+    PaymentAllocationDocTypeEnum, InvoiceStatusEnum, PaymentStatusEnum
+)
+from app.utils.result import Result
+from app.utils.json_helpers import json_converter, json_date_hook
+from app.ui.sales_invoices.sales_invoice_dialog import LineItemNumericDelegate 
+
+
+if TYPE_CHECKING:
+    from PySide6.QtGui import QPaintDevice
+
+class AllocationAmountDelegate(LineItemNumericDelegate):
+    def __init__(self, parent_dialog: "PaymentDialog"):
+        super().__init__(decimals=2, allow_negative=False, parent=parent_dialog)
+        self.parent_dialog = parent_dialog
+
+    def setModelData(self, editor: QDoubleSpinBox, model: QAbstractItemModel, index: QModelIndex): # type: ignore
+        super().setModelData(editor, model, index)
+        self.parent_dialog._update_allocation_totals_and_checkbox(index.row())
+
+
+class PaymentDialog(QDialog):
+    payment_saved = Signal(int) 
+
+    ALLOC_COL_SELECT = 0
+    ALLOC_COL_DOC_TYPE = 1
+    ALLOC_COL_DOC_NO = 2
+    ALLOC_COL_DOC_DATE = 3
+    ALLOC_COL_DOC_TOTAL = 4
+    ALLOC_COL_OUTSTANDING = 5
+    ALLOC_COL_TO_ALLOCATE = 6
+
+    def __init__(self, app_core: "ApplicationCore", current_user_id: int, 
+                 payment_id: Optional[int] = None, 
+                 parent: Optional["QWidget"] = None):
+        super().__init__(parent)
+        self.app_core = app_core
+        self.current_user_id = current_user_id
+        self.payment_id = payment_id 
+        self.loaded_payment_data: Optional[Payment] = None 
+        self.view_only_mode = False 
+
+        self._customers_cache: List[Dict[str, Any]] = []
+        self._vendors_cache: List[Dict[str, Any]] = []
+        self._bank_accounts_cache: List[Dict[str, Any]] = []
+        self._currencies_cache: List[Dict[str, Any]] = []
+        self._allocatable_invoices_cache: List[Dict[str, Any]] = [] 
+        self._base_currency: str = "SGD"
+        self._in_data_load: bool = False 
+
+        self.icon_path_prefix = "resources/icons/"
+        try: import app.resources_rc; self.icon_path_prefix = ":/icons/"
+        except ImportError: pass
+        
+        self.setWindowTitle(self._get_window_title())
+        self.setMinimumSize(950, 800) 
+        self.setModal(True)
+
+        self._init_ui()
+        self._connect_signals()
+
+        QTimer.singleShot(0, lambda: schedule_task_from_qt(self._load_initial_combo_data()))
+        if self.payment_id:
+            QTimer.singleShot(100, lambda: schedule_task_from_qt(self._load_existing_payment_data()))
+        else: 
+            self._update_dynamic_fields()
+            self._update_allocation_totals() 
+
+    def _get_window_title(self) -> str:
+        pay_no_str = ""
+        if self.loaded_payment_data and self.loaded_payment_data.payment_no: 
+            pay_no_str = f" ({self.loaded_payment_data.payment_no})"
+        
+        if self.view_only_mode: return f"View Payment{pay_no_str}"
+        if self.payment_id: return f"Edit Payment{pay_no_str}" 
+        return "New Payment / Receipt"
+
+    def _init_ui(self):
+        main_layout = QVBoxLayout(self)
+        header_form = QFormLayout()
+        header_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.DontWrapRows)
+        header_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+
+        entity_type_layout = QHBoxLayout()
+        self.payment_type_combo = QComboBox()
+        self.payment_type_combo.addItem(PaymentTypeEnum.CUSTOMER_PAYMENT.value, PaymentTypeEnum.CUSTOMER_PAYMENT)
+        self.payment_type_combo.addItem(PaymentTypeEnum.VENDOR_PAYMENT.value, PaymentTypeEnum.VENDOR_PAYMENT)
+        entity_type_layout.addWidget(QLabel("Payment Type*:"))
+        entity_type_layout.addWidget(self.payment_type_combo)
+        
+        self.entity_label = QLabel("Customer*:") 
+        self.entity_combo = QComboBox()
+        self.entity_combo.setEditable(True); self.entity_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.entity_combo.setMinimumWidth(250)
+        entity_completer = QCompleter(); entity_completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        entity_completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        self.entity_combo.setCompleter(entity_completer)
+        entity_type_layout.addWidget(self.entity_label); entity_type_layout.addWidget(self.entity_combo)
+        entity_type_layout.addStretch()
+        header_form.addRow(entity_type_layout)
+
+        self.payment_date_edit = QDateEdit(QDate.currentDate())
+        self.payment_date_edit.setCalendarPopup(True); self.payment_date_edit.setDisplayFormat("dd/MM/yyyy")
+        header_form.addRow("Payment Date*:", self.payment_date_edit)
+
+        self.payment_method_combo = QComboBox()
+        for pm_enum in PaymentMethodEnum: self.payment_method_combo.addItem(pm_enum.value, pm_enum)
+        header_form.addRow("Payment Method*:", self.payment_method_combo)
+
+        self.bank_account_combo = QComboBox(); self.bank_account_combo.setMinimumWidth(250)
+        header_form.addRow("Bank Account:", self.bank_account_combo)
+
+        self.currency_combo = QComboBox()
+        self.exchange_rate_spin = QDoubleSpinBox()
+        self.exchange_rate_spin.setDecimals(6); self.exchange_rate_spin.setRange(0.000001, 999999.0); self.exchange_rate_spin.setValue(1.0)
+        currency_layout = QHBoxLayout(); currency_layout.addWidget(self.currency_combo); currency_layout.addWidget(QLabel("Exch. Rate:")); currency_layout.addWidget(self.exchange_rate_spin)
+        header_form.addRow("Currency*:", currency_layout)
+
+        self.payment_amount_edit = QDoubleSpinBox()
+        self.payment_amount_edit.setDecimals(2); self.payment_amount_edit.setRange(0.01, 999999999.99)
+        self.payment_amount_edit.setGroupSeparatorShown(True)
+        header_form.addRow("Payment Amount*:", self.payment_amount_edit)
+
+        self.reference_edit = QLineEdit(); self.reference_edit.setPlaceholderText("e.g., Transaction ID, Deposit Slip No.")
+        header_form.addRow("Reference:", self.reference_edit)
+        
+        self.cheque_no_edit = QLineEdit(); self.cheque_no_edit.setPlaceholderText("Cheque Number if applicable")
+        self.cheque_no_label = QLabel("Cheque No.:")
+        header_form.addRow(self.cheque_no_label, self.cheque_no_edit)
+
+        self.description_edit = QTextEdit(); self.description_edit.setFixedHeight(60)
+        header_form.addRow("Description/Notes:", self.description_edit)
+        main_layout.addLayout(header_form)
+        main_layout.addWidget(QFrame(frameShape=QFrame.Shape.HLine))
+
+        alloc_group = QGroupBox("Invoice Allocations")
+        alloc_main_layout = QVBoxLayout(alloc_group)
+        self.allocations_table = QTableWidget()
+        self.allocations_table.setColumnCount(7)
+        self.allocations_table.setHorizontalHeaderLabels([
+            "Apply", "Doc Type", "Doc No.", "Doc Date", 
+            "Doc Total", "Outstanding", "Allocate Amt"
+        ])
+        self._configure_allocations_table()
+        alloc_main_layout.addWidget(self.allocations_table)
+        
+        alloc_totals_layout = QHBoxLayout()
+        self.total_allocated_label = QLabel("Total Allocated: 0.00")
+        self.unallocated_amount_label = QLabel("Unallocated: 0.00")
+        font_bold = QFont(); font_bold.setBold(True)
+        self.total_allocated_label.setFont(font_bold)
+        self.unallocated_amount_label.setFont(font_bold)
+        alloc_totals_layout.addStretch(); alloc_totals_layout.addWidget(self.total_allocated_label)
+        alloc_totals_layout.addWidget(QLabel(" | ")); alloc_totals_layout.addWidget(self.unallocated_amount_label)
+        alloc_main_layout.addLayout(alloc_totals_layout)
+        main_layout.addWidget(alloc_group)
+
+        self.button_box = QDialogButtonBox()
+        self.save_button = self.button_box.addButton("Save Payment", QDialogButtonBox.ButtonRole.AcceptRole)
+        self.button_box.addButton(QDialogButtonBox.StandardButton.Cancel)
+        main_layout.addWidget(self.button_box)
+        self.setLayout(main_layout)
+
+    def _configure_allocations_table(self):
+        header = self.allocations_table.horizontalHeader()
+        self.allocations_table.setColumnWidth(self.ALLOC_COL_SELECT, 50)
+        header.setSectionResizeMode(self.ALLOC_COL_SELECT, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(self.ALLOC_COL_DOC_TYPE, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(self.ALLOC_COL_DOC_NO, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(self.ALLOC_COL_DOC_DATE, QHeaderView.ResizeMode.ResizeToContents)
+        for col in [self.ALLOC_COL_DOC_TOTAL, self.ALLOC_COL_OUTSTANDING, self.ALLOC_COL_TO_ALLOCATE]:
+            header.setSectionResizeMode(col, QHeaderView.ResizeMode.Stretch)
+        
+        self.allocations_table.setItemDelegateForColumn(self.ALLOC_COL_TO_ALLOCATE, AllocationAmountDelegate(self))
+
+    def _connect_signals(self):
+        self.payment_type_combo.currentDataChanged.connect(self._on_payment_type_changed)
+        self.entity_combo.currentIndexChanged.connect(self._on_entity_changed)
+        self.payment_method_combo.currentDataChanged.connect(self._update_dynamic_fields)
+        self.currency_combo.currentIndexChanged.connect(self._on_currency_changed)
+        self.payment_amount_edit.valueChanged.connect(self._update_allocation_totals)
+        
+        self.save_button.clicked.connect(self.on_save_payment)
+        cancel_button = self.button_box.button(QDialogButtonBox.StandardButton.Cancel)
+        if cancel_button: cancel_button.clicked.connect(self.reject)
+
+    async def _load_initial_combo_data(self):
+        try:
+            cs_svc = self.app_core.company_settings_service
+            if cs_svc: settings = await cs_svc.get_company_settings(); self._base_currency = settings.base_currency if settings else "SGD"
+            if self.app_core.currency_manager:
+                curr_orms = await self.app_core.currency_manager.get_all_active_currencies()
+                self._currencies_cache = [{"code":c.code, "name":c.name} for c in curr_orms]
+            if self.app_core.bank_account_manager:
+                ba_result = await self.app_core.bank_account_manager.get_bank_accounts_for_listing(active_only=True, page_size=-1)
+                if ba_result.is_success and ba_result.value:
+                    self._bank_accounts_cache = [ba.model_dump() for ba in ba_result.value]
+            QMetaObject.invokeMethod(self, "_populate_static_combos_slot", Qt.ConnectionType.QueuedConnection)
+            current_payment_type = self.payment_type_combo.currentData()
+            if current_payment_type: self._on_payment_type_changed(current_payment_type)
+        except Exception as e: self.app_core.logger.error(f"Error loading initial combo data for PaymentDialog: {e}", exc_info=True); QMessageBox.warning(self, "Data Load Error", f"Could not load initial dropdown data: {str(e)}")
+
+    @Slot()
+    def _populate_static_combos_slot(self):
+        self._in_data_load = True
+        self.currency_combo.clear()
+        for curr in self._currencies_cache: self.currency_combo.addItem(f"{curr['code']} - {curr['name']}", curr['code'])
+        base_curr_idx = self.currency_combo.findData(self._base_currency)
+        if base_curr_idx != -1: self.currency_combo.setCurrentIndex(base_curr_idx)
+        elif self._currencies_cache : self.currency_combo.setCurrentIndex(0)
+        self._on_currency_changed() 
+        self.bank_account_combo.clear(); self.bank_account_combo.addItem("-- Select Bank Account --", 0)
+        for ba in self._bank_accounts_cache: self.bank_account_combo.addItem(f"{ba['account_name']} ({ba['bank_name']} - {ba['currency_code']})", ba['id'])
+        self._update_dynamic_fields()
+        self._in_data_load = False
+        if self.loaded_payment_data: 
+             self._populate_header_fields_from_orm(self.loaded_payment_data)
+
+    @Slot(PaymentTypeEnum)
+    def _on_payment_type_changed(self, payment_type: Optional[PaymentTypeEnum]):
+        self._in_data_load = True
+        self.entity_combo.clear(); self.entity_combo.addItem("-- Select Entity --", 0)
+        self._allocatable_invoices_cache = []; self._clear_allocations_table()
+        if payment_type == PaymentTypeEnum.CUSTOMER_PAYMENT:
+            self.entity_label.setText("Customer*:")
+            schedule_task_from_qt(self._load_entities(PaymentEntityTypeEnum.CUSTOMER))
+        elif payment_type == PaymentTypeEnum.VENDOR_PAYMENT:
+            self.entity_label.setText("Vendor*:")
+            schedule_task_from_qt(self._load_entities(PaymentEntityTypeEnum.VENDOR))
+        else: self.entity_label.setText("Entity*:"); self.entity_combo.setEnabled(False)
+        self._update_dynamic_fields()
+        self._in_data_load = False
+
+    async def _load_entities(self, entity_type: PaymentEntityTypeEnum):
+        entity_list_json = "[]"; cache_to_update = []
+        if entity_type == PaymentEntityTypeEnum.CUSTOMER and self.app_core.customer_manager:
+            cust_result: Result[List[CustomerSummaryData]] = await self.app_core.customer_manager.get_customers_for_listing(active_only=True, page_size=-1) # type: ignore
+            if cust_result.is_success and cust_result.value: self._customers_cache = [c.model_dump() for c in cust_result.value]; cache_to_update = self._customers_cache
+        elif entity_type == PaymentEntityTypeEnum.VENDOR and self.app_core.vendor_manager:
+            vend_result: Result[List[VendorSummaryData]] = await self.app_core.vendor_manager.get_vendors_for_listing(active_only=True, page_size=-1) # type: ignore
+            if vend_result.is_success and vend_result.value: self._vendors_cache = [v.model_dump() for v in vend_result.value]; cache_to_update = self._vendors_cache
+        entity_list_json = json.dumps(cache_to_update, default=json_converter)
+        QMetaObject.invokeMethod(self, "_populate_entity_combo_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, entity_list_json), Q_ARG(str, entity_type.value))
+
+    @Slot(str, str)
+    def _populate_entity_combo_slot(self, entities_json: str, entity_type_str: str):
+        self._in_data_load = True; self.entity_combo.clear(); self.entity_combo.addItem("-- Select Entity --", 0)
+        try:
+            entities_data = json.loads(entities_json)
+            code_field = "customer_code" if entity_type_str == PaymentEntityTypeEnum.CUSTOMER.value else "vendor_code"
+            for entity in entities_data: self.entity_combo.addItem(f"{entity[code_field]} - {entity['name']}", entity['id'])
+            if isinstance(self.entity_combo.completer(), QCompleter): self.entity_combo.completer().setModel(self.entity_combo.model())
+            self.entity_combo.setEnabled(True)
+        except json.JSONDecodeError as e: self.app_core.logger.error(f"Error parsing entities JSON for PaymentDialog ({entity_type_str}): {e}"); self.entity_combo.setEnabled(False)
+        self._in_data_load = False
+        if self.loaded_payment_data: self._populate_header_fields_from_orm(self.loaded_payment_data)
+
+    @Slot()
+    def _on_entity_changed(self):
+        if self._in_data_load: return
+        current_entity_id = self.entity_combo.currentData()
+        self._allocatable_invoices_cache = []; self._clear_allocations_table()
+        if current_entity_id and current_entity_id != 0:
+            entity_type_enum = self.payment_type_combo.currentData()
+            cache_to_use = self._customers_cache if entity_type_enum == PaymentTypeEnum.CUSTOMER_PAYMENT else self._vendors_cache
+            selected_entity = next((e for e in cache_to_use if e.get("id") == current_entity_id), None)
+            if selected_entity and selected_entity.get("currency_code"):
+                curr_idx = self.currency_combo.findData(selected_entity["currency_code"])
+                if curr_idx != -1: self.currency_combo.setCurrentIndex(curr_idx)
+            schedule_task_from_qt(self._load_allocatable_documents())
+        self._update_allocation_totals()
+
+    @Slot()
+    def _update_dynamic_fields(self):
+        payment_method = self.payment_method_combo.currentData()
+        is_cheque = (payment_method == PaymentMethodEnum.CHECK)
+        is_cash = (payment_method == PaymentMethodEnum.CASH)
+        self.cheque_no_label.setVisible(is_cheque); self.cheque_no_edit.setVisible(is_cheque)
+        self.bank_account_combo.setEnabled(not is_cash and not self.view_only_mode)
+        if is_cash: self.bank_account_combo.setCurrentIndex(0) 
+        self._update_amount_prefix()
+
+    @Slot()
+    def _on_currency_changed(self):
+        selected_currency = self.currency_combo.currentData()
+        is_base = (selected_currency == self._base_currency)
+        can_edit_rate = not is_base and not self.view_only_mode
+        self.exchange_rate_spin.setEnabled(can_edit_rate)
+        self.exchange_rate_spin.setReadOnly(not can_edit_rate)
+        if is_base: self.exchange_rate_spin.setValue(1.0)
+        self._update_amount_prefix()
+
+    def _update_amount_prefix(self):
+        currency_code = self.currency_combo.currentData()
+        if not currency_code: 
+            ba_id = self.bank_account_combo.currentData()
+            if ba_id and ba_id != 0:
+                 selected_ba = next((b for b in self._bank_accounts_cache if b.get("id") == ba_id), None)
+                 if selected_ba: currency_code = selected_ba.get("currency_code")
+        self.payment_amount_edit.setPrefix(f"{currency_code} " if currency_code else "$ ")
+
+    def _clear_allocations_table(self):
+        self.allocations_table.setRowCount(0)
+
+    async def _load_allocatable_documents(self):
+        self._in_data_load = True
+        self._clear_allocations_table(); self._allocatable_invoices_cache = []
+        entity_id = self.entity_combo.currentData()
+        payment_type = self.payment_type_combo.currentData()
+        if not entity_id or entity_id == 0 or not payment_type: self._in_data_load = False; return
+
+        invoices_to_allocate: List[Dict[str, Any]] = []
+        try:
+            if payment_type == PaymentTypeEnum.CUSTOMER_PAYMENT and self.app_core.sales_invoice_manager:
+                result_si: Result[List[SalesInvoiceSummaryData]] = await self.app_core.sales_invoice_manager.get_invoices_for_listing(
+                    customer_id=entity_id, status_list=[InvoiceStatusEnum.APPROVED, InvoiceStatusEnum.PARTIALLY_PAID, InvoiceStatusEnum.OVERDUE],
+                    page_size=-1 
+                ) # type: ignore
+                if result_si.is_success and result_si.value:
+                    for inv_summary in result_si.value:
+                        # Ensure currency_code exists in SalesInvoiceSummaryData for this to work
+                        currency = getattr(inv_summary, 'currency_code', self.currency_combo.currentData())
+                        invoices_to_allocate.append({
+                            "id": inv_summary.id, "doc_type": PaymentAllocationDocTypeEnum.SALES_INVOICE,
+                            "doc_no": inv_summary.invoice_no, "doc_date": inv_summary.invoice_date,
+                            "doc_total": inv_summary.total_amount, "amount_paid": inv_summary.amount_paid,
+                            "outstanding": inv_summary.total_amount - inv_summary.amount_paid, 
+                            "currency": currency
+                        })
+            elif payment_type == PaymentTypeEnum.VENDOR_PAYMENT and self.app_core.purchase_invoice_manager:
+                result_pi: Result[List[PurchaseInvoiceSummaryData]] = await self.app_core.purchase_invoice_manager.get_invoices_for_listing(
+                    vendor_id=entity_id, status_list=[InvoiceStatusEnum.APPROVED, InvoiceStatusEnum.PARTIALLY_PAID, InvoiceStatusEnum.OVERDUE],
+                    page_size=-1
+                ) # type: ignore
+                if result_pi.is_success and result_pi.value:
+                    for inv_summary in result_pi.value:
+                        # Ensure currency_code and amount_paid exist for PurchaseInvoiceSummaryData
+                        currency = getattr(inv_summary, 'currency_code', self.currency_combo.currentData())
+                        amount_paid = getattr(inv_summary, 'amount_paid', Decimal(0))
+                        invoices_to_allocate.append({
+                            "id": inv_summary.id, "doc_type": PaymentAllocationDocTypeEnum.PURCHASE_INVOICE,
+                            "doc_no": inv_summary.invoice_no, "doc_date": inv_summary.invoice_date, 
+                            "doc_total": inv_summary.total_amount, "amount_paid": amount_paid,
+                            "outstanding": inv_summary.total_amount - amount_paid, 
+                            "currency": currency
+                        })
+            self._allocatable_invoices_cache = invoices_to_allocate
+            QMetaObject.invokeMethod(self, "_populate_allocations_table_slot", Qt.ConnectionType.QueuedConnection)
+        except Exception as e:
+            self.app_core.logger.error(f"Error loading allocatable documents: {e}", exc_info=True)
+            QMessageBox.warning(self, "Load Error", f"Could not load documents for allocation: {str(e)}")
+        finally:
+            self._in_data_load = False
+
+    @Slot()
+    def _populate_allocations_table_slot(self):
+        self._in_data_load = True; self.allocations_table.setRowCount(0)
+        payment_currency = self.currency_combo.currentData()
+        
+        for inv_data in self._allocatable_invoices_cache:
+            if inv_data.get("currency") != payment_currency:
+                self.app_core.logger.debug(f"Skipping invoice {inv_data['doc_no']} due to currency mismatch ({inv_data.get('currency')} vs {payment_currency})")
+                continue
+            
+            row_idx = self.allocations_table.rowCount() 
+            self.allocations_table.insertRow(row_idx)
+            
+            chk_box_item_widget = QWidget(); chk_box_layout = QHBoxLayout(chk_box_item_widget); chk_box_layout.setContentsMargins(0,0,0,0); chk_box_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            select_chk = QCheckBox(); chk_box_layout.addWidget(select_chk)
+            self.allocations_table.setCellWidget(row_idx, self.ALLOC_COL_SELECT, chk_box_item_widget)
+            select_chk.stateChanged.connect(lambda state, r=row_idx: self._on_allocation_select_changed(r, state))
+
+            doc_type_str = inv_data["doc_type"].value if isinstance(inv_data["doc_type"], PaymentAllocationDocTypeEnum) else str(inv_data["doc_type"])
+            self.allocations_table.setItem(row_idx, self.ALLOC_COL_DOC_TYPE, QTableWidgetItem(doc_type_str))
+            doc_no_item = QTableWidgetItem(inv_data["doc_no"])
+            doc_no_item.setData(Qt.ItemDataRole.UserRole, inv_data['id']) 
+            self.allocations_table.setItem(row_idx, self.ALLOC_COL_DOC_NO, doc_no_item)
+            doc_date_str = inv_data["doc_date"].strftime('%d/%m/%Y') if isinstance(inv_data["doc_date"], date) else str(inv_data["doc_date"])
+            self.allocations_table.setItem(row_idx, self.ALLOC_COL_DOC_DATE, QTableWidgetItem(doc_date_str))
+            
+            doc_total_item = QTableWidgetItem(f"{inv_data['doc_total']:.2f}")
+            doc_total_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            self.allocations_table.setItem(row_idx, self.ALLOC_COL_DOC_TOTAL, doc_total_item)
+            
+            outstanding_item = QTableWidgetItem(f"{inv_data['outstanding']:.2f}")
+            outstanding_item.setData(Qt.ItemDataRole.UserRole, inv_data['outstanding']) 
+            outstanding_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            self.allocations_table.setItem(row_idx, self.ALLOC_COL_OUTSTANDING, outstanding_item)
+
+            for col in range(self.ALLOC_COL_DOC_TYPE, self.ALLOC_COL_OUTSTANDING + 1): 
+                item = self.allocations_table.item(row_idx, col)
+                if item: item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+
+            allocate_spin = QDoubleSpinBox()
+            allocate_spin.setDecimals(2); allocate_spin.setRange(0.00, float(inv_data['outstanding'])) 
+            allocate_spin.setGroupSeparatorShown(True); allocate_spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+            allocate_spin.setValue(0.00) 
+            self.allocations_table.setCellWidget(row_idx, self.ALLOC_COL_TO_ALLOCATE, allocate_spin)
+        
+        self._update_allocation_totals()
+        self._in_data_load = False
+        if self.loaded_payment_data and self.loaded_payment_data.allocations: 
+            self._populate_existing_allocations(self.loaded_payment_data.allocations)
+
+
+    @Slot(int, int)
+    def _on_allocation_select_changed(self, row: int, state: int):
+        if self._in_data_load: return
+        allocate_spin = cast(QDoubleSpinBox, self.allocations_table.cellWidget(row, self.ALLOC_COL_TO_ALLOCATE))
+        outstanding_item = self.allocations_table.item(row, self.ALLOC_COL_OUTSTANDING)
+        if not allocate_spin or not outstanding_item: return
+
+        outstanding_amount = Decimal(outstanding_item.data(Qt.ItemDataRole.UserRole) or '0')
+        payment_total_amount = Decimal(str(self.payment_amount_edit.value()))
+        
+        current_total_allocated_elsewhere = Decimal(0)
+        for r in range(self.allocations_table.rowCount()):
+            if r == row: continue 
+            spin = cast(QDoubleSpinBox, self.allocations_table.cellWidget(r, self.ALLOC_COL_TO_ALLOCATE))
+            if spin: current_total_allocated_elsewhere += Decimal(str(spin.value()))
+        
+        remaining_payment_to_allocate = payment_total_amount - current_total_allocated_elsewhere
+
+        if Qt.CheckState(state) == Qt.CheckState.Checked:
+            amount_to_auto_allocate = min(outstanding_amount, remaining_payment_to_allocate)
+            if amount_to_auto_allocate < Decimal("0.01") and outstanding_amount > Decimal("0.005"): 
+                 allocate_spin.setValue(0.00) 
+                 QMessageBox.information(self, "Allocation Info", f"Not enough unallocated payment amount to apply to {self.allocations_table.item(row, self.ALLOC_COL_DOC_NO).text()}.")
+                 chk_box_widget = cast(QWidget, self.allocations_table.cellWidget(row, self.ALLOC_COL_SELECT))
+                 if chk_box_widget:
+                     chk_box = chk_box_widget.findChild(QCheckBox)
+                     if chk_box: self._in_data_load = True; chk_box.setChecked(False); self._in_data_load = False
+            else:
+                allocate_spin.setValue(float(max(Decimal(0), amount_to_auto_allocate)))
+        else: 
+            allocate_spin.setValue(0.00)
+        self._update_allocation_totals()
+
+    def _update_allocation_totals_and_checkbox(self, row: int):
+        if self._in_data_load: return
+        allocate_spin = cast(QDoubleSpinBox, self.allocations_table.cellWidget(row, self.ALLOC_COL_TO_ALLOCATE))
+        chk_box_widget = cast(QWidget, self.allocations_table.cellWidget(row, self.ALLOC_COL_SELECT))
+        if not allocate_spin or not chk_box_widget: return
+        chk_box = chk_box_widget.findChild(QCheckBox)
+        if not chk_box: return
+
+        current_allocation = Decimal(str(allocate_spin.value()))
+        outstanding_item = self.allocations_table.item(row, self.ALLOC_COL_OUTSTANDING)
+        max_allocatable_for_line = Decimal(outstanding_item.data(Qt.ItemDataRole.UserRole) or '0')
+
+        if current_allocation > max_allocatable_for_line:
+            QMessageBox.warning(self, "Allocation Error", f"Allocation for {self.allocations_table.item(row, self.ALLOC_COL_DOC_NO).text()} cannot exceed its outstanding amount of {max_allocatable_for_line:.2f}.")
+            allocate_spin.setValue(float(max_allocatable_for_line))
+            current_allocation = max_allocatable_for_line
+
+        payment_total_amount = Decimal(str(self.payment_amount_edit.value()))
+        temp_total_allocated = Decimal(0)
+        for r in range(self.allocations_table.rowCount()):
+            spin = cast(QDoubleSpinBox, self.allocations_table.cellWidget(r, self.ALLOC_COL_TO_ALLOCATE))
+            if spin: temp_total_allocated += Decimal(str(spin.value()))
+        
+        if temp_total_allocated > payment_total_amount:
+            over_allocated = temp_total_allocated - payment_total_amount
+            corrected_line_allocation = max(Decimal(0), current_allocation - over_allocated)
+            if corrected_line_allocation != current_allocation: 
+                QMessageBox.warning(self, "Allocation Error", f"Total allocated amount exceeds payment amount. Reducing allocation for current line.")
+                allocate_spin.setValue(float(corrected_line_allocation))
+
+        self._in_data_load = True 
+        chk_box.setChecked(Decimal(str(allocate_spin.value())) > Decimal("0.005"))
+        self._in_data_load = False
+        self._update_allocation_totals()
+
+    def _update_allocation_totals(self):
+        total_allocated = Decimal(0)
+        for r in range(self.allocations_table.rowCount()):
+            allocate_spin = cast(QDoubleSpinBox, self.allocations_table.cellWidget(r, self.ALLOC_COL_TO_ALLOCATE))
+            if allocate_spin: total_allocated += Decimal(str(allocate_spin.value()))
+        payment_amount = Decimal(str(self.payment_amount_edit.value())); unallocated_amount = payment_amount - total_allocated
+        self.total_allocated_label.setText(f"Total Allocated: {total_allocated:,.2f}")
+        if unallocated_amount < Decimal(0): self.unallocated_amount_label.setText(f"OVER-ALLOCATED: {unallocated_amount:,.2f}"); self.unallocated_amount_label.setStyleSheet("font-weight: bold; color: red;")
+        elif unallocated_amount == Decimal(0) and payment_amount > 0: self.unallocated_amount_label.setText("Fully Allocated"); self.unallocated_amount_label.setStyleSheet("font-weight: bold; color: green;")
+        else: self.unallocated_amount_label.setText(f"Unallocated: {unallocated_amount:,.2f}"); self.unallocated_amount_label.setStyleSheet("font-weight: bold;")
+
+    def _collect_data(self) -> Optional[PaymentCreateData]:
+        entity_id_data = self.entity_combo.currentData()
+        if not entity_id_data or entity_id_data == 0: QMessageBox.warning(self, "Validation Error", "Entity must be selected."); return None
+        payment_type_enum = self.payment_type_combo.currentData()
+        entity_type_enum = PaymentEntityTypeEnum.CUSTOMER if payment_type_enum == PaymentTypeEnum.CUSTOMER_PAYMENT else PaymentEntityTypeEnum.VENDOR
+        payment_method_enum = self.payment_method_combo.currentData()
+        bank_account_id_data = self.bank_account_combo.currentData()
+        bank_account_id_val = int(bank_account_id_data) if bank_account_id_data and bank_account_id_data !=0 else None
+        if payment_method_enum != PaymentMethodEnum.CASH and not bank_account_id_val: QMessageBox.warning(self, "Validation Error", "Bank Account is required for non-cash payment methods."); return None
+
+        allocations: List[PaymentAllocationBaseData] = []
+        total_allocated_check = Decimal(0)
+        for r in range(self.allocations_table.rowCount()):
+            chk_box_widget = cast(QWidget, self.allocations_table.cellWidget(r, self.ALLOC_COL_SELECT))
+            chk_box = chk_box_widget.findChild(QCheckBox) if chk_box_widget else None
+            allocate_spin = cast(QDoubleSpinBox, self.allocations_table.cellWidget(r, self.ALLOC_COL_TO_ALLOCATE))
+            if chk_box and chk_box.isChecked() and allocate_spin and Decimal(str(allocate_spin.value())) > Decimal("0.005"):
+                doc_id_item = self.allocations_table.item(r, self.ALLOC_COL_DOC_NO); doc_type_item = self.allocations_table.item(r, self.ALLOC_COL_DOC_TYPE)
+                if not doc_id_item or not doc_type_item: continue
+                doc_id = doc_id_item.data(Qt.ItemDataRole.UserRole); doc_type_str = doc_type_item.text()
+                doc_type_enum_member = next((member for name, member in PaymentAllocationDocTypeEnum.__members__.items() if member.value == doc_type_str), None)
+                if not doc_type_enum_member: QMessageBox.warning(self, "Data Error", f"Invalid document type '{doc_type_str}' in allocation line {r+1}."); return None
+                amount_to_allocate = Decimal(str(allocate_spin.value()))
+                total_allocated_check += amount_to_allocate
+                allocations.append(PaymentAllocationBaseData(document_id=int(doc_id), document_type=doc_type_enum_member, amount_allocated=amount_to_allocate))
+        
+        payment_amount_val = Decimal(str(self.payment_amount_edit.value()))
+        if total_allocated_check > payment_amount_val: QMessageBox.warning(self, "Allocation Error", f"Total allocated amount ({total_allocated_check:.2f}) exceeds payment amount ({payment_amount_val:.2f}). Please adjust allocations."); return None
+
+        common_data_dict = {
+            "payment_type": payment_type_enum, "payment_method": payment_method_enum,
+            "payment_date": self.payment_date_edit.date().toPython(),
+            "entity_type": entity_type_enum, "entity_id": int(entity_id_data),
+            "bank_account_id": bank_account_id_val,
+            "currency_code": self.currency_combo.currentData() or self._base_currency,
+            "exchange_rate": Decimal(str(self.exchange_rate_spin.value())), "amount": payment_amount_val,
+            "reference": self.reference_edit.text().strip() or None,
+            "description": self.description_edit.toPlainText().strip() or None,
+            "cheque_no": self.cheque_no_edit.text().strip() if self.cheque_no_label.isVisible() else None,
+            "user_id": self.current_user_id, "allocations": allocations
+        }
+        try:
+            return PaymentCreateData(**common_data_dict) # type: ignore
+        except ValueError as ve: QMessageBox.warning(self, "Validation Error", f"Data validation failed:\n{str(ve)}"); return None
+
+    @Slot()
+    def on_save_payment(self):
+        if self.view_only_mode: return
+        dto = self._collect_data()
+        if dto: 
+            self.save_button.setEnabled(False)
+            future = schedule_task_from_qt(self._perform_save(dto))
+            if future: future.add_done_callback(lambda res: self._handle_save_result(res))
+            else: self.app_core.logger.error("Failed to schedule _perform_save for payment."); self.save_button.setEnabled(True); QMessageBox.critical(self, "Task Error", "Failed to schedule payment save operation.")
+
+    def _handle_save_result(self, future_obj): 
+        self.save_button.setEnabled(True) 
+        if future_obj is None: QMessageBox.critical(self, "Task Error", "Payment save task did not run."); return
+        try:
+            result: Result[Payment] = future_obj.result()
+            if result.is_success and result.value:
+                QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "information", Qt.ConnectionType.QueuedConnection, Q_ARG(QWidget, self), Q_ARG(str, "Success"), Q_ARG(str, f"Payment '{result.value.payment_no}' saved and posted successfully."))
+                self.payment_saved.emit(result.value.id); QMetaObject.invokeMethod(self, "accept", Qt.ConnectionType.QueuedConnection)
+            else: QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "warning", Qt.ConnectionType.QueuedConnection, Q_ARG(QWidget, self), Q_ARG(str, "Save Error"), Q_ARG(str, f"Failed to save payment:\n{', '.join(result.errors)}"))
+        except Exception as e: self.app_core.logger.error(f"Exception in _handle_save_result for payment: {e}", exc_info=True); QMessageBox.critical(self, "Save Error", f"An unexpected error occurred during save: {str(e)}")
+
+    async def _perform_save(self, dto: PaymentCreateData): 
+        if not self.app_core.payment_manager: return Result.failure(["Payment Manager not available."])
+        result = await self.app_core.payment_manager.create_payment(dto)
+        return result 
+
+    async def _load_existing_payment_data(self):
+        if not self.payment_id or not self.app_core.payment_manager: return
+        self._in_data_load = True
+        self.loaded_payment_data = await self.app_core.payment_manager.get_payment_for_dialog(self.payment_id)
+        self.setWindowTitle(self._get_window_title())
+        if self.loaded_payment_data:
+            self._populate_header_fields_from_orm(self.loaded_payment_data) 
+            self.view_only_mode = self.loaded_payment_data.status != PaymentStatusEnum.DRAFT.value 
+            self._set_read_only_state(self.view_only_mode)
+        else: QMessageBox.warning(self, "Load Error", f"Payment ID {self.payment_id} not found."); self.reject()
+        self._in_data_load = False 
+    
+    def _populate_header_fields_from_orm(self, payment_orm: Payment):
+        self.payment_type_combo.setCurrentIndex(self.payment_type_combo.findData(PaymentTypeEnum(payment_orm.payment_type)))
+        entity_idx = self.entity_combo.findData(payment_orm.entity_id); 
+        if entity_idx != -1: self.entity_combo.setCurrentIndex(entity_idx)
+        else: self.app_core.logger.warning(f"Entity ID {payment_orm.entity_id} for payment not found in combo.")
+        self.payment_date_edit.setDate(QDate(payment_orm.payment_date))
+        self.payment_method_combo.setCurrentIndex(self.payment_method_combo.findData(PaymentMethodEnum(payment_orm.payment_method)))
+        if payment_orm.bank_account_id:
+            ba_idx = self.bank_account_combo.findData(payment_orm.bank_account_id)
+            if ba_idx != -1: self.bank_account_combo.setCurrentIndex(ba_idx)
+        curr_idx = self.currency_combo.findData(payment_orm.currency_code)
+        if curr_idx != -1: self.currency_combo.setCurrentIndex(curr_idx)
+        self.exchange_rate_spin.setValue(float(payment_orm.exchange_rate))
+        self.payment_amount_edit.setValue(float(payment_orm.amount))
+        self.reference_edit.setText(payment_orm.reference or "")
+        self.description_edit.setText(payment_orm.description or "")
+        self.cheque_no_edit.setText(payment_orm.cheque_no or "")
+        self._update_dynamic_fields(); self._on_currency_changed()
+
+    def _populate_existing_allocations(self, allocations_orm_list: List[PaymentAllocation]):
+        if not self._allocatable_invoices_cache: self.app_core.logger.info("Cannot populate existing allocations: allocatable invoices not yet loaded."); return
+        self._in_data_load = True
+        for r in range(self.allocations_table.rowCount()):
+            doc_id_item = self.allocations_table.item(r, self.ALLOC_COL_DOC_NO); 
+            if not doc_id_item: continue
+            table_doc_id = doc_id_item.data(Qt.ItemDataRole.UserRole)
+            doc_type_item_text = self.allocations_table.item(r, self.ALLOC_COL_DOC_TYPE).text()
+            matching_alloc_orm = next((alloc for alloc in allocations_orm_list if alloc.document_id == table_doc_id and alloc.document_type == doc_type_item_text), None)
+            if matching_alloc_orm:
+                chk_box_widget = cast(QWidget, self.allocations_table.cellWidget(r, self.ALLOC_COL_SELECT))
+                chk_box = chk_box_widget.findChild(QCheckBox) if chk_box_widget else None
+                allocate_spin = cast(QDoubleSpinBox, self.allocations_table.cellWidget(r, self.ALLOC_COL_TO_ALLOCATE))
+                if chk_box: chk_box.setChecked(True)
+                if allocate_spin: allocate_spin.setValue(float(matching_alloc_orm.amount))
+        self._update_allocation_totals(); self._in_data_load = False
+        
+    def _set_read_only_state(self, read_only: bool):
+        self.payment_type_combo.setEnabled(not read_only)
+        self.entity_combo.setEnabled(not read_only)
+        self.payment_date_edit.setReadOnly(read_only)
+        self.payment_method_combo.setEnabled(not read_only)
+        self._update_dynamic_fields() 
+        if read_only: 
+            self.bank_account_combo.setEnabled(False)
+            self.cheque_no_edit.setReadOnly(True)
+
+        self.currency_combo.setEnabled(not read_only)
+        self._on_currency_changed() 
+        if read_only: 
+            self.exchange_rate_spin.setReadOnly(True) 
+
+        self.payment_amount_edit.setReadOnly(read_only)
+        self.reference_edit.setReadOnly(read_only)
+        self.description_edit.setReadOnly(read_only)
+        
+        self.allocations_table.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers if read_only else 
+            QAbstractItemView.EditTrigger.AllInputs 
+        )
+        for r in range(self.allocations_table.rowCount()):
+            chk_box_widget = cast(QWidget, self.allocations_table.cellWidget(r, self.ALLOC_COL_SELECT))
+            if chk_box_widget:
+                chk_box = chk_box_widget.findChild(QCheckBox)
+                if chk_box: chk_box.setEnabled(not read_only)
+        
+        self.save_button.setVisible(not read_only)
+
+
+```
+
+# app/ui/payments/payment_table_model.py
+```py
+# File: app/ui/payments/payment_table_model.py
+from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
+from typing import List, Dict, Any, Optional
+from decimal import Decimal, InvalidOperation
+from datetime import date as python_date
+
+from app.utils.pydantic_models import PaymentSummaryData
+from app.common.enums import PaymentTypeEnum, PaymentMethodEnum, PaymentEntityTypeEnum, PaymentStatusEnum
+
+class PaymentTableModel(QAbstractTableModel):
+    def __init__(self, data: Optional[List[PaymentSummaryData]] = None, parent=None):
+        super().__init__(parent)
+        self._headers = [
+            "ID", "Payment No", "Date", "Type", "Method", 
+            "Entity Type", "Entity Name", "Amount", "Currency", "Status"
+        ]
+        self._data: List[PaymentSummaryData] = data or []
+
+    def rowCount(self, parent=QModelIndex()) -> int:
+        if parent.isValid():
+            return 0
+        return len(self._data)
+
+    def columnCount(self, parent=QModelIndex()) -> int:
+        return len(self._headers)
+
+    def headerData(self, section: int, orientation: Qt.Orientation, role=Qt.ItemDataRole.DisplayRole) -> Optional[str]:
+        if role == Qt.ItemDataRole.DisplayRole and orientation == Qt.Orientation.Horizontal:
+            if 0 <= section < len(self._headers):
+                return self._headers[section]
+        return None
+
+    def _format_decimal_for_table(self, value: Optional[Decimal]) -> str:
+        if value is None: 
+            return "0.00"
+        try:
+            return f"{Decimal(str(value)):,.2f}"
+        except (InvalidOperation, TypeError):
+            return str(value) 
+
+    def data(self, index: QModelIndex, role=Qt.ItemDataRole.DisplayRole) -> Any:
+        if not index.isValid():
+            return None
+        
+        row = index.row()
+        col = index.column()
+
+        if not (0 <= row < len(self._data)):
+            return None
+            
+        payment_summary: PaymentSummaryData = self._data[row]
+
+        if role == Qt.ItemDataRole.DisplayRole:
+            if col == 0: return str(payment_summary.id)
+            if col == 1: return payment_summary.payment_no
+            if col == 2: # Date
+                pay_date = payment_summary.payment_date
+                return pay_date.strftime('%d/%m/%Y') if isinstance(pay_date, python_date) else str(pay_date)
+            if col == 3: # Type
+                return payment_summary.payment_type.value if isinstance(payment_summary.payment_type, PaymentTypeEnum) else str(payment_summary.payment_type)
+            if col == 4: # Method
+                 return payment_summary.payment_method.value if isinstance(payment_summary.payment_method, PaymentMethodEnum) else str(payment_summary.payment_method)
+            if col == 5: # Entity Type
+                 return payment_summary.entity_type.value if isinstance(payment_summary.entity_type, PaymentEntityTypeEnum) else str(payment_summary.entity_type)
+            if col == 6: return payment_summary.entity_name
+            if col == 7: return self._format_decimal_for_table(payment_summary.amount)
+            if col == 8: return payment_summary.currency_code
+            if col == 9: # Status
+                return payment_summary.status.value if isinstance(payment_summary.status, PaymentStatusEnum) else str(payment_summary.status)
+            return ""
+
+        elif role == Qt.ItemDataRole.UserRole: 
+            if col == 0: 
+                return payment_summary.id
+        
+        elif role == Qt.ItemDataRole.TextAlignmentRole:
+            if self._headers[col] == "Amount":
+                return Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            if self._headers[col] in ["Date", "Status", "Type", "Method"]:
+                return Qt.AlignmentFlag.AlignCenter
+        
+        return None
+
+    def get_payment_id_at_row(self, row: int) -> Optional[int]:
+        if 0 <= row < len(self._data):
+            index = self.index(row, 0) 
+            id_val = self.data(index, Qt.ItemDataRole.UserRole)
+            if id_val is not None:
+                return int(id_val)
+            # Fallback if UserRole is not used for ID or is somehow None
+            return self._data[row].id 
+        return None
+        
+    def get_payment_status_at_row(self, row: int) -> Optional[PaymentStatusEnum]:
+        if 0 <= row < len(self._data):
+            status_val = self._data[row].status
+            return status_val if isinstance(status_val, PaymentStatusEnum) else None
+        return None
+
+    def update_data(self, new_data: List[PaymentSummaryData]):
+        self.beginResetModel()
+        self._data = new_data or []
+        self.endResetModel()
+
+```
+
+# app/ui/main_window.py
+```py
+# app/ui/main_window.py
+from PySide6.QtWidgets import (
+    QMainWindow, QTabWidget, QToolBar, QStatusBar, 
+    QVBoxLayout, QWidget, QMessageBox, QLabel 
+)
+from PySide6.QtGui import QIcon, QKeySequence, QAction 
+from PySide6.QtCore import Qt, QSettings, Signal, Slot, QCoreApplication, QSize 
+
+from app.ui.dashboard.dashboard_widget import DashboardWidget
+from app.ui.accounting.accounting_widget import AccountingWidget
+from app.ui.sales_invoices.sales_invoices_widget import SalesInvoicesWidget
+from app.ui.purchase_invoices.purchase_invoices_widget import PurchaseInvoicesWidget
+from app.ui.payments.payments_widget import PaymentsWidget # Corrected: was already added
+from app.ui.customers.customers_widget import CustomersWidget
+from app.ui.vendors.vendors_widget import VendorsWidget
+from app.ui.products.products_widget import ProductsWidget
+from app.ui.banking.banking_widget import BankingWidget
+from app.ui.reports.reports_widget import ReportsWidget
+from app.ui.settings.settings_widget import SettingsWidget
+from app.core.application_core import ApplicationCore
+
+class MainWindow(QMainWindow):
+    def __init__(self, app_core: ApplicationCore):
+        super().__init__()
+        self.app_core = app_core
+        
+        self.setWindowTitle(f"{QCoreApplication.applicationName()} - {QCoreApplication.applicationVersion()}")
+        self.setMinimumSize(1024, 768)
+        
+        self.icon_path_prefix = "resources/icons/" 
+        try:
+            import app.resources_rc 
+            self.icon_path_prefix = ":/icons/"
+        except ImportError:
+            pass
+
+        settings = QSettings() 
+        if settings.contains("MainWindow/geometry"):
+            self.restoreGeometry(settings.value("MainWindow/geometry")) 
+        else:
+            self.resize(1280, 800)
+        
+        self._init_ui()
+        
+        if settings.contains("MainWindow/state"):
+            self.restoreState(settings.value("MainWindow/state")) 
+    
+    def _init_ui(self):
+        self.central_widget = QWidget()
+        self.setCentralWidget(self.central_widget)
+        
+        self.main_layout = QVBoxLayout(self.central_widget)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
+        self.main_layout.setSpacing(0)
+        
+        self._create_toolbar()
+        
+        self.tab_widget = QTabWidget()
+        self.tab_widget.setTabPosition(QTabWidget.TabPosition.North)
+        self.tab_widget.setDocumentMode(True)
+        self.tab_widget.setMovable(True)
+        self.main_layout.addWidget(self.tab_widget)
+        
+        self._add_module_tabs()
+        self._create_status_bar()
+        self._create_actions()
+        self._create_menus()
+    
+    def _create_toolbar(self):
+        self.toolbar = QToolBar("Main Toolbar")
+        self.toolbar.setObjectName("MainToolbar") 
+        self.toolbar.setMovable(False)
+        self.toolbar.setIconSize(QSize(24, 24)) 
+        self.toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.toolbar) 
+    
+    def _add_module_tabs(self):
+        self.dashboard_widget = DashboardWidget(self.app_core)
+        self.tab_widget.addTab(self.dashboard_widget, QIcon(self.icon_path_prefix + "dashboard.svg"), "Dashboard")
+        
+        self.accounting_widget = AccountingWidget(self.app_core)
+        self.tab_widget.addTab(self.accounting_widget, QIcon(self.icon_path_prefix + "accounting.svg"), "Accounting")
+        
+        self.sales_invoices_widget = SalesInvoicesWidget(self.app_core)
+        self.tab_widget.addTab(self.sales_invoices_widget, QIcon(self.icon_path_prefix + "transactions.svg"), "Sales") 
+
+        self.purchase_invoices_widget = PurchaseInvoicesWidget(self.app_core) 
+        self.tab_widget.addTab(self.purchase_invoices_widget, QIcon(self.icon_path_prefix + "vendors.svg"), "Purchases") 
+
+        self.payments_widget = PaymentsWidget(self.app_core) 
+        self.tab_widget.addTab(self.payments_widget, QIcon(self.icon_path_prefix + "banking.svg"), "Payments") 
+
+        self.customers_widget = CustomersWidget(self.app_core)
+        self.tab_widget.addTab(self.customers_widget, QIcon(self.icon_path_prefix + "customers.svg"), "Customers")
+        
+        self.vendors_widget = VendorsWidget(self.app_core)
+        self.tab_widget.addTab(self.vendors_widget, QIcon(self.icon_path_prefix + "vendors.svg"), "Vendors")
+
+        self.products_widget = ProductsWidget(self.app_core) 
+        self.tab_widget.addTab(self.products_widget, QIcon(self.icon_path_prefix + "product.svg"), "Products & Services")
+        
+        self.banking_widget = BankingWidget(self.app_core)
+        self.tab_widget.addTab(self.banking_widget, QIcon(self.icon_path_prefix + "banking.svg"), "Banking")
+        
+        self.reports_widget = ReportsWidget(self.app_core)
+        self.tab_widget.addTab(self.reports_widget, QIcon(self.icon_path_prefix + "reports.svg"), "Reports")
+        
+        self.settings_widget = SettingsWidget(self.app_core)
+        self.tab_widget.addTab(self.settings_widget, QIcon(self.icon_path_prefix + "settings.svg"), "Settings")
+    
+    def _create_status_bar(self):
+        self.status_bar = QStatusBar(); self.setStatusBar(self.status_bar)
+        self.status_label = QLabel("Ready"); self.status_bar.addWidget(self.status_label, 1) 
+        user_text = "User: Guest"; 
+        if self.app_core.current_user: user_text = f"User: {self.app_core.current_user.username}"
+        self.user_label = QLabel(user_text); self.status_bar.addPermanentWidget(self.user_label)
+        self.version_label = QLabel(f"Version: {QCoreApplication.applicationVersion()}"); self.status_bar.addPermanentWidget(self.version_label)
+
+    def _create_actions(self):
+        self.new_company_action = QAction(QIcon(self.icon_path_prefix + "new_company.svg"), "New Company...", self); self.new_company_action.setShortcut(QKeySequence(QKeySequence.StandardKey.New)); self.new_company_action.triggered.connect(self.on_new_company)
+        self.open_company_action = QAction(QIcon(self.icon_path_prefix + "open_company.svg"), "Open Company...", self); self.open_company_action.setShortcut(QKeySequence(QKeySequence.StandardKey.Open)); self.open_company_action.triggered.connect(self.on_open_company)
+        self.backup_action = QAction(QIcon(self.icon_path_prefix + "backup.svg"), "Backup Data...", self); self.backup_action.triggered.connect(self.on_backup)
+        self.restore_action = QAction(QIcon(self.icon_path_prefix + "restore.svg"), "Restore Data...", self); self.restore_action.triggered.connect(self.on_restore)
+        self.exit_action = QAction(QIcon(self.icon_path_prefix + "exit.svg"), "Exit", self); self.exit_action.setShortcut(QKeySequence(QKeySequence.StandardKey.Quit)); self.exit_action.triggered.connect(self.close) 
+        self.preferences_action = QAction(QIcon(self.icon_path_prefix + "preferences.svg"), "Preferences...", self); self.preferences_action.setShortcut(QKeySequence(QKeySequence.StandardKey.Preferences)); self.preferences_action.triggered.connect(self.on_preferences)
+        self.help_contents_action = QAction(QIcon(self.icon_path_prefix + "help.svg"), "Help Contents", self); self.help_contents_action.setShortcut(QKeySequence(QKeySequence.StandardKey.HelpContents)); self.help_contents_action.triggered.connect(self.on_help_contents)
+        self.about_action = QAction(QIcon(self.icon_path_prefix + "about.svg"), "About " + QCoreApplication.applicationName(), self); self.about_action.triggered.connect(self.on_about)
+
+    def _create_menus(self):
+        self.file_menu = self.menuBar().addMenu("&File"); self.file_menu.addAction(self.new_company_action); self.file_menu.addAction(self.open_company_action); self.file_menu.addSeparator(); self.file_menu.addAction(self.backup_action); self.file_menu.addAction(self.restore_action); self.file_menu.addSeparator(); self.file_menu.addAction(self.exit_action)
+        self.edit_menu = self.menuBar().addMenu("&Edit"); self.edit_menu.addAction(self.preferences_action)
+        self.view_menu = self.menuBar().addMenu("&View"); self.tools_menu = self.menuBar().addMenu("&Tools")
+        self.help_menu = self.menuBar().addMenu("&Help"); self.help_menu.addAction(self.help_contents_action); self.help_menu.addSeparator(); self.help_menu.addAction(self.about_action)
+        self.toolbar.addAction(self.new_company_action); self.toolbar.addAction(self.open_company_action); self.toolbar.addSeparator(); self.toolbar.addAction(self.backup_action); self.toolbar.addAction(self.preferences_action)
+    
+    @Slot()
+    def on_new_company(self): QMessageBox.information(self, "New Company", "New company wizard not yet implemented.")
+    @Slot()
+    def on_open_company(self): QMessageBox.information(self, "Open Company", "Open company dialog not yet implemented.")
+    @Slot()
+    def on_backup(self): QMessageBox.information(self, "Backup Data", "Backup functionality not yet implemented.")
+    @Slot()
+    def on_restore(self): QMessageBox.information(self, "Restore Data", "Restore functionality not yet implemented.")
+    @Slot()
+    def on_preferences(self): 
+        settings_tab_index = -1
+        for i in range(self.tab_widget.count()):
+            if self.tab_widget.widget(i) == self.settings_widget:
+                settings_tab_index = i
+                break
+        if settings_tab_index != -1:
+            self.tab_widget.setCurrentIndex(settings_tab_index)
+        else:
+            QMessageBox.information(self, "Preferences", "Preferences (Settings Tab) not found or full dialog not yet implemented.")
+
+    @Slot()
+    def on_help_contents(self): QMessageBox.information(self, "Help", "Help system not yet implemented.")
+    @Slot()
+    def on_about(self): QMessageBox.about(self, f"About {QCoreApplication.applicationName()}", f"{QCoreApplication.applicationName()} {QCoreApplication.applicationVersion()}\n\nA comprehensive bookkeeping application for Singapore small businesses.\n\n© 2024 {QCoreApplication.organizationName()}"); 
+    def closeEvent(self, event): 
+        settings = QSettings(); settings.setValue("MainWindow/geometry", self.saveGeometry()); settings.setValue("MainWindow/state", self.saveState()); settings.sync()
+        reply = QMessageBox.question(self, "Confirm Exit", "Are you sure you want to exit?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes: event.accept() 
+        else: event.ignore()
+
+
+```
+
+# app/ui/reports/__init__.py
+```py
+# app/ui/reports/__init__.py
+from .reports_widget import ReportsWidget
+from .trial_balance_table_model import TrialBalanceTableModel # New Export
+from .general_ledger_table_model import GeneralLedgerTableModel # New Export
+
+__all__ = [
+    "ReportsWidget",
+    "TrialBalanceTableModel", # New Export
+    "GeneralLedgerTableModel", # New Export
+]
+
+
+```
+
+# app/ui/reports/reports_widget.py
+```py
+# app/ui/reports/reports_widget.py
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QLabel, QDateEdit, QPushButton, QFormLayout, 
+    QLineEdit, QGroupBox, QHBoxLayout, QMessageBox, QSpacerItem, QSizePolicy,
+    QTabWidget, QTextEdit, QComboBox, QFileDialog, QInputDialog, QCompleter,
+    QStackedWidget, QTreeView, QTableView, 
+    QAbstractItemView, QCheckBox 
+)
+from PySide6.QtCore import Qt, Slot, QDate, QTimer, QMetaObject, Q_ARG, QStandardPaths
+from PySide6.QtGui import QIcon, QStandardItemModel, QStandardItem, QFont, QColor
+from typing import Optional, Dict, Any, TYPE_CHECKING, List 
+
+import json
+from decimal import Decimal, InvalidOperation
+import os 
+from datetime import date as python_date, timedelta 
+
+from app.core.application_core import ApplicationCore
+from app.main import schedule_task_from_qt
+from app.utils.json_helpers import json_converter, json_date_hook
+from app.utils.pydantic_models import GSTReturnData, GSTTransactionLineDetail 
+from app.utils.result import Result 
+from app.models.accounting.gst_return import GSTReturn 
+from app.models.accounting.account import Account 
+from app.models.accounting.dimension import Dimension 
+
+from .trial_balance_table_model import TrialBalanceTableModel
+from .general_ledger_table_model import GeneralLedgerTableModel
+
+if TYPE_CHECKING:
+    from PySide6.QtGui import QPaintDevice 
+
+class ReportsWidget(QWidget):
+    def __init__(self, app_core: ApplicationCore, parent: Optional["QWidget"] = None):
+        super().__init__(parent)
+        self.app_core = app_core
+        self._prepared_gst_data: Optional[GSTReturnData] = None 
+        self._saved_draft_gst_return_orm: Optional[GSTReturn] = None 
+        self._current_financial_report_data: Optional[Dict[str, Any]] = None
+        self._gl_accounts_cache: List[Dict[str, Any]] = [] 
+        self._dimension_types_cache: List[str] = []
+        self._dimension_codes_cache: Dict[str, List[Dict[str, Any]]] = {} 
+
+        self.icon_path_prefix = "resources/icons/" 
+        try:
+            import app.resources_rc 
+            self.icon_path_prefix = ":/icons/"
+        except ImportError:
+            pass
+
+        self.main_layout = QVBoxLayout(self)
+        
+        self.tab_widget = QTabWidget()
+        self.main_layout.addWidget(self.tab_widget)
+
+        self._create_gst_f5_tab()
+        self._create_financial_statements_tab()
+        
+        self.setLayout(self.main_layout)
+
+    def _format_decimal_for_display(self, value: Optional[Decimal], default_str: str = "0.00", show_blank_for_zero: bool = False) -> str:
+        if value is None:
+            return default_str if not show_blank_for_zero else ""
+        try:
+            d_value = Decimal(str(value)) 
+            if show_blank_for_zero and d_value.is_zero(): 
+                return ""
+            return f"{d_value:,.2f}"
+        except (InvalidOperation, TypeError):
+            return "Error" 
+
+    def _create_gst_f5_tab(self):
+        gst_f5_widget = QWidget(); gst_f5_main_layout = QVBoxLayout(gst_f5_widget); gst_f5_group = QGroupBox("GST F5 Return Data Preparation"); gst_f5_group_layout = QVBoxLayout(gst_f5_group) 
+        date_selection_layout = QHBoxLayout(); date_form = QFormLayout()
+        self.gst_start_date_edit = QDateEdit(QDate.currentDate().addMonths(-3).addDays(-QDate.currentDate().day()+1)); self.gst_start_date_edit.setCalendarPopup(True); self.gst_start_date_edit.setDisplayFormat("dd/MM/yyyy"); date_form.addRow("Period Start Date:", self.gst_start_date_edit)
+        self.gst_end_date_edit = QDateEdit(QDate.currentDate().addDays(-QDate.currentDate().day())); 
+        if self.gst_end_date_edit.date() < self.gst_start_date_edit.date(): self.gst_end_date_edit.setDate(self.gst_start_date_edit.date().addMonths(1).addDays(-1))
+        self.gst_end_date_edit.setCalendarPopup(True); self.gst_end_date_edit.setDisplayFormat("dd/MM/yyyy"); date_form.addRow("Period End Date:", self.gst_end_date_edit)
+        date_selection_layout.addLayout(date_form); prepare_button_layout = QVBoxLayout()
+        self.prepare_gst_button = QPushButton(QIcon(self.icon_path_prefix + "reports.svg"), "Prepare GST F5 Data"); self.prepare_gst_button.clicked.connect(self._on_prepare_gst_f5_clicked)
+        prepare_button_layout.addWidget(self.prepare_gst_button); prepare_button_layout.addStretch(); date_selection_layout.addLayout(prepare_button_layout); date_selection_layout.addStretch(1); gst_f5_group_layout.addLayout(date_selection_layout)
+        self.gst_display_form = QFormLayout(); self.gst_std_rated_supplies_display = QLineEdit(); self.gst_std_rated_supplies_display.setReadOnly(True); self.gst_zero_rated_supplies_display = QLineEdit(); self.gst_zero_rated_supplies_display.setReadOnly(True); self.gst_exempt_supplies_display = QLineEdit(); self.gst_exempt_supplies_display.setReadOnly(True); self.gst_total_supplies_display = QLineEdit(); self.gst_total_supplies_display.setReadOnly(True); self.gst_total_supplies_display.setStyleSheet("font-weight: bold;"); self.gst_taxable_purchases_display = QLineEdit(); self.gst_taxable_purchases_display.setReadOnly(True); self.gst_output_tax_display = QLineEdit(); self.gst_output_tax_display.setReadOnly(True); self.gst_input_tax_display = QLineEdit(); self.gst_input_tax_display.setReadOnly(True); self.gst_adjustments_display = QLineEdit("0.00"); self.gst_adjustments_display.setReadOnly(True); self.gst_net_payable_display = QLineEdit(); self.gst_net_payable_display.setReadOnly(True); self.gst_net_payable_display.setStyleSheet("font-weight: bold;"); self.gst_filing_due_date_display = QLineEdit(); self.gst_filing_due_date_display.setReadOnly(True)
+        self.gst_display_form.addRow("1. Standard-Rated Supplies:", self.gst_std_rated_supplies_display); self.gst_display_form.addRow("2. Zero-Rated Supplies:", self.gst_zero_rated_supplies_display); self.gst_display_form.addRow("3. Exempt Supplies:", self.gst_exempt_supplies_display); self.gst_display_form.addRow("4. Total Supplies (1+2+3):", self.gst_total_supplies_display); self.gst_display_form.addRow("5. Taxable Purchases:", self.gst_taxable_purchases_display); self.gst_display_form.addRow("6. Output Tax Due:", self.gst_output_tax_display); self.gst_display_form.addRow("7. Input Tax and Refunds Claimed:", self.gst_input_tax_display); self.gst_display_form.addRow("8. GST Adjustments:", self.gst_adjustments_display); self.gst_display_form.addRow("9. Net GST Payable / (Claimable):", self.gst_net_payable_display); self.gst_display_form.addRow("Filing Due Date:", self.gst_filing_due_date_display)
+        gst_f5_group_layout.addLayout(self.gst_display_form)
+        
+        gst_action_button_layout = QHBoxLayout()
+        self.save_draft_gst_button = QPushButton("Save Draft GST Return"); self.save_draft_gst_button.setEnabled(False); self.save_draft_gst_button.clicked.connect(self._on_save_draft_gst_return_clicked)
+        self.finalize_gst_button = QPushButton("Finalize GST Return"); self.finalize_gst_button.setEnabled(False); self.finalize_gst_button.clicked.connect(self._on_finalize_gst_return_clicked)
+        
+        self.export_gst_detail_excel_button = QPushButton("Export Details (Excel)") 
+        self.export_gst_detail_excel_button.setEnabled(False)
+        self.export_gst_detail_excel_button.clicked.connect(self._on_export_gst_f5_details_excel_clicked)
+
+        gst_action_button_layout.addStretch()
+        gst_action_button_layout.addWidget(self.export_gst_detail_excel_button) 
+        gst_action_button_layout.addWidget(self.save_draft_gst_button)
+        gst_action_button_layout.addWidget(self.finalize_gst_button)
+        gst_f5_group_layout.addLayout(gst_action_button_layout)
+
+        gst_f5_main_layout.addWidget(gst_f5_group); gst_f5_main_layout.addStretch(); self.tab_widget.addTab(gst_f5_widget, "GST F5 Preparation")
+
+    @Slot()
+    def _on_prepare_gst_f5_clicked(self):
+        start_date = self.gst_start_date_edit.date().toPython(); end_date = self.gst_end_date_edit.date().toPython()
+        if start_date > end_date: QMessageBox.warning(self, "Date Error", "Start date cannot be after end date."); return
+        if not self.app_core.current_user: QMessageBox.warning(self, "Authentication Error", "No user logged in."); return
+        if not self.app_core.gst_manager: QMessageBox.critical(self, "Error", "GST Manager not available."); return
+        self.prepare_gst_button.setEnabled(False); self.prepare_gst_button.setText("Preparing...")
+        self._saved_draft_gst_return_orm = None; self.finalize_gst_button.setEnabled(False)
+        self.export_gst_detail_excel_button.setEnabled(False) 
+        current_user_id = self.app_core.current_user.id
+        future = schedule_task_from_qt(self.app_core.gst_manager.prepare_gst_return_data(start_date, end_date, current_user_id))
+        
+        if future:
+            future.add_done_callback(
+                lambda res: QMetaObject.invokeMethod(
+                    self, "_safe_handle_prepare_gst_f5_result_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(object, future)
+                )
+            )
+        else:
+            self.app_core.logger.error("Failed to schedule GST data preparation task.")
+            self._handle_prepare_gst_f5_result(None) 
+
+    @Slot(object)
+    def _safe_handle_prepare_gst_f5_result_slot(self, future_arg):
+        self._handle_prepare_gst_f5_result(future_arg)
+
+    def _handle_prepare_gst_f5_result(self, future):
+        self.prepare_gst_button.setEnabled(True); self.prepare_gst_button.setText("Prepare GST F5 Data")
+        self.export_gst_detail_excel_button.setEnabled(False) 
+        if future is None: 
+            QMessageBox.critical(self, "Task Error", "Failed to schedule GST data preparation.")
+            self._clear_gst_display_fields(); self.save_draft_gst_button.setEnabled(False); self.finalize_gst_button.setEnabled(False)
+            return
+        try:
+            result: Result[GSTReturnData] = future.result()
+            if result.is_success and result.value: 
+                self._prepared_gst_data = result.value
+                self._update_gst_f5_display(self._prepared_gst_data)
+                self.save_draft_gst_button.setEnabled(True)
+                self.finalize_gst_button.setEnabled(False) 
+                if self._prepared_gst_data and self._prepared_gst_data.detailed_breakdown:
+                    self.export_gst_detail_excel_button.setEnabled(True)
+            else: 
+                self._clear_gst_display_fields(); self.save_draft_gst_button.setEnabled(False); self.finalize_gst_button.setEnabled(False)
+                QMessageBox.warning(self, "GST Data Error", f"Failed to prepare GST data:\n{', '.join(result.errors)}")
+        except Exception as e: 
+            self._clear_gst_display_fields(); self.save_draft_gst_button.setEnabled(False); self.finalize_gst_button.setEnabled(False)
+            self.app_core.logger.error(f"Exception handling GST F5 preparation result: {e}", exc_info=True)
+            QMessageBox.critical(self, "GST Data Error", f"An unexpected error occurred: {str(e)}")
+
+    def _update_gst_f5_display(self, gst_data: GSTReturnData):
+        self.gst_std_rated_supplies_display.setText(self._format_decimal_for_display(gst_data.standard_rated_supplies)); self.gst_zero_rated_supplies_display.setText(self._format_decimal_for_display(gst_data.zero_rated_supplies)); self.gst_exempt_supplies_display.setText(self._format_decimal_for_display(gst_data.exempt_supplies)); self.gst_total_supplies_display.setText(self._format_decimal_for_display(gst_data.total_supplies)); self.gst_taxable_purchases_display.setText(self._format_decimal_for_display(gst_data.taxable_purchases)); self.gst_output_tax_display.setText(self._format_decimal_for_display(gst_data.output_tax)); self.gst_input_tax_display.setText(self._format_decimal_for_display(gst_data.input_tax)); self.gst_adjustments_display.setText(self._format_decimal_for_display(gst_data.tax_adjustments)); self.gst_net_payable_display.setText(self._format_decimal_for_display(gst_data.tax_payable)); self.gst_filing_due_date_display.setText(gst_data.filing_due_date.strftime('%d/%m/%Y') if gst_data.filing_due_date else "")
+    
+    def _clear_gst_display_fields(self):
+        for w in [self.gst_std_rated_supplies_display, self.gst_zero_rated_supplies_display, self.gst_exempt_supplies_display, self.gst_total_supplies_display, self.gst_taxable_purchases_display, self.gst_output_tax_display, self.gst_input_tax_display, self.gst_net_payable_display, self.gst_filing_due_date_display]: w.clear()
+        self.gst_adjustments_display.setText("0.00"); self._prepared_gst_data = None; self._saved_draft_gst_return_orm = None
+        self.export_gst_detail_excel_button.setEnabled(False) 
+    
+    @Slot()
+    def _on_save_draft_gst_return_clicked(self):
+        if not self._prepared_gst_data: QMessageBox.warning(self, "No Data", "Please prepare GST data first."); return
+        if not self.app_core.current_user: QMessageBox.warning(self, "Authentication Error", "No user logged in."); return
+        self._prepared_gst_data.user_id = self.app_core.current_user.id
+        if self._saved_draft_gst_return_orm and self._saved_draft_gst_return_orm.id: 
+            self._prepared_gst_data.id = self._saved_draft_gst_return_orm.id
+            
+        self.save_draft_gst_button.setEnabled(False); self.save_draft_gst_button.setText("Saving Draft..."); self.finalize_gst_button.setEnabled(False)
+        future = schedule_task_from_qt(self.app_core.gst_manager.save_gst_return(self._prepared_gst_data))
+        
+        if future:
+            future.add_done_callback(
+                lambda res: QMetaObject.invokeMethod(
+                    self, "_safe_handle_save_draft_gst_result_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(object, future)
+                )
+            )
+        else:
+            self.app_core.logger.error("Failed to schedule GST draft save task.")
+            self._handle_save_draft_gst_result(None)
+
+    @Slot(object)
+    def _safe_handle_save_draft_gst_result_slot(self, future_arg):
+        self._handle_save_draft_gst_result(future_arg)
+
+    def _handle_save_draft_gst_result(self, future):
+        self.save_draft_gst_button.setEnabled(True); self.save_draft_gst_button.setText("Save Draft GST Return")
+        if future is None: QMessageBox.critical(self, "Task Error", "Failed to schedule GST draft save."); return
+        try:
+            result: Result[GSTReturn] = future.result()
+            if result.is_success and result.value: 
+                self._saved_draft_gst_return_orm = result.value
+                if self._prepared_gst_data: 
+                    self._prepared_gst_data.id = result.value.id 
+                QMessageBox.information(self, "Success", f"GST Return draft saved successfully (ID: {result.value.id}).")
+                self.finalize_gst_button.setEnabled(True) 
+                self.export_gst_detail_excel_button.setEnabled(bool(self._prepared_gst_data and self._prepared_gst_data.detailed_breakdown))
+
+            else: 
+                QMessageBox.warning(self, "Save Error", f"Failed to save GST Return draft:\n{', '.join(result.errors)}")
+                self.finalize_gst_button.setEnabled(False)
+        except Exception as e: 
+            self.app_core.logger.error(f"Exception handling save draft GST result: {e}", exc_info=True)
+            QMessageBox.critical(self, "Save Error", f"An unexpected error occurred: {str(e)}")
+            self.finalize_gst_button.setEnabled(False)
+
+    @Slot()
+    def _on_finalize_gst_return_clicked(self):
+        if not self._saved_draft_gst_return_orm or not self._saved_draft_gst_return_orm.id: QMessageBox.warning(self, "No Draft", "Please prepare and save a draft GST return first."); return
+        if self._saved_draft_gst_return_orm.status != "Draft": QMessageBox.information(self, "Already Processed", f"This GST Return (ID: {self._saved_draft_gst_return_orm.id}) is already '{self._saved_draft_gst_return_orm.status}'."); return
+        if not self.app_core.current_user: QMessageBox.warning(self, "Authentication Error", "No user logged in."); return
+        submission_ref, ok_ref = QInputDialog.getText(self, "Finalize GST Return", "Enter Submission Reference No.:")
+        if not ok_ref or not submission_ref.strip(): QMessageBox.information(self, "Cancelled", "Submission reference not provided. Finalization cancelled."); return
+        submission_date_str, ok_date = QInputDialog.getText(self, "Finalize GST Return", "Enter Submission Date (YYYY-MM-DD):", text=python_date.today().isoformat())
+        if not ok_date or not submission_date_str.strip(): QMessageBox.information(self, "Cancelled", "Submission date not provided. Finalization cancelled."); return
+        try: parsed_submission_date = python_date.fromisoformat(submission_date_str)
+        except ValueError: QMessageBox.warning(self, "Invalid Date", "Submission date format is invalid. Please use YYYY-MM-DD."); return
+        self.finalize_gst_button.setEnabled(False); self.finalize_gst_button.setText("Finalizing..."); self.save_draft_gst_button.setEnabled(False)
+        self.export_gst_detail_excel_button.setEnabled(False)
+        future = schedule_task_from_qt(self.app_core.gst_manager.finalize_gst_return(return_id=self._saved_draft_gst_return_orm.id, submission_reference=submission_ref.strip(), submission_date=parsed_submission_date, user_id=self.app_core.current_user.id))
+        
+        if future:
+            future.add_done_callback(
+                lambda res: QMetaObject.invokeMethod(
+                    self, "_safe_handle_finalize_gst_result_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(object, future)
+                )
+            )
+        else:
+            self.app_core.logger.error("Failed to schedule GST finalization task.")
+            self._handle_finalize_gst_result(None)
+
+    @Slot(object)
+    def _safe_handle_finalize_gst_result_slot(self, future_arg):
+        self._handle_finalize_gst_result(future_arg)
+
+    def _handle_finalize_gst_result(self, future): 
+        self.finalize_gst_button.setText("Finalize GST Return") 
+        can_finalize_default = self._saved_draft_gst_return_orm and self._saved_draft_gst_return_orm.status == "Draft"
+        can_save_draft_default = self._prepared_gst_data is not None and \
+                                 (not self._saved_draft_gst_return_orm or self._saved_draft_gst_return_orm.status == "Draft")
+        can_export_detail_default = bool(self._prepared_gst_data and self._prepared_gst_data.detailed_breakdown)
+
+        if future is None: 
+            QMessageBox.critical(self, "Task Error", "Failed to schedule GST finalization.")
+            self.finalize_gst_button.setEnabled(can_finalize_default)
+            self.save_draft_gst_button.setEnabled(can_save_draft_default)
+            self.export_gst_detail_excel_button.setEnabled(can_export_detail_default)
+            return
+        
+        try:
+            result: Result[GSTReturn] = future.result()
+            if result.is_success and result.value: 
+                QMessageBox.information(self, "Success", f"GST Return (ID: {result.value.id}) finalized successfully.\nStatus: {result.value.status}.\nSettlement JE ID: {result.value.journal_entry_id or 'N/A'}")
+                self._saved_draft_gst_return_orm = result.value 
+                self.save_draft_gst_button.setEnabled(False) 
+                self.finalize_gst_button.setEnabled(False)
+                self.export_gst_detail_excel_button.setEnabled(can_export_detail_default) 
+                if self._prepared_gst_data: 
+                    self._prepared_gst_data.status = result.value.status
+            else: 
+                QMessageBox.warning(self, "Finalization Error", f"Failed to finalize GST Return:\n{', '.join(result.errors)}")
+                self.finalize_gst_button.setEnabled(can_finalize_default)
+                self.save_draft_gst_button.setEnabled(can_save_draft_default) 
+                self.export_gst_detail_excel_button.setEnabled(can_export_detail_default)
+        except Exception as e: 
+            self.app_core.logger.error(f"Exception handling finalize GST result: {e}", exc_info=True)
+            QMessageBox.critical(self, "Finalization Error", f"An unexpected error occurred: {str(e)}")
+            self.finalize_gst_button.setEnabled(can_finalize_default)
+            self.save_draft_gst_button.setEnabled(can_save_draft_default)
+            self.export_gst_detail_excel_button.setEnabled(can_export_detail_default)
+
+    @Slot()
+    def _on_export_gst_f5_details_excel_clicked(self):
+        if not self._prepared_gst_data or not self._prepared_gst_data.detailed_breakdown:
+            QMessageBox.warning(self, "No Data", "Please prepare GST data with details first.")
+            return
+        
+        default_filename = f"GST_F5_Details_{self._prepared_gst_data.start_date.strftime('%Y%m%d')}_{self._prepared_gst_data.end_date.strftime('%Y%m%d')}.xlsx"
+        documents_path = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DocumentsLocation)
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Save GST F5 Detail Report (Excel)", 
+            os.path.join(documents_path, default_filename), 
+            "Excel Files (*.xlsx);;All Files (*)"
+        )
+        if file_path:
+            self.export_gst_detail_excel_button.setEnabled(False)
+            future = schedule_task_from_qt(
+                self.app_core.report_engine.export_report(self._prepared_gst_data, "gst_excel_detail")
+            )
+            if future:
+                future.add_done_callback(
+                    lambda res, fp=file_path: QMetaObject.invokeMethod(
+                        self, "_safe_handle_gst_detail_export_result_slot", Qt.ConnectionType.QueuedConnection,
+                        Q_ARG(object, future), Q_ARG(str, fp)
+                    )
+                )
+            else:
+                self.app_core.logger.error("Failed to schedule GST detail export task.")
+                self.export_gst_detail_excel_button.setEnabled(True) 
+
+    @Slot(object, str)
+    def _safe_handle_gst_detail_export_result_slot(self, future_arg, file_path_arg: str):
+        self._handle_gst_detail_export_result(future_arg, file_path_arg)
+
+    def _handle_gst_detail_export_result(self, future, file_path: str):
+        self.export_gst_detail_excel_button.setEnabled(True) 
+        if future is None:
+            QMessageBox.critical(self, "Task Error", "Failed to schedule GST detail export."); return
+        try:
+            report_bytes: Optional[bytes] = future.result()
+            if report_bytes:
+                with open(file_path, "wb") as f:
+                    f.write(report_bytes)
+                QMessageBox.information(self, "Export Successful", f"GST F5 Detail Report exported to:\n{file_path}")
+            else:
+                QMessageBox.warning(self, "Export Failed", "Failed to generate GST F5 Detail report bytes.")
+        except Exception as e:
+            self.app_core.logger.error(f"Exception handling GST detail export result: {e}", exc_info=True)
+            QMessageBox.critical(self, "Export Error", f"An error occurred during GST detail export: {str(e)}")
+    
+    def _create_financial_statements_tab(self):
+        fs_widget = QWidget(); fs_main_layout = QVBoxLayout(fs_widget)
+        fs_group = QGroupBox("Financial Statements"); fs_group_layout = QVBoxLayout(fs_group) 
+        controls_layout = QHBoxLayout(); self.fs_params_form = QFormLayout() 
+        self.fs_report_type_combo = QComboBox(); self.fs_report_type_combo.addItems(["Balance Sheet", "Profit & Loss Statement", "Trial Balance", "General Ledger"]); self.fs_params_form.addRow("Report Type:", self.fs_report_type_combo)
+        self.fs_gl_account_label = QLabel("Account for GL:"); self.fs_gl_account_combo = QComboBox(); self.fs_gl_account_combo.setMinimumWidth(250); self.fs_gl_account_combo.setEditable(True)
+        completer = QCompleter([f"{item.get('code')} - {item.get('name')}" for item in self._gl_accounts_cache]); completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion); completer.setFilterMode(Qt.MatchFlag.MatchContains); self.fs_gl_account_combo.setCompleter(completer); self.fs_params_form.addRow(self.fs_gl_account_label, self.fs_gl_account_combo)
+        self.fs_as_of_date_edit = QDateEdit(QDate.currentDate()); self.fs_as_of_date_edit.setCalendarPopup(True); self.fs_as_of_date_edit.setDisplayFormat("dd/MM/yyyy"); self.fs_params_form.addRow("As of Date:", self.fs_as_of_date_edit)
+        self.fs_start_date_edit = QDateEdit(QDate.currentDate().addMonths(-1).addDays(-QDate.currentDate().day()+1)); self.fs_start_date_edit.setCalendarPopup(True); self.fs_start_date_edit.setDisplayFormat("dd/MM/yyyy"); self.fs_params_form.addRow("Period Start Date:", self.fs_start_date_edit)
+        self.fs_end_date_edit = QDateEdit(QDate.currentDate().addDays(-QDate.currentDate().day())); self.fs_end_date_edit.setCalendarPopup(True); self.fs_end_date_edit.setDisplayFormat("dd/MM/yyyy"); self.fs_params_form.addRow("Period End Date:", self.fs_end_date_edit)
+        self.fs_include_zero_balance_check = QCheckBox("Include Zero-Balance Accounts"); self.fs_params_form.addRow(self.fs_include_zero_balance_check) 
+        self.fs_include_comparative_check = QCheckBox("Include Comparative Period"); self.fs_params_form.addRow(self.fs_include_comparative_check)
+        self.fs_comparative_as_of_date_label = QLabel("Comparative As of Date:"); self.fs_comparative_as_of_date_edit = QDateEdit(QDate.currentDate().addYears(-1)); self.fs_comparative_as_of_date_edit.setCalendarPopup(True); self.fs_comparative_as_of_date_edit.setDisplayFormat("dd/MM/yyyy"); self.fs_params_form.addRow(self.fs_comparative_as_of_date_label, self.fs_comparative_as_of_date_edit)
+        self.fs_comparative_start_date_label = QLabel("Comparative Start Date:"); self.fs_comparative_start_date_edit = QDateEdit(QDate.currentDate().addYears(-1).addMonths(-1).addDays(-QDate.currentDate().day()+1)); self.fs_comparative_start_date_edit.setCalendarPopup(True); self.fs_comparative_start_date_edit.setDisplayFormat("dd/MM/yyyy"); self.fs_params_form.addRow(self.fs_comparative_start_date_label, self.fs_comparative_start_date_edit)
+        self.fs_comparative_end_date_label = QLabel("Comparative End Date:"); self.fs_comparative_end_date_edit = QDateEdit(QDate.currentDate().addYears(-1).addDays(-QDate.currentDate().day())); self.fs_comparative_end_date_edit.setCalendarPopup(True); self.fs_comparative_end_date_edit.setDisplayFormat("dd/MM/yyyy"); self.fs_params_form.addRow(self.fs_comparative_end_date_label, self.fs_comparative_end_date_edit)
+        self.fs_dim1_type_label = QLabel("Dimension 1 Type:"); self.fs_dim1_type_combo = QComboBox(); self.fs_dim1_type_combo.addItem("All Types", None); self.fs_dim1_type_combo.setObjectName("fs_dim1_type_combo"); self.fs_params_form.addRow(self.fs_dim1_type_label, self.fs_dim1_type_combo)
+        self.fs_dim1_code_label = QLabel("Dimension 1 Code:"); self.fs_dim1_code_combo = QComboBox(); self.fs_dim1_code_combo.addItem("All Codes", None); self.fs_dim1_code_combo.setObjectName("fs_dim1_code_combo"); self.fs_params_form.addRow(self.fs_dim1_code_label, self.fs_dim1_code_combo)
+        self.fs_dim2_type_label = QLabel("Dimension 2 Type:"); self.fs_dim2_type_combo = QComboBox(); self.fs_dim2_type_combo.addItem("All Types", None); self.fs_dim2_type_combo.setObjectName("fs_dim2_type_combo"); self.fs_params_form.addRow(self.fs_dim2_type_label, self.fs_dim2_type_combo)
+        self.fs_dim2_code_label = QLabel("Dimension 2 Code:"); self.fs_dim2_code_combo = QComboBox(); self.fs_dim2_code_combo.addItem("All Codes", None); self.fs_dim2_code_combo.setObjectName("fs_dim2_code_combo"); self.fs_params_form.addRow(self.fs_dim2_code_label, self.fs_dim2_code_combo)
+        controls_layout.addLayout(self.fs_params_form)
+        generate_fs_button_layout = QVBoxLayout(); self.generate_fs_button = QPushButton(QIcon(self.icon_path_prefix + "reports.svg"), "Generate Report"); self.generate_fs_button.clicked.connect(self._on_generate_financial_report_clicked)
+        generate_fs_button_layout.addWidget(self.generate_fs_button); generate_fs_button_layout.addStretch(); controls_layout.addLayout(generate_fs_button_layout); controls_layout.addStretch(1); fs_group_layout.addLayout(controls_layout)
+        self.fs_display_stack = QStackedWidget(); fs_group_layout.addWidget(self.fs_display_stack, 1)
+        self.bs_tree_view = QTreeView(); self.bs_tree_view.setAlternatingRowColors(True); self.bs_tree_view.setHeaderHidden(False); self.bs_tree_view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.bs_model = QStandardItemModel(); self.bs_tree_view.setModel(self.bs_model); self.fs_display_stack.addWidget(self.bs_tree_view)
+        self.pl_tree_view = QTreeView(); self.pl_tree_view.setAlternatingRowColors(True); self.pl_tree_view.setHeaderHidden(False); self.pl_tree_view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.pl_model = QStandardItemModel(); self.pl_tree_view.setModel(self.pl_model); self.fs_display_stack.addWidget(self.pl_tree_view)
+        self.tb_table_view = QTableView(); self.tb_table_view.setAlternatingRowColors(True); self.tb_table_view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.tb_table_view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection); self.tb_table_view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.tb_table_view.setSortingEnabled(True); self.tb_model = TrialBalanceTableModel(); self.tb_table_view.setModel(self.tb_model); self.fs_display_stack.addWidget(self.tb_table_view)
+        gl_widget_container = QWidget(); gl_layout = QVBoxLayout(gl_widget_container); gl_layout.setContentsMargins(0,0,0,0)
+        self.gl_summary_label_account = QLabel("Account: N/A"); self.gl_summary_label_account.setStyleSheet("font-weight: bold;")
+        self.gl_summary_label_period = QLabel("Period: N/A")
+        self.gl_summary_label_ob = QLabel("Opening Balance: 0.00")
+        gl_summary_header_layout = QHBoxLayout(); gl_summary_header_layout.addWidget(self.gl_summary_label_account); gl_summary_header_layout.addStretch(); gl_summary_header_layout.addWidget(self.gl_summary_label_period); gl_layout.addLayout(gl_summary_header_layout); gl_layout.addWidget(self.gl_summary_label_ob)
+        self.gl_table_view = QTableView(); self.gl_table_view.setAlternatingRowColors(True); self.gl_table_view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.gl_table_view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection); self.gl_table_view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.gl_table_view.setSortingEnabled(True); self.gl_model = GeneralLedgerTableModel(); self.gl_table_view.setModel(self.gl_model); gl_layout.addWidget(self.gl_table_view)
+        self.gl_summary_label_cb = QLabel("Closing Balance: 0.00"); self.gl_summary_label_cb.setAlignment(Qt.AlignmentFlag.AlignRight); gl_layout.addWidget(self.gl_summary_label_cb)
+        self.fs_display_stack.addWidget(gl_widget_container); self.gl_widget_container = gl_widget_container 
+        export_button_layout = QHBoxLayout(); self.export_pdf_button = QPushButton("Export to PDF"); self.export_pdf_button.setEnabled(False); self.export_pdf_button.clicked.connect(lambda: self._on_export_report_clicked("pdf")); self.export_excel_button = QPushButton("Export to Excel"); self.export_excel_button.setEnabled(False); self.export_excel_button.clicked.connect(lambda: self._on_export_report_clicked("excel")); export_button_layout.addStretch(); export_button_layout.addWidget(self.export_pdf_button); export_button_layout.addWidget(self.export_excel_button); fs_group_layout.addLayout(export_button_layout)
+        fs_main_layout.addWidget(fs_group); self.tab_widget.addTab(fs_widget, "Financial Statements")
+        self.fs_report_type_combo.currentTextChanged.connect(self._on_fs_report_type_changed)
+        self.fs_include_comparative_check.stateChanged.connect(self._on_comparative_check_changed)
+        self.fs_dim1_type_combo.currentIndexChanged.connect(lambda index, tc=self.fs_dim1_type_combo, cc=self.fs_dim1_code_combo: self._on_dimension_type_selected(tc, cc))
+        self.fs_dim2_type_combo.currentIndexChanged.connect(lambda index, tc=self.fs_dim2_type_combo, cc=self.fs_dim2_code_combo: self._on_dimension_type_selected(tc, cc))
+        self._on_fs_report_type_changed(self.fs_report_type_combo.currentText()) 
+    @Slot(str)
+    def _on_fs_report_type_changed(self, report_type: str):
+        is_bs = (report_type == "Balance Sheet"); is_pl = (report_type == "Profit & Loss Statement"); is_gl = (report_type == "General Ledger"); is_tb = (report_type == "Trial Balance")
+        self.fs_as_of_date_edit.setVisible(is_bs or is_tb); self.fs_start_date_edit.setVisible(is_pl or is_gl); self.fs_end_date_edit.setVisible(is_pl or is_gl)
+        self.fs_gl_account_combo.setVisible(is_gl); self.fs_gl_account_label.setVisible(is_gl); self.fs_include_zero_balance_check.setVisible(is_bs); self.fs_include_comparative_check.setVisible(is_bs or is_pl)
+        for w in [self.fs_dim1_type_label, self.fs_dim1_type_combo, self.fs_dim1_code_label, self.fs_dim1_code_combo, self.fs_dim2_type_label, self.fs_dim2_type_combo, self.fs_dim2_code_label, self.fs_dim2_code_combo]: w.setVisible(is_gl)
+        if is_gl and self.fs_dim1_type_combo.count() <= 1 : schedule_task_from_qt(self._load_dimension_types())
+        self._on_comparative_check_changed(self.fs_include_comparative_check.checkState().value) 
+        if is_gl: self.fs_display_stack.setCurrentWidget(self.gl_widget_container)
+        elif is_bs: self.fs_display_stack.setCurrentWidget(self.bs_tree_view)
+        elif is_pl: self.fs_display_stack.setCurrentWidget(self.pl_tree_view)
+        elif is_tb: self.fs_display_stack.setCurrentWidget(self.tb_table_view)
+        self._clear_current_financial_report_display(); self.export_pdf_button.setEnabled(False); self.export_excel_button.setEnabled(False)
+    async def _load_dimension_types(self):
+        if not self.app_core.dimension_service: self.app_core.logger.error("DimensionService not available."); return
+        try:
+            dim_types = await self.app_core.dimension_service.get_distinct_dimension_types(); json_data = json.dumps(dim_types)
+            QMetaObject.invokeMethod(self, "_populate_dimension_types_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, json_data))
+        except Exception as e: self.app_core.logger.error(f"Error loading dimension types: {e}", exc_info=True)
+    @Slot(str)
+    def _populate_dimension_types_slot(self, dim_types_json_str: str):
+        try: dim_types = json.loads(dim_types_json_str)
+        except json.JSONDecodeError: self.app_core.logger.error("Failed to parse dimension types JSON."); return
+        self._dimension_types_cache = ["All Types"] + dim_types 
+        for combo in [self.fs_dim1_type_combo, self.fs_dim2_type_combo]:
+            current_data = combo.currentData(); combo.clear(); combo.addItem("All Types", None)
+            for dt in dim_types: combo.addItem(dt, dt)
+            idx = combo.findData(current_data)
+            if idx != -1: combo.setCurrentIndex(idx)
+            else: combo.setCurrentIndex(0) 
+        self._on_dimension_type_selected(self.fs_dim1_type_combo, self.fs_dim1_code_combo); self._on_dimension_type_selected(self.fs_dim2_type_combo, self.fs_dim2_code_combo)
+    @Slot(QComboBox, QComboBox) 
+    def _on_dimension_type_selected(self, type_combo: QComboBox, code_combo: QComboBox):
+        selected_type_str = type_combo.currentData() 
+        if selected_type_str: schedule_task_from_qt(self._load_dimension_codes_for_type(selected_type_str, code_combo.objectName() or ""))
+        else: code_combo.clear(); code_combo.addItem("All Codes", None)
+    async def _load_dimension_codes_for_type(self, dim_type_str: str, target_code_combo_name: str):
+        if not self.app_core.dimension_service: self.app_core.logger.error("DimensionService not available."); return
+        try:
+            dimensions: List[Dimension] = await self.app_core.dimension_service.get_dimensions_by_type(dim_type_str)
+            dim_codes_data = [{"id": d.id, "code": d.code, "name": d.name} for d in dimensions]; self._dimension_codes_cache[dim_type_str] = dim_codes_data
+            json_data = json.dumps(dim_codes_data, default=json_converter)
+            QMetaObject.invokeMethod(self, "_populate_dimension_codes_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, json_data), Q_ARG(str, target_code_combo_name))
+        except Exception as e: self.app_core.logger.error(f"Error loading dimension codes for type '{dim_type_str}': {e}", exc_info=True)
+    @Slot(str, str)
+    def _populate_dimension_codes_slot(self, dim_codes_json_str: str, target_code_combo_name: str):
+        target_combo: Optional[QComboBox] = None
+        if target_code_combo_name == self.fs_dim1_code_combo.objectName(): target_combo = self.fs_dim1_code_combo
+        elif target_code_combo_name == self.fs_dim2_code_combo.objectName(): target_combo = self.fs_dim2_code_combo
+        if not target_combo: self.app_core.logger.error(f"Target code combo '{target_code_combo_name}' not found."); return
+        current_data = target_combo.currentData(); target_combo.clear(); target_combo.addItem("All Codes", None) 
+        try:
+            dim_codes = json.loads(dim_codes_json_str, object_hook=json_date_hook)
+            for dc in dim_codes: target_combo.addItem(f"{dc['code']} - {dc['name']}", dc['id'])
+            idx = target_combo.findData(current_data)
+            if idx != -1: target_combo.setCurrentIndex(idx)
+            else: target_combo.setCurrentIndex(0) 
+        except json.JSONDecodeError: self.app_core.logger.error(f"Failed to parse dim codes JSON for {target_code_combo_name}")
+    @Slot(int)
+    def _on_comparative_check_changed(self, state: int):
+        is_checked = (state == Qt.CheckState.Checked.value); report_type = self.fs_report_type_combo.currentText(); is_bs = (report_type == "Balance Sheet"); is_pl = (report_type == "Profit & Loss Statement")
+        self.fs_comparative_as_of_date_label.setVisible(is_bs and is_checked); self.fs_comparative_as_of_date_edit.setVisible(is_bs and is_checked)
+        self.fs_comparative_start_date_label.setVisible(is_pl and is_checked); self.fs_comparative_start_date_edit.setVisible(is_pl and is_checked)
+        self.fs_comparative_end_date_label.setVisible(is_pl and is_checked); self.fs_comparative_end_date_edit.setVisible(is_pl and is_checked)
+    async def _load_gl_accounts_for_combo(self):
+        if not self.app_core.chart_of_accounts_manager: self.app_core.logger.error("ChartOfAccountsManager not available for GL account combo."); return
+        try:
+            accounts_orm: List[Account] = await self.app_core.chart_of_accounts_manager.get_accounts_for_selection(active_only=True)
+            self._gl_accounts_cache = [{"id": acc.id, "code": acc.code, "name": acc.name} for acc in accounts_orm]
+            accounts_json = json.dumps(self._gl_accounts_cache, default=json_converter)
+            QMetaObject.invokeMethod(self, "_populate_gl_account_combo_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, accounts_json))
+        except Exception as e: self.app_core.logger.error(f"Error loading accounts for GL combo: {e}", exc_info=True); QMessageBox.warning(self, "Account Load Error", "Could not load accounts for General Ledger selection.")
+    @Slot(str)
+    def _populate_gl_account_combo_slot(self, accounts_json_str: str):
+        self.fs_gl_account_combo.clear()
+        try:
+            accounts_data = json.loads(accounts_json_str); self._gl_accounts_cache = accounts_data if accounts_data else []
+            self.fs_gl_account_combo.addItem("-- Select Account --", 0) 
+            for acc_data in self._gl_accounts_cache: self.fs_gl_account_combo.addItem(f"{acc_data['code']} - {acc_data['name']}", acc_data['id'])
+            if isinstance(self.fs_gl_account_combo.completer(), QCompleter): self.fs_gl_account_combo.completer().setModel(self.fs_gl_account_combo.model())
+        except json.JSONDecodeError: self.app_core.logger.error("Failed to parse accounts JSON for GL combo."); self.fs_gl_account_combo.addItem("Error loading accounts", 0)
+    def _clear_current_financial_report_display(self):
+        self._current_financial_report_data = None; current_view = self.fs_display_stack.currentWidget()
+        if isinstance(current_view, QTreeView): model = current_view.model(); 
+        if isinstance(model, QStandardItemModel): model.clear() # type: ignore
+        elif isinstance(current_view, QTableView): model = current_view.model(); 
+        if hasattr(model, 'update_data'): model.update_data({}) 
+        elif current_view == self.gl_widget_container : self.gl_model.update_data({}); self.gl_summary_label_account.setText("Account: N/A"); self.gl_summary_label_period.setText("Period: N/A"); self.gl_summary_label_ob.setText("Opening Balance: 0.00"); self.gl_summary_label_cb.setText("Closing Balance: 0.00")
+    @Slot()
+    def _on_generate_financial_report_clicked(self):
+        report_type = self.fs_report_type_combo.currentText()
+        if not self.app_core.financial_statement_generator: QMessageBox.critical(self, "Error", "Financial Statement Generator not available."); return
+        self._clear_current_financial_report_display(); self.generate_fs_button.setEnabled(False); self.generate_fs_button.setText("Generating..."); self.export_pdf_button.setEnabled(False); self.export_excel_button.setEnabled(False)
+        coro: Optional[Any] = None; comparative_date_bs: Optional[python_date] = None; comparative_start_pl: Optional[python_date] = None; comparative_end_pl: Optional[python_date] = None; include_zero_bal_bs: bool = False
+        dim1_id_val = self.fs_dim1_code_combo.currentData() if self.fs_dim1_type_label.isVisible() else None ; dim2_id_val = self.fs_dim2_code_combo.currentData() if self.fs_dim2_type_label.isVisible() else None
+        dimension1_id = int(dim1_id_val) if dim1_id_val and dim1_id_val !=0 else None; dimension2_id = int(dim2_id_val) if dim2_id_val and dim2_id_val !=0 else None
+        if self.fs_include_comparative_check.isVisible() and self.fs_include_comparative_check.isChecked():
+            if report_type == "Balance Sheet": comparative_date_bs = self.fs_comparative_as_of_date_edit.date().toPython()
+            elif report_type == "Profit & Loss Statement":
+                comparative_start_pl = self.fs_comparative_start_date_edit.date().toPython(); comparative_end_pl = self.fs_comparative_end_date_edit.date().toPython()
+                if comparative_start_pl and comparative_end_pl and comparative_start_pl > comparative_end_pl: QMessageBox.warning(self, "Date Error", "Comparative start date cannot be after comparative end date for P&L."); self.generate_fs_button.setEnabled(True); self.generate_fs_button.setText("Generate Report"); return
+        if report_type == "Balance Sheet": as_of_date_val = self.fs_as_of_date_edit.date().toPython(); include_zero_bal_bs = self.fs_include_zero_balance_check.isChecked() if self.fs_include_zero_balance_check.isVisible() else False; coro = self.app_core.financial_statement_generator.generate_balance_sheet(as_of_date_val, comparative_date=comparative_date_bs, include_zero_balances=include_zero_bal_bs)
+        elif report_type == "Profit & Loss Statement": 
+            start_date_val = self.fs_start_date_edit.date().toPython(); end_date_val = self.fs_end_date_edit.date().toPython()
+            if start_date_val > end_date_val: QMessageBox.warning(self, "Date Error", "Start date cannot be after end date for P&L."); self.generate_fs_button.setEnabled(True); self.generate_fs_button.setText("Generate Report"); return
+            coro = self.app_core.financial_statement_generator.generate_profit_loss(start_date_val, end_date_val, comparative_start=comparative_start_pl, comparative_end=comparative_end_pl)
+        elif report_type == "Trial Balance": as_of_date_val = self.fs_as_of_date_edit.date().toPython(); coro = self.app_core.financial_statement_generator.generate_trial_balance(as_of_date_val)
+        elif report_type == "General Ledger":
+            account_id = self.fs_gl_account_combo.currentData(); 
+            if not isinstance(account_id, int) or account_id == 0: QMessageBox.warning(self, "Selection Error", "Please select a valid account for the General Ledger report."); self.generate_fs_button.setEnabled(True); self.generate_fs_button.setText("Generate Report"); return
+            start_date_val = self.fs_start_date_edit.date().toPython(); end_date_val = self.fs_end_date_edit.date().toPython() 
+            if start_date_val > end_date_val: QMessageBox.warning(self, "Date Error", "Start date cannot be after end date for General Ledger."); self.generate_fs_button.setEnabled(True); self.generate_fs_button.setText("Generate Report"); return
+            coro = self.app_core.financial_statement_generator.generate_general_ledger(account_id, start_date_val, end_date_val, dimension1_id, dimension2_id)
+        future_obj: Optional[Any] = None ; 
+        if coro: future_obj = schedule_task_from_qt(coro)
+        if future_obj: future_obj.add_done_callback( lambda res: QMetaObject.invokeMethod( self, "_safe_handle_financial_report_result_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(object, future_obj)))
+        else: self.app_core.logger.error(f"Failed to schedule report generation for {report_type}."); self.generate_fs_button.setEnabled(True); self.generate_fs_button.setText("Generate Report"); self._handle_financial_report_result(None) 
+    @Slot(object)
+    def _safe_handle_financial_report_result_slot(self, future_arg): self._handle_financial_report_result(future_arg)
+    def _handle_financial_report_result(self, future):
+        self.generate_fs_button.setEnabled(True); self.generate_fs_button.setText("Generate Report"); self.export_pdf_button.setEnabled(False) ; self.export_excel_button.setEnabled(False); self._current_financial_report_data = None
+        if future is None: QMessageBox.critical(self, "Task Error", "Failed to schedule report generation."); return
+        try:
+            report_data: Optional[Dict[str, Any]] = future.result()
+            if report_data: self._current_financial_report_data = report_data; self._display_financial_report(report_data); self.export_pdf_button.setEnabled(True); self.export_excel_button.setEnabled(True)
+            else: QMessageBox.warning(self, "Report Error", "Failed to generate report data or report data is empty.")
+        except Exception as e: self.app_core.logger.error(f"Exception handling financial report result: {e}", exc_info=True); QMessageBox.critical(self, "Report Generation Error", f"An unexpected error occurred: {str(e)}")
+    def _populate_balance_sheet_model(self, model: QStandardItemModel, report_data: Dict[str, Any]):
+        model.clear(); has_comparative = bool(report_data.get('comparative_date')); headers = ["Description", "Amount"]; 
+        if has_comparative: headers.append(f"Comparative ({report_data.get('comparative_date','Prev').strftime('%d/%m/%Y') if isinstance(report_data.get('comparative_date'), python_date) else 'Prev'})")
+        model.setHorizontalHeaderLabels(headers); root_node = model.invisibleRootItem(); bold_font = QFont(); bold_font.setBold(True)
+        def add_account_rows(parent_item: QStandardItem, accounts: List[Dict[str,Any]], comparative_accounts: Optional[List[Dict[str,Any]]]):
+            for acc_dict in accounts:
+                desc_item = QStandardItem(f"  {acc_dict.get('code','')} - {acc_dict.get('name','')}"); amount_item = QStandardItem(self._format_decimal_for_display(acc_dict.get('balance'))); amount_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); row_items = [desc_item, amount_item]
+                if has_comparative:
+                    comp_val_str = ""; 
+                    if comparative_accounts: comp_acc = next((ca for ca in comparative_accounts if ca['id'] == acc_dict['id']), None); comp_val_str = self._format_decimal_for_display(comp_acc['balance']) if comp_acc and comp_acc['balance'] is not None else ""
+                    comp_amount_item = QStandardItem(comp_val_str); comp_amount_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); row_items.append(comp_amount_item)
+                parent_item.appendRow(row_items)
+        for section_key, section_title_display in [('assets', "Assets"), ('liabilities', "Liabilities"), ('equity', "Equity")]:
+            section_data = report_data.get(section_key); 
+            if not section_data or not isinstance(section_data, dict): continue
+            section_header_item = QStandardItem(section_title_display); section_header_item.setFont(bold_font); empty_amount_item = QStandardItem(""); empty_amount_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); header_row = [section_header_item, empty_amount_item]; 
+            if has_comparative: header_row.append(QStandardItem("")); root_node.appendRow(header_row)
+            add_account_rows(section_header_item, section_data.get("accounts", []), section_data.get("comparative_accounts"))
+            total_desc_item = QStandardItem(f"Total {section_title_display}"); total_desc_item.setFont(bold_font); total_amount_item = QStandardItem(self._format_decimal_for_display(section_data.get("total"))); total_amount_item.setFont(bold_font); total_amount_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); total_row_items = [total_desc_item, total_amount_item]; 
+            if has_comparative: comp_total_item = QStandardItem(self._format_decimal_for_display(section_data.get("comparative_total"))); comp_total_item.setFont(bold_font); comp_total_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); total_row_items.append(comp_total_item)
+            root_node.appendRow(total_row_items); 
+            if section_key != 'equity': root_node.appendRow([QStandardItem(""), QStandardItem("")] + ([QStandardItem("")] if has_comparative else []))
+        if 'total_liabilities_equity' in report_data:
+            root_node.appendRow([QStandardItem(""), QStandardItem("")] + ([QStandardItem("")] if has_comparative else [])); tle_desc = QStandardItem("Total Liabilities & Equity"); tle_desc.setFont(bold_font); tle_amount = QStandardItem(self._format_decimal_for_display(report_data.get('total_liabilities_equity'))); tle_amount.setFont(bold_font); tle_amount.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); tle_row = [tle_desc, tle_amount]; 
+            if has_comparative: comp_tle_amount = QStandardItem(self._format_decimal_for_display(report_data.get('comparative_total_liabilities_equity'))); comp_tle_amount.setFont(bold_font); comp_tle_amount.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); tle_row.append(comp_tle_amount)
+            root_node.appendRow(tle_row)
+        if report_data.get('is_balanced') is False: warning_item = QStandardItem("Warning: Balance Sheet is out of balance!"); warning_item.setForeground(QColor("red")); warning_item.setFont(bold_font); warning_row = [warning_item, QStandardItem("")]; 
+        if has_comparative: warning_row.append(QStandardItem("")); root_node.appendRow(warning_row)
+    def _populate_profit_loss_model(self, model: QStandardItemModel, report_data: Dict[str, Any]):
+        model.clear(); has_comparative = bool(report_data.get('comparative_start')); comp_header_text = "Comparative"; 
+        if has_comparative and report_data.get('comparative_start') and report_data.get('comparative_end'): comp_start_str = report_data['comparative_start'].strftime('%d/%m/%y'); comp_end_str = report_data['comparative_end'].strftime('%d/%m/%y'); comp_header_text = f"Comp. ({comp_start_str}-{comp_end_str})"
+        headers = ["Description", "Amount"]; 
+        if has_comparative: headers.append(comp_header_text); model.setHorizontalHeaderLabels(headers); root_node = model.invisibleRootItem(); bold_font = QFont(); bold_font.setBold(True)
+        def add_pl_account_rows(parent_item: QStandardItem, accounts: List[Dict[str,Any]], comparative_accounts: Optional[List[Dict[str,Any]]]):
+            for acc_dict in accounts:
+                desc_item = QStandardItem(f"  {acc_dict.get('code','')} - {acc_dict.get('name','')}"); amount_item = QStandardItem(self._format_decimal_for_display(acc_dict.get('balance'))); amount_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); row_items = [desc_item, amount_item]
+                if has_comparative:
+                    comp_val_str = ""; 
+                    if comparative_accounts: comp_acc = next((ca for ca in comparative_accounts if ca['id'] == acc_dict['id']), None); comp_val_str = self._format_decimal_for_display(comp_acc['balance']) if comp_acc and comp_acc['balance'] is not None else ""
+                    comp_amount_item = QStandardItem(comp_val_str); comp_amount_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); row_items.append(comp_amount_item)
+                parent_item.appendRow(row_items)
+        for section_key, section_title_display in [('revenue', "Revenue"), ('expenses', "Operating Expenses")]: 
+            section_data = report_data.get(section_key); 
+            if not section_data or not isinstance(section_data, dict): continue
+            section_header_item = QStandardItem(section_title_display); section_header_item.setFont(bold_font); empty_amount_item = QStandardItem(""); empty_amount_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); header_row = [section_header_item, empty_amount_item]; 
+            if has_comparative: header_row.append(QStandardItem("")); root_node.appendRow(header_row)
+            add_pl_account_rows(section_header_item, section_data.get("accounts", []), section_data.get("comparative_accounts"))
+            total_desc_item = QStandardItem(f"Total {section_title_display}"); total_desc_item.setFont(bold_font); total_amount_item = QStandardItem(self._format_decimal_for_display(section_data.get("total"))); total_amount_item.setFont(bold_font); total_amount_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); total_row_items = [total_desc_item, total_amount_item]; 
+            if has_comparative: comp_total_item = QStandardItem(self._format_decimal_for_display(section_data.get("comparative_total"))); comp_total_item.setFont(bold_font); comp_total_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); total_row_items.append(comp_total_item)
+            root_node.appendRow(total_row_items); root_node.appendRow([QStandardItem(""), QStandardItem("")] + ([QStandardItem("")] if has_comparative else [])) 
+        if 'net_profit' in report_data:
+            np_desc = QStandardItem("Net Profit / (Loss)"); np_desc.setFont(bold_font); np_amount = QStandardItem(self._format_decimal_for_display(report_data.get('net_profit'))); np_amount.setFont(bold_font); np_amount.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); np_row = [np_desc, np_amount]; 
+            if has_comparative: comp_np_amount = QStandardItem(self._format_decimal_for_display(report_data.get('comparative_net_profit'))); comp_np_amount.setFont(bold_font); comp_np_amount.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); np_row.append(comp_np_amount)
+            root_node.appendRow(np_row)
+
+    def _display_financial_report(self, report_data: Dict[str, Any]):
+        report_title = report_data.get('title', '')
+        
+        if report_title == "Balance Sheet":
+            self.fs_display_stack.setCurrentWidget(self.bs_tree_view)
+            self._populate_balance_sheet_model(self.bs_model, report_data)
+            self.bs_tree_view.expandAll()
+            for i in range(self.bs_model.columnCount()): 
+                self.bs_tree_view.resizeColumnToContents(i)
+        elif report_title == "Profit & Loss Statement": # This was line 556 in the traceback
+            self.fs_display_stack.setCurrentWidget(self.pl_tree_view)
+            self._populate_profit_loss_model(self.pl_model, report_data)
+            self.pl_tree_view.expandAll()
+            for i in range(self.pl_model.columnCount()): 
+                self.pl_tree_view.resizeColumnToContents(i)
+        elif report_title == "Trial Balance":
+            self.fs_display_stack.setCurrentWidget(self.tb_table_view)
+            self.tb_model.update_data(report_data)
+            for i in range(self.tb_model.columnCount()): 
+                self.tb_table_view.resizeColumnToContents(i)
+        elif report_title == "General Ledger": 
+            self.fs_display_stack.setCurrentWidget(self.gl_widget_container)
+            self.gl_model.update_data(report_data)
+            gl_summary_data = self.gl_model.get_report_summary()
+            self.gl_summary_label_account.setText(f"Account: {gl_summary_data['account_name']}")
+            self.gl_summary_label_period.setText(gl_summary_data['period_description'])
+            self.gl_summary_label_ob.setText(f"Opening Balance: {self._format_decimal_for_display(gl_summary_data['opening_balance'], show_blank_for_zero=False)}")
+            self.gl_summary_label_cb.setText(f"Closing Balance: {self._format_decimal_for_display(gl_summary_data['closing_balance'], show_blank_for_zero=False)}")
+            for i in range(self.gl_model.columnCount()): 
+                self.gl_table_view.resizeColumnToContents(i)
+        else: 
+            self._clear_current_financial_report_display()
+            self.app_core.logger.warning(f"Unhandled report title '{report_title}' for specific display.")
+            QMessageBox.warning(self, "Display Error", f"Display format for '{report_title}' is not fully implemented in this view.")
+
+    @Slot(str)
+    def _on_export_report_clicked(self, format_type: str):
+        if not self._current_financial_report_data: QMessageBox.warning(self, "No Report", "Please generate a report first before exporting."); return
+        report_title_str = self._current_financial_report_data.get('title', 'FinancialReport')
+        # Ensure report_title_str is a string before calling string methods on it.
+        if not isinstance(report_title_str, str): report_title_str = "FinancialReport"
+        
+        default_filename = f"{report_title_str.replace(' ', '_').replace('&', 'And').replace('/', '-').replace(':', '')}_{python_date.today().strftime('%Y%m%d')}.{format_type}"
+        documents_path = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DocumentsLocation); 
+        if not documents_path: documents_path = os.path.expanduser("~") 
+        file_path, _ = QFileDialog.getSaveFileName(self, f"Save {format_type.upper()} Report", os.path.join(documents_path, default_filename), f"{format_type.upper()} Files (*.{format_type});;All Files (*)")
+        if file_path: 
+            self.export_pdf_button.setEnabled(False); self.export_excel_button.setEnabled(False)
+            future = schedule_task_from_qt(self.app_core.report_engine.export_report(self._current_financial_report_data, format_type)); 
+            if future: future.add_done_callback( lambda res, fp=file_path, ft=format_type: QMetaObject.invokeMethod( self, "_safe_handle_export_result_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(object, future), Q_ARG(str, fp), Q_ARG(str, ft)))
+            else: self.app_core.logger.error("Failed to schedule report export task."); self._handle_export_result(None, file_path, format_type) 
+    @Slot(object, str, str)
+    def _safe_handle_export_result_slot(self, future_arg, file_path_arg: str, format_type_arg: str): self._handle_export_result(future_arg, file_path_arg, format_type_arg)
+    def _handle_export_result(self, future, file_path: str, format_type: str):
+        self.export_pdf_button.setEnabled(True); self.export_excel_button.setEnabled(True)
+        if future is None: QMessageBox.critical(self, "Task Error", "Failed to schedule report export."); return
+        try:
+            report_bytes: Optional[bytes] = future.result()
+            if report_bytes:
+                with open(file_path, "wb") as f: f.write(report_bytes)
+                QMessageBox.information(self, "Export Successful", f"Report exported to:\n{file_path}")
+            else: QMessageBox.warning(self, "Export Failed", f"Failed to generate report bytes for {format_type.upper()}.")
+        except Exception as e: self.app_core.logger.error(f"Exception handling report export result: {e}", exc_info=True); QMessageBox.critical(self, "Export Error", f"An error occurred during export: {str(e)}")
+
+
+```
+
+# app/ui/reports/general_ledger_table_model.py
+```py
+# app/ui/reports/general_ledger_table_model.py
+from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
+from typing import List, Dict, Any, Optional
+from decimal import Decimal
+from datetime import date as python_date
+
+class GeneralLedgerTableModel(QAbstractTableModel):
+    def __init__(self, data: Optional[Dict[str, Any]] = None, parent=None):
+        super().__init__(parent)
+        self._headers = ["Date", "Entry No.", "Description", "Debit", "Credit", "Balance"]
+        self._transactions: List[Dict[str, Any]] = []
+        self._opening_balance = Decimal(0)
+        self._closing_balance = Decimal(0)
+        self._account_name = ""
+        self._period_description = ""
+
+        if data:
+            self.update_data(data)
+
+    def rowCount(self, parent=QModelIndex()) -> int:
+        if parent.isValid(): return 0
+        # +2 for opening and closing balance rows if we display them in table
+        # For now, let's assume they are displayed outside the table by the widget
+        return len(self._transactions)
+
+    def columnCount(self, parent=QModelIndex()) -> int:
+        return len(self._headers)
+
+    def headerData(self, section: int, orientation: Qt.Orientation, role=Qt.ItemDataRole.DisplayRole) -> Optional[str]:
+        if role == Qt.ItemDataRole.DisplayRole and orientation == Qt.Orientation.Horizontal:
+            if 0 <= section < len(self._headers):
+                return self._headers[section]
+        return None
+
+    def _format_decimal_for_display(self, value: Optional[Decimal], show_zero_as_blank: bool = True) -> str:
+        if value is None: return ""
+        if show_zero_as_blank and value == Decimal(0): return ""
+        return f"{value:,.2f}"
+
+    def data(self, index: QModelIndex, role=Qt.ItemDataRole.DisplayRole) -> Any:
+        if not index.isValid(): return None
+        
+        row = index.row()
+        col = index.column()
+
+        if not (0 <= row < len(self._transactions)): return None
+            
+        txn = self._transactions[row]
+
+        if role == Qt.ItemDataRole.DisplayRole:
+            if col == 0: # Date
+                raw_date = txn.get("date")
+                return raw_date.strftime('%d/%m/%Y') if isinstance(raw_date, python_date) else str(raw_date)
+            if col == 1: return txn.get("entry_no", "") # Entry No.
+            if col == 2: # Description
+                desc = txn.get("je_description", "")
+                line_desc = txn.get("line_description", "")
+                return f"{desc} // {line_desc}" if desc and line_desc else (desc or line_desc)
+            if col == 3: return self._format_decimal_for_display(txn.get("debit"), True)  # Debit
+            if col == 4: return self._format_decimal_for_display(txn.get("credit"), True) # Credit
+            if col == 5: return self._format_decimal_for_display(txn.get("balance"), False) # Balance (show zero)
+        
+        elif role == Qt.ItemDataRole.TextAlignmentRole:
+            if col in [3, 4, 5]: # Debit, Credit, Balance
+                return Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        
+        return None
+
+    def update_data(self, report_data: Dict[str, Any]):
+        self.beginResetModel()
+        self._transactions = report_data.get('transactions', [])
+        self._opening_balance = report_data.get('opening_balance', Decimal(0))
+        self._closing_balance = report_data.get('closing_balance', Decimal(0))
+        self._account_name = f"{report_data.get('account_code','')} - {report_data.get('account_name','')}"
+        start = report_data.get('start_date')
+        end = report_data.get('end_date')
+        self._period_description = f"For {start.strftime('%d/%m/%Y') if start else ''} to {end.strftime('%d/%m/%Y') if end else ''}"
+        self.endResetModel()
+
+    def get_report_summary(self) -> Dict[str, Any]:
+        return {
+            "account_name": self._account_name,
+            "period_description": self._period_description,
+            "opening_balance": self._opening_balance,
+            "closing_balance": self._closing_balance
+        }
+
+```
+
+# app/ui/reports/trial_balance_table_model.py
+```py
+# app/ui/reports/trial_balance_table_model.py
+from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
+from typing import List, Dict, Any, Optional
+from decimal import Decimal
+
+class TrialBalanceTableModel(QAbstractTableModel):
+    def __init__(self, data: Optional[Dict[str, Any]] = None, parent=None):
+        super().__init__(parent)
+        self._headers = ["Account Code", "Account Name", "Debit", "Credit"]
+        self._debit_accounts: List[Dict[str, Any]] = []
+        self._credit_accounts: List[Dict[str, Any]] = []
+        self._totals: Dict[str, Decimal] = {"debits": Decimal(0), "credits": Decimal(0)}
+        self._is_balanced: bool = False
+        if data:
+            self.update_data(data)
+
+    def rowCount(self, parent=QModelIndex()) -> int:
+        if parent.isValid(): return 0
+        # +1 for the totals row
+        return len(self._debit_accounts) + len(self._credit_accounts) + 1 
+
+    def columnCount(self, parent=QModelIndex()) -> int:
+        return len(self._headers)
+
+    def headerData(self, section: int, orientation: Qt.Orientation, role=Qt.ItemDataRole.DisplayRole) -> Optional[str]:
+        if role == Qt.ItemDataRole.DisplayRole and orientation == Qt.Orientation.Horizontal:
+            if 0 <= section < len(self._headers):
+                return self._headers[section]
+        return None
+
+    def _format_decimal_for_display(self, value: Optional[Decimal]) -> str:
+        if value is None or value == Decimal(0): return "" # Show blank for zero in TB lines
+        return f"{value:,.2f}"
+
+    def data(self, index: QModelIndex, role=Qt.ItemDataRole.DisplayRole) -> Any:
+        if not index.isValid(): return None
+        
+        row = index.row()
+        col = index.column()
+
+        num_debit_accounts = len(self._debit_accounts)
+        num_credit_accounts = len(self._credit_accounts)
+
+        # Totals Row
+        if row == num_debit_accounts + num_credit_accounts:
+            if role == Qt.ItemDataRole.DisplayRole:
+                if col == 1: return "TOTALS"
+                if col == 2: return f"{self._totals['debits']:,.2f}"
+                if col == 3: return f"{self._totals['credits']:,.2f}"
+                return ""
+            elif role == Qt.ItemDataRole.FontRole:
+                from PySide6.QtGui import QFont
+                font = QFont(); font.setBold(True); return font
+            elif role == Qt.ItemDataRole.TextAlignmentRole and col in [2,3]:
+                 return Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            return None
+
+        # Debit Accounts
+        if row < num_debit_accounts:
+            account = self._debit_accounts[row]
+            if role == Qt.ItemDataRole.DisplayRole:
+                if col == 0: return account.get("code", "")
+                if col == 1: return account.get("name", "")
+                if col == 2: return self._format_decimal_for_display(account.get("balance"))
+                if col == 3: return "" # Credit column is blank for debit accounts
+            elif role == Qt.ItemDataRole.TextAlignmentRole and col == 2:
+                 return Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            return None
+        
+        # Credit Accounts
+        credit_row_index = row - num_debit_accounts
+        if credit_row_index < num_credit_accounts:
+            account = self._credit_accounts[credit_row_index]
+            if role == Qt.ItemDataRole.DisplayRole:
+                if col == 0: return account.get("code", "")
+                if col == 1: return account.get("name", "")
+                if col == 2: return "" # Debit column is blank for credit accounts
+                if col == 3: return self._format_decimal_for_display(account.get("balance"))
+            elif role == Qt.ItemDataRole.TextAlignmentRole and col == 3:
+                 return Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            return None
+            
+        return None
+
+    def update_data(self, report_data: Dict[str, Any]):
+        self.beginResetModel()
+        self._debit_accounts = report_data.get('debit_accounts', [])
+        self._credit_accounts = report_data.get('credit_accounts', [])
+        self._totals["debits"] = report_data.get('total_debits', Decimal(0))
+        self._totals["credits"] = report_data.get('total_credits', Decimal(0))
+        self._is_balanced = report_data.get('is_balanced', False)
+        self.endResetModel()
+
+    def get_balance_status(self) -> str:
+        return "Balanced" if self._is_balanced else f"Out of Balance by: {abs(self._totals['debits'] - self._totals['credits']):,.2f}"
+
+```
+
 # app/ui/shared/__init__.py
 ```py
 # app/ui/shared/__init__.py
@@ -2032,651 +4102,6 @@ class AccountDialog(QDialog):
             self.accept()
         else:
             QMessageBox.warning(self, "Error", f"Failed to update account:\n{', '.join(result.errors)}")
-
-```
-
-# app/utils/json_helpers.py
-```py
-# File: app/utils/json_helpers.py
-import json
-from decimal import Decimal
-from datetime import date, datetime
-
-def json_converter(obj):
-    """Custom JSON converter to handle Decimal and date/datetime objects."""
-    if isinstance(obj, Decimal):
-        return str(obj)  # Serialize Decimal as string
-    if isinstance(obj, (datetime, date)): # Handle both datetime and date
-        return obj.isoformat()  # Serialize date/datetime as ISO string
-    raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
-
-def json_date_hook(dct):
-    """
-    Custom object_hook for json.loads to convert ISO date/datetime strings back to objects.
-    More specific field name checks might be needed for robustness.
-    """
-    for k, v in dct.items():
-        if isinstance(v, str):
-            # Attempt to parse common date/datetime field names
-            if k.endswith('_at') or k.endswith('_date') or k in [
-                'date', 'start_date', 'end_date', 'closed_date', 'submission_date', 
-                'issue_date', 'payment_date', 'last_reconciled_date', 
-                'customer_since', 'vendor_since', 'opening_balance_date', 
-                'movement_date', 'transaction_date', 'value_date', 
-                'invoice_date', 'due_date', 'filing_due_date', 'rate_date',
-                'last_login_attempt', 'last_login' # From User model
-            ]:
-                try:
-                    # Try datetime first, then date
-                    dt_val = datetime.fromisoformat(v.replace('Z', '+00:00'))
-                    # If it has no time component, and field implies date only, convert to date
-                    if dt_val.time() == datetime.min.time() and not k.endswith('_at') and k != 'closed_date' and k != 'last_login_attempt' and k != 'last_login': # Heuristic
-                         dct[k] = dt_val.date()
-                    else:
-                        dct[k] = dt_val
-                except ValueError:
-                    try:
-                        dct[k] = python_date.fromisoformat(v)
-                    except ValueError:
-                        pass # Keep as string if not valid ISO date/datetime
-    return dct
-
-```
-
-# app/utils/result.py
-```py
-# File: app/utils/result.py
-# (Content as previously generated, verified)
-from typing import TypeVar, Generic, List, Any, Optional
-
-T = TypeVar('T')
-
-class Result(Generic[T]):
-    def __init__(self, is_success: bool, value: Optional[T] = None, errors: Optional[List[str]] = None):
-        self.is_success = is_success
-        self.value = value
-        self.errors = errors if errors is not None else []
-
-    @staticmethod
-    def success(value: Optional[T] = None) -> 'Result[T]':
-        return Result(is_success=True, value=value)
-
-    @staticmethod
-    def failure(errors: List[str]) -> 'Result[Any]': 
-        return Result(is_success=False, errors=errors)
-
-    def __repr__(self):
-        if self.is_success:
-            return f"<Result success={True} value='{str(self.value)[:50]}'>"
-        else:
-            return f"<Result success={False} errors={self.errors}>"
-
-```
-
-# app/utils/__init__.py
-```py
-# File: app/utils/__init__.py
-from .converters import to_decimal
-from .formatting import format_currency, format_date, format_datetime
-from .json_helpers import json_converter, json_date_hook # Added
-from .pydantic_models import (
-    AppBaseModel, UserAuditData, 
-    AccountBaseData, AccountCreateData, AccountUpdateData,
-    JournalEntryLineData, JournalEntryData,
-    GSTReturnData, TaxCalculationResultData,
-    TransactionLineTaxData, TransactionTaxData,
-    AccountValidationResult, AccountValidator, CompanySettingData,
-    FiscalYearCreateData, FiscalYearData, FiscalPeriodData # Added Fiscal DTOs
-)
-from .result import Result
-from .sequence_generator import SequenceGenerator
-from .validation import is_valid_uen
-
-__all__ = [
-    "to_decimal", "format_currency", "format_date", "format_datetime",
-    "json_converter", "json_date_hook", # Added
-    "AppBaseModel", "UserAuditData", 
-    "AccountBaseData", "AccountCreateData", "AccountUpdateData",
-    "JournalEntryLineData", "JournalEntryData",
-    "GSTReturnData", "TaxCalculationResultData",
-    "TransactionLineTaxData", "TransactionTaxData",
-    "AccountValidationResult", "AccountValidator", "CompanySettingData",
-    "FiscalYearCreateData", "FiscalYearData", "FiscalPeriodData", # Added Fiscal DTOs
-    "Result", "SequenceGenerator", "is_valid_uen"
-]
-
-```
-
-# app/utils/pydantic_models.py
-```py
-# File: app/utils/pydantic_models.py
-from pydantic import BaseModel, Field, validator, root_validator, EmailStr # type: ignore
-from typing import List, Optional, Union, Any, Dict 
-from datetime import date, datetime
-from decimal import Decimal
-
-from app.common.enums import ProductTypeEnum, InvoiceStatusEnum 
-
-class AppBaseModel(BaseModel):
-    class Config:
-        from_attributes = True 
-        json_encoders = {
-            Decimal: lambda v: float(v) if v is not None and v.is_finite() else None, 
-            EmailStr: lambda v: str(v) if v is not None else None,
-        }
-        validate_assignment = True 
-
-class UserAuditData(BaseModel):
-    user_id: int
-
-# --- Account Related DTOs ---
-class AccountBaseData(AppBaseModel):
-    code: str = Field(..., max_length=20)
-    name: str = Field(..., max_length=100)
-    account_type: str 
-    sub_type: Optional[str] = Field(None, max_length=30)
-    tax_treatment: Optional[str] = Field(None, max_length=20)
-    gst_applicable: bool = False
-    description: Optional[str] = None
-    parent_id: Optional[int] = None
-    report_group: Optional[str] = Field(None, max_length=50)
-    is_control_account: bool = False
-    is_bank_account: bool = False
-    opening_balance: Decimal = Field(Decimal(0))
-    opening_balance_date: Optional[date] = None
-    is_active: bool = True
-    @validator('opening_balance', pre=True, always=True)
-    def opening_balance_to_decimal(cls, v): return Decimal(str(v)) if v is not None else Decimal(0)
-
-class AccountCreateData(AccountBaseData, UserAuditData): pass
-class AccountUpdateData(AccountBaseData, UserAuditData): id: int
-
-# --- Journal Entry Related DTOs ---
-class JournalEntryLineData(AppBaseModel):
-    account_id: int
-    description: Optional[str] = Field(None, max_length=200)
-    debit_amount: Decimal = Field(Decimal(0))
-    credit_amount: Decimal = Field(Decimal(0))
-    currency_code: str = Field("SGD", max_length=3) 
-    exchange_rate: Decimal = Field(Decimal(1))
-    tax_code: Optional[str] = Field(None, max_length=20) 
-    tax_amount: Decimal = Field(Decimal(0))
-    dimension1_id: Optional[int] = None
-    dimension2_id: Optional[int] = None 
-    @validator('debit_amount', 'credit_amount', 'exchange_rate', 'tax_amount', pre=True, always=True)
-    def je_line_amounts_to_decimal(cls, v): return Decimal(str(v)) if v is not None else Decimal(0) 
-    @root_validator(skip_on_failure=True)
-    def check_je_line_debit_credit_exclusive(cls, values: Dict[str, Any]) -> Dict[str, Any]: 
-        debit = values.get('debit_amount', Decimal(0)); credit = values.get('credit_amount', Decimal(0))
-        if debit > Decimal(0) and credit > Decimal(0): raise ValueError("Debit and Credit amounts cannot both be positive for a single line.")
-        return values
-
-class JournalEntryData(AppBaseModel, UserAuditData):
-    journal_type: str
-    entry_date: date
-    description: Optional[str] = Field(None, max_length=500)
-    reference: Optional[str] = Field(None, max_length=100)
-    is_recurring: bool = False 
-    recurring_pattern_id: Optional[int] = None
-    source_type: Optional[str] = Field(None, max_length=50)
-    source_id: Optional[int] = None
-    lines: List[JournalEntryLineData]
-    @validator('lines')
-    def check_je_lines_not_empty(cls, v: List[JournalEntryLineData]) -> List[JournalEntryLineData]: 
-        if not v: raise ValueError("Journal entry must have at least one line.")
-        return v
-    @root_validator(skip_on_failure=True)
-    def check_je_balanced_entry(cls, values: Dict[str, Any]) -> Dict[str, Any]: 
-        lines = values.get('lines', []); total_debits = sum(l.debit_amount for l in lines); total_credits = sum(l.credit_amount for l in lines)
-        if abs(total_debits - total_credits) > Decimal("0.01"): raise ValueError(f"Journal entry must be balanced (Debits: {total_debits}, Credits: {total_credits}).")
-        return values
-
-# --- GST Return Related DTOs ---
-class GSTReturnData(AppBaseModel, UserAuditData):
-    id: Optional[int] = None
-    return_period: str = Field(..., max_length=20)
-    start_date: date; end_date: date
-    filing_due_date: Optional[date] = None 
-    standard_rated_supplies: Decimal = Field(Decimal(0))
-    zero_rated_supplies: Decimal = Field(Decimal(0))
-    exempt_supplies: Decimal = Field(Decimal(0))
-    total_supplies: Decimal = Field(Decimal(0)) 
-    taxable_purchases: Decimal = Field(Decimal(0))
-    output_tax: Decimal = Field(Decimal(0))
-    input_tax: Decimal = Field(Decimal(0))
-    tax_adjustments: Decimal = Field(Decimal(0))
-    tax_payable: Decimal = Field(Decimal(0)) 
-    status: str = Field("Draft", max_length=20)
-    submission_date: Optional[date] = None
-    submission_reference: Optional[str] = Field(None, max_length=50)
-    journal_entry_id: Optional[int] = None
-    notes: Optional[str] = None
-    @validator('standard_rated_supplies', 'zero_rated_supplies', 'exempt_supplies', 'total_supplies', 'taxable_purchases', 'output_tax', 'input_tax', 'tax_adjustments', 'tax_payable', pre=True, always=True)
-    def gst_amounts_to_decimal(cls, v): return Decimal(str(v)) if v is not None else Decimal(0)
-
-# --- Tax Calculation DTOs ---
-class TaxCalculationResultData(AppBaseModel): tax_amount: Decimal; tax_account_id: Optional[int] = None; taxable_amount: Decimal
-class TransactionLineTaxData(AppBaseModel): amount: Decimal; tax_code: Optional[str] = None; account_id: Optional[int] = None; index: int 
-class TransactionTaxData(AppBaseModel): transaction_type: str; lines: List[TransactionLineTaxData]
-
-# --- Validation Result DTO ---
-class AccountValidationResult(AppBaseModel): is_valid: bool; errors: List[str] = []
-class AccountValidator: 
-    def validate_common(self, account_data: AccountBaseData) -> List[str]:
-        errors = []; 
-        if not account_data.code: errors.append("Account code is required.")
-        if not account_data.name: errors.append("Account name is required.")
-        if not account_data.account_type: errors.append("Account type is required.")
-        if account_data.is_bank_account and account_data.account_type != 'Asset': errors.append("Bank accounts must be of type 'Asset'.")
-        if account_data.opening_balance_date and account_data.opening_balance == Decimal(0): errors.append("Opening balance date provided but opening balance is zero.")
-        if account_data.opening_balance != Decimal(0) and not account_data.opening_balance_date: errors.append("Opening balance provided but opening balance date is missing.")
-        return errors
-    def validate_create(self, account_data: AccountCreateData) -> AccountValidationResult:
-        errors = self.validate_common(account_data); return AccountValidationResult(is_valid=not errors, errors=errors)
-    def validate_update(self, account_data: AccountUpdateData) -> AccountValidationResult:
-        errors = self.validate_common(account_data)
-        if not account_data.id: errors.append("Account ID is required for updates.")
-        return AccountValidationResult(is_valid=not errors, errors=errors)
-
-# --- Company Setting DTO ---
-class CompanySettingData(AppBaseModel, UserAuditData): 
-    id: Optional[int] = None; company_name: str = Field(..., max_length=100); legal_name: Optional[str] = Field(None, max_length=200); uen_no: Optional[str] = Field(None, max_length=20); gst_registration_no: Optional[str] = Field(None, max_length=20); gst_registered: bool = False; address_line1: Optional[str] = Field(None, max_length=100); address_line2: Optional[str] = Field(None, max_length=100); postal_code: Optional[str] = Field(None, max_length=20); city: str = Field("Singapore", max_length=50); country: str = Field("Singapore", max_length=50); contact_person: Optional[str] = Field(None, max_length=100); phone: Optional[str] = Field(None, max_length=20); email: Optional[EmailStr] = None; website: Optional[str] = Field(None, max_length=100); logo: Optional[bytes] = None; fiscal_year_start_month: int = Field(1, ge=1, le=12); fiscal_year_start_day: int = Field(1, ge=1, le=31); base_currency: str = Field("SGD", max_length=3); tax_id_label: str = Field("UEN", max_length=50); date_format: str = Field("dd/MM/yyyy", max_length=20)
-
-# --- Fiscal Year Related DTOs ---
-class FiscalYearCreateData(AppBaseModel, UserAuditData): 
-    year_name: str = Field(..., max_length=20); start_date: date; end_date: date; auto_generate_periods: Optional[str] = None
-    @root_validator(skip_on_failure=True)
-    def check_fy_dates(cls, values: Dict[str, Any]) -> Dict[str, Any]: 
-        start, end = values.get('start_date'), values.get('end_date');
-        if start and end and start >= end: raise ValueError("End date must be after start date.")
-        return values
-class FiscalPeriodData(AppBaseModel): id: int; name: str; start_date: date; end_date: date; period_type: str; status: str; period_number: int; is_adjustment: bool
-class FiscalYearData(AppBaseModel): id: int; year_name: str; start_date: date; end_date: date; is_closed: bool; closed_date: Optional[datetime] = None; periods: List[FiscalPeriodData] = []
-
-# --- Customer Related DTOs ---
-class CustomerBaseData(AppBaseModel): 
-    customer_code: str = Field(..., min_length=1, max_length=20); name: str = Field(..., min_length=1, max_length=100); legal_name: Optional[str] = Field(None, max_length=200); uen_no: Optional[str] = Field(None, max_length=20); gst_registered: bool = False; gst_no: Optional[str] = Field(None, max_length=20); contact_person: Optional[str] = Field(None, max_length=100); email: Optional[EmailStr] = None; phone: Optional[str] = Field(None, max_length=20); address_line1: Optional[str] = Field(None, max_length=100); address_line2: Optional[str] = Field(None, max_length=100); postal_code: Optional[str] = Field(None, max_length=20); city: Optional[str] = Field(None, max_length=50); country: str = Field("Singapore", max_length=50); credit_terms: int = Field(30, ge=0); credit_limit: Optional[Decimal] = Field(None, ge=Decimal(0)); currency_code: str = Field("SGD", min_length=3, max_length=3); is_active: bool = True; customer_since: Optional[date] = None; notes: Optional[str] = None; receivables_account_id: Optional[int] = None
-    @validator('credit_limit', pre=True, always=True)
-    def customer_credit_limit_to_decimal(cls, v): return Decimal(str(v)) if v is not None else None 
-    @root_validator(skip_on_failure=True)
-    def check_gst_no_if_registered_customer(cls, values: Dict[str, Any]) -> Dict[str, Any]:
-        if values.get('gst_registered') and not values.get('gst_no'): raise ValueError("GST No. is required if customer is GST registered.")
-        return values
-class CustomerCreateData(CustomerBaseData, UserAuditData): pass
-class CustomerUpdateData(CustomerBaseData, UserAuditData): id: int
-class CustomerData(CustomerBaseData): id: int; created_at: datetime; updated_at: datetime; created_by_user_id: int; updated_by_user_id: int
-class CustomerSummaryData(AppBaseModel): id: int; customer_code: str; name: str; email: Optional[EmailStr] = None; phone: Optional[str] = None; is_active: bool
-
-# --- Vendor Related DTOs ---
-class VendorBaseData(AppBaseModel): 
-    vendor_code: str = Field(..., min_length=1, max_length=20); name: str = Field(..., min_length=1, max_length=100); legal_name: Optional[str] = Field(None, max_length=200); uen_no: Optional[str] = Field(None, max_length=20); gst_registered: bool = False; gst_no: Optional[str] = Field(None, max_length=20); withholding_tax_applicable: bool = False; withholding_tax_rate: Optional[Decimal] = Field(None, ge=Decimal(0), le=Decimal(100)); contact_person: Optional[str] = Field(None, max_length=100); email: Optional[EmailStr] = None; phone: Optional[str] = Field(None, max_length=20); address_line1: Optional[str] = Field(None, max_length=100); address_line2: Optional[str] = Field(None, max_length=100); postal_code: Optional[str] = Field(None, max_length=20); city: Optional[str] = Field(None, max_length=50); country: str = Field("Singapore", max_length=50); payment_terms: int = Field(30, ge=0); currency_code: str = Field("SGD", min_length=3, max_length=3); is_active: bool = True; vendor_since: Optional[date] = None; notes: Optional[str] = None; bank_account_name: Optional[str] = Field(None, max_length=100); bank_account_number: Optional[str] = Field(None, max_length=50); bank_name: Optional[str] = Field(None, max_length=100); bank_branch: Optional[str] = Field(None, max_length=100); bank_swift_code: Optional[str] = Field(None, max_length=20); payables_account_id: Optional[int] = None
-    @validator('withholding_tax_rate', pre=True, always=True)
-    def vendor_wht_rate_to_decimal(cls, v): return Decimal(str(v)) if v is not None else None 
-    @root_validator(skip_on_failure=True)
-    def check_gst_no_if_registered_vendor(cls, values: Dict[str, Any]) -> Dict[str, Any]:
-        if values.get('gst_registered') and not values.get('gst_no'): raise ValueError("GST No. is required if vendor is GST registered.")
-        return values
-    @root_validator(skip_on_failure=True)
-    def check_wht_rate_if_applicable_vendor(cls, values: Dict[str, Any]) -> Dict[str, Any]: 
-        if values.get('withholding_tax_applicable') and values.get('withholding_tax_rate') is None: raise ValueError("Withholding Tax Rate is required if Withholding Tax is applicable.")
-        return values
-class VendorCreateData(VendorBaseData, UserAuditData): pass
-class VendorUpdateData(VendorBaseData, UserAuditData): id: int
-class VendorData(VendorBaseData): id: int; created_at: datetime; updated_at: datetime; created_by_user_id: int; updated_by_user_id: int
-class VendorSummaryData(AppBaseModel): id: int; vendor_code: str; name: str; email: Optional[EmailStr] = None; phone: Optional[str] = None; is_active: bool
-
-# --- Product/Service Related DTOs ---
-class ProductBaseData(AppBaseModel): 
-    product_code: str = Field(..., min_length=1, max_length=20)
-    name: str = Field(..., min_length=1, max_length=100)
-    description: Optional[str] = None
-    product_type: ProductTypeEnum
-    category: Optional[str] = Field(None, max_length=50)
-    unit_of_measure: Optional[str] = Field(None, max_length=20)
-    barcode: Optional[str] = Field(None, max_length=50)
-    sales_price: Optional[Decimal] = Field(None, ge=Decimal(0))       
-    purchase_price: Optional[Decimal] = Field(None, ge=Decimal(0))    
-    sales_account_id: Optional[int] = None
-    purchase_account_id: Optional[int] = None
-    inventory_account_id: Optional[int] = None
-    tax_code: Optional[str] = Field(None, max_length=20)
-    is_active: bool = True
-    min_stock_level: Optional[Decimal] = Field(None, ge=Decimal(0))   
-    reorder_point: Optional[Decimal] = Field(None, ge=Decimal(0))     
-    @validator('sales_price', 'purchase_price', 'min_stock_level', 'reorder_point', pre=True, always=True)
-    def product_decimal_fields(cls, v): return Decimal(str(v)) if v is not None else None
-    @root_validator(skip_on_failure=True)
-    def check_inventory_fields_product(cls, values: Dict[str, Any]) -> Dict[str, Any]: 
-        product_type = values.get('product_type')
-        if product_type == ProductTypeEnum.INVENTORY:
-            if values.get('inventory_account_id') is None: raise ValueError("Inventory Account ID is required for 'Inventory' type products.")
-        else: 
-            if values.get('inventory_account_id') is not None: raise ValueError("Inventory Account ID should only be set for 'Inventory' type products.")
-            if values.get('min_stock_level') is not None or values.get('reorder_point') is not None: raise ValueError("Stock levels are only applicable for 'Inventory' type products.")
-        return values
-class ProductCreateData(ProductBaseData, UserAuditData): pass
-class ProductUpdateData(ProductBaseData, UserAuditData): id: int
-class ProductData(ProductBaseData): id: int; created_at: datetime; updated_at: datetime; created_by_user_id: int; updated_by_user_id: int
-class ProductSummaryData(AppBaseModel): id: int; product_code: str; name: str; product_type: ProductTypeEnum; sales_price: Optional[Decimal] = None; purchase_price: Optional[Decimal] = None; is_active: bool
-
-# --- Sales Invoice Related DTOs ---
-class SalesInvoiceLineBaseData(AppBaseModel):
-    product_id: Optional[int] = None; description: str = Field(..., min_length=1, max_length=200); quantity: Decimal = Field(..., gt=Decimal(0)); unit_price: Decimal = Field(..., ge=Decimal(0)); discount_percent: Decimal = Field(Decimal(0), ge=Decimal(0), le=Decimal(100)); tax_code: Optional[str] = Field(None, max_length=20)
-    dimension1_id: Optional[int] = None 
-    dimension2_id: Optional[int] = None 
-    @validator('quantity', 'unit_price', 'discount_percent', pre=True, always=True)
-    def sales_inv_line_decimals(cls, v): return Decimal(str(v)) if v is not None else Decimal(0)
-class SalesInvoiceBaseData(AppBaseModel):
-    customer_id: int; invoice_date: date; due_date: date; currency_code: str = Field("SGD", min_length=3, max_length=3); exchange_rate: Decimal = Field(Decimal(1), ge=Decimal(0)); notes: Optional[str] = None; terms_and_conditions: Optional[str] = None
-    @validator('exchange_rate', pre=True, always=True)
-    def sales_inv_hdr_decimals(cls, v): return Decimal(str(v)) if v is not None else Decimal(1)
-    @root_validator(skip_on_failure=True)
-    def check_due_date(cls, values: Dict[str, Any]) -> Dict[str, Any]:
-        invoice_date, due_date = values.get('invoice_date'), values.get('due_date')
-        if invoice_date and due_date and due_date < invoice_date: raise ValueError("Due date cannot be before invoice date.")
-        return values
-class SalesInvoiceCreateData(SalesInvoiceBaseData, UserAuditData): lines: List[SalesInvoiceLineBaseData] = Field(..., min_length=1)
-class SalesInvoiceUpdateData(SalesInvoiceBaseData, UserAuditData): id: int; lines: List[SalesInvoiceLineBaseData] = Field(..., min_length=1)
-class SalesInvoiceData(SalesInvoiceBaseData): id: int; invoice_no: str; subtotal: Decimal; tax_amount: Decimal; total_amount: Decimal; amount_paid: Decimal; status: InvoiceStatusEnum; journal_entry_id: Optional[int] = None; lines: List[SalesInvoiceLineBaseData]; created_at: datetime; updated_at: datetime; created_by_user_id: int; updated_by_user_id: int
-class SalesInvoiceSummaryData(AppBaseModel): id: int; invoice_no: str; invoice_date: date; due_date: date; customer_name: str; total_amount: Decimal; amount_paid: Decimal; status: InvoiceStatusEnum
-
-# --- User & Role Management DTOs ---
-class RoleData(AppBaseModel): 
-    id: int
-    name: str
-    description: Optional[str] = None
-
-class UserSummaryData(AppBaseModel): 
-    id: int
-    username: str
-    full_name: Optional[str] = None
-    email: Optional[EmailStr] = None
-    is_active: bool
-    last_login: Optional[datetime] = None
-    roles: List[str] = Field(default_factory=list) 
-
-class UserRoleAssignmentData(AppBaseModel): 
-    role_id: int
-
-class UserBaseData(AppBaseModel): 
-    username: str = Field(..., min_length=3, max_length=50)
-    full_name: Optional[str] = Field(None, max_length=100)
-    email: Optional[EmailStr] = None
-    is_active: bool = True
-
-class UserCreateInternalData(UserBaseData): 
-    password_hash: str 
-    assigned_roles: List[UserRoleAssignmentData] = Field(default_factory=list)
-
-class UserCreateData(UserBaseData, UserAuditData): 
-    password: str = Field(..., min_length=8)
-    confirm_password: str
-    assigned_role_ids: List[int] = Field(default_factory=list)
-
-    @root_validator(skip_on_failure=True)
-    def passwords_match(cls, values: Dict[str, Any]) -> Dict[str, Any]:
-        pw1, pw2 = values.get('password'), values.get('confirm_password')
-        if pw1 is not None and pw2 is not None and pw1 != pw2:
-            raise ValueError('Passwords do not match')
-        return values
-
-class UserUpdateData(UserBaseData, UserAuditData): 
-    id: int
-    assigned_role_ids: List[int] = Field(default_factory=list)
-
-class UserPasswordChangeData(AppBaseModel, UserAuditData): 
-    user_id_to_change: int 
-    new_password: str = Field(..., min_length=8)
-    confirm_new_password: str
-    @root_validator(skip_on_failure=True)
-    def new_passwords_match(cls, values: Dict[str, Any]) -> Dict[str, Any]:
-        pw1, pw2 = values.get('new_password'), values.get('confirm_new_password')
-        if pw1 is not None and pw2 is not None and pw1 != pw2:
-            raise ValueError('New passwords do not match')
-        return values
-
-class RoleCreateData(AppBaseModel): 
-    name: str = Field(..., min_length=3, max_length=50)
-    description: Optional[str] = Field(None, max_length=200)
-    permission_ids: List[int] = Field(default_factory=list)
-
-class RoleUpdateData(RoleCreateData):
-    id: int
-
-class PermissionData(AppBaseModel): 
-    id: int
-    code: str
-    description: Optional[str] = None
-    module: str
-
-# --- Purchase Invoice Related DTOs ---
-class PurchaseInvoiceLineBaseData(AppBaseModel):
-    product_id: Optional[int] = None
-    description: str = Field(..., min_length=1, max_length=200)
-    quantity: Decimal = Field(..., gt=Decimal(0))
-    unit_price: Decimal = Field(..., ge=Decimal(0))
-    discount_percent: Decimal = Field(Decimal(0), ge=Decimal(0), le=Decimal(100))
-    tax_code: Optional[str] = Field(None, max_length=20)
-    dimension1_id: Optional[int] = None
-    dimension2_id: Optional[int] = None
-
-    @validator('quantity', 'unit_price', 'discount_percent', pre=True, always=True)
-    def purch_inv_line_decimals(cls, v):
-        return Decimal(str(v)) if v is not None else Decimal(0)
-
-class PurchaseInvoiceBaseData(AppBaseModel):
-    vendor_id: int
-    vendor_invoice_no: Optional[str] = Field(None, max_length=50) 
-    invoice_date: date
-    due_date: date
-    currency_code: str = Field("SGD", min_length=3, max_length=3)
-    exchange_rate: Decimal = Field(Decimal(1), ge=Decimal(0))
-    notes: Optional[str] = None
-    
-    @validator('exchange_rate', pre=True, always=True)
-    def purch_inv_hdr_decimals(cls, v):
-        return Decimal(str(v)) if v is not None else Decimal(1)
-
-    @root_validator(skip_on_failure=True)
-    def check_pi_due_date(cls, values: Dict[str, Any]) -> Dict[str, Any]:
-        invoice_date, due_date = values.get('invoice_date'), values.get('due_date')
-        if invoice_date and due_date and due_date < invoice_date:
-            raise ValueError("Due date cannot be before invoice date.")
-        return values
-
-class PurchaseInvoiceCreateData(PurchaseInvoiceBaseData, UserAuditData):
-    lines: List[PurchaseInvoiceLineBaseData] = Field(..., min_length=1)
-
-class PurchaseInvoiceUpdateData(PurchaseInvoiceBaseData, UserAuditData):
-    id: int
-    lines: List[PurchaseInvoiceLineBaseData] = Field(..., min_length=1)
-
-class PurchaseInvoiceData(PurchaseInvoiceBaseData): 
-    id: int
-    invoice_no: str # Our internal reference number
-    subtotal: Decimal
-    tax_amount: Decimal
-    total_amount: Decimal
-    amount_paid: Decimal
-    status: InvoiceStatusEnum 
-    journal_entry_id: Optional[int] = None
-    lines: List[PurchaseInvoiceLineBaseData] 
-    created_at: datetime
-    updated_at: datetime
-    created_by_user_id: int
-    updated_by_user_id: int
-
-class PurchaseInvoiceSummaryData(AppBaseModel): 
-    id: int
-    invoice_no: str 
-    vendor_invoice_no: Optional[str] = None
-    invoice_date: date
-    vendor_name: str 
-    total_amount: Decimal
-    status: InvoiceStatusEnum
-
-```
-
-# app/utils/validation.py
-```py
-# File: app/utils/validation.py
-# (Content as previously generated, verified)
-def is_valid_uen(uen: str) -> bool:
-    if not uen: return True 
-    return len(uen) >= 9 and len(uen) <= 10 
-
-```
-
-# app/utils/sequence_generator.py
-```py
-# File: app/utils/sequence_generator.py
-import asyncio
-from typing import Optional, TYPE_CHECKING
-from app.models.core.sequence import Sequence # Still needed if we fallback or for other methods
-from app.services.core_services import SequenceService 
-
-if TYPE_CHECKING:
-    from app.core.application_core import ApplicationCore # For db_manager access if needed
-
-class SequenceGenerator:
-    def __init__(self, sequence_service: SequenceService, app_core_ref: Optional["ApplicationCore"] = None):
-        self.sequence_service = sequence_service
-        # Store app_core to access db_manager for calling the DB function
-        self.app_core = app_core_ref 
-        if self.app_core is None and hasattr(sequence_service, 'app_core'): # Fallback if service has it
-            self.app_core = sequence_service.app_core
-
-
-    async def next_sequence(self, sequence_name: str, prefix_override: Optional[str] = None) -> str:
-        """
-        Generates the next number in a sequence.
-        Primarily tries to use the PostgreSQL function core.get_next_sequence_value().
-        Falls back to Python-based logic if DB function call fails or app_core is not available for DB manager.
-        """
-        if self.app_core and hasattr(self.app_core, 'db_manager'):
-            try:
-                # The DB function `core.get_next_sequence_value(p_sequence_name VARCHAR)`
-                # already handles prefix, suffix, formatting and returns the final string.
-                # It does NOT take prefix_override. If prefix_override is needed,
-                # this DB function strategy needs re-evaluation or the DB func needs an update.
-                # For now, assume prefix_override is not used with DB function or is handled by template in DB.
-                
-                # If prefix_override is essential, we might need to:
-                # 1. Modify DB function to accept it.
-                # 2. Fetch numeric value from DB, then format in Python with override. (More complex)
-
-                # Current DB function `core.get_next_sequence_value` uses the prefix stored in the table.
-                # If prefix_override is provided, the Python fallback might be necessary.
-                # Let's assume for now, if prefix_override is given, we must use Python logic.
-                
-                if prefix_override is None: # Only use DB function if no override, as DB func uses its stored prefix
-                    db_func_call = f"SELECT core.get_next_sequence_value('{sequence_name}');"
-                    generated_value = await self.app_core.db_manager.execute_scalar(db_func_call) # type: ignore
-                    if generated_value:
-                        return str(generated_value)
-                    else:
-                        # Log this failure to use DB func
-                        if hasattr(self.app_core.db_manager, 'logger') and self.app_core.db_manager.logger:
-                            self.app_core.db_manager.logger.warning(f"DB function core.get_next_sequence_value for '{sequence_name}' returned None. Falling back to Python logic.")
-                        else:
-                            print(f"Warning: DB function for sequence '{sequence_name}' failed. Falling back.")
-                else:
-                    if hasattr(self.app_core.db_manager, 'logger') and self.app_core.db_manager.logger:
-                        self.app_core.db_manager.logger.info(f"Prefix override for '{sequence_name}' provided. Using Python sequence logic.") # type: ignore
-                    else:
-                        print(f"Info: Prefix override for '{sequence_name}' provided. Using Python sequence logic.")
-
-
-            except Exception as e:
-                # Log this failure to use DB func
-                if hasattr(self.app_core.db_manager, 'logger') and self.app_core.db_manager.logger:
-                     self.app_core.db_manager.logger.error(f"Error calling DB sequence function for '{sequence_name}': {e}. Falling back to Python logic.", exc_info=True) # type: ignore
-                else:
-                    print(f"Error calling DB sequence function for '{sequence_name}': {e}. Falling back.")
-        
-        # Fallback to Python-based logic (less robust for concurrency)
-        sequence_obj = await self.sequence_service.get_sequence_by_name(sequence_name)
-
-        if not sequence_obj:
-            # Fallback creation if not found - ensure this is atomic or a rare case
-            print(f"Sequence '{sequence_name}' not found in DB, creating with defaults via Python logic.")
-            default_actual_prefix = prefix_override if prefix_override is not None else sequence_name.upper()[:3]
-            sequence_obj = Sequence(
-                sequence_name=sequence_name, next_value=1, increment_by=1,
-                min_value=1, max_value=2147483647, prefix=default_actual_prefix,
-                format_template=f"{{PREFIX}}-{{VALUE:06d}}" # Ensure d for integer formatting
-            )
-            # This save should happen in its own transaction managed by sequence_service.
-            await self.sequence_service.save_sequence(sequence_obj) 
-
-        current_value = sequence_obj.next_value
-        sequence_obj.next_value += sequence_obj.increment_by
-        
-        if sequence_obj.cycle and sequence_obj.next_value > sequence_obj.max_value:
-            sequence_obj.next_value = sequence_obj.min_value
-        elif not sequence_obj.cycle and sequence_obj.next_value > sequence_obj.max_value:
-            # This is a critical error for non-cycling sequences
-            raise ValueError(f"Sequence '{sequence_name}' has reached its maximum value ({sequence_obj.max_value}) and cannot cycle.")
-
-        await self.sequence_service.save_sequence(sequence_obj) 
-
-        actual_prefix_for_format = prefix_override if prefix_override is not None else (sequence_obj.prefix or '')
-        
-        # Refined formatting logic
-        template = sequence_obj.format_template
-        
-        # Handle common padding formats like {VALUE:06} or {VALUE:06d}
-        import re
-        match = re.search(r"\{VALUE:0?(\d+)[d]?\}", template)
-        value_str: str
-        if match:
-            padding = int(match.group(1))
-            value_str = str(current_value).zfill(padding)
-            template = template.replace(match.group(0), value_str) # Replace the whole placeholder
-        else: # Fallback for simple {VALUE}
-            value_str = str(current_value)
-            template = template.replace('{VALUE}', value_str)
-
-        template = template.replace('{PREFIX}', actual_prefix_for_format)
-        template = template.replace('{SUFFIX}', sequence_obj.suffix or '')
-            
-        return template
-
-```
-
-# app/utils/formatting.py
-```py
-# File: app/utils/formatting.py
-# (Content as previously generated, verified)
-from decimal import Decimal
-from datetime import date, datetime
-
-def format_currency(amount: Decimal, currency_code: str = "SGD") -> str:
-    return f"{currency_code} {amount:,.2f}"
-
-def format_date(d: date, fmt_str: str = "%d %b %Y") -> str: 
-    return d.strftime(fmt_str) 
-
-def format_datetime(dt: datetime, fmt_str: str = "%d %b %Y %H:%M:%S") -> str: 
-    return dt.strftime(fmt_str)
-
-```
-
-# app/utils/converters.py
-```py
-# File: app/utils/converters.py
-# (Content as previously generated, verified)
-from decimal import Decimal, InvalidOperation
-
-def to_decimal(value: any, default: Decimal = Decimal(0)) -> Decimal:
-    if isinstance(value, Decimal):
-        return value
-    if value is None: 
-        return default
-    try:
-        return Decimal(str(value))
-    except (InvalidOperation, ValueError, TypeError): 
-        return default
 
 ```
 

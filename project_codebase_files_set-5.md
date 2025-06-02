@@ -1,3 +1,277 @@
+# app/models/__init__.py
+```py
+# File: app/models/__init__.py
+# (Content as previously generated and verified, reflecting subdirectory model structure)
+from .base import Base, TimestampMixin, UserAuditMixin
+
+# Core schema models
+from .core.user import User, Role, Permission # Removed UserRole, RolePermission
+from .core.company_setting import CompanySetting
+from .core.configuration import Configuration
+from .core.sequence import Sequence
+
+# Accounting schema models
+from .accounting.account_type import AccountType
+from .accounting.currency import Currency 
+from .accounting.exchange_rate import ExchangeRate 
+from .accounting.account import Account 
+from .accounting.fiscal_year import FiscalYear
+from .accounting.fiscal_period import FiscalPeriod 
+from .accounting.journal_entry import JournalEntry, JournalEntryLine 
+from .accounting.recurring_pattern import RecurringPattern
+from .accounting.dimension import Dimension 
+from .accounting.budget import Budget, BudgetDetail 
+from .accounting.tax_code import TaxCode 
+from .accounting.gst_return import GSTReturn 
+from .accounting.withholding_tax_certificate import WithholdingTaxCertificate
+
+# Business schema models
+from .business.customer import Customer
+from .business.vendor import Vendor
+from .business.product import Product
+from .business.inventory_movement import InventoryMovement
+from .business.sales_invoice import SalesInvoice, SalesInvoiceLine
+from .business.purchase_invoice import PurchaseInvoice, PurchaseInvoiceLine
+from .business.bank_account import BankAccount
+from .business.bank_transaction import BankTransaction
+from .business.payment import Payment, PaymentAllocation
+
+# Audit schema models
+from .audit.audit_log import AuditLog
+from .audit.data_change_history import DataChangeHistory
+
+__all__ = [
+    "Base", "TimestampMixin", "UserAuditMixin",
+    # Core
+    "User", "Role", "Permission", # Removed UserRole, RolePermission
+    "CompanySetting", "Configuration", "Sequence",
+    # Accounting
+    "AccountType", "Currency", "ExchangeRate", "Account",
+    "FiscalYear", "FiscalPeriod", "JournalEntry", "JournalEntryLine",
+    "RecurringPattern", "Dimension", "Budget", "BudgetDetail",
+    "TaxCode", "GSTReturn", "WithholdingTaxCertificate",
+    # Business
+    "Customer", "Vendor", "Product", "InventoryMovement",
+    "SalesInvoice", "SalesInvoiceLine", "PurchaseInvoice", "PurchaseInvoiceLine",
+    "BankAccount", "BankTransaction", "Payment", "PaymentAllocation",
+    # Audit
+    "AuditLog", "DataChangeHistory",
+]
+
+```
+
+# app/models/base.py
+```py
+# File: app/models/base.py
+# (Content previously generated, no changes needed)
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.sql import func
+from sqlalchemy import DateTime, Integer, ForeignKey # Ensure Integer, ForeignKey are imported
+from typing import Optional
+import datetime
+
+Base = declarative_base()
+
+class TimestampMixin:
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), default=func.now(), server_default=func.now())
+    updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), default=func.now(), server_default=func.now(), onupdate=func.now())
+
+class UserAuditMixin:
+    # Explicitly add ForeignKey references here as UserAuditMixin is generic.
+    # The target table 'core.users' is known.
+    created_by: Mapped[int] = mapped_column(Integer, ForeignKey('core.users.id'), nullable=False)
+    updated_by: Mapped[int] = mapped_column(Integer, ForeignKey('core.users.id'), nullable=False)
+
+```
+
+# app/models/core/__init__.py
+```py
+# File: app/models/core/__init__.py
+# (Content previously generated)
+from .configuration import Configuration
+from .sequence import Sequence
+
+__all__ = ["Configuration", "Sequence"]
+
+```
+
+# app/models/core/configuration.py
+```py
+# File: app/models/core/configuration.py
+# New model for core.configuration table
+from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, ForeignKey
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.sql import func
+from app.models.base import Base, TimestampMixin
+# from app.models.user import User # For FK relationship
+import datetime
+from typing import Optional
+
+class Configuration(Base, TimestampMixin):
+    __tablename__ = 'configuration'
+    __table_args__ = {'schema': 'core'}
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    config_key: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
+    config_value: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    description: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    is_encrypted: Mapped[bool] = mapped_column(Boolean, default=False)
+    updated_by: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('core.users.id'), nullable=True)
+
+    # updated_by_user: Mapped[Optional["User"]] = relationship("User") # If User accessible
+
+```
+
+# app/models/core/company_setting.py
+```py
+# File: app/models/core/company_setting.py
+# (Moved from app/models/company_setting.py and fields updated)
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, LargeBinary, ForeignKey, CheckConstraint
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.sql import func
+from app.models.base import Base, TimestampMixin
+from app.models.core.user import User # For FK relationship type hint
+import datetime
+from typing import Optional
+
+class CompanySetting(Base, TimestampMixin):
+    __tablename__ = 'company_settings'
+    __table_args__ = (
+        CheckConstraint("fiscal_year_start_month BETWEEN 1 AND 12", name='ck_cs_fy_month'),
+        CheckConstraint("fiscal_year_start_day BETWEEN 1 AND 31", name='ck_cs_fy_day'),
+        {'schema': 'core'}
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, index=True)
+    company_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    legal_name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True) 
+    uen_no: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    gst_registration_no: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    gst_registered: Mapped[bool] = mapped_column(Boolean, default=False)
+    address_line1: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    address_line2: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    postal_code: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    city: Mapped[str] = mapped_column(String(50), default='Singapore') 
+    country: Mapped[str] = mapped_column(String(50), default='Singapore') 
+    contact_person: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    phone: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    email: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    website: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    logo: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
+    fiscal_year_start_month: Mapped[int] = mapped_column(Integer, default=1) 
+    fiscal_year_start_day: Mapped[int] = mapped_column(Integer, default=1) 
+    base_currency: Mapped[str] = mapped_column(String(3), default='SGD') 
+    tax_id_label: Mapped[str] = mapped_column(String(50), default='UEN') 
+    date_format: Mapped[str] = mapped_column(String(20), default='yyyy-MM-dd') 
+    
+    updated_by_user_id: Mapped[Optional[int]] = mapped_column("updated_by", Integer, ForeignKey('core.users.id'), nullable=True) 
+
+    updated_by_user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[updated_by_user_id])
+
+```
+
+# app/models/core/sequence.py
+```py
+# File: app/models/core/sequence.py
+# New model for core.sequences table
+from sqlalchemy import Column, Integer, String, DateTime, Boolean
+from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.sql import func
+from app.models.base import Base, TimestampMixin # Only TimestampMixin, no UserAuditMixin for this
+from typing import Optional
+
+class Sequence(Base, TimestampMixin):
+    __tablename__ = 'sequences'
+    __table_args__ = {'schema': 'core'}
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    sequence_name: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
+    prefix: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    suffix: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    next_value: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    increment_by: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    min_value: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    max_value: Mapped[int] = mapped_column(Integer, default=2147483647, nullable=False) # Max int4
+    cycle: Mapped[bool] = mapped_column(Boolean, default=False)
+    format_template: Mapped[str] = mapped_column(String(50), default='{PREFIX}{VALUE}{SUFFIX}')
+
+```
+
+# app/models/core/user.py
+```py
+# File: app/models/core/user.py
+# (Moved from app/models/user.py and fields updated)
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, Table
+from sqlalchemy.orm import relationship, Mapped, mapped_column
+from sqlalchemy.sql import func
+from app.models.base import Base, TimestampMixin 
+import datetime 
+from typing import List, Optional 
+
+# Junction tables defined here using Base.metadata
+user_roles_table = Table(
+    'user_roles', Base.metadata,
+    Column('user_id', Integer, ForeignKey('core.users.id', ondelete="CASCADE"), primary_key=True),
+    Column('role_id', Integer, ForeignKey('core.roles.id', ondelete="CASCADE"), primary_key=True),
+    Column('created_at', DateTime(timezone=True), server_default=func.now()),
+    schema='core'
+)
+
+role_permissions_table = Table(
+    'role_permissions', Base.metadata,
+    Column('role_id', Integer, ForeignKey('core.roles.id', ondelete="CASCADE"), primary_key=True),
+    Column('permission_id', Integer, ForeignKey('core.permissions.id', ondelete="CASCADE"), primary_key=True),
+    Column('created_at', DateTime(timezone=True), server_default=func.now()),
+    schema='core'
+)
+
+class User(Base, TimestampMixin):
+    __tablename__ = 'users'
+    __table_args__ = {'schema': 'core'}
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, index=True)
+    username: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    email: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, unique=True, index=True)
+    full_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    
+    failed_login_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    last_login_attempt: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_login: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    require_password_change: Mapped[bool] = mapped_column(Boolean, default=False)
+    
+    roles: Mapped[List["Role"]] = relationship("Role", secondary=user_roles_table, back_populates="users")
+
+class Role(Base, TimestampMixin):
+    __tablename__ = 'roles'
+    __table_args__ = {'schema': 'core'}
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, index=True)
+    name: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
+    description: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+
+    users: Mapped[List["User"]] = relationship("User", secondary=user_roles_table, back_populates="roles")
+    permissions: Mapped[List["Permission"]] = relationship("Permission", secondary=role_permissions_table, back_populates="roles")
+
+class Permission(Base): 
+    __tablename__ = 'permissions'
+    __table_args__ = {'schema': 'core'}
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, index=True)
+    code: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True) 
+    description: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    module: Mapped[str] = mapped_column(String(50), nullable=False) 
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now()) # Only created_at
+
+    roles: Mapped[List["Role"]] = relationship("Role", secondary=role_permissions_table, back_populates="permissions")
+
+# Removed UserRole class definition
+# Removed RolePermission class definition
+
+```
+
 # app/models/audit/__init__.py
 ```py
 # File: app/models/audit/__init__.py
@@ -1312,36 +1586,6 @@ class RecurringPattern(Base, TimestampMixin):
     generated_journal_entries: Mapped[List["JournalEntry"]] = relationship("JournalEntry", foreign_keys="JournalEntry.recurring_pattern_id", back_populates="generated_from_pattern")
     created_by_user: Mapped["User"] = relationship("User", foreign_keys=[created_by_user_id])
     updated_by_user: Mapped["User"] = relationship("User", foreign_keys=[updated_by_user_id])
-
-```
-
-# app/models/accounting/currency.py
-```py
-# File: app/models/accounting/currency.py
-# (Moved from app/models/currency.py and fields updated)
-from sqlalchemy import Column, String, Boolean, Integer, DateTime, ForeignKey
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.sql import func
-from app.models.base import Base, TimestampMixin
-from app.models.core.user import User 
-from typing import Optional
-
-class Currency(Base, TimestampMixin):
-    __tablename__ = 'currencies'
-    __table_args__ = {'schema': 'accounting'}
-
-    code: Mapped[str] = mapped_column(String(3), primary_key=True) 
-    name: Mapped[str] = mapped_column(String(50), nullable=False)
-    symbol: Mapped[str] = mapped_column(String(10), nullable=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    decimal_places: Mapped[int] = mapped_column(Integer, default=2)
-    format_string: Mapped[str] = mapped_column(String(20), default='#,##0.00') 
-
-    created_by_user_id: Mapped[Optional[int]] = mapped_column("created_by", Integer, ForeignKey('core.users.id'), nullable=True)
-    updated_by_user_id: Mapped[Optional[int]] = mapped_column("updated_by", Integer, ForeignKey('core.users.id'), nullable=True)
-
-    created_by_user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[created_by_user_id])
-    updated_by_user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[updated_by_user_id])
 
 ```
 

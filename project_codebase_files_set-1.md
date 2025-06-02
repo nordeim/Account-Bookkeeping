@@ -407,7 +407,7 @@ class IncomeTaxManager:
 # app/tax/gst_manager.py
 ```py
 # File: app/tax/gst_manager.py
-from typing import Optional, Any, TYPE_CHECKING, List 
+from typing import Optional, Any, TYPE_CHECKING, List, Dict # Added Dict
 from datetime import date, timedelta
 from dateutil.relativedelta import relativedelta 
 from decimal import Decimal
@@ -419,7 +419,7 @@ from app.services.fiscal_period_service import FiscalPeriodService
 from app.services.core_services import CompanySettingsService 
 from app.utils.sequence_generator import SequenceGenerator 
 from app.utils.result import Result
-from app.utils.pydantic_models import GSTReturnData, JournalEntryData, JournalEntryLineData 
+from app.utils.pydantic_models import GSTReturnData, JournalEntryData, JournalEntryLineData, GSTTransactionLineDetail # Added GSTTransactionLineDetail
 from app.models.accounting.gst_return import GSTReturn 
 from app.models.accounting.journal_entry import JournalEntry, JournalEntryLine
 from app.models.accounting.account import Account
@@ -453,126 +453,139 @@ class GSTManager:
         if not company_settings:
             return Result.failure(["Company settings not found."])
 
+        # Initialize summary values
         std_rated_supplies = Decimal('0.00') 
         zero_rated_supplies = Decimal('0.00')  
         exempt_supplies = Decimal('0.00')     
         taxable_purchases = Decimal('0.00')   
-        output_tax_calc = Decimal('0.00') # Box 6
-        input_tax_calc = Decimal('0.00')  # Box 7
+        output_tax_calc = Decimal('0.00') 
+        input_tax_calc = Decimal('0.00')  
         
-        # Fetch posted journal entries for the period.
-        # The service method now eager loads lines, accounts, and tax_code_obj.
+        # Initialize lists for detailed breakdown
+        detailed_breakdown: Dict[str, List[GSTTransactionLineDetail]] = {
+            "box1_standard_rated_supplies": [], "box2_zero_rated_supplies": [],
+            "box3_exempt_supplies": [], "box5_taxable_purchases": [],
+            "box6_output_tax_details": [], "box7_input_tax_details": []
+        }
+        
         posted_entries: List[JournalEntry] = await self.journal_service.get_posted_entries_by_date_range(start_date, end_date)
 
         for entry in posted_entries:
             for line in entry.lines:
-                if not line.account or not line.tax_code_obj: # Skip lines without account or tax code info
-                    continue
+                if not line.account or not line.tax_code_obj: continue
 
                 account_orm: Account = line.account
                 tax_code_orm: TaxCode = line.tax_code_obj
                 
-                # Determine net amount for the line based on its nature in JE
-                # For revenue accounts (credit nature), a credit amount on the line increases revenue.
-                # For expense/asset accounts (debit nature), a debit amount on the line increases expense/asset.
                 line_net_value_for_gst_box: Decimal = Decimal('0.00')
+                # For Revenue accounts, credits increase revenue (positive for supplies).
+                # For Expense/Asset accounts, debits increase expense/asset (positive for purchases).
                 if account_orm.account_type == 'Revenue':
-                    line_net_value_for_gst_box = line.credit_amount - line.debit_amount # Positive for revenue
+                    line_net_value_for_gst_box = line.credit_amount - line.debit_amount 
                 elif account_orm.account_type in ['Expense', 'Asset']:
-                    line_net_value_for_gst_box = line.debit_amount - line.credit_amount # Positive for expense/asset
+                    line_net_value_for_gst_box = line.debit_amount - line.credit_amount 
 
-                if line_net_value_for_gst_box <= Decimal('0.00') and tax_code_orm.tax_type == 'GST' : # Only process if it contributes to the total
-                    # This condition might be too strict if, e.g., a sales credit note (debit to revenue)
-                    # should reduce standard-rated supplies. For now, assuming positive contributions.
-                    # For a more robust system, credit notes would have their own handling or specific tax codes.
-                    pass # Or log a warning if a negative value with GST code is encountered
+                # We are interested in the absolute net effect for box values,
+                # and the tax amount itself for boxes 6 and 7.
+                # For detailed breakdown, we want to record the contributing line.
+                
+                # Only consider lines that meaningfully contribute based on their value for box calculations
+                # and have a GST tax type.
+                if tax_code_orm.tax_type != 'GST' or abs(line_net_value_for_gst_box) < Decimal('0.01') and abs(line.tax_amount) < Decimal('0.01'):
+                    continue
 
-                # Categorize based on account type and tax code
-                if tax_code_orm.tax_type == 'GST':
-                    if account_orm.account_type == 'Revenue':
-                        if tax_code_orm.code == 'SR': # Standard-Rated Supply
-                            std_rated_supplies += line_net_value_for_gst_box
-                            output_tax_calc += line.tax_amount # tax_amount on JE line IS the GST
-                        elif tax_code_orm.code == 'ZR': # Zero-Rated Supply
-                            zero_rated_supplies += line_net_value_for_gst_box
-                        elif tax_code_orm.code == 'ES': # Exempt Supply
-                            exempt_supplies += line_net_value_for_gst_box
-                        # OP (Out of Scope) supplies are typically not included in these boxes.
+                transaction_detail = GSTTransactionLineDetail(
+                    transaction_date=entry.entry_date,
+                    document_no=entry.reference or entry.entry_no, # Prioritize JE reference
+                    entity_name=None, # Simplified for now, could try to derive later
+                    description=line.description or entry.description or "N/A",
+                    account_code=account_orm.code,
+                    account_name=account_orm.name,
+                    net_amount=line_net_value_for_gst_box.quantize(Decimal("0.01")),
+                    gst_amount=line.tax_amount.quantize(Decimal("0.01")),
+                    tax_code_applied=tax_code_orm.code
+                )
+
+                if account_orm.account_type == 'Revenue':
+                    if tax_code_orm.code == 'SR': 
+                        std_rated_supplies += line_net_value_for_gst_box
+                        output_tax_calc += line.tax_amount
+                        detailed_breakdown["box1_standard_rated_supplies"].append(transaction_detail)
+                        if line.tax_amount != Decimal(0): # Only add to tax details if there's tax
+                             detailed_breakdown["box6_output_tax_details"].append(transaction_detail)
+                    elif tax_code_orm.code == 'ZR': 
+                        zero_rated_supplies += line_net_value_for_gst_box
+                        detailed_breakdown["box2_zero_rated_supplies"].append(transaction_detail)
+                    elif tax_code_orm.code == 'ES': 
+                        exempt_supplies += line_net_value_for_gst_box
+                        detailed_breakdown["box3_exempt_supplies"].append(transaction_detail)
                     
-                    elif account_orm.account_type in ['Expense', 'Asset']:
-                        if tax_code_orm.code == 'TX': # Taxable Purchase
-                            taxable_purchases += line_net_value_for_gst_box
-                            input_tax_calc += line.tax_amount # tax_amount on JE line IS the GST
-                        elif tax_code_orm.code == 'BL': # Blocked Input Tax
-                            # The net amount IS part of taxable purchases (Box 5)
-                            taxable_purchases += line_net_value_for_gst_box
-                            # However, the tax_amount is NOT claimable as input tax (Box 7)
-                            # So, no addition to input_tax_calc for BL code.
-                        # Other codes like ME (Imported Goods under Major Exporter Scheme) etc. would need specific handling.
+                elif account_orm.account_type in ['Expense', 'Asset']:
+                    if tax_code_orm.code == 'TX': 
+                        taxable_purchases += line_net_value_for_gst_box
+                        input_tax_calc += line.tax_amount
+                        detailed_breakdown["box5_taxable_purchases"].append(transaction_detail)
+                        if line.tax_amount != Decimal(0):
+                            detailed_breakdown["box7_input_tax_details"].append(transaction_detail)
+                    elif tax_code_orm.code == 'BL': 
+                        taxable_purchases += line_net_value_for_gst_box # BL still part of taxable purchases value
+                        detailed_breakdown["box5_taxable_purchases"].append(transaction_detail)
+                        # No input tax claim for BL, so not added to box7_input_tax_details
         
         total_supplies = std_rated_supplies + zero_rated_supplies + exempt_supplies
-        tax_payable = output_tax_calc - input_tax_calc # Ignores Box 8 (adjustments) for now
+        tax_payable = output_tax_calc - input_tax_calc 
 
-        # Filing due date is typically one month after the end of the accounting period.
-        # Example: Period ends 31 Mar, due 30 Apr. Period ends 30 Apr, due 31 May.
-        # Using relativedelta for more robust month-end calculation.
-        filing_due_date = end_date + relativedelta(months=1) 
-        # If period ends mid-month, due date is end of next month. If period ends end-of-month, due date is end of next month.
-        # A common rule is simply "one month after the end of the prescribed accounting period".
-        # If end_date is always month-end, then +1 month then last day of that month works.
-        # For simplicity, let's assume end_date is the actual period end. IRAS specifies due date.
-        # For quarterly, it's 1 month after quarter end. Let's use a simpler rule for now.
-        # Safest might be to refer to company settings for GST period type to calculate precisely.
-        # For now: last day of the month following the end_date.
         temp_due_date = end_date + relativedelta(months=1)
-        filing_due_date = temp_due_date + relativedelta(day=31) # Clamp to last day of that month
+        filing_due_date = temp_due_date + relativedelta(day=31) 
 
         return_data = GSTReturnData(
-            return_period=f"{start_date.strftime('%d%m%Y')}-{end_date.strftime('%d%m%Y')}", # IRAS format for period
+            return_period=f"{start_date.strftime('%d%m%Y')}-{end_date.strftime('%d%m%Y')}",
             start_date=start_date, end_date=end_date,
             filing_due_date=filing_due_date,
             standard_rated_supplies=std_rated_supplies.quantize(Decimal("0.01")),
             zero_rated_supplies=zero_rated_supplies.quantize(Decimal("0.01")),
             exempt_supplies=exempt_supplies.quantize(Decimal("0.01")),
-            total_supplies=total_supplies.quantize(Decimal("0.01")), # Box 4
-            taxable_purchases=taxable_purchases.quantize(Decimal("0.01")), # Box 5
-            output_tax=output_tax_calc.quantize(Decimal("0.01")), # Box 6
-            input_tax=input_tax_calc.quantize(Decimal("0.01")),   # Box 7
-            tax_adjustments=Decimal(0), # Box 8 - Placeholder
-            tax_payable=tax_payable.quantize(Decimal("0.01")), # Box 9
+            total_supplies=total_supplies.quantize(Decimal("0.01")), 
+            taxable_purchases=taxable_purchases.quantize(Decimal("0.01")), 
+            output_tax=output_tax_calc.quantize(Decimal("0.01")), 
+            input_tax=input_tax_calc.quantize(Decimal("0.01")),   
+            tax_adjustments=Decimal(0), # Box 8 remains placeholder
+            tax_payable=tax_payable.quantize(Decimal("0.01")), 
             status=GSTReturnStatusEnum.DRAFT.value,
-            user_id=user_id 
+            user_id=user_id,
+            detailed_breakdown=detailed_breakdown # Add the detailed breakdown
         )
         return Result.success(return_data)
 
     async def save_gst_return(self, gst_return_data: GSTReturnData) -> Result[GSTReturn]:
-        # ... (method remains largely the same as previous version, was already robust)
         current_user_id = gst_return_data.user_id
-
         orm_return: GSTReturn
+        
+        # Exclude detailed_breakdown when saving to DB if it's not a direct column
+        # The GSTReturn ORM model does not have a detailed_breakdown column.
+        # We construct the ORM from the DTO, minus this transient field.
+        
+        core_data_dict = gst_return_data.model_dump(exclude={'id', 'user_id', 'detailed_breakdown'}, exclude_none=True)
+
         if gst_return_data.id: 
             existing_return = await self.gst_return_service.get_by_id(gst_return_data.id)
             if not existing_return:
                 return Result.failure([f"GST Return with ID {gst_return_data.id} not found for update."])
             
             orm_return = existing_return
-            # Use .model_dump() for Pydantic v2
-            update_dict = gst_return_data.model_dump(exclude={'id', 'user_id'}, exclude_none=True)
-            for key, value in update_dict.items():
+            for key, value in core_data_dict.items():
                 if hasattr(orm_return, key):
                     setattr(orm_return, key, value)
             orm_return.updated_by_user_id = current_user_id
         else: 
-            create_dict = gst_return_data.model_dump(exclude={'id', 'user_id'}, exclude_none=True)
             orm_return = GSTReturn(
-                **create_dict,
+                **core_data_dict,
                 created_by_user_id=current_user_id,
                 updated_by_user_id=current_user_id
             )
-            if not orm_return.filing_due_date and orm_return.end_date: # Calculate if not provided
+            if not orm_return.filing_due_date and orm_return.end_date: 
                  temp_due_date = orm_return.end_date + relativedelta(months=1)
                  orm_return.filing_due_date = temp_due_date + relativedelta(day=31)
-
 
         try:
             saved_return = await self.gst_return_service.save_gst_return(orm_return)
@@ -582,7 +595,6 @@ class GSTManager:
             return Result.failure([f"Failed to save GST return: {str(e)}"])
 
     async def finalize_gst_return(self, return_id: int, submission_reference: str, submission_date: date, user_id: int) -> Result[GSTReturn]:
-        # ... (method remains largely the same as previous version, ensure logger for errors)
         gst_return = await self.gst_return_service.get_by_id(return_id)
         if not gst_return:
             return Result.failure([f"GST Return ID {return_id} not found."])
@@ -595,53 +607,47 @@ class GSTManager:
         gst_return.updated_by_user_id = user_id
 
         if gst_return.tax_payable != Decimal(0):
-            sys_acc_config_section = 'SystemAccounts'
+            sys_acc_config_section = 'SystemAccounts' # This way of getting config is a bit direct.
+            # Prefer using self.configuration_service from app_core
             sys_acc_config = {}
             if self.app_core.config_manager.parser.has_section(sys_acc_config_section):
                 sys_acc_config = self.app_core.config_manager.parser[sys_acc_config_section]
             
-            gst_output_tax_acc_code = sys_acc_config.get("GSTOutputTax", "SYS-GST-OUTPUT")
-            gst_input_tax_acc_code = sys_acc_config.get("GSTInputTax", "SYS-GST-INPUT")
-            gst_payable_control_acc_code = sys_acc_config.get("GSTPayableControl", "GST-PAYABLE") # For net payable to IRAS
-            gst_receivable_control_acc_code = sys_acc_config.get("GSTReceivableControl", "GST-RECEIVABLE") # For net refundable from IRAS
-
-            output_tax_acc = await self.account_service.get_by_code(gst_output_tax_acc_code)
-            input_tax_acc = await self.account_service.get_by_code(gst_input_tax_acc_code)
-            # Determine if it's payable or receivable for the control account
-            control_acc_code = gst_payable_control_acc_code if gst_return.tax_payable > 0 else gst_receivable_control_acc_code
-            control_acc = await self.account_service.get_by_code(control_acc_code)
-
+            gst_output_tax_acc_code = await self.app_core.configuration_service.get_config_value("SysAcc_DefaultGSTOutput", "SYS-GST-OUTPUT")
+            gst_input_tax_acc_code = await self.app_core.configuration_service.get_config_value("SysAcc_DefaultGSTInput", "SYS-GST-INPUT")
+            
+            # For control account, let's assume a single "GST Control" account, liability by nature.
+            # Positive tax_payable -> Credit GST Control. Negative tax_payable (refund) -> Debit GST Control.
+            gst_control_acc_code = await self.app_core.configuration_service.get_config_value("SysAcc_GSTControl", "SYS-GST-CONTROL")
+            
+            output_tax_acc = await self.account_service.get_by_code(gst_output_tax_acc_code) # type: ignore
+            input_tax_acc = await self.account_service.get_by_code(gst_input_tax_acc_code) # type: ignore
+            control_acc = await self.account_service.get_by_code(gst_control_acc_code) if gst_control_acc_code else None
 
             if not (output_tax_acc and input_tax_acc and control_acc):
                 missing_accs = []
-                if not output_tax_acc: missing_accs.append(gst_output_tax_acc_code)
-                if not input_tax_acc: missing_accs.append(gst_input_tax_acc_code)
-                if not control_acc: missing_accs.append(control_acc_code)
-                
+                if not output_tax_acc: missing_accs.append(str(gst_output_tax_acc_code))
+                if not input_tax_acc: missing_accs.append(str(gst_input_tax_acc_code))
+                if not control_acc: missing_accs.append(str(gst_control_acc_code))
                 error_msg = f"Essential GST GL accounts not found: {', '.join(missing_accs)}. Cannot create settlement journal entry."
                 self.app_core.logger.error(error_msg) # type: ignore
-                # Save the GST return status update even if JE fails
                 try:
                     updated_return_no_je = await self.gst_return_service.save_gst_return(gst_return)
                     return Result.failure([f"GST Return finalized (ID: {updated_return_no_je.id}), but JE creation failed: " + error_msg])
                 except Exception as e_save:
                     return Result.failure([f"Failed to finalize GST return and also failed to save it before JE creation: {str(e_save)}"] + [error_msg])
 
-
             lines: List[JournalEntryLineData] = []
             desc_period = f"GST for period {gst_return.start_date.strftime('%d/%m/%y')}-{gst_return.end_date.strftime('%d/%m/%y')}"
             
-            # To clear Output Tax (usually a credit balance): Debit Output Tax Account
-            if gst_return.output_tax != Decimal(0): # Use actual output_tax from return
+            if gst_return.output_tax != Decimal(0):
                  lines.append(JournalEntryLineData(account_id=output_tax_acc.id, debit_amount=gst_return.output_tax, credit_amount=Decimal(0), description=f"Clear Output Tax - {desc_period}"))
-            # To clear Input Tax (usually a debit balance): Credit Input Tax Account
-            if gst_return.input_tax != Decimal(0): # Use actual input_tax from return
+            if gst_return.input_tax != Decimal(0):
                  lines.append(JournalEntryLineData(account_id=input_tax_acc.id, debit_amount=Decimal(0), credit_amount=gst_return.input_tax, description=f"Clear Input Tax - {desc_period}"))
             
-            # Net effect on GST Payable/Receivable Control Account
-            if gst_return.tax_payable > Decimal(0): # Tax Payable (Liability)
+            if gst_return.tax_payable > Decimal(0): 
                 lines.append(JournalEntryLineData(account_id=control_acc.id, debit_amount=Decimal(0), credit_amount=gst_return.tax_payable, description=f"GST Payable - {desc_period}"))
-            elif gst_return.tax_payable < Decimal(0): # Tax Refundable (Asset)
+            elif gst_return.tax_payable < Decimal(0): 
                 lines.append(JournalEntryLineData(account_id=control_acc.id, debit_amount=abs(gst_return.tax_payable), credit_amount=Decimal(0), description=f"GST Refundable - {desc_period}"))
             
             if lines:
@@ -665,7 +671,6 @@ class GSTManager:
                 else:
                     assert je_result.value is not None
                     gst_return.journal_entry_id = je_result.value.id
-                    # Optionally auto-post the JE
                     post_result: Result[JournalEntry] = await self.app_core.journal_entry_manager.post_journal_entry(je_result.value.id, user_id)
                     if not post_result.is_success:
                         self.app_core.logger.warning(f"GST Settlement JE (ID: {je_result.value.id}) created but failed to auto-post: {post_result.errors}") # type: ignore
@@ -2541,6 +2546,1837 @@ class PurchaseInvoiceTableModel(QAbstractTableModel):
         self.beginResetModel()
         self._data = new_data or []
         self.endResetModel()
+
+```
+
+# app/ui/__init__.py
+```py
+# File: app/ui/__init__.py
+# (Content as previously generated)
+from .main_window import MainWindow
+
+__all__ = ["MainWindow"]
+
+```
+
+# app/ui/settings/user_management_widget.py
+```py
+# File: app/ui/settings/user_management_widget.py
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QTableView, QPushButton, 
+    QToolBar, QMenu, QHeaderView, QAbstractItemView, QMessageBox
+)
+from PySide6.QtCore import Qt, Slot, QTimer, QMetaObject, Q_ARG, QModelIndex, QSize
+from PySide6.QtGui import QIcon, QAction
+from typing import Optional, List, Dict, Any, TYPE_CHECKING
+
+import json
+
+from app.core.application_core import ApplicationCore
+from app.main import schedule_task_from_qt
+from app.ui.settings.user_table_model import UserTableModel
+from app.ui.settings.user_dialog import UserDialog 
+from app.ui.settings.user_password_dialog import UserPasswordDialog # New import
+from app.utils.pydantic_models import UserSummaryData
+from app.utils.json_helpers import json_converter, json_date_hook 
+from app.utils.result import Result
+from app.models.core.user import User 
+
+if TYPE_CHECKING:
+    from PySide6.QtGui import QPaintDevice
+
+class UserManagementWidget(QWidget):
+    def __init__(self, app_core: ApplicationCore, parent: Optional["QWidget"] = None):
+        super().__init__(parent)
+        self.app_core = app_core
+        
+        self.icon_path_prefix = "resources/icons/" 
+        try:
+            import app.resources_rc 
+            self.icon_path_prefix = ":/icons/"
+        except ImportError:
+            pass 
+        
+        self._init_ui()
+        QTimer.singleShot(0, lambda: schedule_task_from_qt(self._load_users()))
+
+    def _init_ui(self):
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setSpacing(5)
+
+        self._create_toolbar()
+        self.main_layout.addWidget(self.toolbar)
+
+        self.users_table = QTableView()
+        self.users_table.setAlternatingRowColors(True)
+        self.users_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.users_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.users_table.horizontalHeader().setStretchLastSection(True) 
+        self.users_table.setSortingEnabled(True)
+        self.users_table.doubleClicked.connect(self._on_edit_user_double_click)
+
+
+        self.table_model = UserTableModel()
+        self.users_table.setModel(self.table_model)
+        
+        header = self.users_table.horizontalHeader()
+        for i in range(self.table_model.columnCount()):
+            header.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
+        
+        id_col_idx = self.table_model._headers.index("ID") if "ID" in self.table_model._headers else -1
+        if id_col_idx != -1: self.users_table.setColumnHidden(id_col_idx, True)
+        
+        fn_col_idx = self.table_model._headers.index("Full Name") if "Full Name" in self.table_model._headers else -1
+        email_col_idx = self.table_model._headers.index("Email") if "Email" in self.table_model._headers else -1
+
+        if fn_col_idx != -1 and not self.users_table.isColumnHidden(fn_col_idx) :
+            header.setSectionResizeMode(fn_col_idx, QHeaderView.ResizeMode.Stretch)
+        elif email_col_idx != -1 and not self.users_table.isColumnHidden(email_col_idx):
+             header.setSectionResizeMode(email_col_idx, QHeaderView.ResizeMode.Stretch)
+        
+        self.main_layout.addWidget(self.users_table)
+        self.setLayout(self.main_layout)
+
+        if self.users_table.selectionModel():
+            self.users_table.selectionModel().selectionChanged.connect(self._update_action_states)
+        self._update_action_states()
+
+    def _create_toolbar(self):
+        self.toolbar = QToolBar("User Management Toolbar")
+        self.toolbar.setIconSize(QSize(16, 16))
+
+        self.toolbar_add_action = QAction(QIcon(self.icon_path_prefix + "add.svg"), "Add User", self)
+        self.toolbar_add_action.triggered.connect(self._on_add_user)
+        self.toolbar.addAction(self.toolbar_add_action)
+
+        self.toolbar_edit_action = QAction(QIcon(self.icon_path_prefix + "edit.svg"), "Edit User", self)
+        self.toolbar_edit_action.triggered.connect(self._on_edit_user)
+        self.toolbar.addAction(self.toolbar_edit_action)
+
+        self.toolbar_toggle_active_action = QAction(QIcon(self.icon_path_prefix + "deactivate.svg"), "Toggle Active", self)
+        self.toolbar_toggle_active_action.triggered.connect(self._on_toggle_active_status)
+        self.toolbar.addAction(self.toolbar_toggle_active_action)
+        
+        self.toolbar_change_password_action = QAction(QIcon(self.icon_path_prefix + "preferences.svg"), "Change Password", self)
+        self.toolbar_change_password_action.triggered.connect(self._on_change_password)
+        self.toolbar.addAction(self.toolbar_change_password_action)
+        
+        self.toolbar.addSeparator()
+        self.toolbar_refresh_action = QAction(QIcon(self.icon_path_prefix + "refresh.svg"), "Refresh List", self)
+        self.toolbar_refresh_action.triggered.connect(lambda: schedule_task_from_qt(self._load_users()))
+        self.toolbar.addAction(self.toolbar_refresh_action)
+
+    @Slot()
+    def _update_action_states(self):
+        selected_rows = self.users_table.selectionModel().selectedRows()
+        single_selection = len(selected_rows) == 1
+        can_modify = False
+        is_current_user_selected = False
+        is_system_init_user_selected = False
+
+        if single_selection:
+            can_modify = True
+            row = selected_rows[0].row()
+            user_id = self.table_model.get_user_id_at_row(row)
+            username = self.table_model.get_username_at_row(row)
+
+            if self.app_core.current_user and user_id == self.app_core.current_user.id:
+                is_current_user_selected = True
+            if username == "system_init_user": 
+                is_system_init_user_selected = True
+        
+        self.toolbar_edit_action.setEnabled(can_modify and not is_system_init_user_selected)
+        self.toolbar_toggle_active_action.setEnabled(can_modify and not is_current_user_selected and not is_system_init_user_selected)
+        self.toolbar_change_password_action.setEnabled(can_modify and not is_system_init_user_selected)
+
+    async def _load_users(self):
+        if not self.app_core.security_manager:
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str,"Security Manager component not available."))
+            return
+        try:
+            summaries: List[UserSummaryData] = await self.app_core.security_manager.get_all_users_summary()
+            json_data = json.dumps([s.model_dump(mode='json') for s in summaries])
+            QMetaObject.invokeMethod(self, "_update_table_model_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, json_data))
+        except Exception as e:
+            self.app_core.logger.error(f"Unexpected error loading users: {e}", exc_info=True)
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Load Error"), Q_ARG(str, f"Unexpected error loading users: {str(e)}"))
+
+    @Slot(str)
+    def _update_table_model_slot(self, json_data_str: str):
+        try:
+            list_of_dicts = json.loads(json_data_str, object_hook=json_date_hook)
+            user_summaries: List[UserSummaryData] = [UserSummaryData.model_validate(item) for item in list_of_dicts]
+            self.table_model.update_data(user_summaries)
+        except Exception as e: 
+            self.app_core.logger.error(f"Failed to parse/validate user data for table: {e}", exc_info=True)
+            QMessageBox.critical(self, "Data Error", f"Failed to parse/validate user data: {e}")
+        finally:
+            self._update_action_states()
+
+    @Slot()
+    def _on_add_user(self):
+        if not self.app_core.current_user: QMessageBox.warning(self, "Auth Error", "Please log in."); return
+        dialog = UserDialog(self.app_core, self.app_core.current_user.id, parent=self)
+        dialog.user_saved.connect(self._refresh_list_after_save)
+        dialog.exec()
+
+    def _get_selected_user_id_and_username(self) -> tuple[Optional[int], Optional[str]]: # Modified to return username too
+        selected_rows = self.users_table.selectionModel().selectedRows()
+        if not selected_rows or len(selected_rows) > 1:
+            return None, None
+        row_index = selected_rows[0].row()
+        user_id = self.table_model.get_user_id_at_row(row_index)
+        username = self.table_model.get_username_at_row(row_index)
+        return user_id, username
+
+
+    @Slot()
+    def _on_edit_user(self):
+        user_id, username = self._get_selected_user_id_and_username()
+        if user_id is None: 
+            QMessageBox.information(self, "Selection", "Please select a single user to edit.")
+            return
+        
+        if username == "system_init_user":
+            QMessageBox.warning(self, "Action Denied", "The 'system_init_user' cannot be edited from the UI.")
+            return
+
+        if not self.app_core.current_user: QMessageBox.warning(self, "Auth Error", "Please log in."); return
+        dialog = UserDialog(self.app_core, self.app_core.current_user.id, user_id_to_edit=user_id, parent=self)
+        dialog.user_saved.connect(self._refresh_list_after_save)
+        dialog.exec()
+
+    @Slot(QModelIndex)
+    def _on_edit_user_double_click(self, index: QModelIndex):
+        if not index.isValid(): return
+        user_id = self.table_model.get_user_id_at_row(index.row())
+        username = self.table_model.get_username_at_row(index.row())
+        if user_id is None: return
+        
+        if username == "system_init_user":
+            QMessageBox.warning(self, "Action Denied", "The 'system_init_user' cannot be edited from the UI.")
+            return
+
+        if not self.app_core.current_user: QMessageBox.warning(self, "Auth Error", "Please log in."); return
+        dialog = UserDialog(self.app_core, self.app_core.current_user.id, user_id_to_edit=user_id, parent=self)
+        dialog.user_saved.connect(self._refresh_list_after_save)
+        dialog.exec()
+
+
+    @Slot()
+    def _on_toggle_active_status(self):
+        user_id, username = self._get_selected_user_id_and_username()
+        if user_id is None: QMessageBox.information(self, "Selection", "Please select a single user to toggle status."); return
+        
+        if not self.app_core.current_user: QMessageBox.warning(self, "Auth Error", "Please log in."); return
+        if user_id == self.app_core.current_user.id:
+            QMessageBox.warning(self, "Action Denied", "You cannot change the active status of your own account.")
+            return
+            
+        if username == "system_init_user":
+             QMessageBox.warning(self, "Action Denied", "The 'system_init_user' status cannot be modified from the UI.")
+             return
+
+        current_row_idx = self.users_table.currentIndex().row()
+        is_currently_active = self.table_model.get_user_active_status_at_row(current_row_idx)
+        action_verb = "deactivate" if is_currently_active else "activate"
+        
+        reply = QMessageBox.question(self, f"Confirm {action_verb.capitalize()}",
+                                     f"Are you sure you want to {action_verb} user account '{username}'?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                     QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.No: return
+
+        future = schedule_task_from_qt(
+            self.app_core.security_manager.toggle_user_active_status(user_id, self.app_core.current_user.id)
+        )
+        if future: future.add_done_callback(self._handle_toggle_active_result)
+        else: self._handle_toggle_active_result(None) 
+
+    def _handle_toggle_active_result(self, future):
+        if future is None: QMessageBox.critical(self, "Task Error", "Failed to schedule user status toggle."); return
+        try:
+            result: Result[User] = future.result()
+            if result.is_success and result.value:
+                action_verb_past = "activated" if result.value.is_active else "deactivated"
+                QMessageBox.information(self, "Success", f"User account '{result.value.username}' {action_verb_past} successfully.")
+                schedule_task_from_qt(self._load_users()) 
+            else:
+                QMessageBox.warning(self, "Error", f"Failed to toggle user status:\n{', '.join(result.errors)}")
+        except Exception as e:
+            self.app_core.logger.error(f"Error handling toggle active status result for user: {e}", exc_info=True)
+            QMessageBox.critical(self, "Error", f"An unexpected error occurred: {str(e)}")
+
+    @Slot()
+    def _on_change_password(self):
+        user_id, username = self._get_selected_user_id_and_username()
+        if user_id is None: 
+            QMessageBox.information(self, "Selection", "Please select a user to change password.")
+            return
+        
+        if username == "system_init_user":
+            QMessageBox.warning(self, "Action Denied", "Password for 'system_init_user' cannot be changed from the UI.")
+            return
+        
+        if not self.app_core.current_user:
+            QMessageBox.warning(self, "Auth Error", "Please log in.")
+            return
+
+        dialog = UserPasswordDialog(
+            self.app_core, 
+            self.app_core.current_user.id, # User performing the change
+            user_id_to_change=user_id,
+            username_to_change=username if username else "Selected User", # Fallback for username
+            parent=self
+        )
+        # password_changed signal doesn't strictly need connection if just a success msg is enough
+        # If list needs refresh due to some password related field, connect it.
+        # dialog.password_changed.connect(lambda changed_user_id: self.app_core.logger.info(f"Password changed for user {changed_user_id}"))
+        dialog.exec()
+    
+    @Slot(int)
+    def _refresh_list_after_save(self, user_id: int): # Renamed from on_user_saved
+        self.app_core.logger.info(f"UserDialog reported save for User ID: {user_id}. Refreshing user list.")
+        schedule_task_from_qt(self._load_users())
+
+```
+
+# app/ui/settings/__init__.py
+```py
+# File: app/ui/settings/__init__.py
+from .settings_widget import SettingsWidget
+from .user_management_widget import UserManagementWidget 
+from .user_table_model import UserTableModel 
+from .user_dialog import UserDialog 
+from .user_password_dialog import UserPasswordDialog 
+from .role_management_widget import RoleManagementWidget 
+from .role_table_model import RoleTableModel 
+from .role_dialog import RoleDialog 
+# AuditLogWidget is used by SettingsWidget, but not necessarily exported from settings package
+# It's better to import it directly in SettingsWidget from app.ui.audit
+
+__all__ = [
+    "SettingsWidget",
+    "UserManagementWidget", 
+    "UserTableModel",       
+    "UserDialog", 
+    "UserPasswordDialog",
+    "RoleManagementWidget", 
+    "RoleTableModel",       
+    "RoleDialog",           
+]
+
+```
+
+# app/ui/settings/role_table_model.py
+```py
+# File: app/ui/settings/role_table_model.py
+from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
+from typing import List, Optional, Any
+
+from app.utils.pydantic_models import RoleData # Use RoleData DTO
+
+class RoleTableModel(QAbstractTableModel):
+    def __init__(self, data: Optional[List[RoleData]] = None, parent=None):
+        super().__init__(parent)
+        self._headers = ["ID", "Name", "Description"]
+        self._data: List[RoleData] = data or []
+
+    def rowCount(self, parent=QModelIndex()) -> int:
+        if parent.isValid(): return 0
+        return len(self._data)
+
+    def columnCount(self, parent=QModelIndex()) -> int:
+        return len(self._headers)
+
+    def headerData(self, section: int, orientation: Qt.Orientation, role=Qt.ItemDataRole.DisplayRole) -> Optional[str]:
+        if role == Qt.ItemDataRole.DisplayRole and orientation == Qt.Orientation.Horizontal:
+            if 0 <= section < len(self._headers):
+                return self._headers[section]
+        return None
+
+    def data(self, index: QModelIndex, role=Qt.ItemDataRole.DisplayRole) -> Any:
+        if not index.isValid() or role != Qt.ItemDataRole.DisplayRole:
+            # Allow UserRole for ID retrieval
+            if role == Qt.ItemDataRole.UserRole and index.column() == 0 and 0 <= index.row() < len(self._data):
+                return self._data[index.row()].id
+            return None
+        
+        row = index.row(); col = index.column()
+        if not (0 <= row < len(self._data)): return None
+            
+        role_data: RoleData = self._data[row]
+
+        if col == 0: return str(role_data.id)
+        if col == 1: return role_data.name
+        if col == 2: return role_data.description or ""
+            
+        return None
+
+    def get_role_id_at_row(self, row: int) -> Optional[int]:
+        if 0 <= row < len(self._data):
+            # Try UserRole first for consistency if data() method is updated to store it
+            idx = self.index(row, 0)
+            role_id = self.data(idx, Qt.ItemDataRole.UserRole)
+            if role_id is not None: return int(role_id)
+            return self._data[row].id 
+        return None
+        
+    def get_role_name_at_row(self, row: int) -> Optional[str]:
+        if 0 <= row < len(self._data):
+            return self._data[row].name
+        return None
+
+    def update_data(self, new_data: List[RoleData]):
+        self.beginResetModel()
+        self._data = new_data or []
+        self.endResetModel()
+
+```
+
+# app/ui/settings/user_password_dialog.py
+```py
+# File: app/ui/settings/user_password_dialog.py
+from PySide6.QtWidgets import (
+    QDialog, QVBoxLayout, QFormLayout, QLineEdit, QPushButton, QDialogButtonBox, 
+    QMessageBox, QLabel
+)
+from PySide6.QtCore import Qt, Slot, Signal, QTimer, QMetaObject, Q_ARG
+from typing import Optional, TYPE_CHECKING
+
+from app.core.application_core import ApplicationCore
+from app.main import schedule_task_from_qt
+from app.utils.pydantic_models import UserPasswordChangeData
+from app.utils.result import Result
+
+if TYPE_CHECKING:
+    from PySide6.QtGui import QPaintDevice
+
+class UserPasswordDialog(QDialog):
+    password_changed = Signal(int) # Emits user_id_to_change
+
+    def __init__(self, app_core: ApplicationCore, 
+                 current_admin_user_id: int,
+                 user_id_to_change: int,
+                 username_to_change: str,
+                 parent: Optional["QWidget"] = None):
+        super().__init__(parent)
+        self.app_core = app_core
+        self.current_admin_user_id = current_admin_user_id
+        self.user_id_to_change = user_id_to_change
+        self.username_to_change = username_to_change
+
+        self.setWindowTitle(f"Change Password for {self.username_to_change}")
+        self.setMinimumWidth(400)
+        self.setModal(True)
+
+        self._init_ui()
+        self._connect_signals()
+
+    def _init_ui(self):
+        main_layout = QVBoxLayout(self)
+        
+        info_label = QLabel(f"Changing password for user: <b>{self.username_to_change}</b> (ID: {self.user_id_to_change})")
+        main_layout.addWidget(info_label)
+
+        form_layout = QFormLayout()
+        self.new_password_edit = QLineEdit()
+        self.new_password_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.new_password_edit.setPlaceholderText("Enter new password (min 8 characters)")
+        form_layout.addRow("New Password*:", self.new_password_edit)
+
+        self.confirm_password_edit = QLineEdit()
+        self.confirm_password_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.confirm_password_edit.setPlaceholderText("Confirm new password")
+        form_layout.addRow("Confirm New Password*:", self.confirm_password_edit)
+        
+        main_layout.addLayout(form_layout)
+
+        self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        main_layout.addWidget(self.button_box)
+        self.setLayout(main_layout)
+        
+        self.new_password_edit.setFocus()
+
+
+    def _connect_signals(self):
+        self.button_box.accepted.connect(self.on_ok_clicked)
+        self.button_box.rejected.connect(self.reject)
+
+    def _collect_data(self) -> Optional[UserPasswordChangeData]:
+        new_password = self.new_password_edit.text()
+        confirm_password = self.confirm_password_edit.text()
+
+        if not new_password:
+            QMessageBox.warning(self, "Validation Error", "New Password cannot be empty.")
+            return None
+        
+        # Pydantic DTO will handle min_length and password match via its validator
+        try:
+            dto = UserPasswordChangeData(
+                user_id_to_change=self.user_id_to_change,
+                new_password=new_password,
+                confirm_new_password=confirm_password,
+                user_id=self.current_admin_user_id # User performing the change
+            )
+            return dto
+        except ValueError as e: # Catches Pydantic validation errors
+            QMessageBox.warning(self, "Validation Error", f"Invalid data:\n{str(e)}")
+            return None
+
+    @Slot()
+    def on_ok_clicked(self):
+        dto = self._collect_data()
+        if dto:
+            ok_button = self.button_box.button(QDialogButtonBox.StandardButton.Ok)
+            if ok_button: ok_button.setEnabled(False)
+            
+            future = schedule_task_from_qt(self._perform_password_change(dto))
+            if future:
+                future.add_done_callback(
+                    # Re-enable button regardless of outcome unless dialog is closed
+                    lambda _: ok_button.setEnabled(True) if ok_button and self.isVisible() else None
+                )
+            else: # Handle scheduling failure
+                if ok_button: ok_button.setEnabled(True)
+                QMessageBox.critical(self, "Task Error", "Failed to schedule password change operation.")
+
+
+    async def _perform_password_change(self, dto: UserPasswordChangeData):
+        if not self.app_core.security_manager:
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str, "Security Manager not available."))
+            return
+
+        result: Result[None] = await self.app_core.security_manager.change_user_password(dto)
+
+        if result.is_success:
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "information", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self.parentWidget() if self.parentWidget() else self), # Show on parent if possible
+                Q_ARG(str, "Success"), 
+                Q_ARG(str, f"Password for user '{self.username_to_change}' changed successfully."))
+            self.password_changed.emit(self.user_id_to_change)
+            QMetaObject.invokeMethod(self, "accept", Qt.ConnectionType.QueuedConnection)
+        else:
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "warning", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Password Change Error"), 
+                Q_ARG(str, f"Failed to change password:\n{', '.join(result.errors)}"))
+            # Button re-enabled by callback in on_ok_clicked
+
+```
+
+# app/ui/settings/settings_widget.py
+```py
+# app/ui/settings/settings_widget.py
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QLabel, QPushButton, 
+                               QFormLayout, QLineEdit, QMessageBox, QComboBox, 
+                               QSpinBox, QDateEdit, QCheckBox, QGroupBox,
+                               QTableView, QHeaderView, QAbstractItemView,
+                               QHBoxLayout, QTabWidget 
+                               ) 
+from PySide6.QtCore import Slot, QDate, QTimer, QMetaObject, Q_ARG, Qt, QAbstractTableModel, QModelIndex 
+from PySide6.QtGui import QColor, QFont 
+from app.core.application_core import ApplicationCore
+from app.utils.pydantic_models import CompanySettingData, FiscalYearCreateData, FiscalYearData 
+from app.models.core.company_setting import CompanySetting
+from app.models.accounting.currency import Currency 
+from app.models.accounting.fiscal_year import FiscalYear 
+from app.ui.accounting.fiscal_year_dialog import FiscalYearDialog 
+from app.ui.settings.user_management_widget import UserManagementWidget 
+from app.ui.settings.role_management_widget import RoleManagementWidget 
+from app.ui.audit.audit_log_widget import AuditLogWidget # New Import
+from decimal import Decimal, InvalidOperation
+import asyncio # Not directly used, consider removing if not needed by other parts
+import json 
+from typing import Optional, List, Any, Dict 
+from app.main import schedule_task_from_qt 
+from datetime import date as python_date, datetime 
+from app.utils.json_helpers import json_converter, json_date_hook 
+
+class FiscalYearTableModel(QAbstractTableModel):
+    def __init__(self, data: Optional[List[FiscalYearData]] = None, parent=None): 
+        super().__init__(parent)
+        self._headers = ["Name", "Start Date", "End Date", "Status"]
+        self._data: List[FiscalYearData] = data or []
+
+    def rowCount(self, parent=QModelIndex()):
+        if parent.isValid(): return 0
+        return len(self._data)
+
+    def columnCount(self, parent=QModelIndex()):
+        return len(self._headers)
+
+    def headerData(self, section: int, orientation: Qt.Orientation, role=Qt.ItemDataRole.DisplayRole):
+        if role == Qt.ItemDataRole.DisplayRole and orientation == Qt.Orientation.Horizontal:
+            if 0 <= section < len(self._headers):
+                return self._headers[section]
+        return None
+
+    def data(self, index: QModelIndex, role=Qt.ItemDataRole.DisplayRole):
+        if not index.isValid(): 
+            return None
+        
+        try:
+            fy = self._data[index.row()]
+            column = index.column()
+
+            if role == Qt.ItemDataRole.DisplayRole:
+                if column == 0: return fy.year_name
+                if column == 1: return fy.start_date.strftime('%d/%m/%Y') if isinstance(fy.start_date, python_date) else str(fy.start_date)
+                if column == 2: return fy.end_date.strftime('%d/%m/%Y') if isinstance(fy.end_date, python_date) else str(fy.end_date)
+                if column == 3: return "Closed" if fy.is_closed else "Open"
+            elif role == Qt.ItemDataRole.FontRole:
+                if column == 3: 
+                    font = QFont()
+                    if fy.is_closed:
+                        pass 
+                    else: 
+                        font.setBold(True)
+                    return font
+            elif role == Qt.ItemDataRole.ForegroundRole:
+                 if column == 3 and not fy.is_closed: 
+                    return QColor("green")
+        except IndexError:
+            return None 
+        return None
+
+    def get_fiscal_year_at_row(self, row: int) -> Optional[FiscalYearData]:
+        if 0 <= row < len(self._data):
+            return self._data[row]
+        return None
+        
+    def update_data(self, new_data: List[FiscalYearData]):
+        self.beginResetModel()
+        self._data = new_data or []
+        self.endResetModel()
+
+
+class SettingsWidget(QWidget):
+    def __init__(self, app_core: ApplicationCore, parent=None):
+        super().__init__(parent)
+        self.app_core = app_core
+        self._loaded_settings_obj: Optional[CompanySetting] = None 
+        
+        self.main_layout = QVBoxLayout(self) 
+        self.tab_widget = QTabWidget() 
+        self.main_layout.addWidget(self.tab_widget)
+
+        # --- Company Settings Tab ---
+        self.company_settings_tab = QWidget()
+        company_tab_layout = QVBoxLayout(self.company_settings_tab) 
+
+        company_settings_group = QGroupBox("Company Information")
+        company_settings_form_layout = QFormLayout(company_settings_group) 
+
+        self.company_name_edit = QLineEdit()
+        self.legal_name_edit = QLineEdit()
+        self.uen_edit = QLineEdit()
+        self.gst_reg_edit = QLineEdit()
+        self.gst_registered_check = QCheckBox("GST Registered")
+        self.base_currency_combo = QComboBox() 
+        self.address_line1_edit = QLineEdit()
+        self.address_line2_edit = QLineEdit()
+        self.postal_code_edit = QLineEdit()
+        self.city_edit = QLineEdit()
+        self.country_edit = QLineEdit()
+        self.contact_person_edit = QLineEdit()
+        self.phone_edit = QLineEdit()
+        self.email_edit = QLineEdit()
+        self.website_edit = QLineEdit()
+        self.fiscal_year_start_month_spin = QSpinBox()
+        self.fiscal_year_start_month_spin.setRange(1, 12)
+        self.fiscal_year_start_day_spin = QSpinBox()
+        self.fiscal_year_start_day_spin.setRange(1,31)
+        self.tax_id_label_edit = QLineEdit()
+        self.date_format_combo = QComboBox() 
+        self.date_format_combo.addItems(["dd/MM/yyyy", "yyyy-MM-dd", "MM/dd/yyyy"])
+
+        company_settings_form_layout.addRow("Company Name*:", self.company_name_edit)
+        company_settings_form_layout.addRow("Legal Name:", self.legal_name_edit)
+        company_settings_form_layout.addRow("UEN No:", self.uen_edit)
+        company_settings_form_layout.addRow("GST Reg. No:", self.gst_reg_edit)
+        company_settings_form_layout.addRow(self.gst_registered_check)
+        company_settings_form_layout.addRow("Base Currency:", self.base_currency_combo)
+        company_settings_form_layout.addRow("Address Line 1:", self.address_line1_edit)
+        company_settings_form_layout.addRow("Address Line 2:", self.address_line2_edit)
+        company_settings_form_layout.addRow("Postal Code:", self.postal_code_edit)
+        company_settings_form_layout.addRow("City:", self.city_edit)
+        company_settings_form_layout.addRow("Country:", self.country_edit)
+        company_settings_form_layout.addRow("Contact Person:", self.contact_person_edit)
+        company_settings_form_layout.addRow("Phone:", self.phone_edit)
+        company_settings_form_layout.addRow("Email:", self.email_edit)
+        company_settings_form_layout.addRow("Website:", self.website_edit)
+        company_settings_form_layout.addRow("Fiscal Year Start Month:", self.fiscal_year_start_month_spin)
+        company_settings_form_layout.addRow("Fiscal Year Start Day:", self.fiscal_year_start_day_spin)
+        company_settings_form_layout.addRow("Tax ID Label:", self.tax_id_label_edit)
+        company_settings_form_layout.addRow("Date Format:", self.date_format_combo)
+        
+        self.save_company_settings_button = QPushButton("Save Company Settings")
+        self.save_company_settings_button.clicked.connect(self.on_save_company_settings)
+        company_settings_form_layout.addRow(self.save_company_settings_button)
+        
+        company_tab_layout.addWidget(company_settings_group)
+        company_tab_layout.addStretch() 
+        self.tab_widget.addTab(self.company_settings_tab, "Company")
+
+        # --- Fiscal Year Management Tab ---
+        self.fiscal_year_tab = QWidget()
+        fiscal_tab_main_layout = QVBoxLayout(self.fiscal_year_tab)
+        
+        fiscal_year_group = QGroupBox("Fiscal Year Management")
+        fiscal_year_group_layout = QVBoxLayout(fiscal_year_group) 
+
+        self.fiscal_years_table = QTableView()
+        self.fiscal_years_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.fiscal_years_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.fiscal_years_table.horizontalHeader().setStretchLastSection(True)
+        self.fiscal_years_table.setMinimumHeight(150) 
+        self.fiscal_year_model = FiscalYearTableModel() 
+        self.fiscal_years_table.setModel(self.fiscal_year_model)
+        fiscal_year_group_layout.addWidget(self.fiscal_years_table)
+
+        fy_button_layout = QHBoxLayout() 
+        self.add_fy_button = QPushButton("Add New Fiscal Year...")
+        self.add_fy_button.clicked.connect(self.on_add_fiscal_year)
+        fy_button_layout.addWidget(self.add_fy_button)
+        fy_button_layout.addStretch()
+        fiscal_year_group_layout.addLayout(fy_button_layout)
+        
+        fiscal_tab_main_layout.addWidget(fiscal_year_group)
+        fiscal_tab_main_layout.addStretch() 
+        self.tab_widget.addTab(self.fiscal_year_tab, "Fiscal Years")
+
+        # --- User Management Tab ---
+        self.user_management_widget = UserManagementWidget(self.app_core)
+        self.tab_widget.addTab(self.user_management_widget, "Users")
+
+        # --- Role Management Tab ---
+        self.role_management_widget = RoleManagementWidget(self.app_core)
+        self.tab_widget.addTab(self.role_management_widget, "Roles & Permissions")
+
+        # --- Audit Log Tab (New) ---
+        self.audit_log_widget = AuditLogWidget(self.app_core)
+        self.tab_widget.addTab(self.audit_log_widget, "Audit Logs")
+        
+        self.setLayout(self.main_layout) 
+
+        QTimer.singleShot(0, lambda: schedule_task_from_qt(self.load_initial_data()))
+
+    async def load_initial_data(self):
+        await self.load_company_settings()
+        await self._load_fiscal_years() 
+
+    async def load_company_settings(self):
+        if not self.app_core.company_settings_service:
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Error"), 
+                Q_ARG(str,"Company Settings Service not available."))
+            return
+        
+        currencies_loaded_successfully = False
+        active_currencies_data: List[Dict[str, str]] = [] 
+        if self.app_core.currency_manager:
+            try:
+                active_currencies_orm: List[Currency] = await self.app_core.currency_manager.get_active_currencies()
+                for curr in active_currencies_orm:
+                    active_currencies_data.append({"code": curr.code, "name": curr.name})
+                QMetaObject.invokeMethod(self, "_populate_currency_combo_slot", Qt.ConnectionType.QueuedConnection, 
+                                         Q_ARG(str, json.dumps(active_currencies_data)))
+                currencies_loaded_successfully = True
+            except Exception as e:
+                error_msg = f"Error loading currencies for settings: {e}"
+                self.app_core.logger.error(error_msg, exc_info=True) 
+                QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "warning", Qt.ConnectionType.QueuedConnection,
+                    Q_ARG(QWidget, self), Q_ARG(str, "Currency Load Error"), Q_ARG(str, error_msg))
+        
+        if not currencies_loaded_successfully: 
+            QMetaObject.invokeMethod(self.base_currency_combo, "addItems", Qt.ConnectionType.QueuedConnection, Q_ARG(list, ["SGD", "USD"]))
+
+        settings_obj: Optional[CompanySetting] = await self.app_core.company_settings_service.get_company_settings()
+        self._loaded_settings_obj = settings_obj 
+        
+        settings_data_for_ui_json: Optional[str] = None
+        if settings_obj:
+            settings_dict = { col.name: getattr(settings_obj, col.name) for col in CompanySetting.__table__.columns }
+            settings_data_for_ui_json = json.dumps(settings_dict, default=json_converter)
+        
+        QMetaObject.invokeMethod(self, "_update_ui_from_settings_slot", Qt.ConnectionType.QueuedConnection, 
+                                 Q_ARG(str, settings_data_for_ui_json if settings_data_for_ui_json else ""))
+
+    @Slot(str) 
+    def _populate_currency_combo_slot(self, currencies_json_str: str): 
+        try: currencies_data: List[Dict[str,str]] = json.loads(currencies_json_str)
+        except json.JSONDecodeError: currencies_data = [{"code": "SGD", "name": "Singapore Dollar"}] 
+            
+        current_selection = self.base_currency_combo.currentData()
+        self.base_currency_combo.clear()
+        if currencies_data: 
+            for curr_data in currencies_data: self.base_currency_combo.addItem(f"{curr_data['code']} - {curr_data['name']}", curr_data['code']) 
+        
+        target_currency_code = current_selection
+        if hasattr(self, '_loaded_settings_obj') and self._loaded_settings_obj and self._loaded_settings_obj.base_currency:
+            target_currency_code = self._loaded_settings_obj.base_currency
+        
+        if target_currency_code:
+            idx = self.base_currency_combo.findData(target_currency_code) 
+            if idx != -1: 
+                self.base_currency_combo.setCurrentIndex(idx)
+            else: 
+                idx_sgd = self.base_currency_combo.findData("SGD") 
+                if idx_sgd != -1: self.base_currency_combo.setCurrentIndex(idx_sgd)
+        elif self.base_currency_combo.count() > 0: self.base_currency_combo.setCurrentIndex(0)
+
+    @Slot(str) 
+    def _update_ui_from_settings_slot(self, settings_json_str: str):
+        settings_data: Optional[Dict[str, Any]] = None
+        if settings_json_str:
+            try:
+                settings_data = json.loads(settings_json_str, object_hook=json_date_hook)
+            except json.JSONDecodeError: 
+                QMessageBox.critical(self, "Error", "Failed to parse settings data."); settings_data = None
+
+        if settings_data:
+            self.company_name_edit.setText(settings_data.get("company_name", ""))
+            self.legal_name_edit.setText(settings_data.get("legal_name", "") or "")
+            self.uen_edit.setText(settings_data.get("uen_no", "") or "")
+            self.gst_reg_edit.setText(settings_data.get("gst_registration_no", "") or "")
+            self.gst_registered_check.setChecked(settings_data.get("gst_registered", False))
+            self.address_line1_edit.setText(settings_data.get("address_line1", "") or "")
+            self.address_line2_edit.setText(settings_data.get("address_line2", "") or "")
+            self.postal_code_edit.setText(settings_data.get("postal_code", "") or "")
+            self.city_edit.setText(settings_data.get("city", "Singapore") or "Singapore")
+            self.country_edit.setText(settings_data.get("country", "Singapore") or "Singapore")
+            self.contact_person_edit.setText(settings_data.get("contact_person", "") or "")
+            self.phone_edit.setText(settings_data.get("phone", "") or "")
+            self.email_edit.setText(settings_data.get("email", "") or "")
+            self.website_edit.setText(settings_data.get("website", "") or "")
+            self.fiscal_year_start_month_spin.setValue(settings_data.get("fiscal_year_start_month", 1))
+            self.fiscal_year_start_day_spin.setValue(settings_data.get("fiscal_year_start_day", 1))
+            self.tax_id_label_edit.setText(settings_data.get("tax_id_label", "UEN") or "UEN")
+            
+            date_fmt = settings_data.get("date_format", "dd/MM/yyyy") 
+            date_fmt_idx = self.date_format_combo.findText(date_fmt, Qt.MatchFlag.MatchFixedString)
+            if date_fmt_idx != -1: self.date_format_combo.setCurrentIndex(date_fmt_idx)
+            else: self.date_format_combo.setCurrentIndex(0) 
+
+            if self.base_currency_combo.count() > 0: 
+                base_currency = settings_data.get("base_currency")
+                if base_currency:
+                    idx = self.base_currency_combo.findData(base_currency) 
+                    if idx != -1: 
+                        self.base_currency_combo.setCurrentIndex(idx)
+                    else: 
+                        idx_sgd = self.base_currency_combo.findData("SGD")
+                        if idx_sgd != -1: self.base_currency_combo.setCurrentIndex(idx_sgd)
+        else:
+            if not self._loaded_settings_obj : 
+                 QMessageBox.warning(self, "Settings", "Default company settings not found. Please configure.")
+
+    @Slot()
+    def on_save_company_settings(self):
+        if not self.app_core.current_user:
+            QMessageBox.warning(self, "Error", "No user logged in. Cannot save settings.")
+            return
+        selected_currency_code = self.base_currency_combo.currentData() or "SGD"
+        dto = CompanySettingData(
+            id=1, # Assuming ID 1 for company settings
+            company_name=self.company_name_edit.text(),
+            legal_name=self.legal_name_edit.text() or None, uen_no=self.uen_edit.text() or None,
+            gst_registration_no=self.gst_reg_edit.text() or None, gst_registered=self.gst_registered_check.isChecked(),
+            user_id=self.app_core.current_user.id,
+            address_line1=self.address_line1_edit.text() or None, address_line2=self.address_line2_edit.text() or None,
+            postal_code=self.postal_code_edit.text() or None, city=self.city_edit.text() or "Singapore",
+            country=self.country_edit.text() or "Singapore", contact_person=self.contact_person_edit.text() or None,
+            phone=self.phone_edit.text() or None, email=self.email_edit.text() or None, 
+            website=self.website_edit.text() or None,
+            fiscal_year_start_month=self.fiscal_year_start_month_spin.value(), 
+            fiscal_year_start_day=self.fiscal_year_start_day_spin.value(),  
+            base_currency=selected_currency_code, 
+            tax_id_label=self.tax_id_label_edit.text() or "UEN",       
+            date_format=self.date_format_combo.currentText() or "dd/MM/yyyy", 
+            logo=None 
+        )
+        schedule_task_from_qt(self.perform_save_company_settings(dto))
+
+    async def perform_save_company_settings(self, settings_data: CompanySettingData):
+        if not self.app_core.company_settings_service:
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Error"), 
+                Q_ARG(str,"Company Settings Service not available."))
+            return
+        existing_settings = await self.app_core.company_settings_service.get_company_settings() 
+        orm_obj_to_save: CompanySetting
+        if existing_settings:
+            orm_obj_to_save = existing_settings
+            update_dict = settings_data.model_dump(exclude={'user_id', 'id', 'logo'}, exclude_none=False, by_alias=False)
+            for field_name, field_value in update_dict.items():
+                if hasattr(orm_obj_to_save, field_name): 
+                    if field_name == 'email' and field_value is not None: 
+                        setattr(orm_obj_to_save, field_name, str(field_value))
+                    else:
+                        setattr(orm_obj_to_save, field_name, field_value)
+        else: 
+            dict_data = settings_data.model_dump(exclude={'user_id', 'id', 'logo'}, exclude_none=False, by_alias=False)
+            if 'email' in dict_data and dict_data['email'] is not None: dict_data['email'] = str(dict_data['email'])
+            orm_obj_to_save = CompanySetting(**dict_data) # type: ignore
+            if settings_data.id: orm_obj_to_save.id = settings_data.id 
+        
+        if self.app_core.current_user: orm_obj_to_save.updated_by_user_id = self.app_core.current_user.id 
+        result_orm = await self.app_core.company_settings_service.save_company_settings(orm_obj_to_save)
+        message_title = "Success" if result_orm else "Error"
+        message_text = "Company settings saved successfully." if result_orm else "Failed to save company settings."
+        msg_box_method = QMessageBox.information if result_orm else QMessageBox.warning
+        QMetaObject.invokeMethod(msg_box_method, "", Qt.ConnectionType.QueuedConnection, 
+            Q_ARG(QWidget, self), Q_ARG(str, message_title), Q_ARG(str, message_text))
+
+    async def _load_fiscal_years(self):
+        if not self.app_core.fiscal_period_manager:
+            self.app_core.logger.error("FiscalPeriodManager not available in SettingsWidget.")
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "warning", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Service Error"), Q_ARG(str, "Fiscal Period Manager not available."))
+            return
+        try:
+            fy_orms: List[FiscalYear] = await self.app_core.fiscal_period_manager.get_all_fiscal_years()
+            fy_dtos_for_table: List[FiscalYearData] = []
+            for fy_orm in fy_orms:
+                fy_dtos_for_table.append(FiscalYearData(
+                    id=fy_orm.id, year_name=fy_orm.year_name, start_date=fy_orm.start_date,
+                    end_date=fy_orm.end_date, is_closed=fy_orm.is_closed, closed_date=fy_orm.closed_date,
+                    periods=[] 
+                ))
+            
+            fy_json_data = json.dumps([dto.model_dump(mode='json') for dto in fy_dtos_for_table])
+            QMetaObject.invokeMethod(self, "_update_fiscal_years_table_slot", Qt.ConnectionType.QueuedConnection,
+                                     Q_ARG(str, fy_json_data))
+        except Exception as e:
+            error_msg = f"Error loading fiscal years: {str(e)}"
+            self.app_core.logger.error(error_msg, exc_info=True)
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "warning", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Fiscal Year Load Error"), Q_ARG(str, error_msg))
+
+    @Slot(str)
+    def _update_fiscal_years_table_slot(self, fy_json_list_str: str):
+        try:
+            fy_dict_list = json.loads(fy_json_list_str, object_hook=json_date_hook) 
+            fy_dtos: List[FiscalYearData] = [FiscalYearData.model_validate(item_dict) for item_dict in fy_dict_list]
+            self.fiscal_year_model.update_data(fy_dtos)
+        except json.JSONDecodeError as e:
+            QMessageBox.critical(self, "Data Error", f"Failed to parse fiscal year data: {e}")
+        except Exception as e_val: 
+            QMessageBox.critical(self, "Data Error", f"Invalid fiscal year data format: {e_val}")
+
+    @Slot()
+    def on_add_fiscal_year(self):
+        if not self.app_core.current_user:
+            QMessageBox.warning(self, "Authentication Error", "No user logged in.")
+            return
+        
+        dialog = FiscalYearDialog(self.app_core, self.app_core.current_user.id, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            fy_create_data = dialog.get_fiscal_year_data()
+            if fy_create_data:
+                schedule_task_from_qt(self._perform_add_fiscal_year(fy_create_data))
+
+    async def _perform_add_fiscal_year(self, fy_data: FiscalYearCreateData):
+        if not self.app_core.fiscal_period_manager:
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str, "Fiscal Period Manager not available."))
+            return
+
+        result: Result[FiscalYear] = await self.app_core.fiscal_period_manager.create_fiscal_year_and_periods(fy_data)
+
+        if result.is_success:
+            assert result.value is not None
+            msg = f"Fiscal Year '{result.value.year_name}' created successfully."
+            if fy_data.auto_generate_periods: 
+                msg += f" Periods auto-generated as per selection."
+            
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "information", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Success"), Q_ARG(str, msg))
+            schedule_task_from_qt(self._load_fiscal_years()) 
+        else:
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "warning", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str, f"Failed to create fiscal year:\n{', '.join(result.errors)}"))
+
+
+```
+
+# app/ui/settings/user_table_model.py
+```py
+# File: app/ui/settings/user_table_model.py
+from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
+from typing import List, Dict, Any, Optional
+from datetime import datetime
+
+from app.utils.pydantic_models import UserSummaryData
+
+class UserTableModel(QAbstractTableModel):
+    def __init__(self, data: Optional[List[UserSummaryData]] = None, parent=None):
+        super().__init__(parent)
+        self._headers = ["ID", "Username", "Full Name", "Email", "Roles", "Active", "Last Login"]
+        self._data: List[UserSummaryData] = data or []
+
+    def rowCount(self, parent=QModelIndex()) -> int:
+        if parent.isValid():
+            return 0
+        return len(self._data)
+
+    def columnCount(self, parent=QModelIndex()) -> int:
+        return len(self._headers)
+
+    def headerData(self, section: int, orientation: Qt.Orientation, role=Qt.ItemDataRole.DisplayRole) -> Optional[str]:
+        if role == Qt.ItemDataRole.DisplayRole and orientation == Qt.Orientation.Horizontal:
+            if 0 <= section < len(self._headers):
+                return self._headers[section]
+        return None
+
+    def data(self, index: QModelIndex, role=Qt.ItemDataRole.DisplayRole) -> Any:
+        if not index.isValid():
+            return None
+        
+        row = index.row()
+        col = index.column()
+
+        if not (0 <= row < len(self._data)):
+            return None
+            
+        user_summary: UserSummaryData = self._data[row]
+
+        if role == Qt.ItemDataRole.DisplayRole:
+            header_key = self._headers[col].lower().replace(' ', '_')
+            
+            if col == 0: return str(user_summary.id)
+            if col == 1: return user_summary.username
+            if col == 2: return user_summary.full_name or ""
+            if col == 3: return str(user_summary.email) if user_summary.email else ""
+            if col == 4: return ", ".join(user_summary.roles) if user_summary.roles else "N/A"
+            if col == 5: return "Yes" if user_summary.is_active else "No"
+            if col == 6: 
+                # Ensure last_login is datetime before formatting
+                last_login_val = user_summary.last_login
+                if isinstance(last_login_val, str): # It might come as ISO string from JSON
+                    try:
+                        last_login_val = datetime.fromisoformat(last_login_val.replace('Z', '+00:00'))
+                    except ValueError:
+                        return "Invalid Date" # Or keep original string
+                
+                return last_login_val.strftime('%d/%m/%Y %H:%M') if isinstance(last_login_val, datetime) else "Never"
+            
+            return str(getattr(user_summary, header_key, ""))
+
+        elif role == Qt.ItemDataRole.UserRole:
+            if col == 0: # Store ID with the first column
+                return user_summary.id
+        
+        elif role == Qt.ItemDataRole.TextAlignmentRole:
+            if self._headers[col] == "Active":
+                return Qt.AlignmentFlag.AlignCenter
+        
+        return None
+
+    def get_user_id_at_row(self, row: int) -> Optional[int]:
+        if 0 <= row < len(self._data):
+            index = self.index(row, 0) 
+            id_val = self.data(index, Qt.ItemDataRole.UserRole)
+            if id_val is not None: return int(id_val)
+            return self._data[row].id 
+        return None
+        
+    def get_user_active_status_at_row(self, row: int) -> Optional[bool]:
+        if 0 <= row < len(self._data):
+            return self._data[row].is_active
+        return None
+        
+    def get_username_at_row(self, row: int) -> Optional[str]:
+        if 0 <= row < len(self._data):
+            return self._data[row].username
+        return None
+
+    def update_data(self, new_data: List[UserSummaryData]):
+        self.beginResetModel()
+        self._data = new_data or []
+        self.endResetModel()
+
+```
+
+# app/ui/settings/role_management_widget.py
+```py
+# File: app/ui/settings/role_management_widget.py
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QTableView, QPushButton, QToolBar, 
+    QHeaderView, QAbstractItemView, QMessageBox
+)
+from PySide6.QtCore import Qt, Slot, QTimer, QMetaObject, Q_ARG, QModelIndex, QSize
+from PySide6.QtGui import QIcon, QAction
+from typing import Optional, List, TYPE_CHECKING
+
+import json
+
+from app.core.application_core import ApplicationCore
+from app.main import schedule_task_from_qt
+from app.ui.settings.role_table_model import RoleTableModel
+from app.ui.settings.role_dialog import RoleDialog # Import RoleDialog
+from app.utils.pydantic_models import RoleData
+from app.utils.json_helpers import json_converter
+from app.utils.result import Result
+from app.models.core.user import Role 
+
+if TYPE_CHECKING:
+    from PySide6.QtGui import QPaintDevice
+
+class RoleManagementWidget(QWidget):
+    def __init__(self, app_core: ApplicationCore, parent: Optional["QWidget"] = None):
+        super().__init__(parent)
+        self.app_core = app_core
+        
+        self.icon_path_prefix = "resources/icons/" 
+        try:
+            import app.resources_rc 
+            self.icon_path_prefix = ":/icons/"
+        except ImportError:
+            pass 
+        
+        self._init_ui()
+        QTimer.singleShot(0, lambda: schedule_task_from_qt(self._load_roles()))
+
+    def _init_ui(self):
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setSpacing(5)
+
+        self._create_toolbar()
+        self.main_layout.addWidget(self.toolbar)
+
+        self.roles_table = QTableView()
+        self.roles_table.setAlternatingRowColors(True)
+        self.roles_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.roles_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.roles_table.horizontalHeader().setStretchLastSection(True) 
+        self.roles_table.setSortingEnabled(True)
+        self.roles_table.doubleClicked.connect(self._on_edit_role_double_click)
+
+        self.table_model = RoleTableModel()
+        self.roles_table.setModel(self.table_model)
+        
+        header = self.roles_table.horizontalHeader()
+        id_col_idx = self.table_model._headers.index("ID") if "ID" in self.table_model._headers else -1
+        if id_col_idx != -1: self.roles_table.setColumnHidden(id_col_idx, True)
+        
+        header.setSectionResizeMode(self.table_model._headers.index("Name"), QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(self.table_model._headers.index("Description"), QHeaderView.ResizeMode.Stretch)
+        
+        self.main_layout.addWidget(self.roles_table)
+        self.setLayout(self.main_layout)
+
+        if self.roles_table.selectionModel():
+            self.roles_table.selectionModel().selectionChanged.connect(self._update_action_states)
+        self._update_action_states()
+
+    def _create_toolbar(self):
+        self.toolbar = QToolBar("Role Management Toolbar")
+        self.toolbar.setIconSize(QSize(16, 16))
+
+        self.toolbar_add_action = QAction(QIcon(self.icon_path_prefix + "add.svg"), "Add Role", self)
+        self.toolbar_add_action.triggered.connect(self._on_add_role)
+        self.toolbar.addAction(self.toolbar_add_action)
+
+        self.toolbar_edit_action = QAction(QIcon(self.icon_path_prefix + "edit.svg"), "Edit Role", self)
+        self.toolbar_edit_action.triggered.connect(self._on_edit_role)
+        self.toolbar.addAction(self.toolbar_edit_action)
+
+        self.toolbar_delete_action = QAction(QIcon(self.icon_path_prefix + "remove.svg"), "Delete Role", self)
+        self.toolbar_delete_action.triggered.connect(self._on_delete_role)
+        self.toolbar.addAction(self.toolbar_delete_action)
+        
+        self.toolbar.addSeparator()
+        self.toolbar_refresh_action = QAction(QIcon(self.icon_path_prefix + "refresh.svg"), "Refresh List", self)
+        self.toolbar_refresh_action.triggered.connect(lambda: schedule_task_from_qt(self._load_roles()))
+        self.toolbar.addAction(self.toolbar_refresh_action)
+
+    @Slot()
+    def _update_action_states(self):
+        selected_rows = self.roles_table.selectionModel().selectedRows()
+        single_selection = len(selected_rows) == 1
+        can_modify = False
+        is_admin_role_selected = False
+
+        if single_selection:
+            can_modify = True
+            row_idx = selected_rows[0].row()
+            role_name = self.table_model.get_role_name_at_row(row_idx)
+            if role_name == "Administrator":
+                is_admin_role_selected = True
+        
+        self.toolbar_edit_action.setEnabled(can_modify) 
+        self.toolbar_delete_action.setEnabled(can_modify and not is_admin_role_selected)
+
+    async def _load_roles(self):
+        if not self.app_core.security_manager:
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str,"Security Manager component not available."))
+            return
+        try:
+            roles_orm: List[Role] = await self.app_core.security_manager.get_all_roles()
+            roles_dto: List[RoleData] = [RoleData.model_validate(r) for r in roles_orm]
+            json_data = json.dumps([r.model_dump() for r in roles_dto], default=json_converter)
+            QMetaObject.invokeMethod(self, "_update_table_model_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, json_data))
+        except Exception as e:
+            self.app_core.logger.error(f"Unexpected error loading roles: {e}", exc_info=True)
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Load Error"), Q_ARG(str, f"Unexpected error loading roles: {str(e)}"))
+
+    @Slot(str)
+    def _update_table_model_slot(self, json_data_str: str):
+        try:
+            list_of_dicts = json.loads(json_data_str) 
+            role_dtos: List[RoleData] = [RoleData.model_validate(item) for item in list_of_dicts]
+            self.table_model.update_data(role_dtos)
+        except Exception as e: 
+            self.app_core.logger.error(f"Failed to parse/validate role data for table: {e}", exc_info=True)
+            QMessageBox.critical(self, "Data Error", f"Failed to parse/validate role data: {e}")
+        finally:
+            self._update_action_states()
+
+    @Slot()
+    def _on_add_role(self):
+        if not self.app_core.current_user: QMessageBox.warning(self, "Auth Error", "Please log in."); return
+        dialog = RoleDialog(self.app_core, self.app_core.current_user.id, parent=self)
+        dialog.role_saved.connect(self._refresh_list_after_save)
+        dialog.exec()
+
+    def _get_selected_role_id(self) -> Optional[int]:
+        selected_rows = self.roles_table.selectionModel().selectedRows()
+        if not selected_rows: return None
+        if len(selected_rows) > 1: return None # Only operate on single selection for edit/delete
+        return self.table_model.get_role_id_at_row(selected_rows[0].row())
+
+    @Slot()
+    def _on_edit_role(self):
+        role_id = self._get_selected_role_id()
+        if role_id is None: 
+            QMessageBox.information(self, "Selection", "Please select a single role to edit.")
+            return
+        if not self.app_core.current_user: QMessageBox.warning(self, "Auth Error", "Please log in."); return
+        
+        role_name = self.table_model.get_role_name_at_row(self.roles_table.currentIndex().row())
+        if role_name == "Administrator" and self.name_edit.text().strip() != "Administrator": # self.name_edit does not exist here. This check is in RoleDialog.
+             # This check is better placed within RoleDialog or SecurityManager. For now, allow opening.
+             pass
+
+        dialog = RoleDialog(self.app_core, self.app_core.current_user.id, role_id_to_edit=role_id, parent=self)
+        dialog.role_saved.connect(self._refresh_list_after_save)
+        dialog.exec()
+
+    @Slot(QModelIndex)
+    def _on_edit_role_double_click(self, index: QModelIndex):
+        if not index.isValid(): return
+        role_id = self.table_model.get_role_id_at_row(index.row())
+        if role_id is None: return
+        if not self.app_core.current_user: QMessageBox.warning(self, "Auth Error", "Please log in."); return
+        
+        dialog = RoleDialog(self.app_core, self.app_core.current_user.id, role_id_to_edit=role_id, parent=self)
+        dialog.role_saved.connect(self._refresh_list_after_save)
+        dialog.exec()
+
+    @Slot()
+    def _on_delete_role(self):
+        role_id = self._get_selected_role_id()
+        if role_id is None: 
+            QMessageBox.information(self, "Selection", "Please select a single role to delete.")
+            return
+        
+        role_name = self.table_model.get_role_name_at_row(self.roles_table.currentIndex().row())
+        if role_name == "Administrator":
+            QMessageBox.warning(self, "Action Denied", "The 'Administrator' role cannot be deleted.")
+            return
+
+        if not self.app_core.current_user: QMessageBox.warning(self, "Auth Error", "Please log in."); return
+        
+        reply = QMessageBox.question(self, "Confirm Deletion",
+                                     f"Are you sure you want to delete the role '{role_name}' (ID: {role_id})?\nThis action cannot be undone.",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                     QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.No: return
+
+        future = schedule_task_from_qt(
+            self.app_core.security_manager.delete_role(role_id, self.app_core.current_user.id)
+        )
+        if future: future.add_done_callback(self._handle_delete_role_result)
+        else: self._handle_delete_role_result(None)
+
+    def _handle_delete_role_result(self, future):
+        if future is None: QMessageBox.critical(self, "Task Error", "Failed to schedule role deletion."); return
+        try:
+            result: Result[None] = future.result()
+            if result.is_success:
+                QMessageBox.information(self, "Success", "Role deleted successfully.")
+                schedule_task_from_qt(self._load_roles()) 
+            else:
+                QMessageBox.warning(self, "Error", f"Failed to delete role:\n{', '.join(result.errors)}")
+        except Exception as e:
+            self.app_core.logger.error(f"Error handling role deletion result: {e}", exc_info=True)
+            QMessageBox.critical(self, "Error", f"An unexpected error occurred during role deletion: {str(e)}")
+        finally:
+            self._update_action_states() 
+
+    @Slot(int)
+    def _refresh_list_after_save(self, role_id: int):
+        self.app_core.logger.info(f"RoleDialog reported save for Role ID: {role_id}. Refreshing role list.")
+        schedule_task_from_qt(self._load_roles())
+
+```
+
+# app/ui/settings/role_dialog.py
+```py
+# app/ui/settings/role_dialog.py
+from PySide6.QtWidgets import (
+    QDialog, QVBoxLayout, QFormLayout, QLineEdit, QPushButton, QDialogButtonBox, 
+    QMessageBox, QLabel, QTextEdit, QListWidget, QListWidgetItem, QAbstractItemView,
+    QGroupBox 
+)
+from PySide6.QtCore import Qt, Slot, Signal, QTimer, QMetaObject, Q_ARG
+from typing import Optional, List, Dict, Any, TYPE_CHECKING, Union
+
+import json
+
+from app.core.application_core import ApplicationCore
+from app.main import schedule_task_from_qt
+from app.utils.pydantic_models import RoleCreateData, RoleUpdateData, RoleData, PermissionData
+from app.models.core.user import Role # ORM for loading
+from app.utils.result import Result
+from app.utils.json_helpers import json_converter
+
+if TYPE_CHECKING:
+    from PySide6.QtGui import QPaintDevice
+
+class RoleDialog(QDialog):
+    role_saved = Signal(int) # Emits role ID
+
+    def __init__(self, app_core: ApplicationCore, 
+                 current_admin_user_id: int, 
+                 role_id_to_edit: Optional[int] = None, 
+                 parent: Optional["QWidget"] = None):
+        super().__init__(parent)
+        self.app_core = app_core
+        self.current_admin_user_id = current_admin_user_id
+        self.role_id_to_edit = role_id_to_edit
+        self.loaded_role_orm: Optional[Role] = None
+        self._all_permissions_cache: List[PermissionData] = []
+
+
+        self.is_new_role = self.role_id_to_edit is None
+        self.setWindowTitle("Add New Role" if self.is_new_role else "Edit Role")
+        self.setMinimumWidth(500) 
+        self.setMinimumHeight(450)
+        self.setModal(True)
+
+        self._init_ui()
+        self._connect_signals()
+
+        QTimer.singleShot(0, lambda: schedule_task_from_qt(self._load_initial_data()))
+
+    def _init_ui(self):
+        main_layout = QVBoxLayout(self)
+        
+        details_group = QGroupBox("Role Details")
+        form_layout = QFormLayout(details_group)
+        form_layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
+
+        self.name_edit = QLineEdit()
+        self.name_edit.setPlaceholderText("Enter role name (e.g., Sales Manager)")
+        form_layout.addRow("Role Name*:", self.name_edit)
+
+        self.description_edit = QTextEdit()
+        self.description_edit.setPlaceholderText("Enter a brief description for this role.")
+        self.description_edit.setFixedHeight(60) 
+        form_layout.addRow("Description:", self.description_edit)
+        main_layout.addWidget(details_group)
+        
+        permissions_group = QGroupBox("Assign Permissions")
+        permissions_layout = QVBoxLayout(permissions_group)
+        self.permissions_list_widget = QListWidget()
+        self.permissions_list_widget.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
+        permissions_layout.addWidget(self.permissions_list_widget)
+        main_layout.addWidget(permissions_group)
+
+        self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        main_layout.addWidget(self.button_box)
+        self.setLayout(main_layout)
+        
+    def _connect_signals(self):
+        self.button_box.accepted.connect(self.on_save)
+        self.button_box.rejected.connect(self.reject)
+
+    async def _load_initial_data(self):
+        """Load all available permissions and role data if editing."""
+        perms_loaded_successfully = False
+        try:
+            if self.app_core.security_manager:
+                # Fetch all permissions for the list widget
+                self._all_permissions_cache = await self.app_core.security_manager.get_all_permissions()
+                perms_json = json.dumps([p.model_dump() for p in self._all_permissions_cache]) # Use model_dump for Pydantic v2
+                QMetaObject.invokeMethod(self, "_populate_permissions_list_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, perms_json))
+                perms_loaded_successfully = True
+        except Exception as e:
+            self.app_core.logger.error(f"Error loading permissions for RoleDialog: {e}", exc_info=True)
+            QMessageBox.warning(self, "Data Load Error", f"Could not load permissions: {str(e)}")
+        
+        if not perms_loaded_successfully:
+            self.permissions_list_widget.addItem("Error loading permissions.")
+            self.permissions_list_widget.setEnabled(False)
+
+        # If editing, load the specific role's data (which includes its assigned permissions)
+        if self.role_id_to_edit:
+            try:
+                if self.app_core.security_manager:
+                    # get_role_by_id should eager load role.permissions
+                    self.loaded_role_orm = await self.app_core.security_manager.get_role_by_id(self.role_id_to_edit)
+                    if self.loaded_role_orm:
+                        assigned_perm_ids = [p.id for p in self.loaded_role_orm.permissions]
+                        role_dict = {
+                            "id": self.loaded_role_orm.id, "name": self.loaded_role_orm.name,
+                            "description": self.loaded_role_orm.description,
+                            "assigned_permission_ids": assigned_perm_ids
+                        }
+                        role_json_str = json.dumps(role_dict, default=json_converter)
+                        # This slot will populate fields and then call _select_assigned_permissions
+                        QMetaObject.invokeMethod(self, "_populate_fields_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, role_json_str))
+                    else:
+                        QMessageBox.warning(self, "Load Error", f"Role ID {self.role_id_to_edit} not found.")
+                        self.reject()
+            except Exception as e:
+                 self.app_core.logger.error(f"Error loading role (ID: {self.role_id_to_edit}) for edit: {e}", exc_info=True)
+                 QMessageBox.warning(self, "Load Error", f"Could not load role details: {str(e)}"); self.reject()
+        elif self.is_new_role : # New role
+            self.name_edit.setFocus()
+
+
+    @Slot(str)
+    def _populate_permissions_list_slot(self, permissions_json_str: str):
+        self.permissions_list_widget.clear()
+        try:
+            permissions_data_list = json.loads(permissions_json_str)
+            # Cache already updated in _load_initial_data, or update it here if preferred
+            self._all_permissions_cache = [PermissionData.model_validate(p_dict) for p_dict in permissions_data_list]
+            for perm_dto in self._all_permissions_cache:
+                item_text = f"{perm_dto.module}: {perm_dto.code}"
+                if perm_dto.description: item_text += f" - {perm_dto.description}"
+                item = QListWidgetItem(item_text)
+                item.setData(Qt.ItemDataRole.UserRole, perm_dto.id) 
+                self.permissions_list_widget.addItem(item)
+        except json.JSONDecodeError as e:
+            self.app_core.logger.error(f"Error parsing permissions JSON for RoleDialog: {e}")
+            self.permissions_list_widget.addItem("Error parsing permissions.")
+        
+        # If editing and role data was already loaded (which triggered field population),
+        # and field population triggered _select_assigned_permissions, this re-selection might be redundant
+        # or necessary if permissions list is populated after fields.
+        # This is generally safe.
+        if self.role_id_to_edit and self.loaded_role_orm:
+            self._select_assigned_permissions([p.id for p in self.loaded_role_orm.permissions])
+
+
+    @Slot(str)
+    def _populate_fields_slot(self, role_json_str: str):
+        try:
+            role_data = json.loads(role_json_str) 
+        except json.JSONDecodeError:
+            QMessageBox.critical(self, "Error", "Failed to parse role data for editing."); return
+
+        self.name_edit.setText(role_data.get("name", ""))
+        self.description_edit.setText(role_data.get("description", "") or "")
+
+        is_admin_role = (role_data.get("name") == "Administrator")
+        self.name_edit.setReadOnly(is_admin_role)
+        self.name_edit.setToolTip("The 'Administrator' role name cannot be changed." if is_admin_role else "")
+        
+        # For Admin role, all permissions should be selected and the list disabled.
+        if is_admin_role:
+            for i in range(self.permissions_list_widget.count()):
+                self.permissions_list_widget.item(i).setSelected(True)
+            self.permissions_list_widget.setEnabled(False) 
+            self.permissions_list_widget.setToolTip("Administrator role has all permissions by default and cannot be modified here.")
+        else:
+            self.permissions_list_widget.setEnabled(True)
+            assigned_permission_ids = role_data.get("assigned_permission_ids", [])
+            self._select_assigned_permissions(assigned_permission_ids)
+
+
+    def _select_assigned_permissions(self, assigned_ids: List[int]):
+        # Ensure this is called after permissions_list_widget is populated
+        if self.permissions_list_widget.count() == 0 and self._all_permissions_cache:
+             # Permissions list might not be populated yet if this is called too early from _populate_fields_slot
+             # _load_initial_data should ensure permissions are populated first then calls _populate_fields_slot
+             # which then calls this.
+             self.app_core.logger.warning("_select_assigned_permissions called before permissions list populated.")
+             return
+
+        for i in range(self.permissions_list_widget.count()):
+            item = self.permissions_list_widget.item(i)
+            permission_id_in_item = item.data(Qt.ItemDataRole.UserRole)
+            if permission_id_in_item in assigned_ids:
+                item.setSelected(True)
+            else:
+                item.setSelected(False) 
+
+    def _collect_data(self) -> Optional[Union[RoleCreateData, RoleUpdateData]]:
+        name = self.name_edit.text().strip()
+        description = self.description_edit.toPlainText().strip() or None
+        
+        if not name:
+            QMessageBox.warning(self, "Validation Error", "Role Name is required.")
+            return None
+        
+        # Cannot change name of Administrator role if editing it (already handled by read-only)
+        if self.loaded_role_orm and self.loaded_role_orm.name == "Administrator" and name != "Administrator":
+             QMessageBox.warning(self, "Validation Error", "Cannot change the name of 'Administrator' role.")
+             self.name_edit.setText("Administrator") # Reset
+             return None
+
+        selected_permission_ids: List[int] = []
+        if self.permissions_list_widget.isEnabled(): # Only collect if list is enabled (not admin role)
+            for item in self.permissions_list_widget.selectedItems():
+                perm_id = item.data(Qt.ItemDataRole.UserRole)
+                if isinstance(perm_id, int):
+                    selected_permission_ids.append(perm_id)
+        elif self.loaded_role_orm and self.loaded_role_orm.name == "Administrator":
+            # For admin, all permissions are implicitly assigned if list is disabled
+            selected_permission_ids = [p.id for p in self._all_permissions_cache]
+
+
+        common_data = {"name": name, "description": description, "permission_ids": selected_permission_ids}
+
+        try:
+            if self.is_new_role:
+                return RoleCreateData(**common_data) 
+            else:
+                assert self.role_id_to_edit is not None
+                return RoleUpdateData(id=self.role_id_to_edit, **common_data) 
+        except ValueError as pydantic_error: 
+            QMessageBox.warning(self, "Validation Error", f"Invalid data:\n{str(pydantic_error)}")
+            return None
+
+    @Slot()
+    def on_save(self):
+        dto = self._collect_data()
+        if dto:
+            ok_button = self.button_box.button(QDialogButtonBox.StandardButton.Ok)
+            if ok_button: ok_button.setEnabled(False)
+            
+            future = schedule_task_from_qt(self._perform_save(dto))
+            if future:
+                future.add_done_callback(
+                    lambda _: ok_button.setEnabled(True) if ok_button and self.isVisible() else None
+                )
+            else: 
+                if ok_button: ok_button.setEnabled(True)
+
+    async def _perform_save(self, dto: Union[RoleCreateData, RoleUpdateData]):
+        if not self.app_core.security_manager:
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str, "Security Manager not available."))
+            return
+
+        result: Result[Role]
+        action_verb_present = "update" if isinstance(dto, RoleUpdateData) else "create"
+        action_verb_past = "updated" if isinstance(dto, RoleUpdateData) else "created"
+
+        if isinstance(dto, RoleUpdateData):
+            result = await self.app_core.security_manager.update_role(dto, self.current_admin_user_id)
+        else: 
+            result = await self.app_core.security_manager.create_role(dto, self.current_admin_user_id)
+
+        if result.is_success and result.value:
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "information", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self.parentWidget() if self.parentWidget() else self), 
+                Q_ARG(str, "Success"), 
+                Q_ARG(str, f"Role '{result.value.name}' {action_verb_past} successfully."))
+            self.role_saved.emit(result.value.id)
+            QMetaObject.invokeMethod(self, "accept", Qt.ConnectionType.QueuedConnection)
+        else:
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "warning", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Save Error"), 
+                Q_ARG(str, f"Failed to {action_verb_present} role:\n{', '.join(result.errors)}"))
+
+
+```
+
+# app/ui/settings/user_dialog.py
+```py
+# File: app/ui/settings/user_dialog.py
+from PySide6.QtWidgets import (
+    QDialog, QVBoxLayout, QFormLayout, QLineEdit, QPushButton, QDialogButtonBox, 
+    QMessageBox, QCheckBox, QListWidget, QListWidgetItem, QAbstractItemView,
+    QLabel
+)
+from PySide6.QtCore import Qt, Slot, Signal, QTimer, QMetaObject, Q_ARG
+from typing import Optional, List, Dict, Any, TYPE_CHECKING, Union, cast
+
+import json
+
+from app.core.application_core import ApplicationCore
+from app.main import schedule_task_from_qt
+from app.utils.pydantic_models import UserCreateData, UserUpdateData, RoleData
+from app.models.core.user import User, Role # For ORM type hints
+from app.utils.result import Result
+from app.utils.json_helpers import json_converter # For serializing roles if needed
+
+if TYPE_CHECKING:
+    from PySide6.QtGui import QPaintDevice
+
+class UserDialog(QDialog):
+    user_saved = Signal(int) # Emits user ID
+
+    def __init__(self, app_core: ApplicationCore, 
+                 current_admin_user_id: int, 
+                 user_id_to_edit: Optional[int] = None, 
+                 parent: Optional["QWidget"] = None):
+        super().__init__(parent)
+        self.app_core = app_core
+        self.current_admin_user_id = current_admin_user_id
+        self.user_id_to_edit = user_id_to_edit
+        self.loaded_user_orm: Optional[User] = None
+        self._all_roles_cache: List[RoleData] = []
+
+        self.is_new_user = self.user_id_to_edit is None
+        self.setWindowTitle("Add New User" if self.is_new_user else "Edit User")
+        self.setMinimumWidth(450)
+        self.setModal(True)
+
+        self._init_ui()
+        self._connect_signals()
+
+        QTimer.singleShot(0, lambda: schedule_task_from_qt(self._load_initial_data()))
+
+    def _init_ui(self):
+        main_layout = QVBoxLayout(self)
+        form_layout = QFormLayout()
+        form_layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
+
+        self.username_edit = QLineEdit()
+        form_layout.addRow("Username*:", self.username_edit)
+
+        self.full_name_edit = QLineEdit()
+        form_layout.addRow("Full Name:", self.full_name_edit)
+
+        self.email_edit = QLineEdit()
+        self.email_edit.setPlaceholderText("user@example.com")
+        form_layout.addRow("Email:", self.email_edit)
+
+        self.password_label = QLabel("Password*:")
+        self.password_edit = QLineEdit()
+        self.password_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        form_layout.addRow(self.password_label, self.password_edit)
+
+        self.confirm_password_label = QLabel("Confirm Password*:")
+        self.confirm_password_edit = QLineEdit()
+        self.confirm_password_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        form_layout.addRow(self.confirm_password_label, self.confirm_password_edit)
+
+        self.is_active_check = QCheckBox("User is Active")
+        self.is_active_check.setChecked(True)
+        form_layout.addRow(self.is_active_check)
+        
+        form_layout.addRow(QLabel("Assign Roles:"))
+        self.roles_list_widget = QListWidget()
+        self.roles_list_widget.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
+        self.roles_list_widget.setFixedHeight(120) # Adjust height as needed
+        form_layout.addRow(self.roles_list_widget)
+
+        main_layout.addLayout(form_layout)
+
+        self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        main_layout.addWidget(self.button_box)
+        self.setLayout(main_layout)
+
+        if not self.is_new_user: # Editing existing user
+            self.password_label.setVisible(False)
+            self.password_edit.setVisible(False)
+            self.confirm_password_label.setVisible(False)
+            self.confirm_password_edit.setVisible(False)
+            # Username might be non-editable for existing users for simplicity, or based on permissions
+            # self.username_edit.setReadOnly(True) 
+
+
+    def _connect_signals(self):
+        self.button_box.accepted.connect(self.on_save)
+        self.button_box.rejected.connect(self.reject)
+
+    async def _load_initial_data(self):
+        """Load all available roles and user data if editing."""
+        roles_loaded_successfully = False
+        try:
+            if self.app_core.security_manager:
+                roles_orm: List[Role] = await self.app_core.security_manager.get_all_roles()
+                self._all_roles_cache = [RoleData.model_validate(r) for r in roles_orm]
+                roles_json = json.dumps([r.model_dump() for r in self._all_roles_cache], default=json_converter)
+                QMetaObject.invokeMethod(self, "_populate_roles_list_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, roles_json))
+                roles_loaded_successfully = True
+        except Exception as e:
+            self.app_core.logger.error(f"Error loading roles for UserDialog: {e}", exc_info=True)
+            QMessageBox.warning(self, "Data Load Error", f"Could not load roles: {str(e)}")
+
+        if not roles_loaded_successfully:
+            self.roles_list_widget.addItem("Error loading roles.")
+            self.roles_list_widget.setEnabled(False)
+
+        if self.user_id_to_edit:
+            try:
+                if self.app_core.security_manager:
+                    self.loaded_user_orm = await self.app_core.security_manager.get_user_by_id_for_edit(self.user_id_to_edit)
+                    if self.loaded_user_orm:
+                        # Serialize user data for thread-safe UI update
+                        user_dict = {
+                            "id": self.loaded_user_orm.id,
+                            "username": self.loaded_user_orm.username,
+                            "full_name": self.loaded_user_orm.full_name,
+                            "email": self.loaded_user_orm.email,
+                            "is_active": self.loaded_user_orm.is_active,
+                            "assigned_role_ids": [role.id for role in self.loaded_user_orm.roles]
+                        }
+                        user_json_str = json.dumps(user_dict, default=json_converter)
+                        QMetaObject.invokeMethod(self, "_populate_fields_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, user_json_str))
+                    else:
+                        QMessageBox.warning(self, "Load Error", f"User ID {self.user_id_to_edit} not found.")
+                        self.reject() # Close dialog if user not found
+            except Exception as e:
+                 self.app_core.logger.error(f"Error loading user (ID: {self.user_id_to_edit}) for edit: {e}", exc_info=True)
+                 QMessageBox.warning(self, "Load Error", f"Could not load user details: {str(e)}")
+                 self.reject()
+
+
+    @Slot(str)
+    def _populate_roles_list_slot(self, roles_json_str: str):
+        self.roles_list_widget.clear()
+        try:
+            roles_data_list = json.loads(roles_json_str)
+            self._all_roles_cache = [RoleData.model_validate(r_dict) for r_dict in roles_data_list]
+            for role_dto in self._all_roles_cache:
+                item = QListWidgetItem(f"{role_dto.name} ({role_dto.description or 'No description'})")
+                item.setData(Qt.ItemDataRole.UserRole, role_dto.id) # Store role ID
+                self.roles_list_widget.addItem(item)
+        except json.JSONDecodeError as e:
+            self.app_core.logger.error(f"Error parsing roles JSON for UserDialog: {e}")
+            self.roles_list_widget.addItem("Error parsing roles.")
+        
+        # If editing, and user data already loaded, re-select roles
+        if self.user_id_to_edit and self.loaded_user_orm:
+            self._select_assigned_roles([role.id for role in self.loaded_user_orm.roles])
+
+
+    @Slot(str)
+    def _populate_fields_slot(self, user_json_str: str):
+        try:
+            user_data = json.loads(user_json_str) # No json_date_hook needed for UserSummaryData fields
+        except json.JSONDecodeError:
+            QMessageBox.critical(self, "Error", "Failed to parse user data for editing."); return
+
+        self.username_edit.setText(user_data.get("username", ""))
+        self.full_name_edit.setText(user_data.get("full_name", "") or "")
+        self.email_edit.setText(user_data.get("email", "") or "")
+        self.is_active_check.setChecked(user_data.get("is_active", True))
+        
+        assigned_role_ids = user_data.get("assigned_role_ids", [])
+        self._select_assigned_roles(assigned_role_ids)
+
+        if self.loaded_user_orm and self.loaded_user_orm.username == "system_init_user":
+            self._set_read_only_for_system_user()
+
+    def _select_assigned_roles(self, assigned_role_ids: List[int]):
+        for i in range(self.roles_list_widget.count()):
+            item = self.roles_list_widget.item(i)
+            role_id_in_item = item.data(Qt.ItemDataRole.UserRole)
+            if role_id_in_item in assigned_role_ids:
+                item.setSelected(True)
+            else:
+                item.setSelected(False)
+    
+    def _set_read_only_for_system_user(self):
+        self.username_edit.setReadOnly(True)
+        self.full_name_edit.setReadOnly(True)
+        self.email_edit.setReadOnly(True)
+        self.is_active_check.setEnabled(False) # Cannot deactivate system_init
+        self.roles_list_widget.setEnabled(False) # Cannot change roles of system_init
+        # Password fields are already hidden for edit mode
+        ok_button = self.button_box.button(QDialogButtonBox.StandardButton.Ok)
+        if ok_button: ok_button.setEnabled(False) # Prevent saving changes
+
+
+    def _collect_data(self) -> Optional[Union[UserCreateData, UserUpdateData]]:
+        username = self.username_edit.text().strip()
+        full_name = self.full_name_edit.text().strip() or None
+        email_str = self.email_edit.text().strip() or None
+        is_active = self.is_active_check.isChecked()
+        
+        selected_role_ids: List[int] = []
+        for item in self.roles_list_widget.selectedItems():
+            role_id = item.data(Qt.ItemDataRole.UserRole)
+            if isinstance(role_id, int):
+                selected_role_ids.append(role_id)
+        
+        common_data = {
+            "username": username, "full_name": full_name, "email": email_str,
+            "is_active": is_active, "assigned_role_ids": selected_role_ids,
+            "user_id": self.current_admin_user_id # The user performing the action
+        }
+
+        try:
+            if self.is_new_user:
+                password = self.password_edit.text()
+                confirm_password = self.confirm_password_edit.text()
+                if not password: # Basic check, Pydantic handles min_length
+                     QMessageBox.warning(self, "Validation Error", "Password is required for new users.")
+                     return None
+                return UserCreateData(password=password, confirm_password=confirm_password, **common_data) # type: ignore
+            else:
+                assert self.user_id_to_edit is not None
+                return UserUpdateData(id=self.user_id_to_edit, **common_data) # type: ignore
+        except ValueError as pydantic_error: # Catches Pydantic validation errors
+            QMessageBox.warning(self, "Validation Error", f"Invalid data:\n{str(pydantic_error)}")
+            return None
+
+    @Slot()
+    def on_save(self):
+        dto = self._collect_data()
+        if dto:
+            ok_button = self.button_box.button(QDialogButtonBox.StandardButton.Ok)
+            if ok_button: ok_button.setEnabled(False)
+            
+            future = schedule_task_from_qt(self._perform_save(dto))
+            if future:
+                future.add_done_callback(
+                    lambda _: ok_button.setEnabled(True) if ok_button else None
+                )
+            else: # Handle scheduling failure
+                if ok_button: ok_button.setEnabled(True)
+
+
+    async def _perform_save(self, dto: Union[UserCreateData, UserUpdateData]):
+        if not self.app_core.security_manager:
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str, "Security Manager not available."))
+            return
+
+        result: Result[User]
+        if isinstance(dto, UserCreateData):
+            result = await self.app_core.security_manager.create_user_with_roles(dto)
+        elif isinstance(dto, UserUpdateData):
+            result = await self.app_core.security_manager.update_user_from_dto(dto)
+        else: # Should not happen
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str, "Invalid DTO type for save."))
+            return
+
+        if result.is_success and result.value:
+            action = "updated" if self.user_id_to_edit else "created"
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "information", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Success"), Q_ARG(str, f"User '{result.value.username}' {action} successfully."))
+            self.user_saved.emit(result.value.id)
+            QMetaObject.invokeMethod(self, "accept", Qt.ConnectionType.QueuedConnection)
+        else:
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "warning", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Save Error"), Q_ARG(str, f"Failed to save user:\n{', '.join(result.errors)}"))
 
 ```
 
