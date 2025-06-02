@@ -1,5 +1,5 @@
 # File: app/common/enums.py
-# (Content as previously generated and verified)
+# (Content as previously generated, verified)
 from enum import Enum
 
 class AccountCategory(Enum): 
@@ -9,7 +9,7 @@ class AccountCategory(Enum):
     REVENUE = "Revenue"
     EXPENSE = "Expense"
 
-class AccountTypeEnum(Enum): 
+class AccountTypeEnum(Enum): # Matches AccountCategory for now, can diverge
     ASSET = "Asset"
     LIABILITY = "Liability"
     EQUITY = "Equity"
@@ -68,7 +68,7 @@ class InvoiceStatusEnum(Enum):
     PAID = "Paid"
     OVERDUE = "Overdue"
     VOIDED = "Voided"
-    DISPUTED = "Disputed" 
+    DISPUTED = "Disputed" # Added for Purchase Invoices
 
 class BankTransactionTypeEnum(Enum): 
     DEPOSIT = "Deposit"
@@ -82,7 +82,7 @@ class PaymentTypeEnum(Enum):
     CUSTOMER_PAYMENT = "Customer Payment"
     VENDOR_PAYMENT = "Vendor Payment"
     REFUND = "Refund"
-    CREDIT_NOTE_APPLICATION = "Credit Note" 
+    CREDIT_NOTE_APPLICATION = "Credit Note" # Application of a credit note to an invoice
     OTHER = "Other"
 
 class PaymentMethodEnum(Enum): 
@@ -102,9 +102,9 @@ class PaymentEntityTypeEnum(Enum):
 class PaymentStatusEnum(Enum): 
     DRAFT = "Draft"
     APPROVED = "Approved"
-    COMPLETED = "Completed" 
+    COMPLETED = "Completed" # After reconciliation or bank confirmation for some methods
     VOIDED = "Voided"
-    RETURNED = "Returned" 
+    RETURNED = "Returned" # E.g. bounced cheque
 
 class PaymentAllocationDocTypeEnum(Enum): 
     SALES_INVOICE = "Sales Invoice"
@@ -113,17 +113,17 @@ class PaymentAllocationDocTypeEnum(Enum):
     DEBIT_NOTE = "Debit Note"
     OTHER = "Other"
 
-class WHCertificateStatusEnum(Enum): 
+class WHCertificateStatusEnum(Enum): # Withholding Tax Certificate Status
     DRAFT = "Draft"
     ISSUED = "Issued"
     VOIDED = "Voided"
 
-class DataChangeTypeEnum(Enum): 
+class DataChangeTypeEnum(Enum): # For Audit Log
     INSERT = "Insert"
     UPDATE = "Update"
     DELETE = "Delete"
 
-class RecurringFrequencyEnum(Enum): 
+class RecurringFrequencyEnum(Enum): # For Recurring Journal Entries
     DAILY = "Daily"
     WEEKLY = "Weekly"
     MONTHLY = "Monthly"

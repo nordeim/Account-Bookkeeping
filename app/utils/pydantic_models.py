@@ -7,7 +7,7 @@ from decimal import Decimal
 from app.common.enums import ( 
     ProductTypeEnum, InvoiceStatusEnum, BankTransactionTypeEnum,
     PaymentTypeEnum, PaymentMethodEnum, PaymentEntityTypeEnum, PaymentStatusEnum, 
-    PaymentAllocationDocTypeEnum, DataChangeTypeEnum # Added DataChangeTypeEnum
+    PaymentAllocationDocTypeEnum, DataChangeTypeEnum
 )
 
 class AppBaseModel(BaseModel):
@@ -534,16 +534,16 @@ class PaymentSummaryData(AppBaseModel):
     currency_code: str
     status: PaymentStatusEnum
 
-# --- Audit Log DTOs (New) ---
+# --- Audit Log DTOs ---
 class AuditLogEntryData(AppBaseModel):
     id: int
     timestamp: datetime
-    username: Optional[str] = "System" # Default if user_id is None or user not found
+    username: Optional[str] = "System" 
     action: str
     entity_type: str
     entity_id: Optional[int] = None
     entity_name: Optional[str] = None
-    changes_summary: Optional[str] = None # Simplified view of JSONB changes
+    changes_summary: Optional[str] = None 
     ip_address: Optional[str] = None
 
 class DataChangeHistoryEntryData(AppBaseModel):
@@ -555,4 +555,4 @@ class DataChangeHistoryEntryData(AppBaseModel):
     old_value: Optional[str] = None
     new_value: Optional[str] = None
     change_type: DataChangeTypeEnum 
-    changed_by_username: Optional[str] = "System" # Default if changed_by is None
+    changed_by_username: Optional[str] = "System"
