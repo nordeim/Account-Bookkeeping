@@ -1,15 +1,19 @@
 # File: app/models/business/bank_account.py
-# (Reviewed and confirmed path and fields from previous generation, ensure relationships set)
 from sqlalchemy import Column, Integer, String, Date, Numeric, Text, ForeignKey, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from app.models.base import Base, TimestampMixin
-from app.models.accounting.account import Account # Corrected path
-from app.models.accounting.currency import Currency # Corrected path
+from app.models.accounting.account import Account 
+from app.models.accounting.currency import Currency 
 from app.models.core.user import User
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING
 import datetime
 from decimal import Decimal
+
+if TYPE_CHECKING:
+    from app.models.business.bank_transaction import BankTransaction # For relationship type hint
+    from app.models.business.payment import Payment # For relationship type hint
+    from app.models.business.bank_reconciliation import BankReconciliation # New import
 
 class BankAccount(Base, TimestampMixin):
     __tablename__ = 'bank_accounts'
@@ -25,6 +29,7 @@ class BankAccount(Base, TimestampMixin):
     opening_balance: Mapped[Decimal] = mapped_column(Numeric(15,2), default=Decimal(0))
     current_balance: Mapped[Decimal] = mapped_column(Numeric(15,2), default=Decimal(0))
     last_reconciled_date: Mapped[Optional[datetime.date]] = mapped_column(Date, nullable=True)
+    last_reconciled_balance: Mapped[Optional[Decimal]] = mapped_column(Numeric(15,2), nullable=True) # New field
     gl_account_id: Mapped[int] = mapped_column(Integer, ForeignKey('accounting.accounts.id'), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -37,8 +42,9 @@ class BankAccount(Base, TimestampMixin):
     created_by_user: Mapped["User"] = relationship("User", foreign_keys=[created_by_user_id])
     updated_by_user: Mapped["User"] = relationship("User", foreign_keys=[updated_by_user_id])
     
-    bank_transactions: Mapped[List["BankTransaction"]] = relationship("BankTransaction", back_populates="bank_account") # type: ignore
-    payments: Mapped[List["Payment"]] = relationship("Payment", back_populates="bank_account") # type: ignore
+    bank_transactions: Mapped[List["BankTransaction"]] = relationship("BankTransaction", back_populates="bank_account") 
+    payments: Mapped[List["Payment"]] = relationship("Payment", back_populates="bank_account") 
+    reconciliations: Mapped[List["BankReconciliation"]] = relationship("BankReconciliation", order_by="desc(BankReconciliation.statement_date)", back_populates="bank_account")
 
-# Add back_populates to Account
-Account.bank_account_links = relationship("BankAccount", back_populates="gl_account") # type: ignore
+# This back_populates was already in the base file for BankAccount, ensuring it's correctly set up.
+# Account.bank_account_links = relationship("BankAccount", back_populates="gl_account") 

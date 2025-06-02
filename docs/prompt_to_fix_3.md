@@ -85,3 +85,15 @@ Make sure you have a good grounding on the current state of the project based on
 
 Next, with a good grounding of the current codebase, do a careful re-validation of your newly generated files for `scripts/schema.sql`, `app/utils/pydantic_models.py`, `app/services/audit_services.py`, and `app/models/business/bank_transaction.py`. It is good practice to do due diligence.
 
+---
+Attached is the "diff" command output comparing the previous version with your latest generated version. Please double-check and validate that the changes are valid and that no other original features or functions are lost (omitted). use the same rigorous and meticulous approach to review the diff output below.
+
+You seem to have omitted my sections from the previous version in your latest generated `scripts/schema.sql`. I specifically told you to double-check any generated code using line by line diff with the previous version to ensure no accidental omission of other original features and functions. 
+
+---
+you failed again. there are still many missing lines and suddent switch to "diff" format in your latest generated `scripts/schema.sql`.
+
+OK, just give me a schema patch file in sql. make sure you think carefully, double check and validate to not miss any intended changes in the patch sql file within ```sql and ``` tags.
+
+you really need to stay focused, think very carefully what are the schema changes needed to match your latest code changes, then double check and validate those schema changes line by line. then create a (shorter) SQL patch file with the correct and validated changes. always compare and check your changes, especially after any generation. do not take shortcut!
+

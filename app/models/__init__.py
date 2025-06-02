@@ -1,9 +1,8 @@
 # File: app/models/__init__.py
-# (Content as previously generated and verified, reflecting subdirectory model structure)
 from .base import Base, TimestampMixin, UserAuditMixin
 
 # Core schema models
-from .core.user import User, Role, Permission # Removed UserRole, RolePermission
+from .core.user import User, Role, Permission 
 from .core.company_setting import CompanySetting
 from .core.configuration import Configuration
 from .core.sequence import Sequence
@@ -33,6 +32,7 @@ from .business.purchase_invoice import PurchaseInvoice, PurchaseInvoiceLine
 from .business.bank_account import BankAccount
 from .business.bank_transaction import BankTransaction
 from .business.payment import Payment, PaymentAllocation
+from .business.bank_reconciliation import BankReconciliation # New Import
 
 # Audit schema models
 from .audit.audit_log import AuditLog
@@ -41,7 +41,7 @@ from .audit.data_change_history import DataChangeHistory
 __all__ = [
     "Base", "TimestampMixin", "UserAuditMixin",
     # Core
-    "User", "Role", "Permission", # Removed UserRole, RolePermission
+    "User", "Role", "Permission", 
     "CompanySetting", "Configuration", "Sequence",
     # Accounting
     "AccountType", "Currency", "ExchangeRate", "Account",
@@ -52,6 +52,7 @@ __all__ = [
     "Customer", "Vendor", "Product", "InventoryMovement",
     "SalesInvoice", "SalesInvoiceLine", "PurchaseInvoice", "PurchaseInvoiceLine",
     "BankAccount", "BankTransaction", "Payment", "PaymentAllocation",
+    "BankReconciliation", # New Export
     # Audit
     "AuditLog", "DataChangeHistory",
 ]
