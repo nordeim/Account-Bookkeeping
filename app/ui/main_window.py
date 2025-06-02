@@ -1,4 +1,4 @@
-# app/ui/main_window.py
+# File: app/ui/main_window.py
 from PySide6.QtWidgets import (
     QMainWindow, QTabWidget, QToolBar, QStatusBar, 
     QVBoxLayout, QWidget, QMessageBox, QLabel 
@@ -10,11 +10,12 @@ from app.ui.dashboard.dashboard_widget import DashboardWidget
 from app.ui.accounting.accounting_widget import AccountingWidget
 from app.ui.sales_invoices.sales_invoices_widget import SalesInvoicesWidget
 from app.ui.purchase_invoices.purchase_invoices_widget import PurchaseInvoicesWidget
-from app.ui.payments.payments_widget import PaymentsWidget # Corrected: was already added
+from app.ui.payments.payments_widget import PaymentsWidget 
 from app.ui.customers.customers_widget import CustomersWidget
 from app.ui.vendors.vendors_widget import VendorsWidget
 from app.ui.products.products_widget import ProductsWidget
 from app.ui.banking.banking_widget import BankingWidget
+from app.ui.banking.bank_reconciliation_widget import BankReconciliationWidget 
 from app.ui.reports.reports_widget import ReportsWidget
 from app.ui.settings.settings_widget import SettingsWidget
 from app.core.application_core import ApplicationCore
@@ -48,11 +49,8 @@ class MainWindow(QMainWindow):
     def _init_ui(self):
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
-        
         self.main_layout = QVBoxLayout(self.central_widget)
-        self.main_layout.setContentsMargins(0, 0, 0, 0)
-        self.main_layout.setSpacing(0)
-        
+        self.main_layout.setContentsMargins(0, 0, 0, 0); self.main_layout.setSpacing(0)
         self._create_toolbar()
         
         self.tab_widget = QTabWidget()
@@ -67,44 +65,26 @@ class MainWindow(QMainWindow):
         self._create_menus()
     
     def _create_toolbar(self):
-        self.toolbar = QToolBar("Main Toolbar")
-        self.toolbar.setObjectName("MainToolbar") 
-        self.toolbar.setMovable(False)
-        self.toolbar.setIconSize(QSize(24, 24)) 
+        self.toolbar = QToolBar("Main Toolbar"); self.toolbar.setObjectName("MainToolbar") 
+        self.toolbar.setMovable(False); self.toolbar.setIconSize(QSize(24, 24)) 
         self.toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.toolbar) 
     
     def _add_module_tabs(self):
-        self.dashboard_widget = DashboardWidget(self.app_core)
-        self.tab_widget.addTab(self.dashboard_widget, QIcon(self.icon_path_prefix + "dashboard.svg"), "Dashboard")
-        
-        self.accounting_widget = AccountingWidget(self.app_core)
-        self.tab_widget.addTab(self.accounting_widget, QIcon(self.icon_path_prefix + "accounting.svg"), "Accounting")
-        
-        self.sales_invoices_widget = SalesInvoicesWidget(self.app_core)
-        self.tab_widget.addTab(self.sales_invoices_widget, QIcon(self.icon_path_prefix + "transactions.svg"), "Sales") 
-
-        self.purchase_invoices_widget = PurchaseInvoicesWidget(self.app_core) 
-        self.tab_widget.addTab(self.purchase_invoices_widget, QIcon(self.icon_path_prefix + "vendors.svg"), "Purchases") 
-
-        self.payments_widget = PaymentsWidget(self.app_core) 
-        self.tab_widget.addTab(self.payments_widget, QIcon(self.icon_path_prefix + "banking.svg"), "Payments") 
-
-        self.customers_widget = CustomersWidget(self.app_core)
-        self.tab_widget.addTab(self.customers_widget, QIcon(self.icon_path_prefix + "customers.svg"), "Customers")
-        
-        self.vendors_widget = VendorsWidget(self.app_core)
-        self.tab_widget.addTab(self.vendors_widget, QIcon(self.icon_path_prefix + "vendors.svg"), "Vendors")
-
-        self.products_widget = ProductsWidget(self.app_core) 
-        self.tab_widget.addTab(self.products_widget, QIcon(self.icon_path_prefix + "product.svg"), "Products & Services")
-        
+        self.dashboard_widget = DashboardWidget(self.app_core); self.tab_widget.addTab(self.dashboard_widget, QIcon(self.icon_path_prefix + "dashboard.svg"), "Dashboard")
+        self.accounting_widget = AccountingWidget(self.app_core); self.tab_widget.addTab(self.accounting_widget, QIcon(self.icon_path_prefix + "accounting.svg"), "Accounting")
+        self.sales_invoices_widget = SalesInvoicesWidget(self.app_core); self.tab_widget.addTab(self.sales_invoices_widget, QIcon(self.icon_path_prefix + "transactions.svg"), "Sales") 
+        self.purchase_invoices_widget = PurchaseInvoicesWidget(self.app_core); self.tab_widget.addTab(self.purchase_invoices_widget, QIcon(self.icon_path_prefix + "vendors.svg"), "Purchases") 
+        self.payments_widget = PaymentsWidget(self.app_core); self.tab_widget.addTab(self.payments_widget, QIcon(self.icon_path_prefix + "banking.svg"), "Payments") 
+        self.customers_widget = CustomersWidget(self.app_core); self.tab_widget.addTab(self.customers_widget, QIcon(self.icon_path_prefix + "customers.svg"), "Customers")
+        self.vendors_widget = VendorsWidget(self.app_core); self.tab_widget.addTab(self.vendors_widget, QIcon(self.icon_path_prefix + "vendors.svg"), "Vendors")
+        self.products_widget = ProductsWidget(self.app_core); self.tab_widget.addTab(self.products_widget, QIcon(self.icon_path_prefix + "product.svg"), "Products & Services")
         self.banking_widget = BankingWidget(self.app_core)
-        self.tab_widget.addTab(self.banking_widget, QIcon(self.icon_path_prefix + "banking.svg"), "Banking")
-        
+        self.tab_widget.addTab(self.banking_widget, QIcon(self.icon_path_prefix + "banking.svg"), "Banking C.R.U.D") 
+        self.bank_reconciliation_widget = BankReconciliationWidget(self.app_core)
+        self.tab_widget.addTab(self.bank_reconciliation_widget, QIcon(self.icon_path_prefix + "transactions.svg"), "Bank Reconciliation") 
         self.reports_widget = ReportsWidget(self.app_core)
         self.tab_widget.addTab(self.reports_widget, QIcon(self.icon_path_prefix + "reports.svg"), "Reports")
-        
         self.settings_widget = SettingsWidget(self.app_core)
         self.tab_widget.addTab(self.settings_widget, QIcon(self.icon_path_prefix + "settings.svg"), "Settings")
     
@@ -145,14 +125,9 @@ class MainWindow(QMainWindow):
     def on_preferences(self): 
         settings_tab_index = -1
         for i in range(self.tab_widget.count()):
-            if self.tab_widget.widget(i) == self.settings_widget:
-                settings_tab_index = i
-                break
-        if settings_tab_index != -1:
-            self.tab_widget.setCurrentIndex(settings_tab_index)
-        else:
-            QMessageBox.information(self, "Preferences", "Preferences (Settings Tab) not found or full dialog not yet implemented.")
-
+            if self.tab_widget.widget(i) == self.settings_widget: settings_tab_index = i; break
+        if settings_tab_index != -1: self.tab_widget.setCurrentIndex(settings_tab_index)
+        else: QMessageBox.information(self, "Preferences", "Preferences (Settings Tab) not found or full dialog not yet implemented.")
     @Slot()
     def on_help_contents(self): QMessageBox.information(self, "Help", "Help system not yet implemented.")
     @Slot()
@@ -162,4 +137,3 @@ class MainWindow(QMainWindow):
         reply = QMessageBox.question(self, "Confirm Exit", "Are you sure you want to exit?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
         if reply == QMessageBox.StandardButton.Yes: event.accept() 
         else: event.ignore()
-

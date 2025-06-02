@@ -1,7 +1,7 @@
-# app/services/__init__.py
+# File: app/services/__init__.py
 from abc import ABC, abstractmethod
-from typing import List, Optional, Any, Generic, TypeVar, Dict, Tuple # Added Tuple
-from datetime import date, datetime # Corrected import to include datetime
+from typing import List, Optional, Any, Generic, TypeVar, Dict, Tuple 
+from datetime import date, datetime 
 from decimal import Decimal 
 
 T = TypeVar('T') 
@@ -19,7 +19,6 @@ class IRepository(ABC, Generic[T, ID]):
     @abstractmethod
     async def delete(self, id_val: ID) -> bool: pass
 
-# --- ORM Model Imports ---
 from app.models.accounting.account import Account
 from app.models.accounting.journal_entry import JournalEntry, JournalEntryLine 
 from app.models.accounting.fiscal_period import FiscalPeriod
@@ -46,8 +45,6 @@ from app.models.business.payment import Payment, PaymentAllocation
 from app.models.audit.audit_log import AuditLog 
 from app.models.audit.data_change_history import DataChangeHistory 
 
-
-# --- DTO Imports (for return types in interfaces) ---
 from app.utils.pydantic_models import (
     CustomerSummaryData, VendorSummaryData, ProductSummaryData, 
     SalesInvoiceSummaryData, PurchaseInvoiceSummaryData,
@@ -55,15 +52,11 @@ from app.utils.pydantic_models import (
     PaymentSummaryData,
     AuditLogEntryData, DataChangeHistoryEntryData 
 )
-
-# --- Enum Imports (for filter types in interfaces) ---
 from app.common.enums import ( 
     ProductTypeEnum, InvoiceStatusEnum, BankTransactionTypeEnum,
     PaymentTypeEnum, PaymentEntityTypeEnum, PaymentStatusEnum, DataChangeTypeEnum 
 )
 
-
-# --- Existing Interfaces ---
 class IAccountRepository(IRepository[Account, int]): 
     @abstractmethod
     async def get_by_code(self, code: str) -> Optional[Account]: pass
@@ -258,6 +251,7 @@ class IBankTransactionRepository(IRepository[BankTransaction, int]):
                                        end_date: Optional[date] = None,
                                        transaction_type: Optional[BankTransactionTypeEnum] = None,
                                        is_reconciled: Optional[bool] = None,
+                                       is_from_statement_filter: Optional[bool] = None, 
                                        page: int = 1, page_size: int = 50
                                       ) -> List[BankTransactionSummaryData]: pass 
     @abstractmethod
@@ -305,8 +299,6 @@ class IDataChangeHistoryRepository(IRepository[DataChangeHistory, int]):
         page_size: int = 50
     ) -> Tuple[List[DataChangeHistoryEntryData], int]: pass 
 
-
-# --- Service Implementations ---
 from .account_service import AccountService
 from .journal_service import JournalService
 from .fiscal_period_service import FiscalPeriodService
@@ -346,4 +338,3 @@ __all__ = [
     "PaymentService", 
     "AuditLogService", 
 ]
-
