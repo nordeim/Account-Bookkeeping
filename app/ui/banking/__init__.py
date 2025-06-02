@@ -7,7 +7,8 @@ from .bank_transaction_table_model import BankTransactionTableModel
 from .bank_transaction_dialog import BankTransactionDialog
 from .bank_transactions_widget import BankTransactionsWidget
 from .csv_import_config_dialog import CSVImportConfigDialog
-from .bank_reconciliation_widget import BankReconciliationWidget 
+from .bank_reconciliation_widget import BankReconciliationWidget
+from .reconciliation_table_model import ReconciliationTableModel # New Import
 
 __all__ = [
     "BankingWidget",
@@ -18,5 +19,6 @@ __all__ = [
     "BankTransactionDialog",
     "BankTransactionsWidget",
     "CSVImportConfigDialog",
-    "BankReconciliationWidget", 
+    "BankReconciliationWidget",
+    "ReconciliationTableModel", # New Export
 ]
