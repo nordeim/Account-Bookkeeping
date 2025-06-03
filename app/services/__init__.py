@@ -54,7 +54,8 @@ from app.utils.pydantic_models import (
     SalesInvoiceSummaryData, PurchaseInvoiceSummaryData,
     BankAccountSummaryData, BankTransactionSummaryData,
     PaymentSummaryData,
-    AuditLogEntryData, DataChangeHistoryEntryData, BankReconciliationData
+    AuditLogEntryData, DataChangeHistoryEntryData, BankReconciliationData,
+    DashboardKPIData # New DTO
 )
 from app.common.enums import ( 
     ProductTypeEnum, InvoiceStatusEnum, BankTransactionTypeEnum,
@@ -176,6 +177,8 @@ class ICustomerRepository(IRepository[Customer, int]):
                               search_term: Optional[str] = None,
                               page: int = 1, page_size: int = 50
                              ) -> List[CustomerSummaryData]: pass
+    @abstractmethod # New method for Dashboard KPI
+    async def get_total_outstanding_balance(self) -> Decimal: pass
 
 class IVendorRepository(IRepository[Vendor, int]): 
     @abstractmethod
@@ -185,6 +188,8 @@ class IVendorRepository(IRepository[Vendor, int]):
                               search_term: Optional[str] = None,
                               page: int = 1, page_size: int = 50
                              ) -> List[VendorSummaryData]: pass
+    @abstractmethod # New method for Dashboard KPI
+    async def get_total_outstanding_balance(self) -> Decimal: pass
 
 class IProductRepository(IRepository[Product, int]): 
     @abstractmethod
@@ -275,7 +280,7 @@ class IPaymentRepository(IRepository[Payment, int]):
                               page: int = 1, page_size: int = 50
                              ) -> List[PaymentSummaryData]: pass
     @abstractmethod
-    async def save(self, entity: Payment, session: Optional[AsyncSession] = None) -> Payment: pass # Added pass
+    async def save(self, entity: Payment, session: Optional[AsyncSession] = None) -> Payment: pass
 
 class IAuditLogRepository(IRepository[AuditLog, int]):
     @abstractmethod

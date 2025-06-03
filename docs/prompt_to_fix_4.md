@@ -10,3 +10,13 @@ Also the application now gives error after the codebase changes. use similar met
 ---
 excellent job again! keep using the same rigorous and meticulous approach to carefully review the attached documents and then use line by line validation of the actual codebase to create a *complete* updated *replacement* for these two documents (README.md and TDS) that incorporates the latest changes to the codebase. Your updated version should reflect the current codebase accurately. 
 
+---
+please create for me a *complete* updated *replacement* for `README.md`, and it must be the appropriate GitHub repo style README.md (use the draft document attached here as your reference). do not just copy verbatim, use line by line diff of the current project codebase to create an accurate and relevant README.md. keep in mind that the README.md must be suitable as a GitHub repo and not another normal technical document. And the updated complete README.md must be self-contained without reference to any prior revisions (versions) of the same document, meaning incorporate details from the earlier versions into your self-contained full version of the document.
+
+you must do your due diligence and think deeply and explore for the best possible way to come up with an awesome GitHub style README.md 
+
+---
+Below is "diff" command output comparing the previous version with your latest generated version. Please double-check and validate that the changes are valid and that no other original features or functions are lost (omitted). use the same rigorous and meticulous approach to review the diff output below.
+
+Did you accidentally omitted other lines from the previous version? Remember, we need to give benefit of doubt to harmless lines or sections.
+

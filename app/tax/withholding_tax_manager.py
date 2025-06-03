@@ -1,20 +1,20 @@
 # File: app/tax/withholding_tax_manager.py
-# (Content as previously generated, verified for ApplicationCore property access)
-from typing import TYPE_CHECKING # Added TYPE_CHECKING
-# from app.core.application_core import ApplicationCore # Removed direct import
+from typing import TYPE_CHECKING
+# from app.core.application_core import ApplicationCore # Direct import removed, now under TYPE_CHECKING
 from app.services.tax_service import TaxCodeService
-from app.services.journal_service import JournalService
-# from app.services.vendor_service import VendorService 
-# from app.models.accounting.withholding_tax_certificate import WithholdingTaxCertificate
+# Removed: from app.services.journal_service import JournalService # Removed direct top-level import
+# from app.services.vendor_service import VendorService # This was already commented out
+# from app.models.accounting.withholding_tax_certificate import WithholdingTaxCertificate # This was already commented out
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore # For type hinting
+    from app.services.journal_service import JournalService # Added for type hinting
 
 class WithholdingTaxManager:
-    def __init__(self, app_core: "ApplicationCore"): # Use string literal
+    def __init__(self, app_core: "ApplicationCore"): # String literal for app_core is fine
         self.app_core = app_core
         self.tax_code_service: TaxCodeService = app_core.tax_code_service # type: ignore
-        self.journal_service: JournalService = app_core.journal_service # type: ignore
+        self.journal_service: "JournalService" = app_core.journal_service # type: ignore # Type hint uses the conditional import
         # self.vendor_service = app_core.vendor_service 
         print("WithholdingTaxManager initialized (stub).")
 

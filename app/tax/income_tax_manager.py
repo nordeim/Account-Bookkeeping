@@ -1,20 +1,19 @@
 # File: app/tax/income_tax_manager.py
-# (Content as previously generated, verified for ApplicationCore property access)
-from typing import TYPE_CHECKING # Added TYPE_CHECKING
-# from app.core.application_core import ApplicationCore # Removed direct import
+from typing import TYPE_CHECKING # Ensured TYPE_CHECKING is imported
+# from app.core.application_core import ApplicationCore # Direct import removed, now under TYPE_CHECKING
 from app.services.account_service import AccountService
-from app.services.journal_service import JournalService
+# Removed: from app.services.journal_service import JournalService # Removed direct top-level import
 from app.services.fiscal_period_service import FiscalPeriodService
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore # For type hinting
-
+    from app.services.journal_service import JournalService # Added for type hinting
 
 class IncomeTaxManager:
-    def __init__(self, app_core: "ApplicationCore"): # Use string literal
+    def __init__(self, app_core: "ApplicationCore"): # String literal for app_core is fine
         self.app_core = app_core
         self.account_service: AccountService = app_core.account_service
-        self.journal_service: JournalService = app_core.journal_service
+        self.journal_service: "JournalService" = app_core.journal_service # Type hint uses the conditional import
         self.fiscal_period_service: FiscalPeriodService = app_core.fiscal_period_service
         # self.company_settings_service = app_core.company_settings_service
         print("IncomeTaxManager initialized (stub).")
@@ -30,3 +29,4 @@ class IncomeTaxManager:
     async def get_form_cs_data(self, fiscal_year_id: int):
         print(f"Fetching data for Form C-S for fiscal year ID {fiscal_year_id} (stub).")
         return {"company_name": "Example Pte Ltd", "revenue": 100000.00, "profit_before_tax": 20000.00}
+
