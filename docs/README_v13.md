@@ -24,7 +24,7 @@
 
 SG Bookkeeper is a comprehensive, cross-platform desktop application designed to meet the accounting and bookkeeping needs of small to medium-sized businesses (SMBs) in Singapore. Built with Python and leveraging the power of PySide6 for a modern user interface and PostgreSQL for robust data management, it offers professional-grade financial tools tailored to Singapore's regulatory environment.
 
-The application features a double-entry accounting core, GST management, interactive financial reporting, modules for essential business operations (Customer, Vendor, Product/Service Management, Sales & Purchase Invoicing, Payments), Bank Account management with transaction entry and **CSV statement import**, a **full Bank Reconciliation module**, and comprehensive User/Role/Permission administration including Audit Logs. Its goal is to provide an intuitive, powerful, and compliant solution that empowers business owners and accountants.
+The application features a double-entry accounting core, GST management, interactive financial reporting, modules for essential business operations (Customer, Vendor, Product/Service Management, Sales & Purchase Invoicing, Payments), Bank Account management with transaction entry, and comprehensive User/Role/Permission administration including Audit Logs. Its goal is to provide an intuitive, powerful, and compliant solution that empowers business owners and accountants.
 
 ### Why SG Bookkeeper?
 
@@ -42,7 +42,7 @@ The application features a double-entry accounting core, GST management, interac
 -   **Comprehensive Double-Entry Bookkeeping** (Implemented)
 -   **Customizable Hierarchical Chart of Accounts** (Implemented - UI for CRUD)
 -   **General Ledger with detailed transaction history** (Implemented - Report generation, on-screen view, export, with dimension filtering options)
--   **Journal Entry System** (Implemented - UI for General Journal with Journal Type filter; transaction-specific JEs generated on posting of source documents; JEs also auto-created from Bank Reconciliation for statement-only items)
+-   **Journal Entry System** (Implemented - UI for General Journal with Journal Type filter; transaction-specific JEs generated on posting of source documents)
 -   **Multi-Currency Support** (Foundational - Models, CurrencyManager exist. UI integration in transactions uses it, e.g., payments, invoices.)
 -   **Fiscal Year and Period Management** (Implemented - UI in Settings for FY creation and period auto-generation.)
 -   **Budgeting and Variance Analysis** (Foundational - Models exist. UI/Logic planned.)
@@ -64,12 +64,11 @@ The application features a double-entry accounting core, GST management, interac
 
 ### Banking
 -   **Bank Account Management** (Implemented - Full CRUD and listing UI for bank accounts, linkage to GL.)
--   **Manual Bank Transaction Entry** (Implemented - UI for manual entry of deposits, withdrawals, fees, interest directly against bank accounts. Transactions are listed per account.)
--   **CSV Bank Statement Import** (Implemented - UI dialog for configuring and importing bank transactions from CSV files.)
--   **Bank Reconciliation Tools** (Implemented - UI for matching bank statement items with system transactions, identifying discrepancies, creating adjustment JEs, and saving reconciliation state.)
+-   **Basic Bank Transaction Entry** (Implemented - UI for manual entry of deposits, withdrawals, fees, interest directly against bank accounts. Transactions are listed per account.)
+-   **Bank Reconciliation Tools** (Planned)
 
 ### Reporting & Analytics
--   **Standard Financial Statements**: Balance Sheet, Profit & Loss, Trial Balance, General Ledger (Implemented - UI in Reports tab with options for comparative/zero-balance, on-screen view, PDF/Excel export with enhanced formatting for all four statements. GL includes dimension filtering options.)
+-   **Standard Financial Statements**: Balance Sheet, Profit & Loss, Trial Balance, General Ledger (Implemented - UI in Reports tab with options for comparative/zero-balance, on-screen view, PDF/Excel export with enhanced formatting for all four statements. GL includes dimension filtering.)
 -   **Cash Flow Statement** (Planned)
 -   **GST Reports** (Implemented - See GST F5 above, including detailed Excel export.)
 -   **Customizable Reporting Engine** (Foundational - `ReportEngine` has enhanced exports; further customization planned)
@@ -171,7 +170,35 @@ This guide is for developers setting up the application from source. End-user in
     *   This script executes `scripts/schema.sql` (DDL) and `scripts/initial_data.sql` (DML for seeding).
 
 6.  **Grant Privileges to Application User (if `sgbookkeeper_user` didn't create the DB):**
-    *   The `scripts/initial_data.sql` file now includes `GRANT` statements that should be executed by the superuser after the schema is created by `db_init.py`. If `db_init.py` is run by `postgres`, these grants should apply correctly to `sgbookkeeper_user`. If you encounter permission issues, manually run the `GRANT` statements found at the end of `scripts/initial_data.sql` while connected as a superuser to the `sg_bookkeeper` database.
+    *   If `db_init.py` was run by an admin user (e.g., `postgres`) and created the database, connect as that admin user to `sg_bookkeeper` database:
+        ```bash
+        psql -U postgres -d sg_bookkeeper
+        ```
+    *   Execute the following `GRANT` commands (replace `sgbookkeeper_user` if you used a different application username):
+        ```sql
+        GRANT USAGE ON SCHEMA core, accounting, business, audit TO sgbookkeeper_user;
+        GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA core TO sgbookkeeper_user;
+        GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA accounting TO sgbookkeeper_user;
+        GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA business TO sgbookkeeper_user;
+        GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA audit TO sgbookkeeper_user;
+        GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA core TO sgbookkeeper_user;
+        GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA accounting TO sgbookkeeper_user;
+        GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA business TO sgbookkeeper_user;
+        GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA audit TO sgbookkeeper_user;
+        GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA core TO sgbookkeeper_user;
+        GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA accounting TO sgbookkeeper_user;
+        GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA audit TO sgbookkeeper_user;
+
+        ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA core GRANT ALL ON TABLES TO sgbookkeeper_user;
+        ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA accounting GRANT ALL ON TABLES TO sgbookkeeper_user;
+        ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA business GRANT ALL ON TABLES TO sgbookkeeper_user;
+        ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA audit GRANT ALL ON TABLES TO sgbookkeeper_user;
+        ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA core GRANT USAGE, SELECT ON SEQUENCES TO sgbookkeeper_user;
+        ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA accounting GRANT USAGE, SELECT ON SEQUENCES TO sgbookkeeper_user;
+        ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA business GRANT USAGE, SELECT ON SEQUENCES TO sgbookkeeper_user;
+        ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA audit GRANT USAGE, SELECT ON SEQUENCES TO sgbookkeeper_user;
+        \q
+        ```
 
 7.  **Compile Qt Resources (Recommended for consistent icon loading):**
     The application attempts to use compiled resources first (`app/resources_rc.py`).
@@ -199,10 +226,9 @@ The application provides a range of functional modules accessible via tabs in th
 -   **Customers Tab**: View, search, filter, add, edit, and toggle active status for customers.
 -   **Vendors Tab**: View, search, filter, add, edit, and toggle active status for vendors.
 -   **Products & Services Tab**: Manage products and services (Inventory, Non-Inventory, Service types) with list view, filters, add/edit dialog.
--   **Banking C.R.U.D Tab**:
+-   **Banking Tab**:
     -   **Bank Accounts**: Manage bank accounts (add, edit, toggle active), view list of accounts.
-    -   **Transactions**: For a selected bank account, view its transactions and add manual entries (deposits, withdrawals, fees, etc.). Import bank statements via CSV.
--   **Bank Reconciliation Tab**: Perform bank reconciliations by selecting an account, statement date, and ending balance. Load unreconciled statement items (from CSV imports) and system transactions. Match items, create adjustment JEs for unmatched statement items (like bank charges or interest), and save the reconciliation once the difference is zero.
+    -   **Transactions**: For a selected bank account, view its transactions and add manual entries (deposits, withdrawals, fees, etc.).
 -   **Reports Tab**:
     -   **GST F5 Preparation**: Prepare, view, save draft, and finalize GST F5 returns. Export detailed breakdown to Excel.
     *   **Financial Statements**: Generate Balance Sheet, Profit & Loss, Trial Balance, or General Ledger. View in structured tables/trees. Export to PDF/Excel with enhanced formatting. GL reports support filtering by up to two dimensions. BS/P&L reports support comparative periods and zero-balance account options.
@@ -221,48 +247,45 @@ Upon first run (after DB initialization), an `admin` user is created with the pa
 sg_bookkeeper/
 ├── app/
 │   ├── __init__.py
-│   ├── main.py                     # Main application entry point
+│   ├── main.py                     # Main application entry point (QApplication, asyncio bridge)
 │   ├── core/                       # Core components (ApplicationCore, DBManager, Config, Security)
 │   ├── common/                     # Common utilities, enums
-│   ├── models/                     # SQLAlchemy ORM models (organized by schema)
-│   │   ├── accounting/
-│   │   ├── audit/
-│   │   ├── business/
-│   │   └── core/
+│   ├── models/                     # SQLAlchemy ORM models (organized by schema: core, accounting, etc.)
 │   ├── services/                   # Data access services (repositories)
+│   │   ├── audit_services.py       # Service for Audit Logs
 │   ├── accounting/                 # Business logic managers for accounting module
 │   ├── tax/                        # Business logic managers for tax module
 │   ├── business_logic/             # Managers for Customers, Vendors, Products, Invoices, Payments, Banking
 │   ├── reporting/                  # Logic managers for generating reports
 │   ├── ui/                         # PySide6 UI components (organized by module)
 │   │   ├── accounting/
-│   │   ├── audit/
-│   │   ├── banking/                # UI for Banking (Accounts, Transactions, Reconciliation, CSV Import)
+│   │   ├── audit/                  # UI for Audit Logs
+│   │   ├── banking/                # UI for Banking module
 │   │   ├── customers/
-│   │   ├── payments/
+│   │   ├── payments/               # UI for Payments module
 │   │   ├── products/
 │   │   ├── purchase_invoices/
 │   │   ├── reports/
 │   │   ├── sales_invoices/
 │   │   ├── settings/               
-│   │   ├── shared/                 # Shared UI components
+│   │   ├── shared/                 # Shared UI components like ProductSearchDialog
 │   │   └── ... (other ui modules)
 │   ├── utils/                      # General utility functions, Pydantic DTOs, helpers
-│   └── resources_rc.py             # Compiled Qt resources
-├── data/                           # Default data templates
-├── docs/                           # Project documentation
+│   └── resources_rc.py             # Compiled Qt resources (if generated)
+├── data/                           # Default data templates (CoA, report templates, tax codes)
+├── docs/                           # Project documentation (like this README, TDS)
 ├── resources/                      # UI assets (icons, images, .qrc file)
-├── scripts/                        # Database initialization and utility scripts
+├── scripts/                        # Database initialization and utility scripts (db_init.py, schema.sql, initial_data.sql)
 ├── tests/                          # Automated tests (planned)
 ├── .gitignore
-├── pyproject.toml                  # Poetry configuration
+├── pyproject.toml                  # Poetry configuration for dependencies and project metadata
 ├── poetry.lock
 ├── README.md                       # This file
 └── LICENSE
 ```
 
 ## Database Schema
-The application uses a PostgreSQL database with a schema organized into four main parts: `core`, `accounting`, `business`, and `audit`. This schema is designed to be comprehensive, supporting a wide range of accounting and business functionalities, including the new `bank_reconciliations` table and related fields for bank transaction management. For the complete schema details, including table structures, views, functions, and triggers, please refer to `scripts/schema.sql`.
+The application uses a PostgreSQL database with a schema organized into four main parts: `core`, `accounting`, `business`, and `audit`. This schema is designed to be comprehensive, supporting a wide range of accounting and business functionalities. For the complete schema details, including table structures, views, functions, and triggers, please refer to `scripts/schema.sql`.
 
 ## Development
 -   **Formatting**: Code is formatted using Black. Run `poetry run black .`
@@ -284,31 +307,41 @@ Please adhere to standard coding practices and ensure your contributions align w
 
 ## Roadmap
 
-### Recently Completed (v1.0.4 Features)
--   **Banking Module (Phase 1.5)**:
-    *   **Bank Reconciliation UI & Core Logic**: Interface for selecting account, statement date/balance. Loading unreconciled statement items and system transactions. UI calculations for reconciliation summary. Ability to "Match Selected" items (for UI calculation). "Save Reconciliation" functionality to persist reconciled state and update related records.
-    *   **CSV Bank Statement Import**: UI dialog (`CSVImportConfigDialog`) for configuring column mappings and importing transactions from CSV files into `bank_transactions` table, flagged as `is_from_statement=True`.
-    *   **Journal Entry for Statement Items**: UI button in reconciliation screen to pre-fill `JournalEntryDialog` for unmatched statement items (e.g., bank charges, interest). Posting these JEs now auto-creates corresponding system `BankTransaction` records.
--   Database schema updates for bank reconciliation (`bank_reconciliations` table, new columns in `bank_accounts`, `bank_transactions`).
--   Automatic `bank_accounts.current_balance` updates via database trigger on `bank_transactions` changes.
--   `JournalEntryManager` now auto-creates `BankTransaction` records when a JE line affects a bank-linked GL account.
+### Recently Completed
+-   **Purchase Invoicing**: Full posting logic (Financial JE & Inventory Movements using WAC).
+-   **Sales & Purchase Invoicing**: Enhanced line item entry with an advanced product search popup.
+-   **Reporting Refinements**:
+    *   Improved PDF/Excel export formatting for Trial Balance and General Ledger reports.
+    *   Added Journal Type filter to Journal Entries list.
+    *   Added Dimension filters (up to two dimensions) to General Ledger report generation.
+    *   Enhanced GST F5 Excel export with detailed transaction breakdown per box.
+-   **Banking Module (Phase 1)**:
+    *   Full CRUD UI and backend for Bank Account management.
+    *   Basic UI and backend for manual Bank Transaction entry (deposits, withdrawals, etc.), displayed per bank account.
+-   **Payments Module (Phase 1)**:
+    *   Full UI and backend for recording Customer Receipts and Vendor Payments.
+    *   Invoice allocation functionality within the payment entry dialog.
+    *   Automatic Journal Entry creation and posting for payments.
+-   **Audit Log UI**:
+    *   UI in Settings to view and filter Action Log and Data Change History.
 
-### Current Focus / Next Steps
+### Current Focus / Next Steps (Phase 3 from original plan / New Medium-Term)
+-   **Bank Reconciliation**:
+    *   Implement UI for importing bank statements (CSV first, potentially OFX later).
+    *   Develop UI for matching bank statement lines with system bank transactions.
+    *   Logic for handling discrepancies and creating adjustment transactions.
+    *   Saving reconciliation state and generating reconciliation reports.
 -   **Dashboard KPIs**:
     *   Implement `DashboardWidget` to display key financial indicators (e.g., Revenue vs. Expense, Profit Trends, Cash Flow Summary, AR/AP Aging).
--   **Automated Testing (Phase 1 - CRITICAL)**:
+-   **Automated Testing (Phase 1 from original plan - CRITICAL)**:
     *   Establish a comprehensive test suite: unit tests for services/managers, integration tests for core workflows, and basic UI tests for critical paths.
--   **Refine Bank Reconciliation**:
-    *   Handling of complex matches (e.g., one-to-many, many-to-one).
-    *   UI improvements for displaying matched items and reconciliation history.
-    *   More robust error handling and user feedback during import and reconciliation.
 
 ### Long-term
 -   Advanced reporting and analytics (customizable reports, more visual dashboards).
--   Inventory Control enhancements (e.g., stocktakes, stock movements beyond invoicing, potentially alternative valuation methods).
+-   Inventory Control enhancements (e.g., stocktakes, stock movements beyond invoicing, potentially alternative valuation methods like FIFO/Standard Cost if WAC proves insufficient for some users).
 -   Multi-company support (major architectural consideration).
 -   Cloud synchronization options (optional, for future exploration).
--   Enhanced Tax Compliance features (e.g., more detailed Income Tax aids, potential for IAF generation).
+-   Enhanced Tax Compliance features (e.g., more detailed Income Tax aids, potential for IAF generation if required by users).
 
 ## License
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

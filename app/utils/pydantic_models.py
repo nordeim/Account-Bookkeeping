@@ -195,22 +195,7 @@ class VendorSummaryData(AppBaseModel): id: int; vendor_code: str; name: str; ema
 
 # --- Product/Service Related DTOs ---
 class ProductBaseData(AppBaseModel): 
-    product_code: str = Field(..., min_length=1, max_length=20)
-    name: str = Field(..., min_length=1, max_length=100)
-    description: Optional[str] = None
-    product_type: ProductTypeEnum
-    category: Optional[str] = Field(None, max_length=50)
-    unit_of_measure: Optional[str] = Field(None, max_length=20)
-    barcode: Optional[str] = Field(None, max_length=50)
-    sales_price: Optional[Decimal] = Field(None, ge=Decimal(0))       
-    purchase_price: Optional[Decimal] = Field(None, ge=Decimal(0))    
-    sales_account_id: Optional[int] = None
-    purchase_account_id: Optional[int] = None
-    inventory_account_id: Optional[int] = None
-    tax_code: Optional[str] = Field(None, max_length=20)
-    is_active: bool = True
-    min_stock_level: Optional[Decimal] = Field(None, ge=Decimal(0))   
-    reorder_point: Optional[Decimal] = Field(None, ge=Decimal(0))     
+    product_code: str = Field(..., min_length=1, max_length=20); name: str = Field(..., min_length=1, max_length=100); description: Optional[str] = None; product_type: ProductTypeEnum; category: Optional[str] = Field(None, max_length=50); unit_of_measure: Optional[str] = Field(None, max_length=20); barcode: Optional[str] = Field(None, max_length=50); sales_price: Optional[Decimal] = Field(None, ge=Decimal(0)); purchase_price: Optional[Decimal] = Field(None, ge=Decimal(0)); sales_account_id: Optional[int] = None; purchase_account_id: Optional[int] = None; inventory_account_id: Optional[int] = None; tax_code: Optional[str] = Field(None, max_length=20); is_active: bool = True; min_stock_level: Optional[Decimal] = Field(None, ge=Decimal(0)); reorder_point: Optional[Decimal] = Field(None, ge=Decimal(0))     
     @validator('sales_price', 'purchase_price', 'min_stock_level', 'reorder_point', pre=True, always=True)
     def product_decimal_fields(cls, v): return Decimal(str(v)) if v is not None else None
     @root_validator(skip_on_failure=True)
@@ -229,9 +214,7 @@ class ProductSummaryData(AppBaseModel): id: int; product_code: str; name: str; p
 
 # --- Sales Invoice Related DTOs ---
 class SalesInvoiceLineBaseData(AppBaseModel):
-    product_id: Optional[int] = None; description: str = Field(..., min_length=1, max_length=200); quantity: Decimal = Field(..., gt=Decimal(0)); unit_price: Decimal = Field(..., ge=Decimal(0)); discount_percent: Decimal = Field(Decimal(0), ge=Decimal(0), le=Decimal(100)); tax_code: Optional[str] = Field(None, max_length=20)
-    dimension1_id: Optional[int] = None 
-    dimension2_id: Optional[int] = None 
+    product_id: Optional[int] = None; description: str = Field(..., min_length=1, max_length=200); quantity: Decimal = Field(..., gt=Decimal(0)); unit_price: Decimal = Field(..., ge=Decimal(0)); discount_percent: Decimal = Field(Decimal(0), ge=Decimal(0), le=Decimal(100)); tax_code: Optional[str] = Field(None, max_length=20); dimension1_id: Optional[int] = None; dimension2_id: Optional[int] = None 
     @validator('quantity', 'unit_price', 'discount_percent', pre=True, always=True)
     def sales_inv_line_decimals(cls, v): return Decimal(str(v)) if v is not None else Decimal(0)
 class SalesInvoiceBaseData(AppBaseModel):
@@ -249,310 +232,125 @@ class SalesInvoiceData(SalesInvoiceBaseData): id: int; invoice_no: str; subtotal
 class SalesInvoiceSummaryData(AppBaseModel): id: int; invoice_no: str; invoice_date: date; due_date: date; customer_name: str; total_amount: Decimal; amount_paid: Decimal; status: InvoiceStatusEnum; currency_code: str
 
 # --- User & Role Management DTOs ---
-class RoleData(AppBaseModel): 
-    id: int
-    name: str
-    description: Optional[str] = None
-    permission_ids: List[int] = Field(default_factory=list) 
-
-class UserSummaryData(AppBaseModel): 
-    id: int
-    username: str
-    full_name: Optional[str] = None
-    email: Optional[EmailStr] = None
-    is_active: bool
-    last_login: Optional[datetime] = None
-    roles: List[str] = Field(default_factory=list) 
-
-class UserRoleAssignmentData(AppBaseModel): 
-    role_id: int
-
-class UserBaseData(AppBaseModel): 
-    username: str = Field(..., min_length=3, max_length=50)
-    full_name: Optional[str] = Field(None, max_length=100)
-    email: Optional[EmailStr] = None
-    is_active: bool = True
-
-class UserCreateInternalData(UserBaseData): 
-    password_hash: str 
-    assigned_roles: List[UserRoleAssignmentData] = Field(default_factory=list)
-
+class RoleData(AppBaseModel): id: int; name: str; description: Optional[str] = None; permission_ids: List[int] = Field(default_factory=list) 
+class UserSummaryData(AppBaseModel): id: int; username: str; full_name: Optional[str] = None; email: Optional[EmailStr] = None; is_active: bool; last_login: Optional[datetime] = None; roles: List[str] = Field(default_factory=list) 
+class UserRoleAssignmentData(AppBaseModel): role_id: int
+class UserBaseData(AppBaseModel): username: str = Field(..., min_length=3, max_length=50); full_name: Optional[str] = Field(None, max_length=100); email: Optional[EmailStr] = None; is_active: bool = True
+class UserCreateInternalData(UserBaseData): password_hash: str; assigned_roles: List[UserRoleAssignmentData] = Field(default_factory=list)
 class UserCreateData(UserBaseData, UserAuditData): 
-    password: str = Field(..., min_length=8)
-    confirm_password: str
-    assigned_role_ids: List[int] = Field(default_factory=list)
-
+    password: str = Field(..., min_length=8); confirm_password: str; assigned_role_ids: List[int] = Field(default_factory=list)
     @root_validator(skip_on_failure=True)
     def passwords_match(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         pw1, pw2 = values.get('password'), values.get('confirm_password')
-        if pw1 is not None and pw2 is not None and pw1 != pw2:
-            raise ValueError('Passwords do not match')
+        if pw1 is not None and pw2 is not None and pw1 != pw2: raise ValueError('Passwords do not match')
         return values
-
-class UserUpdateData(UserBaseData, UserAuditData): 
-    id: int
-    assigned_role_ids: List[int] = Field(default_factory=list)
-
+class UserUpdateData(UserBaseData, UserAuditData): id: int; assigned_role_ids: List[int] = Field(default_factory=list)
 class UserPasswordChangeData(AppBaseModel, UserAuditData): 
-    user_id_to_change: int 
-    new_password: str = Field(..., min_length=8)
-    confirm_new_password: str
+    user_id_to_change: int; new_password: str = Field(..., min_length=8); confirm_new_password: str
     @root_validator(skip_on_failure=True)
     def new_passwords_match(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         pw1, pw2 = values.get('new_password'), values.get('confirm_new_password')
-        if pw1 is not None and pw2 is not None and pw1 != pw2:
-            raise ValueError('New passwords do not match')
+        if pw1 is not None and pw2 is not None and pw1 != pw2: raise ValueError('New passwords do not match')
         return values
-
-class RoleCreateData(AppBaseModel): 
-    name: str = Field(..., min_length=3, max_length=50)
-    description: Optional[str] = Field(None, max_length=200)
-    permission_ids: List[int] = Field(default_factory=list)
-
-class RoleUpdateData(RoleCreateData):
-    id: int
-
-class PermissionData(AppBaseModel): 
-    id: int
-    code: str
-    description: Optional[str] = None
-    module: str
+class RoleCreateData(AppBaseModel): name: str = Field(..., min_length=3, max_length=50); description: Optional[str] = Field(None, max_length=200); permission_ids: List[int] = Field(default_factory=list)
+class RoleUpdateData(RoleCreateData): id: int
+class PermissionData(AppBaseModel): id: int; code: str; description: Optional[str] = None; module: str
 
 # --- Purchase Invoice Related DTOs ---
 class PurchaseInvoiceLineBaseData(AppBaseModel):
-    product_id: Optional[int] = None
-    description: str = Field(..., min_length=1, max_length=200)
-    quantity: Decimal = Field(..., gt=Decimal(0))
-    unit_price: Decimal = Field(..., ge=Decimal(0))
-    discount_percent: Decimal = Field(Decimal(0), ge=Decimal(0), le=Decimal(100))
-    tax_code: Optional[str] = Field(None, max_length=20)
-    dimension1_id: Optional[int] = None
-    dimension2_id: Optional[int] = None
-
+    product_id: Optional[int] = None; description: str = Field(..., min_length=1, max_length=200); quantity: Decimal = Field(..., gt=Decimal(0)); unit_price: Decimal = Field(..., ge=Decimal(0)); discount_percent: Decimal = Field(Decimal(0), ge=Decimal(0), le=Decimal(100)); tax_code: Optional[str] = Field(None, max_length=20); dimension1_id: Optional[int] = None; dimension2_id: Optional[int] = None
     @validator('quantity', 'unit_price', 'discount_percent', pre=True, always=True)
-    def purch_inv_line_decimals(cls, v):
-        return Decimal(str(v)) if v is not None else Decimal(0)
-
+    def purch_inv_line_decimals(cls, v): return Decimal(str(v)) if v is not None else Decimal(0)
 class PurchaseInvoiceBaseData(AppBaseModel):
-    vendor_id: int
-    vendor_invoice_no: Optional[str] = Field(None, max_length=50) 
-    invoice_date: date
-    due_date: date
-    currency_code: str = Field("SGD", min_length=3, max_length=3)
-    exchange_rate: Decimal = Field(Decimal(1), ge=Decimal(0))
-    notes: Optional[str] = None
-    
+    vendor_id: int; vendor_invoice_no: Optional[str] = Field(None, max_length=50); invoice_date: date; due_date: date; currency_code: str = Field("SGD", min_length=3, max_length=3); exchange_rate: Decimal = Field(Decimal(1), ge=Decimal(0)); notes: Optional[str] = None
     @validator('exchange_rate', pre=True, always=True)
-    def purch_inv_hdr_decimals(cls, v):
-        return Decimal(str(v)) if v is not None else Decimal(1)
-
+    def purch_inv_hdr_decimals(cls, v): return Decimal(str(v)) if v is not None else Decimal(1)
     @root_validator(skip_on_failure=True)
     def check_pi_due_date(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         invoice_date, due_date = values.get('invoice_date'), values.get('due_date')
-        if invoice_date and due_date and due_date < invoice_date:
-            raise ValueError("Due date cannot be before invoice date.")
+        if invoice_date and due_date and due_date < invoice_date: raise ValueError("Due date cannot be before invoice date.")
         return values
-
-class PurchaseInvoiceCreateData(PurchaseInvoiceBaseData, UserAuditData):
-    lines: List[PurchaseInvoiceLineBaseData] = Field(..., min_length=1)
-
-class PurchaseInvoiceUpdateData(PurchaseInvoiceBaseData, UserAuditData):
-    id: int
-    lines: List[PurchaseInvoiceLineBaseData] = Field(..., min_length=1)
-
-class PurchaseInvoiceData(PurchaseInvoiceBaseData): 
-    id: int
-    invoice_no: str 
-    subtotal: Decimal
-    tax_amount: Decimal
-    total_amount: Decimal
-    amount_paid: Decimal
-    status: InvoiceStatusEnum 
-    journal_entry_id: Optional[int] = None
-    lines: List[PurchaseInvoiceLineBaseData] 
-    created_at: datetime
-    updated_at: datetime
-    created_by_user_id: int
-    updated_by_user_id: int
-
-class PurchaseInvoiceSummaryData(AppBaseModel): 
-    id: int
-    invoice_no: str 
-    vendor_invoice_no: Optional[str] = None
-    invoice_date: date
-    vendor_name: str 
-    total_amount: Decimal
-    status: InvoiceStatusEnum
-    currency_code: str 
+class PurchaseInvoiceCreateData(PurchaseInvoiceBaseData, UserAuditData): lines: List[PurchaseInvoiceLineBaseData] = Field(..., min_length=1)
+class PurchaseInvoiceUpdateData(PurchaseInvoiceBaseData, UserAuditData): id: int; lines: List[PurchaseInvoiceLineBaseData] = Field(..., min_length=1)
+class PurchaseInvoiceData(PurchaseInvoiceBaseData): id: int; invoice_no: str; subtotal: Decimal; tax_amount: Decimal; total_amount: Decimal; amount_paid: Decimal; status: InvoiceStatusEnum; journal_entry_id: Optional[int] = None; lines: List[PurchaseInvoiceLineBaseData]; created_at: datetime; updated_at: datetime; created_by_user_id: int; updated_by_user_id: int
+class PurchaseInvoiceSummaryData(AppBaseModel): id: int; invoice_no: str; vendor_invoice_no: Optional[str] = None; invoice_date: date; vendor_name: str; total_amount: Decimal; status: InvoiceStatusEnum; currency_code: str 
 
 # --- Bank Account DTOs ---
 class BankAccountBaseData(AppBaseModel):
-    account_name: str = Field(..., min_length=1, max_length=100)
-    account_number: str = Field(..., min_length=1, max_length=50)
-    bank_name: str = Field(..., min_length=1, max_length=100)
-    bank_branch: Optional[str] = Field(None, max_length=100)
-    bank_swift_code: Optional[str] = Field(None, max_length=20)
-    currency_code: str = Field("SGD", min_length=3, max_length=3)
-    opening_balance: Decimal = Field(Decimal(0))
-    opening_balance_date: Optional[date] = None
-    gl_account_id: int 
-    is_active: bool = True
-    description: Optional[str] = None
-
+    account_name: str = Field(..., min_length=1, max_length=100); account_number: str = Field(..., min_length=1, max_length=50); bank_name: str = Field(..., min_length=1, max_length=100); bank_branch: Optional[str] = Field(None, max_length=100); bank_swift_code: Optional[str] = Field(None, max_length=20); currency_code: str = Field("SGD", min_length=3, max_length=3); opening_balance: Decimal = Field(Decimal(0)); opening_balance_date: Optional[date] = None; gl_account_id: int; is_active: bool = True; description: Optional[str] = None
     @validator('opening_balance', pre=True, always=True)
-    def bank_opening_balance_to_decimal(cls, v):
-        return Decimal(str(v)) if v is not None else Decimal(0)
-
+    def bank_opening_balance_to_decimal(cls, v): return Decimal(str(v)) if v is not None else Decimal(0)
     @root_validator(skip_on_failure=True)
     def check_ob_date_if_ob_exists_bank(cls, values: Dict[str, Any]) -> Dict[str, Any]:
-        ob = values.get('opening_balance')
-        ob_date = values.get('opening_balance_date')
-        if ob is not None and ob != Decimal(0) and ob_date is None:
-            raise ValueError("Opening Balance Date is required if Opening Balance is not zero.")
-        if ob_date is not None and (ob is None or ob == Decimal(0)):
-            values['opening_balance_date'] = None 
+        ob = values.get('opening_balance'); ob_date = values.get('opening_balance_date')
+        if ob is not None and ob != Decimal(0) and ob_date is None: raise ValueError("Opening Balance Date is required if Opening Balance is not zero.")
+        if ob_date is not None and (ob is None or ob == Decimal(0)): values['opening_balance_date'] = None 
         return values
-
-class BankAccountCreateData(BankAccountBaseData, UserAuditData):
-    pass
-
-class BankAccountUpdateData(BankAccountBaseData, UserAuditData):
-    id: int
-
-class BankAccountSummaryData(AppBaseModel):
-    id: int
-    account_name: str
-    bank_name: str
-    account_number: str 
-    currency_code: str
-    current_balance: Decimal 
-    gl_account_code: Optional[str] = None 
-    gl_account_name: Optional[str] = None 
-    is_active: bool
+class BankAccountCreateData(BankAccountBaseData, UserAuditData): pass
+class BankAccountUpdateData(BankAccountBaseData, UserAuditData): id: int
+class BankAccountSummaryData(AppBaseModel): id: int; account_name: str; bank_name: str; account_number: str; currency_code: str; current_balance: Decimal; gl_account_code: Optional[str] = None; gl_account_name: Optional[str] = None; is_active: bool
 
 # --- Bank Transaction DTOs ---
 class BankTransactionBaseData(AppBaseModel):
-    bank_account_id: int
-    transaction_date: date
-    value_date: Optional[date] = None 
-    transaction_type: BankTransactionTypeEnum 
-    description: str = Field(..., min_length=1, max_length=200)
-    reference: Optional[str] = Field(None, max_length=100)
-    amount: Decimal 
-
+    bank_account_id: int; transaction_date: date; value_date: Optional[date] = None; transaction_type: BankTransactionTypeEnum; description: str = Field(..., min_length=1, max_length=200); reference: Optional[str] = Field(None, max_length=100); amount: Decimal 
     @validator('amount', pre=True, always=True)
-    def bank_txn_amount_to_decimal(cls, v):
-        return Decimal(str(v)) if v is not None else Decimal(0)
-
+    def bank_txn_amount_to_decimal(cls, v): return Decimal(str(v)) if v is not None else Decimal(0)
     @root_validator(skip_on_failure=True)
     def check_amount_sign_vs_type_bank_txn(cls, values: Dict[str, Any]) -> Dict[str, Any]:
-        amount = values.get('amount')
-        txn_type = values.get('transaction_type')
-        if amount is None or txn_type is None: 
-            return values 
+        amount = values.get('amount'); txn_type = values.get('transaction_type')
+        if amount is None or txn_type is None: return values 
         if txn_type in [BankTransactionTypeEnum.DEPOSIT, BankTransactionTypeEnum.INTEREST]:
-            if amount < Decimal(0):
-                raise ValueError(f"{txn_type.value} amount must be positive or zero.")
+            if amount < Decimal(0): raise ValueError(f"{txn_type.value} amount must be positive or zero.")
         elif txn_type in [BankTransactionTypeEnum.WITHDRAWAL, BankTransactionTypeEnum.FEE]:
-            if amount > Decimal(0):
-                raise ValueError(f"{txn_type.value} amount must be negative or zero.")
+            if amount > Decimal(0): raise ValueError(f"{txn_type.value} amount must be negative or zero.")
         return values
-
-class BankTransactionCreateData(BankTransactionBaseData, UserAuditData):
-    pass
-
-class BankTransactionSummaryData(AppBaseModel):
-    id: int
-    transaction_date: date
-    value_date: Optional[date] = None
-    transaction_type: BankTransactionTypeEnum
-    description: str
-    reference: Optional[str] = None
-    amount: Decimal 
-    is_reconciled: bool = False
+class BankTransactionCreateData(BankTransactionBaseData, UserAuditData): pass
+class BankTransactionSummaryData(AppBaseModel): id: int; transaction_date: date; value_date: Optional[date] = None; transaction_type: BankTransactionTypeEnum; description: str; reference: Optional[str] = None; amount: Decimal; is_reconciled: bool = False
 
 # --- Payment DTOs ---
 class PaymentAllocationBaseData(AppBaseModel):
-    document_id: int 
-    document_type: PaymentAllocationDocTypeEnum
-    amount_allocated: Decimal = Field(..., gt=Decimal(0))
-
+    document_id: int; document_type: PaymentAllocationDocTypeEnum; amount_allocated: Decimal = Field(..., gt=Decimal(0))
     @validator('amount_allocated', pre=True, always=True)
-    def payment_alloc_amount_to_decimal(cls, v):
-        return Decimal(str(v)) if v is not None else Decimal(0)
-
+    def payment_alloc_amount_to_decimal(cls, v): return Decimal(str(v)) if v is not None else Decimal(0)
 class PaymentBaseData(AppBaseModel):
-    payment_type: PaymentTypeEnum
-    payment_method: PaymentMethodEnum
-    payment_date: date
-    entity_type: PaymentEntityTypeEnum
-    entity_id: int 
-    bank_account_id: Optional[int] = None 
-    currency_code: str = Field(..., min_length=3, max_length=3)
-    exchange_rate: Decimal = Field(Decimal(1), ge=Decimal(0))
-    amount: Decimal = Field(..., gt=Decimal(0)) 
-    reference: Optional[str] = Field(None, max_length=100)
-    description: Optional[str] = None
-    cheque_no: Optional[str] = Field(None, max_length=50)
-
+    payment_type: PaymentTypeEnum; payment_method: PaymentMethodEnum; payment_date: date; entity_type: PaymentEntityTypeEnum; entity_id: int; bank_account_id: Optional[int] = None; currency_code: str = Field(..., min_length=3, max_length=3); exchange_rate: Decimal = Field(Decimal(1), ge=Decimal(0)); amount: Decimal = Field(..., gt=Decimal(0)); reference: Optional[str] = Field(None, max_length=100); description: Optional[str] = None; cheque_no: Optional[str] = Field(None, max_length=50)
     @validator('exchange_rate', 'amount', pre=True, always=True)
-    def payment_base_decimals(cls, v):
-        return Decimal(str(v)) if v is not None else Decimal(0)
-        
+    def payment_base_decimals(cls, v): return Decimal(str(v)) if v is not None else Decimal(0)
     @root_validator(skip_on_failure=True)
     def check_bank_account_for_non_cash(cls, values: Dict[str, Any]) -> Dict[str, Any]:
-        payment_method = values.get('payment_method')
-        bank_account_id = values.get('bank_account_id')
-        if payment_method != PaymentMethodEnum.CASH and bank_account_id is None:
-            raise ValueError("Bank Account is required for non-cash payment methods.")
-        if payment_method == PaymentMethodEnum.CASH and bank_account_id is not None:
-            raise ValueError("Bank Account should not be specified for Cash payment method.")
+        payment_method = values.get('payment_method'); bank_account_id = values.get('bank_account_id')
+        if payment_method != PaymentMethodEnum.CASH and bank_account_id is None: raise ValueError("Bank Account is required for non-cash payment methods.")
+        if payment_method == PaymentMethodEnum.CASH and bank_account_id is not None: raise ValueError("Bank Account should not be specified for Cash payment method.")
         return values
-
 class PaymentCreateData(PaymentBaseData, UserAuditData):
     allocations: List[PaymentAllocationBaseData] = Field(default_factory=list)
-
     @root_validator(skip_on_failure=True)
     def check_total_allocation_vs_payment_amount(cls, values: Dict[str, Any]) -> Dict[str, Any]:
-        payment_amount = values.get('amount', Decimal(0))
-        allocations = values.get('allocations', [])
-        total_allocated = sum(alloc.amount_allocated for alloc in allocations)
-        
-        if total_allocated > payment_amount:
-            raise ValueError(f"Total allocated amount ({total_allocated}) cannot exceed payment amount ({payment_amount}).")
+        payment_amount = values.get('amount', Decimal(0)); allocations = values.get('allocations', []); total_allocated = sum(alloc.amount_allocated for alloc in allocations)
+        if total_allocated > payment_amount: raise ValueError(f"Total allocated amount ({total_allocated}) cannot exceed payment amount ({payment_amount}).")
         return values
-
-class PaymentSummaryData(AppBaseModel):
-    id: int
-    payment_no: str
-    payment_date: date
-    payment_type: PaymentTypeEnum
-    payment_method: PaymentMethodEnum
-    entity_type: PaymentEntityTypeEnum
-    entity_name: str 
-    amount: Decimal
-    currency_code: str
-    status: PaymentStatusEnum
+class PaymentSummaryData(AppBaseModel): id: int; payment_no: str; payment_date: date; payment_type: PaymentTypeEnum; payment_method: PaymentMethodEnum; entity_type: PaymentEntityTypeEnum; entity_name: str; amount: Decimal; currency_code: str; status: PaymentStatusEnum
 
 # --- Audit Log DTOs ---
-class AuditLogEntryData(AppBaseModel):
-    id: int
-    timestamp: datetime
-    username: Optional[str] = "System" 
-    action: str
-    entity_type: str
-    entity_id: Optional[int] = None
-    entity_name: Optional[str] = None
-    changes_summary: Optional[str] = None 
-    ip_address: Optional[str] = None
+class AuditLogEntryData(AppBaseModel): id: int; timestamp: datetime; username: Optional[str] = "System"; action: str; entity_type: str; entity_id: Optional[int] = None; entity_name: Optional[str] = None; changes_summary: Optional[str] = None; ip_address: Optional[str] = None
+class DataChangeHistoryEntryData(AppBaseModel): id: int; changed_at: datetime; table_name: str; record_id: int; field_name: str; old_value: Optional[str] = None; new_value: Optional[str] = None; change_type: DataChangeTypeEnum; changed_by_username: Optional[str] = "System"
 
-class DataChangeHistoryEntryData(AppBaseModel):
+# --- Bank Reconciliation DTOs ---
+class BankReconciliationBaseData(AppBaseModel):
+    bank_account_id: int
+    statement_date: date
+    statement_ending_balance: Decimal
+    calculated_book_balance: Decimal
+    reconciled_difference: Decimal
+    notes: Optional[str] = None
+
+class BankReconciliationCreateData(BankReconciliationBaseData, UserAuditData):
+    pass 
+
+class BankReconciliationData(BankReconciliationBaseData): 
     id: int
-    changed_at: datetime
-    table_name: str
-    record_id: int
-    field_name: str
-    old_value: Optional[str] = None
-    new_value: Optional[str] = None
-    change_type: DataChangeTypeEnum 
-    changed_by_username: Optional[str] = "System"
+    reconciliation_date: datetime 
+    created_at: datetime
+    updated_at: datetime
+    created_by_user_id: int
+    
