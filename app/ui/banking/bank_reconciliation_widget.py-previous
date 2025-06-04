@@ -21,12 +21,12 @@ from app.ui.banking.bank_transaction_table_model import BankTransactionTableMode
 from app.ui.accounting.journal_entry_dialog import JournalEntryDialog
 from app.utils.pydantic_models import (
     BankAccountSummaryData, BankTransactionSummaryData, 
-    JournalEntryData, JournalEntryLineData, BankReconciliationSummaryData, BankReconciliationCreateData
+    JournalEntryData, JournalEntryLineData, BankReconciliationSummaryData
 )
 from app.common.enums import BankTransactionTypeEnum
 from app.utils.json_helpers import json_converter, json_date_hook
 from app.utils.result import Result
-from app.models.business.bank_reconciliation import BankReconciliation
+from app.models.business.bank_reconciliation import BankReconciliation # For ORM instantiation
 
 if TYPE_CHECKING:
     from PySide6.QtGui import QPaintDevice
@@ -54,7 +54,6 @@ class BankReconciliationWidget(QWidget):
         self._outstanding_system_withdrawals = Decimal(0) 
         self._difference = Decimal(0)
 
-        self._current_draft_reconciliation_id: Optional[int] = None # For managing draft state
         self._current_history_page = 1
         self._total_history_records = 0
         self._history_page_size = 10 
@@ -143,7 +142,7 @@ class BankReconciliationWidget(QWidget):
         history_details_layout.addWidget(history_details_splitter); history_outer_layout.addWidget(self.history_details_group)
         self.history_details_group.setVisible(False)
         self.overall_splitter.addWidget(history_outer_group)
-        self.overall_splitter.setSizes([self.height() * 3 // 5, self.height() * 2 // 5]) # Adjust initial sizing
+        self.overall_splitter.setSizes([self.height() * 2 // 3, self.height() // 3])
         self.setLayout(self.main_layout)
         self._connect_signals()
 
@@ -239,7 +238,7 @@ class BankReconciliationWidget(QWidget):
         self._statement_ending_balance = Decimal(str(self.statement_balance_spin.value()))
         self.load_transactions_button.setEnabled(False); self.load_transactions_button.setText("Loading...")
         schedule_task_from_qt(self._fetch_and_populate_transactions(self._current_bank_account_id, statement_date))
-        self._load_reconciliation_history(1) # Refresh history when current items are (re)loaded
+        self._load_reconciliation_history(1)
 
     async def _fetch_and_populate_transactions(self, bank_account_id: int, statement_date: python_date):
         self.load_transactions_button.setEnabled(True); self.load_transactions_button.setText("Load / Refresh Transactions")
@@ -396,8 +395,7 @@ class BankReconciliationWidget(QWidget):
             statement_date=statement_date_py,
             statement_ending_balance=statement_end_bal_dec,
             calculated_book_balance=final_reconciled_book_balance_dec,
-            reconciled_difference=self._difference, # Should be near zero
-            status="Finalized", # Explicitly set status to Finalized on save
+            reconciled_difference=self._difference,
             created_by_user_id=self.app_core.current_user.id,
             notes=None 
         )
@@ -429,38 +427,29 @@ class BankReconciliationWidget(QWidget):
             self._update_history_pagination_controls(0, 0)
             return
         self._current_history_page = page_number
-        self.prev_history_button.setEnabled(False); self.next_history_button.setEnabled(False) # Disable during load
         schedule_task_from_qt(self._fetch_reconciliation_history())
 
     async def _fetch_reconciliation_history(self):
-        if not self.app_core.bank_reconciliation_service or self._current_bank_account_id is None: 
-            self._update_history_pagination_controls(0,0); return # Ensure buttons re-enabled
-
+        if not self.app_core.bank_reconciliation_service or self._current_bank_account_id is None: return
         history_data, total_records = await self.app_core.bank_reconciliation_service.get_reconciliations_for_account(
             bank_account_id=self._current_bank_account_id,
             page=self._current_history_page,
             page_size=self._history_page_size
         )
         self._total_history_records = total_records
-        
         history_json = json.dumps([h.model_dump(mode='json') for h in history_data], default=json_converter)
-        QMetaObject.invokeMethod(self, "_update_history_table_slot", Qt.ConnectionType.QueuedConnection,
-                                 Q_ARG(str, history_json))
-        # Pagination controls will be updated in the slot after table model updates
+        QMetaObject.invokeMethod(self, "_update_history_table_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, history_json))
+        self._update_history_pagination_controls(len(history_data), total_records)
 
     @Slot(str)
     def _update_history_table_slot(self, history_json_str: str):
-        current_item_count = 0
         try:
             history_list_dict = json.loads(history_json_str, object_hook=json_date_hook)
             history_summaries = [BankReconciliationSummaryData.model_validate(d) for d in history_list_dict]
             self.history_table_model.update_data(history_summaries)
-            current_item_count = len(history_summaries)
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to display reconciliation history: {e}")
         self.history_details_group.setVisible(False)
-        self._update_history_pagination_controls(current_item_count, self._total_history_records)
-
 
     def _update_history_pagination_controls(self, current_page_count: int, total_records: int):
         total_pages = (total_records + self._history_page_size - 1) // self._history_page_size
@@ -475,7 +464,6 @@ class BankReconciliationWidget(QWidget):
         selected_row = current.row()
         reconciliation_id = self.history_table_model.get_reconciliation_id_at_row(selected_row)
         if reconciliation_id is not None:
-            self.history_details_group.setTitle(f"Details for Reconciliation ID: {reconciliation_id}")
             schedule_task_from_qt(self._load_historical_reconciliation_details(reconciliation_id))
         else:
             self.history_details_group.setVisible(False)
