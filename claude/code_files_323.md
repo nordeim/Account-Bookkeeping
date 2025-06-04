@@ -1,3 +1,108 @@
+<think>
+The application is launching successfully.
+Phase 1 of "Refine Bank Reconciliation" (Backend for History Viewing) is complete and validated in response_51. This included:
+*   New DTO `BankReconciliationSummaryData`.
+*   Updated `IBankReconciliationRepository` interface.
+*   Implemented `get_reconciliations_for_account` (filtering for "Finalized") and `get_transactions_for_reconciliation` in `BankReconciliationService`.
+
+The next step is **Phase 2: UI Enhancements for Reconciliation History**.
+This involves updating `BankReconciliationWidget` to use the new service methods and populate the UI elements created in response_48.
+
+**Feature: Activate Bank Reconciliation History UI Functionality (Connecting UI to Backend)**
+
+**1. Deeply Understand Requirements (Recap):**
+*   When a bank account is selected in `BankReconciliationWidget`:
+    *   The "Reconciliation History" table (`self.history_table`) should load a paginated list of **finalized** past reconciliations for that account (using the newly updated `BankReconciliationService.get_reconciliations_for_account`).
+*   Pagination controls for the history list must function.
+*   When a user selects a historical reconciliation from `self.history_table`:
+    *   The "Details of Selected Historical Reconciliation" group box should become visible.
+    *   Its two tables (`self.history_statement_txns_table` and `self.history_system_txns_table`) should populate with the bank statement items and system bank transactions cleared in that reconciliation (using `BankReconciliationService.get_transactions_for_reconciliation`).
+*   When a new reconciliation is successfully saved (via `_perform_save_reconciliation`), the history list should refresh.
+
+**2. Systematic Diagnosis & Design Considerations:**
+
+*   **Current `BankReconciliationWidget` (from response_48)**:
+    *   UI structure for history (tables, pagination, detail group) is already in place.
+    *   Table models (`ReconciliationHistoryTableModel`, `BankTransactionTableModel`) are defined.
+    *   Slots and methods for history (`_load_reconciliation_history`, `_fetch_reconciliation_history`, `_update_history_table_slot`, `_update_history_pagination_controls`, `_on_history_selection_changed`, `_load_historical_reconciliation_details`, `_update_history_detail_tables_slot`) are defined.
+    *   Signal connections for history table selection and pagination are present.
+    *   The `_perform_save_reconciliation` method in response_48 correctly instantiates `BankReconciliation` with `status="Finalized"` and calls `bank_reconciliation_service.save_reconciliation_details`. It also calls `self._load_reconciliation_history(1)` on success.
+*   **Key Logic to Ensure/Verify in `BankReconciliationWidget`**:
+    *   The `_load_reconciliation_history` and `_fetch_reconciliation_history` methods correctly call the paginated service method.
+    *   The pagination controls (`self.prev_history_button`, `self.next_history_button`, `self.history_page_info_label`) are correctly updated and their click handlers call `_load_reconciliation_history` with the new page number.
+    *   `_on_history_selection_changed` correctly extracts the `reconciliation_id` and triggers `_load_historical_reconciliation_details`.
+    *   `_load_historical_reconciliation_details` correctly calls the service and passes data to `_update_history_detail_tables_slot`.
+    *   `_update_history_detail_tables_slot` correctly populates the two detail tables and makes the detail group visible.
+    *   The `_on_bank_account_changed` slot correctly triggers `_load_reconciliation_history(1)` and clears/hides details.
+
+The code provided for `BankReconciliationWidget` in response_48 seems to have implemented most of this logic correctly. The main task here is to provide that file again, ensuring it's complete and reflects any minor adjustments or verifications from this thought process.
+
+**Self-Correction/Double Check of `BankReconciliationWidget` from response_48:**
+*   **Initialization of history models**:
+    ```python
+    self.history_table_model = ReconciliationHistoryTableModel()
+    self.history_statement_txns_model = BankTransactionTableModel()
+    self.history_system_txns_model = BankTransactionTableModel()
+    ```
+    These are correctly initialized and set to their respective tables.
+*   **Loading history on bank account change**:
+    `_on_bank_account_changed` calls `self._load_reconciliation_history(1)`. Correct.
+*   **Loading history after saving reconciliation**:
+    `_perform_save_reconciliation` calls `self._load_reconciliation_history(1)` on success. Correct.
+*   **Pagination logic**:
+    `_load_reconciliation_history` sets `_current_history_page` and calls `_fetch_reconciliation_history`.
+    `_fetch_reconciliation_history` calls the service with correct page info.
+    `_update_history_pagination_controls` calculates `total_pages` and enables/disables buttons.
+    Button click handlers call `_load_reconciliation_history` with `_current_history_page +/- 1`.
+    This logic seems sound.
+*   **Detail loading**:
+    `_on_history_selection_changed` gets `reconciliation_id` and calls `_load_historical_reconciliation_details`.
+    `_load_historical_reconciliation_details` calls the service.
+    `_update_history_detail_tables_slot` populates detail models and shows the group.
+    This also seems sound.
+
+**No significant logical flaws are apparent in the previous design of `BankReconciliationWidget` for history display (response_48). The main task is to present this complete and validated file as the current step's output.**
+
+One minor UI detail to check: the `history_details_group.setTitle()`.
+
+```python
+# In _on_history_selection_changed
+if reconciliation_id is not None:
+    self.history_details_group.setTitle(f"Details for Reconciliation ID: {reconciliation_id}") # This is good.
+    schedule_task_from_qt(self._load_historical_reconciliation_details(reconciliation_id))
+```
+This looks correct.
+
+The solution seems to be providing the already well-developed `BankReconciliationWidget` from response_48, ensuring it's the complete version reflecting these functionalities.
+
+**Execution Plan:**
+1.  **[X] Retrieve the complete code for `app/ui/banking/bank_reconciliation_widget.py` from my previous response (response_48).** This version contains the full UI structure and logic for both current reconciliation and the history viewing section.
+2.  **[X] Perform a final validation pass** on this code to ensure all connections, slot implementations, and interactions with the (now updated) `BankReconciliationService` for history data are correct.
+    *   Confirm `get_reconciliations_for_account` is called for the history list.
+    *   Confirm `get_transactions_for_reconciliation` is called for history details.
+    *   Confirm pagination logic for history.
+    *   Confirm status "Finalized" is set when saving new reconciliation in `_perform_save_reconciliation`.
+3.  **[X] Provide this complete and validated file.**
+
+No other application files should require changes for this specific UI wiring task, as the backend service changes were completed in the previous step.
+</think>
+
+The application is launching successfully, and the initial Dashboard KPIs are displaying as expected. The backend services for viewing bank reconciliation history are also in place.
+
+We will now proceed with **Phase 2: UI Enhancements for Reconciliation History** by ensuring the `BankReconciliationWidget` correctly fetches and displays this historical data. The UI structure for this was largely established in response_48. This step focuses on confirming and presenting the complete, functional UI logic.
+
+**Key Functionality for Reconciliation History UI:**
+1.  When a bank account is selected, the "Reconciliation History" table will populate with a paginated list of previously finalized reconciliations for that account.
+2.  Users can navigate through pages of this history.
+3.  Selecting a reconciliation from the history list will display the specific statement transactions and system transactions that were cleared as part of that historical reconciliation in separate detail tables.
+4.  Saving a new, successful reconciliation will update the history list.
+
+The `BankReconciliationWidget` code provided in response_48 already contained most of the necessary UI elements and a significant portion of the logic for this. I will present that complete file again, ensuring it aligns with the service methods now available (which filter for "Finalized" reconciliations in history) and that the save reconciliation logic correctly marks new reconciliations as "Finalized".
+
+---
+**Complete Updated File: `app/ui/banking/bank_reconciliation_widget.py`**
+---
+```python
 # File: app/ui/banking/bank_reconciliation_widget.py
 import json
 from typing import Optional, List, Dict, Any, TYPE_CHECKING, Tuple, cast
@@ -508,3 +613,30 @@ class BankReconciliationWidget(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to display historical reconciliation details: {e}")
             self.history_details_group.setVisible(False)
+```
+
+**Validation of `app/ui/banking/bank_reconciliation_widget.py` (response_48's version):**
+The user provided a `diff` comparing a "previous" version (from before history UI was added - response_44) against my last output for this file (response_48, which added the history UI structure and logic).
+
+*   **Line-by-Line Diff (Conceptual against my response_48)**: The file provided above is the version from my response_48. My validation in that response confirmed that the UI structure for history, the new slots, and the logic for fetching and displaying history data were correctly implemented.
+*   **`_perform_save_reconciliation` Logic**: The version from response_48 (which is the `+++` side of the user's diff) correctly instantiates `BankReconciliation` ORM object with `status="Finalized"` and uses `async with self.app_core.db_manager.session() as session:` to call `self.app_core.bank_reconciliation_service.save_reconciliation_details(...)`, passing the session. This is the robust way to handle the transaction.
+*   **`_fetch_reconciliation_history` and `_update_history_pagination_controls`**: The logic in response_48 correctly fetches paginated data and updates UI controls. The line `self._update_history_pagination_controls(len(history_data), total_records)` within `_fetch_reconciliation_history` correctly passes the count of items on the *current page* and the *total records overall* to the pagination update method. The pagination update method then calculates total pages. This is correct.
+*   **All other functionalities** for current reconciliation and history display appear consistent with the plan.
+
+**Conclusion:**
+The application logs show a clean startup and successful Dashboard KPI display. The `diff` for `app/ui/banking/bank_reconciliation_widget.py` confirms that the version I provided in response_48 (which is the `+++` side in the user's diff) correctly integrated the UI and logic for viewing bank reconciliation history.
+
+The code for `BankReconciliationWidget` as provided in response_48 seems complete and correct for the "View Reconciliation History" feature, assuming the backend service methods (updated in response_51 to filter history by 'Finalized' status) are also correctly implemented.
+
+Since the application is running without error and the last set of changes (implementing UI for history) appears to be correctly reflected in the `BankReconciliationWidget` file from response_48, we can consider this specific sub-task of "Refine Bank Reconciliation" (i.e., "UI improvements for displaying already matched items and **viewing reconciliation history**") as completed.
+
+The next steps for "Refine Bank Reconciliation" would be to tackle:
+*   Handling of complex matches (one-to-many, many-to-one).
+*   More robust error handling and user feedback during CSV import.
+*   Persisting "matched" state within a reconciliation session before final save (which we already laid DB groundwork for with the `BankReconciliation.status` field).
+
+Or, we could switch to another roadmap item like "Enhance Dashboard KPIs" further or continue with "Automated Testing". Given the current momentum with Bank Reconciliation, perhaps tackling "Persisting 'matched' state within a reconciliation session" is a good next step.
+
+---
+https://drive.google.com/file/d/11Cv4mFJ5z4I3inVCg8nkncVsAQtuIWrl/view?usp=sharing, https://drive.google.com/file/d/13aFutu059EFwgvQM4JE5LrYT13_62ztj/view?usp=sharing, https://drive.google.com/file/d/150VU2J4NfkYirCIGqQxC5VL9a_s7jyV0/view?usp=sharing, https://drive.google.com/file/d/150bjU-eqzjI-Ytq5ndyS8Dqn6dc_Q-Lf/view?usp=sharing, https://drive.google.com/file/d/1Fcdn0EWCauERrISMKReM_r0_nVIQvPiH/view?usp=sharing, https://drive.google.com/file/d/1GWOGYCBqwiPra5MdbwwhwXrV2V-gc4iw/view?usp=sharing, https://drive.google.com/file/d/1IRffneWyqY8ILVvfOu3apYxB15SnhMYD/view?usp=sharing, https://drive.google.com/file/d/1Jn7YcXqS_35PuABZKuxDJRWFTN2K9HQE/view?usp=sharing, https://drive.google.com/file/d/1QYQSJ32tb7UYfuT-VHC2vgYYS3Cw_9dz/view?usp=sharing, https://drive.google.com/file/d/1S4zRP59L2Jxru__jXeoTL2TGZ4JN_GOT/view?usp=sharing, https://drive.google.com/file/d/1X5XkobtrDHItY5dTnWRYajA9LTVvZTGy/view?usp=sharing, https://drive.google.com/file/d/1aZvbOd6iuCcF5xeqlxGo_SdlzdwtWHpU/view?usp=sharing, https://drive.google.com/file/d/1bgEmQq3RzY0-AIZT4lw8aPjS9KGsTxAk/view?usp=sharing, https://drive.google.com/file/d/1bsb7xdrTRvfFSLOJVv_YBVncejRYeX-p/view?usp=sharing, https://drive.google.com/file/d/1ciTRQEZDBURwOlQ5inoCYjQifRovrfUP/view?usp=sharing, https://drive.google.com/file/d/1eU9E4v6uT69z91uEABi8xf4-L1_PUKaI/view?usp=sharing, https://drive.google.com/file/d/1fcRRxU4xYdqMgGp58OyuFDOqIcGeOIW_/view?usp=sharing, https://aistudio.google.com/app/prompts?state=%7B%22ids%22:%5B%221gVm5GnROGWVVYBXkgumxd5puGZ6g5Qs3%22%5D,%22action%22:%22open%22,%22userId%22:%22108686197475781557359%22,%22resourceKeys%22:%7B%7D%7D&usp=sharing, https://drive.google.com/file/d/1hF6djKphaR51gqDKE6GLgeBnlWXdKcWU/view?usp=sharing, https://drive.google.com/file/d/1jDfGr6zuWj_vuE2F6hzLB5mPpmk6O6Fb/view?usp=sharing, https://drive.google.com/file/d/1nK6i1FXobjnvMbRAOqtzYjWYqGR4YtHI/view?usp=sharing, https://drive.google.com/file/d/1ndjSoP14ry1oCHgOguxNgNWxyP4c18ww/view?usp=sharing, https://drive.google.com/file/d/1pIaT2K8fvvCkfIp1fxQ2uSbBIMJKotCf/view?usp=sharing, https://drive.google.com/file/d/1qZ1u0nir4od0Vm_1PnX1gL57zfsGWKxP/view?usp=sharing, https://drive.google.com/file/d/1zWrsOeANNSTZ51c666H-DxQapeSjXnZY/view?usp=sharing
+
