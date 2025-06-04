@@ -222,16 +222,114 @@ class FinancialStatementGenerator:
 # app/reporting/__init__.py
 ```py
 # File: app/reporting/__init__.py
-# (Content as previously generated, verified)
 from .financial_statement_generator import FinancialStatementGenerator
 from .tax_report_generator import TaxReportGenerator
 from .report_engine import ReportEngine
+from .dashboard_manager import DashboardManager # New Import
 
 __all__ = [
     "FinancialStatementGenerator",
     "TaxReportGenerator",
     "ReportEngine",
+    "DashboardManager", # New Export
 ]
+
+```
+
+# app/reporting/dashboard_manager.py
+```py
+# File: app/reporting/dashboard_manager.py
+from typing import Optional, TYPE_CHECKING, List
+from datetime import date
+from decimal import Decimal
+
+from app.utils.pydantic_models import DashboardKPIData
+from app.models.accounting.fiscal_year import FiscalYear 
+
+if TYPE_CHECKING:
+    from app.core.application_core import ApplicationCore
+
+class DashboardManager:
+    def __init__(self, app_core: "ApplicationCore"):
+        self.app_core = app_core
+        self.logger = app_core.logger
+
+    async def get_dashboard_kpis(self) -> Optional[DashboardKPIData]:
+        try:
+            self.logger.info("Fetching dashboard KPIs...")
+            today = date.today()
+            
+            company_settings = await self.app_core.company_settings_service.get_company_settings()
+            if not company_settings:
+                self.logger.error("Company settings not found, cannot determine base currency for KPIs.")
+                return None
+            base_currency = company_settings.base_currency
+
+            all_fiscal_years_orm: List[FiscalYear] = await self.app_core.fiscal_year_service.get_all()
+            current_fy: Optional[FiscalYear] = None
+            for fy_orm in sorted(all_fiscal_years_orm, key=lambda fy: fy.start_date, reverse=True):
+                if fy_orm.start_date <= today <= fy_orm.end_date and not fy_orm.is_closed:
+                    current_fy = fy_orm
+                    break
+            if not current_fy:
+                open_fys = [fy_orm for fy_orm in all_fiscal_years_orm if not fy_orm.is_closed]
+                if open_fys: current_fy = max(open_fys, key=lambda fy: fy.start_date)
+            if not current_fy and all_fiscal_years_orm:
+                current_fy = max(all_fiscal_years_orm, key=lambda fy: fy.start_date)
+
+            total_revenue_ytd = Decimal(0)
+            total_expenses_ytd = Decimal(0)
+            net_profit_ytd = Decimal(0)
+            kpi_period_description: str
+
+            if current_fy:
+                fy_start_date = current_fy.start_date
+                fy_end_date = current_fy.end_date
+                effective_end_date_for_ytd = min(today, fy_end_date)
+                kpi_period_description = f"YTD as of {effective_end_date_for_ytd.strftime('%d %b %Y')} (FY: {current_fy.year_name})"
+                if today >= fy_start_date:
+                    pl_data = await self.app_core.financial_statement_generator.generate_profit_loss(
+                        start_date=fy_start_date,
+                        end_date=effective_end_date_for_ytd
+                    )
+                    if pl_data:
+                        total_revenue_ytd = pl_data.get('revenue', {}).get('total', Decimal(0))
+                        total_expenses_ytd = pl_data.get('expenses', {}).get('total', Decimal(0))
+                        net_profit_ytd = pl_data.get('net_profit', Decimal(0))
+            else:
+                self.logger.warning("No fiscal year found. Cannot calculate YTD KPIs.")
+                kpi_period_description = f"As of {today.strftime('%d %b %Y')} (No active FY)"
+
+            current_cash_balance = await self._get_total_cash_balance(base_currency)
+            total_outstanding_ar = await self.app_core.customer_service.get_total_outstanding_balance()
+            total_outstanding_ap = await self.app_core.vendor_service.get_total_outstanding_balance()
+            total_ar_overdue = await self.app_core.customer_service.get_total_overdue_balance() # New KPI
+            total_ap_overdue = await self.app_core.vendor_service.get_total_overdue_balance() # New KPI
+
+            return DashboardKPIData(
+                kpi_period_description=kpi_period_description,
+                base_currency=base_currency,
+                total_revenue_ytd=total_revenue_ytd,
+                total_expenses_ytd=total_expenses_ytd,
+                net_profit_ytd=net_profit_ytd,
+                current_cash_balance=current_cash_balance,
+                total_outstanding_ar=total_outstanding_ar,
+                total_outstanding_ap=total_outstanding_ap,
+                total_ar_overdue=total_ar_overdue, # New field
+                total_ap_overdue=total_ap_overdue   # New field
+            )
+        except Exception as e:
+            self.logger.error(f"Error fetching dashboard KPIs: {e}", exc_info=True)
+            return None
+
+    async def _get_total_cash_balance(self, base_currency: str) -> Decimal:
+        active_bank_accounts = await self.app_core.bank_account_service.get_all_summary(
+            active_only=True, 
+            currency_code=base_currency,
+            page_size=-1 
+        )
+        total_cash = sum(ba.current_balance for ba in active_bank_accounts if ba.currency_code == base_currency)
+        return total_cash if total_cash is not None else Decimal(0)
 
 ```
 
@@ -2114,9 +2212,12 @@ class ProductManager:
 # app/business_logic/bank_transaction_manager.py
 ```py
 # File: app/business_logic/bank_transaction_manager.py
-from typing import List, Optional, Dict, Any, TYPE_CHECKING, Union
-from decimal import Decimal
-from datetime import date
+import csv 
+from datetime import date, datetime 
+from decimal import Decimal, InvalidOperation
+from typing import List, Optional, Dict, Any, TYPE_CHECKING, Union, cast, Tuple 
+
+from sqlalchemy import select 
 
 from app.models.business.bank_transaction import BankTransaction
 from app.services.business_services import BankTransactionService, BankAccountService
@@ -2128,11 +2229,12 @@ from app.common.enums import BankTransactionTypeEnum
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 class BankTransactionManager:
     def __init__(self,
                  bank_transaction_service: BankTransactionService,
-                 bank_account_service: BankAccountService, # To validate bank account
+                 bank_account_service: BankAccountService, 
                  app_core: "ApplicationCore"):
         self.bank_transaction_service = bank_transaction_service
         self.bank_account_service = bank_account_service
@@ -2142,58 +2244,44 @@ class BankTransactionManager:
     async def _validate_transaction_data(
         self,
         dto: BankTransactionCreateData,
-        existing_transaction_id: Optional[int] = None # For future update validation
+        existing_transaction_id: Optional[int] = None 
     ) -> List[str]:
         errors: List[str] = []
-
         bank_account = await self.bank_account_service.get_by_id(dto.bank_account_id)
         if not bank_account:
             errors.append(f"Bank Account with ID {dto.bank_account_id} not found.")
         elif not bank_account.is_active:
             errors.append(f"Bank Account '{bank_account.account_name}' is not active.")
-        
-        # Pydantic DTO already validates amount sign vs type.
-        # Additional business rules can go here.
-        # For example, for 'Transfer' type, a corresponding transaction might be expected.
-        # Or limits on certain transaction types.
-
         if dto.value_date and dto.value_date < dto.transaction_date:
             errors.append("Value date cannot be before transaction date.")
-
         return errors
 
     async def create_manual_bank_transaction(self, dto: BankTransactionCreateData) -> Result[BankTransaction]:
         validation_errors = await self._validate_transaction_data(dto)
         if validation_errors:
             return Result.failure(validation_errors)
-
         try:
-            # Ensure amount has correct sign based on type (Pydantic validator should handle this, but double-check here if needed)
-            # For this basic entry, we rely on the UI/DTO to provide the correctly signed amount.
-            
             bank_transaction_orm = BankTransaction(
                 bank_account_id=dto.bank_account_id,
                 transaction_date=dto.transaction_date,
                 value_date=dto.value_date,
-                transaction_type=dto.transaction_type.value, # Store enum value
+                transaction_type=dto.transaction_type.value, 
                 description=dto.description,
                 reference=dto.reference,
-                amount=dto.amount, # Assumed to be signed correctly from DTO
-                is_reconciled=False, # Manual entries are initially unreconciled
+                amount=dto.amount, 
+                is_reconciled=False, 
+                is_from_statement=False, 
+                raw_statement_data=None,
                 created_by_user_id=dto.user_id,
                 updated_by_user_id=dto.user_id
-                # journal_entry_id will be None for now
             )
-            
-            # The database trigger `update_bank_account_balance_trigger_func`
-            # is expected to handle updating BankAccount.current_balance.
             saved_transaction = await self.bank_transaction_service.save(bank_transaction_orm)
-            
             self.logger.info(f"Manual bank transaction ID {saved_transaction.id} created for bank account ID {dto.bank_account_id}.")
             return Result.success(saved_transaction)
         except Exception as e:
             self.logger.error(f"Error creating manual bank transaction: {e}", exc_info=True)
             return Result.failure([f"An unexpected error occurred: {str(e)}"])
+
 
     async def get_transactions_for_bank_account(
         self,
@@ -2202,6 +2290,7 @@ class BankTransactionManager:
         end_date: Optional[date] = None,
         transaction_type: Optional[BankTransactionTypeEnum] = None,
         is_reconciled: Optional[bool] = None,
+        is_from_statement_filter: Optional[bool] = None, 
         page: int = 1,
         page_size: int = 50
     ) -> Result[List[BankTransactionSummaryData]]:
@@ -2212,6 +2301,7 @@ class BankTransactionManager:
                 end_date=end_date,
                 transaction_type=transaction_type,
                 is_reconciled=is_reconciled,
+                is_from_statement_filter=is_from_statement_filter, 
                 page=page,
                 page_size=page_size
             )
@@ -2221,12 +2311,124 @@ class BankTransactionManager:
             return Result.failure([f"Failed to retrieve bank transaction list: {str(e)}"])
 
     async def get_bank_transaction_for_dialog(self, transaction_id: int) -> Optional[BankTransaction]:
-        # For viewing/editing a specific transaction
         try:
             return await self.bank_transaction_service.get_by_id(transaction_id)
         except Exception as e:
             self.logger.error(f"Error fetching BankTransaction ID {transaction_id} for dialog: {e}", exc_info=True)
             return None
+            
+    async def import_bank_statement_csv(
+        self, 
+        bank_account_id: int, 
+        csv_file_path: str, 
+        user_id: int,
+        column_mapping: Dict[str, Any], 
+        import_options: Dict[str, Any]
+    ) -> Result[Dict[str, int]]:
+        imported_count = 0; skipped_duplicates_count = 0; failed_rows_count = 0; zero_amount_skipped_count = 0; total_rows_processed = 0
+        date_format_str = import_options.get("date_format_str", "%d/%m/%Y"); skip_header = import_options.get("skip_header", True)
+        use_single_amount_col = import_options.get("use_single_amount_column", False); debit_is_negative = import_options.get("debit_is_negative_in_single_col", False)
+        bank_account = await self.bank_account_service.get_by_id(bank_account_id)
+        if not bank_account or not bank_account.is_active: return Result.failure([f"Bank Account ID {bank_account_id} not found or is inactive."])
+        try:
+            with open(csv_file_path, 'r', encoding='utf-8-sig') as csvfile:
+                using_header_names = any(isinstance(v, str) for v in column_mapping.values()); reader: Any
+                if using_header_names: reader = csv.DictReader(csvfile)
+                else: reader = csv.reader(csvfile); 
+                if skip_header and not using_header_names: 
+                    try: next(reader) 
+                    except StopIteration: return Result.failure(["CSV file is empty or only contains a header."])
+                async with self.app_core.db_manager.session() as session:
+                    start_row_num = 2 if skip_header else 1
+                    for row_num, raw_row_data in enumerate(reader, start=start_row_num):
+                        total_rows_processed += 1; raw_row_dict_for_json: Dict[str, str] = {}
+                        try:
+                            def get_field_value(field_key: str) -> Optional[str]:
+                                specifier = column_mapping.get(field_key); 
+                                if specifier is None: return None; val: Optional[str] = None
+                                if using_header_names and isinstance(raw_row_data, dict): val = raw_row_data.get(str(specifier))
+                                elif not using_header_names and isinstance(raw_row_data, list) and isinstance(specifier, int):
+                                    if 0 <= specifier < len(raw_row_data): val = raw_row_data[specifier]
+                                return val.strip() if val else None
+                            if using_header_names and isinstance(raw_row_data, dict): raw_row_dict_for_json = {k: str(v) for k,v in raw_row_data.items()}
+                            elif isinstance(raw_row_data, list): raw_row_dict_for_json = {f"column_{i}": str(val) for i, val in enumerate(raw_row_data)}
+                            else: raw_row_dict_for_json = {"error": "Unknown row format"}
+                            transaction_date_str = get_field_value("date"); description_str = get_field_value("description")
+                            if not transaction_date_str or not description_str: self.logger.warning(f"CSV Import (Row {row_num}): Skipping due to missing date or description."); failed_rows_count += 1; continue
+                            try: parsed_transaction_date = datetime.strptime(transaction_date_str, date_format_str).date()
+                            except ValueError: self.logger.warning(f"CSV Import (Row {row_num}): Invalid transaction date format '{transaction_date_str}'. Expected '{date_format_str}'. Skipping."); failed_rows_count += 1; continue
+                            value_date_str = get_field_value("value_date"); parsed_value_date: Optional[date] = None
+                            if value_date_str:
+                                try: parsed_value_date = datetime.strptime(value_date_str, date_format_str).date()
+                                except ValueError: self.logger.warning(f"CSV Import (Row {row_num}): Invalid value date format '{value_date_str}'.")
+                            final_bt_amount = Decimal(0)
+                            if use_single_amount_col:
+                                amount_str = get_field_value("amount")
+                                if not amount_str: self.logger.warning(f"CSV Import (Row {row_num}): Single amount column specified but value is missing. Skipping."); failed_rows_count += 1; continue
+                                try:
+                                    parsed_csv_amount = Decimal(amount_str.replace(',', ''))
+                                    if debit_is_negative: final_bt_amount = parsed_csv_amount
+                                    else: final_bt_amount = -parsed_csv_amount
+                                except InvalidOperation: self.logger.warning(f"CSV Import (Row {row_num}): Invalid amount '{amount_str}' in single amount column. Skipping."); failed_rows_count += 1; continue
+                            else:
+                                debit_str = get_field_value("debit"); credit_str = get_field_value("credit")
+                                try:
+                                    parsed_debit = Decimal(debit_str.replace(',', '')) if debit_str else Decimal(0)
+                                    parsed_credit = Decimal(credit_str.replace(',', '')) if credit_str else Decimal(0)
+                                    final_bt_amount = parsed_credit - parsed_debit
+                                except InvalidOperation: self.logger.warning(f"CSV Import (Row {row_num}): Invalid debit '{debit_str}' or credit '{credit_str}' amount. Skipping."); failed_rows_count += 1; continue
+                            if abs(final_bt_amount) < Decimal("0.005"): self.logger.info(f"CSV Import (Row {row_num}): Skipping due to zero net amount."); zero_amount_skipped_count += 1; continue
+                            reference_str = get_field_value("reference")
+                            stmt_dup = select(BankTransaction).where(BankTransaction.bank_account_id == bank_account_id,BankTransaction.transaction_date == parsed_transaction_date,BankTransaction.amount == final_bt_amount,BankTransaction.description == description_str,BankTransaction.is_from_statement == True)
+                            existing_dup_res = await session.execute(stmt_dup)
+                            if existing_dup_res.scalars().first(): self.logger.info(f"CSV Import (Row {row_num}): Skipping as likely duplicate."); skipped_duplicates_count += 1; continue
+                            txn_type_enum = BankTransactionTypeEnum.DEPOSIT if final_bt_amount > 0 else BankTransactionTypeEnum.WITHDRAWAL
+                            txn_orm = BankTransaction(bank_account_id=bank_account_id,transaction_date=parsed_transaction_date,value_date=parsed_value_date,transaction_type=txn_type_enum.value,description=description_str,reference=reference_str if reference_str else None,amount=final_bt_amount,is_reconciled=False,is_from_statement=True,raw_statement_data=raw_row_dict_for_json, created_by_user_id=user_id,updated_by_user_id=user_id)
+                            session.add(txn_orm); imported_count += 1
+                        except Exception as e_row: self.logger.error(f"CSV Import (Row {row_num}): Unexpected error: {e_row}", exc_info=True); failed_rows_count += 1
+            summary = {"total_rows_in_file": total_rows_processed, "imported_count": imported_count, "skipped_duplicates_count": skipped_duplicates_count, "failed_rows_count": failed_rows_count, "zero_amount_skipped_count": zero_amount_skipped_count}
+            self.logger.info(f"Bank statement import complete for account ID {bank_account_id}: {summary}")
+            return Result.success(summary)
+        except FileNotFoundError: self.logger.error(f"CSV Import: File not found at path: {csv_file_path}"); return Result.failure([f"CSV file not found: {csv_file_path}"])
+        except Exception as e: self.logger.error(f"CSV Import: General error for account ID {bank_account_id}: {e}", exc_info=True); return Result.failure([f"General error during CSV import: {str(e)}"])
+
+    async def get_unreconciled_transactions_for_matching(
+        self, 
+        bank_account_id: int, 
+        statement_end_date: date,
+        page_size_override: int = -1 
+    ) -> Result[Tuple[List[BankTransactionSummaryData], List[BankTransactionSummaryData]]]:
+        
+        try:
+            statement_items_result = await self.get_transactions_for_bank_account(
+                bank_account_id=bank_account_id,
+                end_date=statement_end_date, 
+                is_reconciled=False,
+                is_from_statement_filter=True,
+                page=1, page_size=page_size_override 
+            )
+            if not statement_items_result.is_success:
+                return Result.failure(["Failed to fetch statement items for reconciliation."] + (statement_items_result.errors or []))
+            
+            statement_lines = statement_items_result.value or []
+
+            system_items_result = await self.get_transactions_for_bank_account(
+                bank_account_id=bank_account_id,
+                end_date=statement_end_date, 
+                is_reconciled=False,
+                is_from_statement_filter=False,
+                page=1, page_size=page_size_override
+            )
+            if not system_items_result.is_success:
+                return Result.failure(["Failed to fetch system transactions for reconciliation."] + (system_items_result.errors or []))
+            
+            system_txns = system_items_result.value or []
+            
+            return Result.success((statement_lines, system_txns))
+
+        except Exception as e:
+            self.logger.error(f"Error fetching transactions for matching UI (Account ID: {bank_account_id}): {e}", exc_info=True)
+            return Result.failure([f"Unexpected error fetching transactions for reconciliation: {str(e)}"])
 
 ```
 
@@ -2392,622 +2594,6 @@ class CustomerManager:
         except Exception as e:
             self.logger.error(f"Error toggling active status for customer ID {customer_id}: {e}", exc_info=True)
             return Result.failure([f"Failed to toggle active status for customer: {str(e)}"])
-
-```
-
-# app/accounting/__init__.py
-```py
-# File: app/accounting/__init__.py
-# (Content as previously generated, verified)
-from .chart_of_accounts_manager import ChartOfAccountsManager
-from .journal_entry_manager import JournalEntryManager
-from .fiscal_period_manager import FiscalPeriodManager
-from .currency_manager import CurrencyManager
-
-__all__ = [
-    "ChartOfAccountsManager",
-    "JournalEntryManager",
-    "FiscalPeriodManager",
-    "CurrencyManager",
-]
-
-```
-
-# app/accounting/journal_entry_manager.py
-```py
-# File: app/accounting/journal_entry_manager.py
-from typing import List, Optional, Any, Dict, TYPE_CHECKING
-from decimal import Decimal
-from datetime import date, datetime, timedelta
-from dateutil.relativedelta import relativedelta # type: ignore
-
-from sqlalchemy import select 
-from sqlalchemy.ext.asyncio import AsyncSession 
-from sqlalchemy.orm import selectinload
-
-
-from app.models import JournalEntry, JournalEntryLine, RecurringPattern, FiscalPeriod, Account
-from app.services.journal_service import JournalService
-from app.services.account_service import AccountService
-from app.services.fiscal_period_service import FiscalPeriodService
-from app.utils.sequence_generator import SequenceGenerator
-from app.utils.result import Result
-from app.utils.pydantic_models import JournalEntryData, JournalEntryLineData 
-from app.common.enums import JournalTypeEnum 
-
-if TYPE_CHECKING:
-    from app.core.application_core import ApplicationCore
-
-class JournalEntryManager:
-    def __init__(self, 
-                 journal_service: JournalService, 
-                 account_service: AccountService, 
-                 fiscal_period_service: FiscalPeriodService, 
-                 sequence_generator: SequenceGenerator,
-                 app_core: "ApplicationCore"):
-        self.journal_service = journal_service
-        self.account_service = account_service
-        self.fiscal_period_service = fiscal_period_service
-        self.sequence_generator = sequence_generator
-        self.app_core = app_core
-
-    # ... (create_journal_entry, update_journal_entry, post_journal_entry, reverse_journal_entry, 
-    #      _calculate_next_generation_date, generate_recurring_entries, get_journal_entry_for_dialog - unchanged from previous file set 2)
-    async def create_journal_entry(self, entry_data: JournalEntryData, session: Optional[AsyncSession] = None) -> Result[JournalEntry]:
-        async def _create_je_logic(current_session: AsyncSession):
-            fiscal_period_stmt = select(FiscalPeriod).where(FiscalPeriod.start_date <= entry_data.entry_date, FiscalPeriod.end_date >= entry_data.entry_date, FiscalPeriod.status == 'Open')
-            fiscal_period_res = await current_session.execute(fiscal_period_stmt); fiscal_period = fiscal_period_res.scalars().first()
-            if not fiscal_period: return Result.failure([f"No open fiscal period for entry date {entry_data.entry_date} or period not open."])
-            entry_no_str = await self.app_core.db_manager.execute_scalar("SELECT core.get_next_sequence_value($1);", "journal_entry")
-            if not entry_no_str: return Result.failure(["Failed to generate journal entry number."])
-            current_user_id = entry_data.user_id
-            journal_entry_orm = JournalEntry(entry_no=entry_no_str, journal_type=entry_data.journal_type, entry_date=entry_data.entry_date, fiscal_period_id=fiscal_period.id, description=entry_data.description, reference=entry_data.reference, is_recurring=entry_data.is_recurring, recurring_pattern_id=entry_data.recurring_pattern_id, is_posted=False, source_type=entry_data.source_type, source_id=entry_data.source_id, created_by_user_id=current_user_id, updated_by_user_id=current_user_id)
-            for i, line_dto in enumerate(entry_data.lines, 1):
-                account_stmt = select(Account).where(Account.id == line_dto.account_id); account_res = await current_session.execute(account_stmt); account = account_res.scalars().first()
-                if not account or not account.is_active: return Result.failure([f"Invalid or inactive account ID {line_dto.account_id} on line {i}."])
-                line_orm = JournalEntryLine(line_number=i, account_id=line_dto.account_id, description=line_dto.description, debit_amount=line_dto.debit_amount, credit_amount=line_dto.credit_amount, currency_code=line_dto.currency_code, exchange_rate=line_dto.exchange_rate, tax_code=line_dto.tax_code, tax_amount=line_dto.tax_amount, dimension1_id=line_dto.dimension1_id, dimension2_id=line_dto.dimension2_id)
-                journal_entry_orm.lines.append(line_orm)
-            current_session.add(journal_entry_orm); await current_session.flush(); await current_session.refresh(journal_entry_orm)
-            if journal_entry_orm.lines: await current_session.refresh(journal_entry_orm, attribute_names=['lines'])
-            return Result.success(journal_entry_orm)
-        if session: return await _create_je_logic(session)
-        else:
-            try:
-                async with self.app_core.db_manager.session() as new_session: return await _create_je_logic(new_session) # type: ignore
-            except Exception as e: self.app_core.logger.error(f"Error creating JE with new session: {e}", exc_info=True); return Result.failure([f"Failed to save JE: {str(e)}"]) # type: ignore
-
-    async def update_journal_entry(self, entry_id: int, entry_data: JournalEntryData) -> Result[JournalEntry]:
-        async with self.app_core.db_manager.session() as session: # type: ignore
-            existing_entry = await session.get(JournalEntry, entry_id, options=[selectinload(JournalEntry.lines)])
-            if not existing_entry: return Result.failure([f"JE ID {entry_id} not found for update."])
-            if existing_entry.is_posted: return Result.failure([f"Cannot update posted JE: {existing_entry.entry_no}."])
-            fp_stmt = select(FiscalPeriod).where(FiscalPeriod.start_date <= entry_data.entry_date, FiscalPeriod.end_date >= entry_data.entry_date, FiscalPeriod.status == 'Open')
-            fp_res = await session.execute(fp_stmt); fiscal_period = fp_res.scalars().first()
-            if not fiscal_period: return Result.failure([f"No open fiscal period for new entry date {entry_data.entry_date} or period not open."])
-            current_user_id = entry_data.user_id
-            existing_entry.journal_type = entry_data.journal_type; existing_entry.entry_date = entry_data.entry_date
-            existing_entry.fiscal_period_id = fiscal_period.id; existing_entry.description = entry_data.description
-            existing_entry.reference = entry_data.reference; existing_entry.is_recurring = entry_data.is_recurring
-            existing_entry.recurring_pattern_id = entry_data.recurring_pattern_id
-            existing_entry.source_type = entry_data.source_type; existing_entry.source_id = entry_data.source_id
-            existing_entry.updated_by_user_id = current_user_id
-            for line in list(existing_entry.lines): await session.delete(line)
-            existing_entry.lines.clear(); await session.flush() 
-            new_lines_orm: List[JournalEntryLine] = []
-            for i, line_dto in enumerate(entry_data.lines, 1):
-                acc_stmt = select(Account).where(Account.id == line_dto.account_id); acc_res = await session.execute(acc_stmt); account = acc_res.scalars().first()
-                if not account or not account.is_active: raise ValueError(f"Invalid or inactive account ID {line_dto.account_id} on line {i} during update.")
-                new_lines_orm.append(JournalEntryLine(line_number=i, account_id=line_dto.account_id, description=line_dto.description, debit_amount=line_dto.debit_amount, credit_amount=line_dto.credit_amount, currency_code=line_dto.currency_code, exchange_rate=line_dto.exchange_rate, tax_code=line_dto.tax_code, tax_amount=line_dto.tax_amount, dimension1_id=line_dto.dimension1_id, dimension2_id=line_dto.dimension2_id))
-            existing_entry.lines.extend(new_lines_orm); session.add(existing_entry) 
-            try:
-                await session.flush(); await session.refresh(existing_entry)
-                if existing_entry.lines: await session.refresh(existing_entry, attribute_names=['lines'])
-                return Result.success(existing_entry)
-            except Exception as e: self.app_core.logger.error(f"Error updating JE ID {entry_id}: {e}", exc_info=True); return Result.failure([f"Failed to update JE: {str(e)}"]) # type: ignore
-
-    async def post_journal_entry(self, entry_id: int, user_id: int, session: Optional[AsyncSession] = None) -> Result[JournalEntry]:
-        async def _post_je_logic(current_session: AsyncSession):
-            entry = await current_session.get(JournalEntry, entry_id)
-            if not entry: return Result.failure([f"JE ID {entry_id} not found."])
-            if entry.is_posted: return Result.failure([f"JE '{entry.entry_no}' is already posted."])
-            fiscal_period = await current_session.get(FiscalPeriod, entry.fiscal_period_id)
-            if not fiscal_period or fiscal_period.status != 'Open': return Result.failure([f"Cannot post. Fiscal period not open. Status: {fiscal_period.status if fiscal_period else 'Unknown'}."])
-            entry.is_posted = True; entry.updated_by_user_id = user_id
-            current_session.add(entry); await current_session.flush(); await current_session.refresh(entry)
-            return Result.success(entry)
-        if session: return await _post_je_logic(session)
-        else:
-            try:
-                async with self.app_core.db_manager.session() as new_session: return await _post_je_logic(new_session) # type: ignore
-            except Exception as e: self.app_core.logger.error(f"Error posting JE ID {entry_id} with new session: {e}", exc_info=True); return Result.failure([f"Failed to post JE: {str(e)}"]) # type: ignore
-
-    async def reverse_journal_entry(self, entry_id: int, reversal_date: date, description: Optional[str], user_id: int) -> Result[JournalEntry]:
-        async with self.app_core.db_manager.session() as session: # type: ignore
-            original_entry = await session.get(JournalEntry, entry_id, options=[selectinload(JournalEntry.lines)])
-            if not original_entry: return Result.failure([f"JE ID {entry_id} not found for reversal."])
-            if not original_entry.is_posted: return Result.failure(["Only posted entries can be reversed."])
-            if original_entry.is_reversed or original_entry.reversing_entry_id is not None: return Result.failure([f"Entry '{original_entry.entry_no}' is already reversed."])
-            reversal_fp_stmt = select(FiscalPeriod).where(FiscalPeriod.start_date <= reversal_date, FiscalPeriod.end_date >= reversal_date, FiscalPeriod.status == 'Open')
-            reversal_fp_res = await session.execute(reversal_fp_stmt); reversal_fiscal_period = reversal_fp_res.scalars().first()
-            if not reversal_fiscal_period: return Result.failure([f"No open fiscal period for reversal date {reversal_date} or period not open."])
-            reversal_entry_no = await self.app_core.db_manager.execute_scalar("SELECT core.get_next_sequence_value($1);", "journal_entry")
-            if not reversal_entry_no: return Result.failure(["Failed to generate reversal entry number."])
-            reversal_lines_dto: List[JournalEntryLineData] = []
-            for orig_line in original_entry.lines:
-                reversal_lines_dto.append(JournalEntryLineData(account_id=orig_line.account_id, description=f"Reversal: {orig_line.description or ''}", debit_amount=orig_line.credit_amount, credit_amount=orig_line.debit_amount, currency_code=orig_line.currency_code, exchange_rate=orig_line.exchange_rate, tax_code=orig_line.tax_code, tax_amount=-orig_line.tax_amount if orig_line.tax_amount is not None else Decimal(0), dimension1_id=orig_line.dimension1_id, dimension2_id=orig_line.dimension2_id))
-            reversal_je_data = JournalEntryData(journal_type=original_entry.journal_type, entry_date=reversal_date, description=description or f"Reversal of entry {original_entry.entry_no}", reference=f"REV:{original_entry.entry_no}", is_posted=False, source_type="JournalEntryReversalSource", source_id=original_entry.id, user_id=user_id, lines=reversal_lines_dto)
-            create_reversal_result = await self.create_journal_entry(reversal_je_data, session=session)
-            if not create_reversal_result.is_success or not create_reversal_result.value: return Result.failure(["Failed to create reversal JE."] + create_reversal_result.errors)
-            reversal_je_orm = create_reversal_result.value
-            original_entry.is_reversed = True; original_entry.reversing_entry_id = reversal_je_orm.id
-            original_entry.updated_by_user_id = user_id; session.add(original_entry)
-            try:
-                await session.flush(); await session.refresh(reversal_je_orm)
-                if reversal_je_orm.lines: await session.refresh(reversal_je_orm, attribute_names=['lines'])
-                return Result.success(reversal_je_orm)
-            except Exception as e: self.app_core.logger.error(f"Error reversing JE ID {entry_id} (flush/commit stage): {e}", exc_info=True); return Result.failure([f"Failed to finalize reversal: {str(e)}"]) # type: ignore
-
-    def _calculate_next_generation_date(self, last_date: date, frequency: str, interval: int, day_of_month: Optional[int] = None, day_of_week: Optional[int] = None) -> date:
-        next_date = last_date
-        if frequency == 'Monthly':
-            next_date = last_date + relativedelta(months=interval)
-            if day_of_month:
-                try:
-                    next_date = next_date.replace(day=day_of_month)
-                except ValueError: 
-                    next_date = next_date + relativedelta(day=31) 
-        elif frequency == 'Yearly':
-            next_date = last_date + relativedelta(years=interval)
-            if day_of_month:
-                try:
-                    next_date = next_date.replace(day=day_of_month, month=last_date.month)
-                except ValueError:
-                    next_date = next_date.replace(month=last_date.month) + relativedelta(day=31)
-        elif frequency == 'Weekly':
-            next_date = last_date + relativedelta(weeks=interval)
-            if day_of_week is not None: 
-                 current_weekday = next_date.weekday() 
-                 days_to_add = (day_of_week - current_weekday + 7) % 7
-                 next_date += timedelta(days=days_to_add)
-        elif frequency == 'Daily':
-            next_date = last_date + relativedelta(days=interval)
-        elif frequency == 'Quarterly':
-            next_date = last_date + relativedelta(months=interval * 3)
-            if day_of_month:
-                try:
-                    next_date = next_date.replace(day=day_of_month)
-                except ValueError:
-                    next_date = next_date + relativedelta(day=31)
-        else:
-            raise NotImplementedError(f"Frequency '{frequency}' not supported for next date calculation.")
-        return next_date
-
-    async def generate_recurring_entries(self, as_of_date: date, user_id: int) -> List[Result[JournalEntry]]:
-        patterns_due: List[RecurringPattern] = await self.journal_service.get_recurring_patterns_due(as_of_date); generated_results: List[Result[JournalEntry]] = []
-        for pattern in patterns_due:
-            if not pattern.template_journal_entry: self.app_core.logger.error(f"Template JE not loaded for pattern ID {pattern.id}. Skipping."); generated_results.append(Result.failure([f"Template JE not loaded for pattern '{pattern.name}'."])); continue
-            entry_date_for_new_je = pattern.next_generation_date; 
-            if not entry_date_for_new_je : continue 
-            template_entry = pattern.template_journal_entry
-            new_je_lines_data = [JournalEntryLineData(account_id=line.account_id, description=line.description, debit_amount=line.debit_amount, credit_amount=line.credit_amount, currency_code=line.currency_code, exchange_rate=line.exchange_rate, tax_code=line.tax_code, tax_amount=line.tax_amount, dimension1_id=line.dimension1_id, dimension2_id=line.dimension2_id) for line in template_entry.lines]
-            new_je_data = JournalEntryData(journal_type=template_entry.journal_type, entry_date=entry_date_for_new_je, description=f"{pattern.description or template_entry.description or ''} (Recurring - {pattern.name})", reference=template_entry.reference, user_id=user_id, lines=new_je_lines_data, recurring_pattern_id=pattern.id, source_type="RecurringPattern", source_id=pattern.id)
-            create_result = await self.create_journal_entry(new_je_data); generated_results.append(create_result)
-            if create_result.is_success:
-                async with self.app_core.db_manager.session() as session: # type: ignore
-                    pattern_to_update = await session.get(RecurringPattern, pattern.id)
-                    if pattern_to_update:
-                        pattern_to_update.last_generated_date = entry_date_for_new_je
-                        try:
-                            next_gen = self._calculate_next_generation_date(pattern_to_update.last_generated_date, pattern_to_update.frequency, pattern_to_update.interval_value, pattern_to_update.day_of_month, pattern_to_update.day_of_week)
-                            if pattern_to_update.end_date and next_gen > pattern_to_update.end_date: pattern_to_update.next_generation_date = None; pattern_to_update.is_active = False 
-                            else: pattern_to_update.next_generation_date = next_gen
-                        except NotImplementedError: pattern_to_update.next_generation_date = None; pattern_to_update.is_active = False; self.app_core.logger.warning(f"Next gen date calc not implemented for pattern {pattern_to_update.name}, deactivating.") # type: ignore
-                        pattern_to_update.updated_by_user_id = user_id; session.add(pattern_to_update); await session.commit()
-                    else: self.app_core.logger.error(f"Failed to re-fetch pattern ID {pattern.id} for update after recurring JE generation.") # type: ignore
-        return generated_results
-
-    async def get_journal_entry_for_dialog(self, entry_id: int) -> Optional[JournalEntry]:
-        return await self.journal_service.get_by_id(entry_id)
-
-    async def get_journal_entries_for_listing(self, filters: Optional[Dict[str, Any]] = None) -> Result[List[Dict[str, Any]]]:
-        filters = filters or {}
-        try:
-            summary_data = await self.journal_service.get_all_summary(
-                start_date_filter=filters.get("start_date"),
-                end_date_filter=filters.get("end_date"),
-                status_filter=filters.get("status"),
-                entry_no_filter=filters.get("entry_no"),
-                description_filter=filters.get("description"),
-                journal_type_filter=filters.get("journal_type") 
-            )
-            return Result.success(summary_data)
-        except Exception as e:
-            self.app_core.logger.error(f"Error fetching JE summaries for listing: {e}", exc_info=True) 
-            return Result.failure([f"Failed to retrieve journal entry summaries: {str(e)}"])
-
-```
-
-# app/accounting/currency_manager.py
-```py
-# File: app/accounting/currency_manager.py
-# (Content as previously generated, verified - needs TYPE_CHECKING for ApplicationCore)
-# from app.core.application_core import ApplicationCore # Removed direct import
-from app.services.accounting_services import CurrencyService, ExchangeRateService 
-from typing import Optional, List, Any, TYPE_CHECKING
-from datetime import date
-from decimal import Decimal
-from app.models.accounting.currency import Currency 
-from app.models.accounting.exchange_rate import ExchangeRate
-from app.utils.result import Result
-
-if TYPE_CHECKING:
-    from app.core.application_core import ApplicationCore # For type hinting
-
-class CurrencyManager:
-    def __init__(self, app_core: "ApplicationCore"): 
-        self.app_core = app_core
-        # Assuming these service properties exist on app_core and are correctly typed there
-        self.currency_service: CurrencyService = app_core.currency_repo_service # type: ignore 
-        self.exchange_rate_service: ExchangeRateService = app_core.exchange_rate_service # type: ignore
-    
-    async def get_active_currencies(self) -> List[Currency]:
-        return await self.currency_service.get_all_active()
-
-    async def get_exchange_rate(self, from_currency_code: str, to_currency_code: str, rate_date: date) -> Optional[Decimal]:
-        rate_obj = await self.exchange_rate_service.get_rate_for_date(from_currency_code, to_currency_code, rate_date)
-        return rate_obj.exchange_rate_value if rate_obj else None
-
-    async def update_exchange_rate(self, from_code:str, to_code:str, r_date:date, rate:Decimal, user_id:int) -> Result[ExchangeRate]:
-        existing_rate = await self.exchange_rate_service.get_rate_for_date(from_code, to_code, r_date)
-        orm_object: ExchangeRate
-        if existing_rate:
-            existing_rate.exchange_rate_value = rate
-            existing_rate.updated_by_user_id = user_id
-            orm_object = existing_rate
-        else:
-            orm_object = ExchangeRate(
-                from_currency_code=from_code, to_currency_code=to_code, rate_date=r_date,
-                exchange_rate_value=rate, 
-                created_by_user_id=user_id, updated_by_user_id=user_id 
-            )
-        
-        saved_obj = await self.exchange_rate_service.save(orm_object)
-        return Result.success(saved_obj)
-
-    async def get_all_currencies(self) -> List[Currency]:
-        return await self.currency_service.get_all()
-
-    async def get_currency_by_code(self, code: str) -> Optional[Currency]:
-        return await self.currency_service.get_by_id(code)
-
-```
-
-# app/accounting/chart_of_accounts_manager.py
-```py
-# File: app/accounting/chart_of_accounts_manager.py
-# (Content previously updated to use AccountCreateData/UpdateData, ensure consistency)
-# Key: Uses AccountService. User ID comes from DTO which inherits UserAuditData.
-from typing import List, Optional, Dict, Any, TYPE_CHECKING
-from app.models.accounting.account import Account 
-from app.services.account_service import AccountService 
-from app.utils.result import Result
-from app.utils.pydantic_models import AccountCreateData, AccountUpdateData, AccountValidator
-# from app.core.application_core import ApplicationCore # Removed direct import
-from decimal import Decimal
-from datetime import date # Added for type hint in deactivate_account
-
-if TYPE_CHECKING:
-    from app.core.application_core import ApplicationCore # For type hinting
-
-class ChartOfAccountsManager:
-    def __init__(self, account_service: AccountService, app_core: "ApplicationCore"):
-        self.account_service = account_service
-        self.account_validator = AccountValidator() 
-        self.app_core = app_core 
-
-    async def create_account(self, account_data: AccountCreateData) -> Result[Account]:
-        validation_result = self.account_validator.validate_create(account_data)
-        if not validation_result.is_valid:
-            return Result.failure(validation_result.errors)
-        
-        existing = await self.account_service.get_by_code(account_data.code)
-        if existing:
-            return Result.failure([f"Account code '{account_data.code}' already exists."])
-        
-        current_user_id = account_data.user_id
-
-        account = Account(
-            code=account_data.code, name=account_data.name,
-            account_type=account_data.account_type, sub_type=account_data.sub_type,
-            tax_treatment=account_data.tax_treatment, gst_applicable=account_data.gst_applicable,
-            description=account_data.description, parent_id=account_data.parent_id,
-            report_group=account_data.report_group, is_control_account=account_data.is_control_account,
-            is_bank_account=account_data.is_bank_account, opening_balance=account_data.opening_balance,
-            opening_balance_date=account_data.opening_balance_date, is_active=account_data.is_active,
-            created_by_user_id=current_user_id, 
-            updated_by_user_id=current_user_id 
-        )
-        
-        try:
-            saved_account = await self.account_service.save(account)
-            return Result.success(saved_account)
-        except Exception as e:
-            return Result.failure([f"Failed to save account: {str(e)}"])
-    
-    async def update_account(self, account_data: AccountUpdateData) -> Result[Account]:
-        existing_account = await self.account_service.get_by_id(account_data.id)
-        if not existing_account:
-            return Result.failure([f"Account with ID {account_data.id} not found."])
-        
-        validation_result = self.account_validator.validate_update(account_data)
-        if not validation_result.is_valid:
-            return Result.failure(validation_result.errors)
-        
-        if account_data.code != existing_account.code:
-            code_exists = await self.account_service.get_by_code(account_data.code)
-            if code_exists and code_exists.id != existing_account.id:
-                return Result.failure([f"Account code '{account_data.code}' already exists."])
-        
-        current_user_id = account_data.user_id
-
-        existing_account.code = account_data.code; existing_account.name = account_data.name
-        existing_account.account_type = account_data.account_type; existing_account.sub_type = account_data.sub_type
-        existing_account.tax_treatment = account_data.tax_treatment; existing_account.gst_applicable = account_data.gst_applicable
-        existing_account.description = account_data.description; existing_account.parent_id = account_data.parent_id
-        existing_account.report_group = account_data.report_group; existing_account.is_control_account = account_data.is_control_account
-        existing_account.is_bank_account = account_data.is_bank_account; existing_account.opening_balance = account_data.opening_balance
-        existing_account.opening_balance_date = account_data.opening_balance_date; existing_account.is_active = account_data.is_active
-        existing_account.updated_by_user_id = current_user_id
-        
-        try:
-            updated_account = await self.account_service.save(existing_account)
-            return Result.success(updated_account)
-        except Exception as e:
-            return Result.failure([f"Failed to update account: {str(e)}"])
-            
-    async def deactivate_account(self, account_id: int, user_id: int) -> Result[Account]:
-        account = await self.account_service.get_by_id(account_id)
-        if not account:
-            return Result.failure([f"Account with ID {account_id} not found."])
-        
-        if not account.is_active:
-             return Result.failure([f"Account '{account.code}' is already inactive."])
-
-        if not hasattr(self.app_core, 'journal_service'): 
-            return Result.failure(["Journal service not available for balance check."])
-
-        total_current_balance = await self.app_core.journal_service.get_account_balance(account_id, date.today()) 
-
-        if total_current_balance != Decimal(0):
-            return Result.failure([f"Cannot deactivate account '{account.code}' as it has a non-zero balance ({total_current_balance:.2f})."])
-
-        account.is_active = False
-        account.updated_by_user_id = user_id 
-        
-        try:
-            updated_account = await self.account_service.save(account)
-            return Result.success(updated_account)
-        except Exception as e:
-            return Result.failure([f"Failed to deactivate account: {str(e)}"])
-
-    async def get_account_tree(self, active_only: bool = True) -> List[Dict[str, Any]]:
-        try:
-            tree = await self.account_service.get_account_tree(active_only=active_only)
-            return tree 
-        except Exception as e:
-            print(f"Error getting account tree: {e}") 
-            return []
-
-    async def get_accounts_for_selection(self, account_type: Optional[str] = None, active_only: bool = True) -> List[Account]:
-        if account_type:
-            return await self.account_service.get_by_type(account_type, active_only=active_only)
-        elif active_only:
-            return await self.account_service.get_all_active()
-        else:
-            # Assuming get_all() exists on account_service, if not, this path needs adjustment
-            if hasattr(self.account_service, 'get_all'):
-                 return await self.account_service.get_all()
-            else: # Fallback to active if get_all not present for some reason
-                 return await self.account_service.get_all_active()
-
-```
-
-# app/accounting/fiscal_period_manager.py
-```py
-# File: app/accounting/fiscal_period_manager.py
-from typing import List, Optional, TYPE_CHECKING # Removed Any, will use specific type
-from datetime import date, datetime, timedelta
-from dateutil.relativedelta import relativedelta # type: ignore
-
-from sqlalchemy import select # Added for explicit select usage
-
-from app.models.accounting.fiscal_year import FiscalYear 
-from app.models.accounting.fiscal_period import FiscalPeriod
-from app.utils.result import Result
-from app.utils.pydantic_models import FiscalYearCreateData 
-from app.services.fiscal_period_service import FiscalPeriodService
-from app.services.accounting_services import FiscalYearService 
-
-if TYPE_CHECKING:
-    from app.core.application_core import ApplicationCore 
-    from sqlalchemy.ext.asyncio import AsyncSession # For session type hint
-
-class FiscalPeriodManager:
-    def __init__(self, app_core: "ApplicationCore"):
-        self.app_core = app_core
-        self.fiscal_period_service: FiscalPeriodService = app_core.fiscal_period_service 
-        self.fiscal_year_service: FiscalYearService = app_core.fiscal_year_service 
-        
-    async def create_fiscal_year_and_periods(self, fy_data: FiscalYearCreateData) -> Result[FiscalYear]:
-        if fy_data.start_date >= fy_data.end_date:
-            return Result.failure(["Fiscal year start date must be before end date."])
-
-        existing_by_name = await self.fiscal_year_service.get_by_name(fy_data.year_name)
-        if existing_by_name:
-            return Result.failure([f"A fiscal year with the name '{fy_data.year_name}' already exists."])
-
-        overlapping_fy = await self.fiscal_year_service.get_by_date_overlap(fy_data.start_date, fy_data.end_date)
-        if overlapping_fy:
-            return Result.failure([f"The proposed date range overlaps with existing fiscal year '{overlapping_fy.year_name}' ({overlapping_fy.start_date} - {overlapping_fy.end_date})."])
-
-        async with self.app_core.db_manager.session() as session: # type: ignore # session is AsyncSession here
-            fy = FiscalYear(
-                year_name=fy_data.year_name, 
-                start_date=fy_data.start_date, 
-                end_date=fy_data.end_date, 
-                created_by_user_id=fy_data.user_id, 
-                updated_by_user_id=fy_data.user_id,
-                is_closed=False 
-            )
-            session.add(fy)
-            await session.flush() 
-            await session.refresh(fy) 
-
-            if fy_data.auto_generate_periods and fy_data.auto_generate_periods in ["Month", "Quarter"]:
-                # Pass the existing session to the internal method
-                period_generation_result = await self._generate_periods_for_year_internal(
-                    fy, fy_data.auto_generate_periods, fy_data.user_id, session # Pass session
-                )
-                if not period_generation_result.is_success:
-                    # No need to explicitly rollback here, 'async with session' handles it on exception.
-                    # If period_generation_result itself raises an exception that's caught outside,
-                    # the session context manager will rollback.
-                    # If it returns a failure Result, we need to raise an exception to trigger rollback
-                    # or handle it such that the fiscal year is not considered fully created.
-                    # For now, let's assume if period generation fails, we raise to rollback.
-                    # This means _generate_periods_for_year_internal should raise on critical failure.
-                    # Or, the manager can decide to keep the FY and return warnings.
-                    # Let's make it so that failure to generate periods makes the whole operation fail.
-                    raise Exception(f"Failed to generate periods for '{fy.year_name}': {', '.join(period_generation_result.errors)}")
-            
-            # If we reach here, commit will happen automatically when 'async with session' exits.
-            return Result.success(fy)
-        
-        # This return Result.failure is less likely to be hit due to `async with` handling exceptions
-        return Result.failure(["An unexpected error occurred outside the transaction for fiscal year creation."])
-
-
-    async def _generate_periods_for_year_internal(self, fiscal_year: FiscalYear, period_type: str, user_id: int, session: "AsyncSession") -> Result[List[FiscalPeriod]]:
-        if not fiscal_year or not fiscal_year.id:
-            # This should raise an exception to trigger rollback in the calling method
-            raise ValueError("Valid FiscalYear object with an ID must be provided for period generation.")
-        
-        stmt_existing = select(FiscalPeriod).where(
-            FiscalPeriod.fiscal_year_id == fiscal_year.id,
-            FiscalPeriod.period_type == period_type
-        )
-        existing_periods_result = await session.execute(stmt_existing)
-        if existing_periods_result.scalars().first():
-             raise ValueError(f"{period_type} periods already exist for fiscal year '{fiscal_year.year_name}'.")
-
-
-        periods: List[FiscalPeriod] = []
-        current_start_date = fiscal_year.start_date
-        fy_end_date = fiscal_year.end_date
-        period_number = 1
-
-        while current_start_date <= fy_end_date:
-            current_end_date: date
-            period_name: str
-
-            if period_type == "Month":
-                current_end_date = current_start_date + relativedelta(months=1) - relativedelta(days=1)
-                if current_end_date > fy_end_date: current_end_date = fy_end_date
-                period_name = f"{current_start_date.strftime('%B %Y')}"
-            
-            elif period_type == "Quarter":
-                month_end_of_third_month = current_start_date + relativedelta(months=2, day=1) + relativedelta(months=1) - relativedelta(days=1)
-                current_end_date = month_end_of_third_month
-                if current_end_date > fy_end_date: current_end_date = fy_end_date
-                period_name = f"Q{period_number} {fiscal_year.year_name}"
-            else: 
-                raise ValueError(f"Invalid period type '{period_type}' during generation.")
-
-            fp = FiscalPeriod(
-                fiscal_year_id=fiscal_year.id, name=period_name,
-                start_date=current_start_date, end_date=current_end_date,
-                period_type=period_type, status="Open", period_number=period_number,
-                is_adjustment=False,
-                created_by_user_id=user_id, updated_by_user_id=user_id
-            )
-            session.add(fp) 
-            periods.append(fp)
-
-            if current_end_date >= fy_end_date: break 
-            current_start_date = current_end_date + relativedelta(days=1)
-            period_number += 1
-        
-        await session.flush() # Flush within the session passed by the caller
-        for p in periods: 
-            await session.refresh(p)
-            
-        return Result.success(periods)
-
-    async def close_period(self, fiscal_period_id: int, user_id: int) -> Result[FiscalPeriod]:
-        period = await self.fiscal_period_service.get_by_id(fiscal_period_id)
-        if not period: return Result.failure([f"Fiscal period ID {fiscal_period_id} not found."])
-        if period.status == 'Closed': return Result.failure(["Period is already closed."])
-        if period.status == 'Archived': return Result.failure(["Cannot close an archived period."])
-        
-        period.status = 'Closed'
-        period.updated_by_user_id = user_id
-        # The service's update method will handle the commit with its own session
-        updated_period = await self.fiscal_period_service.update(period) 
-        return Result.success(updated_period)
-
-    async def reopen_period(self, fiscal_period_id: int, user_id: int) -> Result[FiscalPeriod]:
-        period = await self.fiscal_period_service.get_by_id(fiscal_period_id)
-        if not period: return Result.failure([f"Fiscal period ID {fiscal_period_id} not found."])
-        if period.status == 'Open': return Result.failure(["Period is already open."])
-        if period.status == 'Archived': return Result.failure(["Cannot reopen an archived period."])
-        
-        fiscal_year = await self.fiscal_year_service.get_by_id(period.fiscal_year_id)
-        if fiscal_year and fiscal_year.is_closed:
-            return Result.failure(["Cannot reopen period as its fiscal year is closed."])
-
-        period.status = 'Open'
-        period.updated_by_user_id = user_id
-        updated_period = await self.fiscal_period_service.update(period)
-        return Result.success(updated_period)
-
-    async def get_current_fiscal_period(self, target_date: Optional[date] = None) -> Optional[FiscalPeriod]:
-        if target_date is None:
-            target_date = date.today()
-        return await self.fiscal_period_service.get_by_date(target_date)
-
-    async def get_all_fiscal_years(self) -> List[FiscalYear]:
-        return await self.fiscal_year_service.get_all()
-
-    async def get_fiscal_year_by_id(self, fy_id: int) -> Optional[FiscalYear]:
-        return await self.fiscal_year_service.get_by_id(fy_id)
-
-    async def get_periods_for_fiscal_year(self, fiscal_year_id: int) -> List[FiscalPeriod]:
-        return await self.fiscal_period_service.get_fiscal_periods_for_year(fiscal_year_id)
-
-    async def close_fiscal_year(self, fiscal_year_id: int, user_id: int) -> Result[FiscalYear]:
-        fy = await self.fiscal_year_service.get_by_id(fiscal_year_id)
-        if not fy:
-            return Result.failure([f"Fiscal Year ID {fiscal_year_id} not found."])
-        if fy.is_closed:
-            return Result.failure([f"Fiscal Year '{fy.year_name}' is already closed."])
-
-        periods = await self.fiscal_period_service.get_fiscal_periods_for_year(fiscal_year_id)
-        open_periods = [p for p in periods if p.status == 'Open']
-        if open_periods:
-            return Result.failure([f"Cannot close fiscal year '{fy.year_name}'. Following periods are still open: {[p.name for p in open_periods]}"])
-        
-        print(f"Performing year-end closing entries for FY '{fy.year_name}' (conceptual)...")
-
-        fy.is_closed = True
-        fy.closed_date = datetime.utcnow() 
-        fy.closed_by_user_id = user_id
-        fy.updated_by_user_id = user_id 
-        
-        try:
-            updated_fy = await self.fiscal_year_service.save(fy)
-            return Result.success(updated_fy)
-        except Exception as e:
-            return Result.failure([f"Error closing fiscal year: {str(e)}"])
 
 ```
 

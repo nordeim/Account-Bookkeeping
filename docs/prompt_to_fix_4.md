@@ -43,3 +43,10 @@ excellent result so far! please proceed with the next step in your plan to enhan
 
 The important point is to proceed very carefully so as not to introduce any regression error or accidentally omit the original features or functions. use the same tested rigorous and meticulous approach. thank you and good luck!
 
+---
+please tell me what you understand about your role and the behavior for handling my future requests.
+
+Attached `TDS (final draft version).md` is incomplete with missing sections. Please create a *complete* updated *replacement* version for it by filling in relevant details from older versions, `TDS (original version).md` and `TDS (update version).md`. 
+
+Make sure your final version is a complete one that is self-contained without reference to any other documents. Meaning you are to incorporate relevant missing sections from the older versions shared. I want you to do that because I am going to keep one final version which is the one you are going to create for me.
+

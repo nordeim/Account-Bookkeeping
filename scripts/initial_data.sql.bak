@@ -1,11 +1,6 @@
 -- File: scripts/initial_data.sql
 -- ============================================================================
--- INITIAL DATA (Version 1.0.5)
--- ============================================================================
--- This version corresponds to schema version 1.0.5.
--- No functional data changes were introduced by schema patches 1.0.4 or 1.0.5.
--- Existing permissions for banking/reconciliation were already present in v1.0.3.
--- Version 1.0.3 (base) added sequence grants for audit schema.
+-- INITIAL DATA (Version 1.0.3 - Added sequence grants for audit schema)
 -- ============================================================================
 
 -- Ensure this script is run by a superuser or the owner of the database/schemas

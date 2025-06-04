@@ -1,11 +1,10 @@
 # app/models/__init__.py
 ```py
 # File: app/models/__init__.py
-# (Content as previously generated and verified, reflecting subdirectory model structure)
 from .base import Base, TimestampMixin, UserAuditMixin
 
 # Core schema models
-from .core.user import User, Role, Permission # Removed UserRole, RolePermission
+from .core.user import User, Role, Permission 
 from .core.company_setting import CompanySetting
 from .core.configuration import Configuration
 from .core.sequence import Sequence
@@ -35,6 +34,7 @@ from .business.purchase_invoice import PurchaseInvoice, PurchaseInvoiceLine
 from .business.bank_account import BankAccount
 from .business.bank_transaction import BankTransaction
 from .business.payment import Payment, PaymentAllocation
+from .business.bank_reconciliation import BankReconciliation # New Import
 
 # Audit schema models
 from .audit.audit_log import AuditLog
@@ -43,7 +43,7 @@ from .audit.data_change_history import DataChangeHistory
 __all__ = [
     "Base", "TimestampMixin", "UserAuditMixin",
     # Core
-    "User", "Role", "Permission", # Removed UserRole, RolePermission
+    "User", "Role", "Permission", 
     "CompanySetting", "Configuration", "Sequence",
     # Accounting
     "AccountType", "Currency", "ExchangeRate", "Account",
@@ -54,6 +54,7 @@ __all__ = [
     "Customer", "Vendor", "Product", "InventoryMovement",
     "SalesInvoice", "SalesInvoiceLine", "PurchaseInvoice", "PurchaseInvoiceLine",
     "BankAccount", "BankTransaction", "Payment", "PaymentAllocation",
+    "BankReconciliation", # New Export
     # Audit
     "AuditLog", "DataChangeHistory",
 ]
@@ -403,13 +404,13 @@ class Customer(Base, TimestampMixin):
 # app/models/business/__init__.py
 ```py
 # File: app/models/business/__init__.py
-# (Content previously generated)
 from .inventory_movement import InventoryMovement
 from .sales_invoice import SalesInvoice, SalesInvoiceLine
 from .purchase_invoice import PurchaseInvoice, PurchaseInvoiceLine
 from .bank_account import BankAccount
 from .bank_transaction import BankTransaction
 from .payment import Payment, PaymentAllocation
+from .bank_reconciliation import BankReconciliation # New Import
 
 __all__ = [
     "InventoryMovement", 
@@ -417,6 +418,7 @@ __all__ = [
     "PurchaseInvoice", "PurchaseInvoiceLine",
     "BankAccount", "BankTransaction",
     "Payment", "PaymentAllocation",
+    "BankReconciliation", # New Export
 ]
 
 ```
@@ -543,17 +545,21 @@ class Vendor(Base, TimestampMixin):
 # app/models/business/bank_account.py
 ```py
 # File: app/models/business/bank_account.py
-# (Reviewed and confirmed path and fields from previous generation, ensure relationships set)
 from sqlalchemy import Column, Integer, String, Date, Numeric, Text, ForeignKey, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from app.models.base import Base, TimestampMixin
-from app.models.accounting.account import Account # Corrected path
-from app.models.accounting.currency import Currency # Corrected path
+from app.models.accounting.account import Account 
+from app.models.accounting.currency import Currency 
 from app.models.core.user import User
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING
 import datetime
 from decimal import Decimal
+
+if TYPE_CHECKING:
+    from app.models.business.bank_transaction import BankTransaction # For relationship type hint
+    from app.models.business.payment import Payment # For relationship type hint
+    from app.models.business.bank_reconciliation import BankReconciliation # New import
 
 class BankAccount(Base, TimestampMixin):
     __tablename__ = 'bank_accounts'
@@ -569,6 +575,7 @@ class BankAccount(Base, TimestampMixin):
     opening_balance: Mapped[Decimal] = mapped_column(Numeric(15,2), default=Decimal(0))
     current_balance: Mapped[Decimal] = mapped_column(Numeric(15,2), default=Decimal(0))
     last_reconciled_date: Mapped[Optional[datetime.date]] = mapped_column(Date, nullable=True)
+    last_reconciled_balance: Mapped[Optional[Decimal]] = mapped_column(Numeric(15,2), nullable=True) # New field
     gl_account_id: Mapped[int] = mapped_column(Integer, ForeignKey('accounting.accounts.id'), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -581,11 +588,12 @@ class BankAccount(Base, TimestampMixin):
     created_by_user: Mapped["User"] = relationship("User", foreign_keys=[created_by_user_id])
     updated_by_user: Mapped["User"] = relationship("User", foreign_keys=[updated_by_user_id])
     
-    bank_transactions: Mapped[List["BankTransaction"]] = relationship("BankTransaction", back_populates="bank_account") # type: ignore
-    payments: Mapped[List["Payment"]] = relationship("Payment", back_populates="bank_account") # type: ignore
+    bank_transactions: Mapped[List["BankTransaction"]] = relationship("BankTransaction", back_populates="bank_account") 
+    payments: Mapped[List["Payment"]] = relationship("Payment", back_populates="bank_account") 
+    reconciliations: Mapped[List["BankReconciliation"]] = relationship("BankReconciliation", order_by="desc(BankReconciliation.statement_date)", back_populates="bank_account")
 
-# Add back_populates to Account
-Account.bank_account_links = relationship("BankAccount", back_populates="gl_account") # type: ignore
+# This back_populates was already in the base file for BankAccount, ensuring it's correctly set up.
+# Account.bank_account_links = relationship("BankAccount", back_populates="gl_account") 
 
 ```
 
@@ -872,17 +880,21 @@ Product.sales_invoice_lines = relationship("SalesInvoiceLine", back_populates="p
 # app/models/business/bank_transaction.py
 ```py
 # File: app/models/business/bank_transaction.py
-# (Reviewed and confirmed path and fields from previous generation, ensure relationships set)
 from sqlalchemy import Column, Integer, String, Date, Numeric, Text, ForeignKey, CheckConstraint, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
+from sqlalchemy.dialects.postgresql import JSONB 
 from app.models.base import Base, TimestampMixin
 from app.models.business.bank_account import BankAccount
 from app.models.core.user import User
 from app.models.accounting.journal_entry import JournalEntry
+# from app.models.business.bank_reconciliation import BankReconciliation # Forward reference if problematic
 import datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Optional, Dict, Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.models.business.bank_reconciliation import BankReconciliation # For type hint
 
 class BankTransaction(Base, TimestampMixin):
     __tablename__ = 'bank_transactions'
@@ -895,23 +907,96 @@ class BankTransaction(Base, TimestampMixin):
     bank_account_id: Mapped[int] = mapped_column(Integer, ForeignKey('business.bank_accounts.id'), nullable=False)
     transaction_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
     value_date: Mapped[Optional[datetime.date]] = mapped_column(Date, nullable=True)
-    transaction_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    transaction_type: Mapped[str] = mapped_column(String(20), nullable=False) 
     description: Mapped[str] = mapped_column(String(200), nullable=False)
     reference: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    amount: Mapped[Decimal] = mapped_column(Numeric(15,2), nullable=False)
-    is_reconciled: Mapped[bool] = mapped_column(Boolean, default=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(15,2), nullable=False) 
+    is_reconciled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     reconciled_date: Mapped[Optional[datetime.date]] = mapped_column(Date, nullable=True)
-    statement_date: Mapped[Optional[datetime.date]] = mapped_column(Date, nullable=True)
-    statement_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    journal_entry_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('accounting.journal_entries.id'), nullable=True)
+    statement_date: Mapped[Optional[datetime.date]] = mapped_column(Date, nullable=True) 
+    statement_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True) 
+    is_from_statement: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    raw_statement_data: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB, nullable=True)
 
+    # New field for linking to bank_reconciliations table
+    reconciled_bank_reconciliation_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('business.bank_reconciliations.id'), nullable=True)
+
+    journal_entry_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('accounting.journal_entries.id'), nullable=True)
     created_by_user_id: Mapped[int] = mapped_column("created_by", Integer, ForeignKey('core.users.id'), nullable=False)
     updated_by_user_id: Mapped[int] = mapped_column("updated_by", Integer, ForeignKey('core.users.id'), nullable=False)
     
+    # Relationships
     bank_account: Mapped["BankAccount"] = relationship("BankAccount", back_populates="bank_transactions")
-    journal_entry: Mapped[Optional["JournalEntry"]] = relationship("JournalEntry") # Simplified
+    journal_entry: Mapped[Optional["JournalEntry"]] = relationship("JournalEntry") 
     created_by_user: Mapped["User"] = relationship("User", foreign_keys=[created_by_user_id])
     updated_by_user: Mapped["User"] = relationship("User", foreign_keys=[updated_by_user_id])
+    
+    reconciliation_instance: Mapped[Optional["BankReconciliation"]] = relationship(
+        "BankReconciliation", 
+        back_populates="reconciled_transactions",
+        foreign_keys=[reconciled_bank_reconciliation_id]
+    )
+
+    def __repr__(self) -> str:
+        return f"<BankTransaction(id={self.id}, date={self.transaction_date}, type='{self.transaction_type}', amount={self.amount})>"
+
+```
+
+# app/models/business/bank_reconciliation.py
+```py
+# File: app/models/business/bank_reconciliation.py
+from sqlalchemy import Column, Integer, String, Date, Numeric, Text, ForeignKey, UniqueConstraint, DateTime, CheckConstraint # Added CheckConstraint
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.sql import func
+import datetime
+from decimal import Decimal
+from typing import Optional, List, TYPE_CHECKING # Added TYPE_CHECKING
+
+from app.models.base import Base, TimestampMixin 
+from app.models.business.bank_account import BankAccount
+from app.models.core.user import User
+
+if TYPE_CHECKING: # To handle circular dependency for type hint
+    from app.models.business.bank_transaction import BankTransaction
+
+class BankReconciliation(Base, TimestampMixin):
+    __tablename__ = 'bank_reconciliations'
+    __table_args__ = (
+        UniqueConstraint('bank_account_id', 'statement_date', name='uq_bank_reconciliation_account_statement_date'),
+        CheckConstraint("status IN ('Draft', 'Finalized')", name='ck_bank_reconciliations_status'), # New constraint
+        {'schema': 'business'}
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    bank_account_id: Mapped[int] = mapped_column(Integer, ForeignKey('business.bank_accounts.id'), nullable=False)
+    statement_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    statement_ending_balance: Mapped[Decimal] = mapped_column(Numeric(15,2), nullable=False)
+    calculated_book_balance: Mapped[Decimal] = mapped_column(Numeric(15,2), nullable=False)
+    reconciled_difference: Mapped[Decimal] = mapped_column(Numeric(15,2), nullable=False)
+    reconciliation_date: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default='Draft', nullable=False) # New field
+    
+    created_by_user_id: Mapped[int] = mapped_column(Integer, ForeignKey('core.users.id'), nullable=False)
+    # updated_by_user_id is handled by TimestampMixin's onupdate for updated_at. 
+    # If explicit user ID needed, add UserAuditMixin or direct Mapped column. Schema uses created_by only for this table.
+
+    # Relationships
+    bank_account: Mapped["BankAccount"] = relationship("BankAccount", back_populates="reconciliations") # Updated back_populates
+    created_by_user: Mapped["User"] = relationship("User", foreign_keys=[created_by_user_id])
+    
+    reconciled_transactions: Mapped[List["BankTransaction"]] = relationship(
+        "BankTransaction", 
+        back_populates="reconciliation_instance"
+    )
+
+    def __repr__(self) -> str:
+        return f"<BankReconciliation(id={self.id}, bank_account_id={self.bank_account_id}, stmt_date={self.statement_date}, diff={self.reconciled_difference}, status='{self.status}')>"
+
+# Ensure BankAccount model has the correct back_populates for reconciliations if not already set.
+# This is typically done in the BankAccount model file itself to avoid circular import issues at runtime
+# for model definition, but for completeness of understanding:
+# BankAccount.reconciliations = relationship("BankReconciliation", order_by=BankReconciliation.statement_date.desc(), back_populates="bank_account")
 
 ```
 

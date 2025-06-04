@@ -1,12 +1,304 @@
-# Technical Design Specification Document: SG Bookkeeper (v14)
+<think>
+Okay, I understand the request. The user wants two things:
 
-**Version:** 14.0
-**Date:** 2025-06-04
+1.  **Acknowledge my Role and Behavior**: I need to summarize my understanding of the CodeNavigator persona, its principles, and how I will handle future requests, based on the detailed meta-instructions provided earlier. This involves restating commitments to meticulousness, rigorous analysis, precise implementation, thorough validation (especially for file updates using "diff"), clear communication, and continuous improvement.
+
+2.  **Merge and Update TDS Document**: I need to create a single, complete, and self-contained `Technical Design Specification Document: SG Bookkeeper` (let's call it TDS v13.0 final). This involves:
+    *   Starting with `TDS (final draft version).md` as the base.
+    *   Identifying missing sections or details by comparing it with `TDS (original version).md` (which seems to be a comprehensive v12.0) and `TDS (update version).md` (which details the v13.0 changes related to banking and reconciliation).
+    *   Incorporating the relevant content from the older versions into the new "final draft" to make it complete. The "final draft" already has a good v13.0 structure, so it's about filling in the blanks using information from the original (v12.0) and the intermediate update (v13.0 update).
+    *   Ensuring the final document reflects the state of version 13.0, including all features and architectural details up to schema v1.0.4, especially the new Bank Reconciliation, CSV Import, auto bank transactions from JEs, and initial Dashboard KPIs.
+    *   The final output should be a single, coherent markdown file.
+
+**Part 1: Acknowledging Role and Behavior - Plan**
+
+I will structure this part of the response as follows:
+1.  **Direct Acknowledgement**: Start with a clear statement of commitment.
+2.  **CodeNavigator Role**: Briefly define my role as a deep-thinking AI coding assistant for codebase management, debugging, and improvement.
+3.  **Core Operational Principles**: Highlight key principles:
+    *   Meticulous, rigorous, systematic approach.
+    *   Deep understanding of requirements.
+    *   Systematic diagnosis and thorough analysis (including exploring multiple options via internal "chain of thoughts").
+    *   Precise, minimal-impact implementation.
+    *   Rigorous validation.
+    *   Clear communication and detailed explanations.
+    *   Continuous improvement.
+4.  **Specific Instruction on File Updates**: This is critical. I will reiterate my commitment to:
+    *   Providing *truly complete* updated replacement files.
+    *   Preserving all original, harmless code.
+    *   Modifying only what is necessary.
+    *   Providing clear justification for any removals.
+    *   Using a "diff" process for meticulous validation *before* presenting the file.
+5.  **Working Philosophy & Goal**: Briefly mention my adherence to principles like Architectural Integrity, Surgical Precision, and state the ultimate goal of solving problems while improving long-term codebase health.
+
+**Part 2: Merging and Updating TDS Document - Plan**
+
+This is the more complex part. I need to systematically go through `TDS (final draft version).md` section by section and compare it with `TDS (original version).md` and `TDS (update version).md`.
+
+**High-Level Strategy for TDS Merge:**
+
+*   **Base Document**: `TDS (final draft version).md` is the target. It has the latest section structure for v13.0.
+*   **Primary Source for v13.0 Features**: `TDS (update version).md` contains detailed descriptions of Bank Reconciliation, CSV Import, and related changes for v13.0. I'll ensure these are fully and accurately represented in the final version.
+*   **Source for Foundational/Unchanged Details**: `TDS (original version).md` (v12.0) contains many foundational details (e.g., overall architecture, older modules, security, deployment) that might be summarized or missing in the "final draft" or "update version." I need to bring these back if they are still relevant and not superseded by v13.0 changes.
+*   **Version Numbering**: The final document should consistently refer to itself as version 13.0 and reference schema v1.0.4.
+
+**Detailed Section-by-Section Plan for TDS Merge:**
+
+1.  **Preamble (File links):** The user provided file links at the end. I should not include these in the final TDS output.
+
+2.  **Section 1: Introduction**
+    *   **1.1 Purpose**: Ensure it accurately reflects v13.0, including Dashboard KPIs from the "final draft". The "final draft" version looks good. The "original version" mentions TDS version 12.0, so I'll ensure the final version is 13.0.
+    *   **1.2 Scope**: The "final draft" scope is concise. I'll check if any crucial scope points from "original version" are missing and still relevant. For example, "original version" is more detailed about UI patterns, DTO usage, security, deployment - these are still relevant.
+        *   *Action*: Expand scope based on "original version" but keep it relevant to the current state.
+    *   **1.3 Intended Audience**: "final draft" is fine (concise). "original version" is a bit more descriptive. I'll stick with the "final draft" version as it's standard.
+    *   **1.4 System Overview**: "final draft" mentions dashboard KPIs. "original version" is more descriptive about features *before* v13.0. I need to merge these to give a comprehensive overview that includes both older and newer features.
+        *   *Action*: Combine descriptions from "final draft" (for new features) and "original version" (for existing features and overall context) to create a rich system overview.
+    *   **1.5 Current Implementation Status**: "final draft" lists v13.0 features. "original version" lists v12.0 features. The "final draft" states "All features from TDS v12.0." This is good, but for a self-contained document, it might be better to list the key v12.0 features briefly or ensure they are covered in the System Overview.
+        *   *Action*: I will make this section more self-contained by briefly summarizing key features from v12 (as listed in "original version"'s 1.5) and then detailing the v13 additions from "final draft" and "update version".
+
+3.  **Section 2: System Architecture**
+    *   **2.1 High-Level Architecture**: "final draft" says the diagram from v12.0 is valid. "original version" has the diagram and description.
+        *   *Action*: Copy the diagram and its description from "original version" (TDS v12.0) into the final document.
+    *   **2.2 Component Architecture**:
+        *   **2.2.1 Core Components (`app/core/`)**:
+            *   `Application`: "original version" has details. "final draft" doesn't. Add from "original version".
+            *   `ApplicationCore`: "final draft" has v13 updates. "original version" has base description. Merge.
+            *   `ConfigManager`: "original version" has details. "final draft" doesn't. Add from "original version".
+            *   `DatabaseManager`: "original version" has details. "final draft" doesn't. Add from "original version".
+            *   `SecurityManager`: "original version" has details. "final draft" doesn't. Add from "original version".
+            *   `ModuleManager`: "original version" has details. "final draft" doesn't. Add from "original version".
+        *   **2.2.2 Asynchronous Task Management (`app/main.py`)**: "original version" has details. "final draft" doesn't. Add from "original version".
+        *   **2.2.3 Services (Data Access Layer - `app/services/`)**: "original version" has details. "final draft" doesn't. Add from "original version", ensuring new services like `BankReconciliationService` are mentioned if not already there (it is mentioned in ApplicationCore update in "final draft").
+        *   **2.2.4 Managers (Business Logic Layer)**: "final draft" has updates for `JournalEntryManager`, `BankTransactionManager`, and new `DashboardManager`. "original version" has details on other managers.
+            *   *Action*: Combine. Start with the structure from "original version" for existing managers, then integrate the updates/new managers from "final draft" and "update version". Ensure all relevant managers are described.
+        *   **2.2.5 User Interface (Presentation Layer - `app/ui/`)**: "final draft" mentions new UI components for v13.0. "original version" has descriptions of older UI components.
+            *   *Action*: Combine. Describe the overall UI structure and then list key components, incorporating details from both "original version" (for established UI parts) and "final draft"/"update version" (for new banking UI, dashboard).
+
+    *   **2.3 Technology Stack**: "original version" has a comprehensive list. "final draft" does not.
+        *   *Action*: Copy from "original version". Check if PySide6 version needs update (original says 6.9.0+, this is probably fine).
+    *   **2.4 Design Patterns**: "original version" has a comprehensive list. "final draft" does not.
+        *   *Action*: Copy from "original version".
+
+4.  **Section 3: Data Architecture**
+    *   **3.1 Database Schema Overview**: "final draft" has updates for v1.0.4 (new table `bank_reconciliations`, new columns, new trigger). "original version" has the overall schema organization (core, accounting, business, audit) and more details on older tables/triggers.
+        *   *Action*: Merge. Start with the organizational description from "original version". Then, integrate the specific v1.0.4 changes from "final draft" and "update version". Ensure the trigger descriptions are accurate for v13.0 (e.g., `trg_update_bank_balance` is new/updated).
+    *   **3.2 SQLAlchemy ORM Models (`app/models/`)**: "final draft" mentions new/updated models for banking. "original version" has general description and details of older models.
+        *   *Action*: Merge. Provide the general description from "original version" and then list the specific model updates/additions from "final draft" and "update version".
+    *   **3.3 Data Transfer Objects (DTOs - `app/utils/pydantic_models.py`)**: "final draft" mentions new DTOs for banking and dashboard. "original version" has a general description and lists older DTOs.
+        *   *Action*: Merge. Provide the general description from "original version" and then detail the DTO additions/updates for v13.0 from "final draft" and "update version". Clarify which DTOs were confirmed in previous reviews (as "final draft" states).
+    *   **3.4 Data Access Layer Interfaces (Services - `app/services/__init__.py`)**: "original version" has details. "final draft" doesn't.
+        *   *Action*: Copy from "original version". Add new interfaces if any (e.g., `IBankReconciliationRepository` if it exists or is implied by `BankReconciliationService`). The "update version" doesn't explicitly list a new interface, but `BankReconciliationService` is new. The existing "original version" text talks about how services directly implement methods. This is likely still true.
+
+5.  **Section 4: Module and Component Specifications**
+    *   This section needs careful merging. "final draft" has a condensed version focusing on updates. "original version" has detailed descriptions of modules existing in v12.0. "update version" has detailed descriptions of new banking features.
+    *   **General Approach**: For each module:
+        1.  Take the description from "original version" as a base if the module existed in v12.0.
+        2.  Update it with any changes or new sub-features detailed in "update version" or "final draft" for v13.0.
+        3.  For entirely new modules in v13.0 (e.g., parts of Banking, Dashboard), use the descriptions from "final draft" or "update version".
+    *   **Specific modules to check**:
+        *   **4.1 Core Accounting Module**: "original version" has details. Ensure these are present.
+        *   **4.2 Tax Management Module**: "original version" has details. "update version" and "final draft" confirm GST enhancements. Ensure detailed GST breakdown info is present.
+        *   **4.3 Business Operations Modules**: "original version" has details (Customer, Vendor, Product, Sales, Purchase). Ensure these are present and any updates (e.g., purchase invoice posting status from "original version") are clarified or confirmed.
+        *   **4.4 System Administration Modules**: "original version" has details (User, Role, Audit Log UI). "final draft" mentions audit log improvements. Ensure this is covered.
+        *   **4.5 Reporting Module**: "original version" has details on Financial Statements. "final draft" introduces `DashboardManager` under 2.2.4 and `DashboardWidget` under 2.2.5, and a new section "4.X Dashboard Module". Ensure this is coherent.
+            *   *Action*: I'll create a proper `4.X Dashboard Module` section based on "final draft" and place it appropriately, perhaps as 4.5 and shift the existing 4.5 (Reporting from original) to 4.6, and then Banking to 4.7, Payments to 4.8. Or integrate Dashboard into existing Reporting. Let's see.
+            *   *Decision*: It's better to have a distinct "Dashboard Module" section. So it will be: 4.5 Reporting (Financial Statements), 4.6 Dashboard, 4.7 Banking, 4.8 Payments. (Original had Payments under Business Ops in 4.3, but then 4.6 Banking, 4.7 Payments. Let's try to group them more logically or follow the numbering from "final draft" if it implies a structure).
+            *   "final draft" has "4.6 Banking Module (Significant Enhancements)" and "4.X Dashboard Module (New Minimal Implementation)". This implies the numbering. I will make section "4.X" into a proper number, say 4.5 for Dashboard, then 4.6 for Banking, and 4.7 for Payments (from original). I'll need to renumber subsequent sections in the final document if needed. Original had: 4.1 Core Acct, 4.2 Tax, 4.3 Biz Ops, 4.4 Sys Admin, 4.5 Reporting, 4.6 Banking, 4.7 Payments.
+            *   Let's try:
+                *   4.1 Core Accounting (from original)
+                *   4.2 Tax Management (from original, incorporate GST updates)
+                *   4.3 Business Operations (Customers, Vendors, Products, Sales Inv, Purchase Inv - from original)
+                *   4.4 Payments (This was section 4.7 in original, but logically fits after Business Ops. "update version" doesn't explicitly detail it as changed, but "original version" has a good spec. The "final draft" intro mentions "Payments" as a previous feature) - *Keep it as 4.7 to match original's flow, as "final draft" just says "All features from TDS v12.0"* - No, "final draft" lists 4.6 Banking, 4.X Dashboard. So "original version" sections for Payments, etc. will need to be re-integrated.
+                *   Let's use the structure from "original version" for sections 4.1-4.5.
+                *   Then, for 4.6 (Banking) and a new 4.X (Dashboard), I will use "final draft" and "update version".
+                *   Section 4.7 (Payments) from "original version" must be included.
+                *   *Revised Plan for Section 4*:
+                    *   4.1 Core Accounting Module (from original)
+                    *   4.2 Tax Management Module (from original, update with GST details from final draft/update)
+                    *   4.3 Business Operations Modules (from original)
+                    *   4.4 System Administration Modules (from original, update Audit Log from final draft/update)
+                    *   4.5 Reporting Module (Financial Statements - from original)
+                    *   **4.6 Dashboard Module (New)** (from final draft, details from DashboardManager/Widget)
+                    *   **4.7 Banking Module (Updated)** (based on final draft/update version, ensuring all sub-points like Recon Workflow, CSV import are covered from "update version")
+                    *   **4.8 Payments Module** (from original version's 4.7, as it's a major existing module)
+
+6.  **Section 5: User Interface Implementation (`app/ui/`)**
+    *   "final draft" notes updates. "original version" has a good general description and details on older UI elements. "update version" also has UI updates for banking.
+    *   *Action*: Start with the general description from "original version". Then, incorporate the specific UI component additions/updates from "final draft" and "update version" (BankReconciliationWidget, CSVImportConfigDialog, DashboardWidget, etc.).
+
+7.  **Section 6: Security Considerations**
+    *   "original version" has details. "final draft" doesn't.
+    *   *Action*: Copy from "original version".
+
+8.  **Section 7: Database Access Implementation**
+    *   "final draft" has a small update. "original version" has more comprehensive details.
+    *   *Action*: Start with "original version" content. Integrate the update from "final draft" (about BankReconciliationService using DatabaseManager for transactions).
+
+9.  **Section 8: Deployment and Installation**
+    *   "original version" has details. "final draft" doesn't.
+    *   *Action*: Copy from "original version". Ensure any mention of scripts (`db_init.py`, `schema.sql`, `initial_data.sql`) is consistent with v13.0 (e.g., `initial_data.sql` updated for new permissions).
+
+10. **Section 9: Conclusion (of original v12) / Section 11 in update/final draft**
+    *   "final draft" has a v13.0 conclusion. "update version" also has one.
+    *   *Action*: Use the conclusion from "final draft" (Section 11) as it's the most current. Ensure it accurately reflects all v13.0 achievements.
+
+11. **Section 10: Data Flow (in update/final draft)**
+    *   "final draft" states "The Data Flow for Sales Invoice Posting remains relevant." and then includes the Bank Reconciliation Data Flow from "update version".
+    *   "original version" does not have a data flow section explicitly numbered like this.
+    *   *Action*: I need to find the "Sales Invoice Posting Data Flow" if it's in one of the documents or clearly described. If not, I will include the Bank Reconciliation Data Flow as specified and note that other data flows could be added.
+    *   *Search*: Looking through "original version.md", there's no explicit "Data Flow" section. However, module descriptions (e.g., 4.3 Sales Invoicing) describe the flow. The "final draft" instruction seems to imply it *should* exist. Given the user wants a *complete* document, I should try to construct one for Sales Invoice Posting based on the description in "original version.md" Section 4.3. If this proves too complex or speculative without explicit text, I'll just include the Bank Rec one and state that the Sales Invoice one is implicitly described in Sec 4.3.
+    *   *Decision*: For now, I will include the Bank Reconciliation Data Flow from `TDS (update version).md` (which `TDS (final draft version).md` references). I will add a placeholder or a brief summary for the Sales Invoice Posting data flow, or point to Section 4.3. Let's try to synthesize one.
+        *   **Sales Invoice Posting Data Flow (Synthesized from Original TDS Sec 4.3)**:
+            1.  **UI (`SalesInvoiceDialog`)**: User completes invoice details, clicks "Save & Approve".
+            2.  **Data Collection & DTO Creation (UI/Manager)**: UI data is packaged into `SalesInvoiceCreateData` DTO.
+            3.  **Manager (`SalesInvoiceManager`)**:
+                *   Receives DTO.
+                *   Performs validation (e.g., fiscal period open, customer exists).
+                *   Calculates line totals, subtotals, tax (using `TaxCalculator`), and grand total.
+                *   Generates invoice number (via `SequenceService` through `ApplicationCore`).
+                *   Calls `SalesInvoiceService.create_invoice_from_dto()` to save the invoice and lines to the database.
+                *   If successful, proceeds to create Journal Entry.
+            4.  **Journal Entry Creation (Manager: `JournalEntryManager`)**:
+                *   `SalesInvoiceManager` prepares data for `JournalEntryCreateData` DTO (debit AR, credit Sales Revenue, credit GST Payable).
+                *   Calls `JournalEntryManager.create_and_post_journal_entry()`.
+                *   `JournalEntryManager` validates, creates, and posts the JE (updates `journal_entries` and `journal_entry_lines`, updates account balances implicitly or via triggers).
+            5.  **Inventory Update (Manager: `SalesInvoiceManager`, Service: `ProductService`/`InventoryMovementService` - conceptual)**:
+                *   If invoice contains inventory items:
+                    *   Calculates Cost of Goods Sold (COGS) based on Weighted Average Cost (WAC) from `ProductService`.
+                    *   Creates inventory movement records.
+                    *   Creates COGS Journal Entry (debit COGS, credit Inventory) and posts it via `JournalEntryManager`.
+            6.  **Invoice Status Update (Service: `SalesInvoiceService`)**:
+                *   `SalesInvoiceManager` calls `SalesInvoiceService` to update the invoice status to "Posted" and stores the main financial JE ID.
+            7.  **UI Feedback**: Success message displayed. Invoice list view updates.
+    *   This synthesized flow looks plausible. I will add it.
+
+12. **Overall Structure and Formatting**:
+    *   Ensure consistent heading levels.
+    *   Verify Markdown syntax, especially for code blocks and tables.
+    *   The final document should be a single Markdown file.
+    *   Remove the list of Google Drive links at the end.
+
+**Double-checking the "final draft" against "original version" for missing top-level sections:**
+
+*   "final draft" has Sections 1, 2, 3, 4, 10, 11.
+*   "original version" has Sections 1, 2, 3, 4, 5, 6, 7, 8, 9.
+*   So, "final draft" is missing explicit sections for:
+    *   5. User Interface Implementation (covered by 2.2.5 in final draft, but needs expansion and its own section) - *Action: Create Sec 5 from original, updated with new UI elements.*
+    *   6. Security Considerations - *Action: Create Sec 6 from original.*
+    *   7. Database Access Implementation - *Action: Create Sec 7 from original, updated with final draft note.*
+    *   8. Deployment and Installation - *Action: Create Sec 8 from original.*
+    *   9. Conclusion (this becomes Sec 11 in final draft, which is fine).
+    *   Section 10 in "final draft" is Data Flow. This needs to be numbered correctly, perhaps after Deployment, or earlier. Typically, data flow examples fit well after module specifications or architecture. Let's place it as Section 5, and shift UI, Security, DB Access, Deployment later.
+    *   *Revised Section Order Plan:*
+        1.  Introduction
+        2.  System Architecture
+        3.  Data Architecture
+        4.  Module and Component Specifications
+        5.  **Data Flow Examples** (New section containing Sales Invoice Posting and Bank Rec flow)
+        6.  User Interface Implementation (`app/ui/`) (from original Sec 5, updated)
+        7.  Security Considerations (from original Sec 6)
+        8.  Database Access Implementation (from original Sec 7, updated)
+        9.  Deployment and Installation (from original Sec 8)
+        10. Conclusion (from final draft/update Sec 11, renumbered)
+
+This detailed plan should allow me to construct the complete TDS document. I will be meticulous about transferring content, merging updates, and ensuring consistency.
+
+Let's start drafting the response. First, the acknowledgement part.
+Then, I'll construct the TDS file. I'll do this by taking `TDS (final draft version).md` as a base template for version 13 features and then fill in *all* the missing content and general descriptions from `TDS (original version).md`. The `TDS (update version).md` will serve as a cross-reference for the v13 bank reconciliation specific details, ensuring they are fully captured from its more verbose descriptions if `TDS (final draft version).md` was too brief on those.
+The key is to be comprehensive and self-contained.
+Final check on section numbering after deciding on the flow above.
+1. Intro
+2. Sys Arch
+3. Data Arch
+4. Module Specs
+5. Data Flow Examples (new)
+6. UI Impl (was 5)
+7. Security (was 6)
+8. DB Access Impl (was 7)
+9. Deployment (was 8)
+10. Conclusion (was 9 in original, 11 in update/final_draft)
+
+This order seems logical.
+
+One final thought on the data flow section. The user's "final draft" has it as section 10. I'll respect that structure if it's clearly what they're aiming for, just ensure the other missing sections are added and numbered around it.
+Let's look at the "final draft" structure:
+1. Intro
+2. Sys Arch
+3. Data Arch
+4. Module Specs (ends with 4.X Dashboard)
+... then it jumps to ...
+10. Data Flow
+11. Conclusion
+
+This means sections 5, 6, 7, 8, 9 are indeed missing. I will insert them.
+So the structure will be:
+1. Intro
+2. Sys Arch
+3. Data Arch
+4. Module Specs
+5. User Interface Implementation (from original Sec 5, updated)
+6. Security Considerations (from original Sec 6)
+7. Database Access Implementation (from original Sec 7, updated)
+8. Deployment and Installation (from original Sec 8)
+9. Data Flow Examples (this was Sec 10 in "final draft", renumbered to 9)
+10. Conclusion (this was Sec 11 in "final draft", renumbered to 10)
+
+This preserves the user's relative ordering of Data Flow and Conclusion while filling in the gaps. This seems like the best approach.
+
+Okay, I'm ready to generate the response.I understand and fully commit to my role as CodeNavigator. My purpose is to serve as your deep-thinking, elite AI coding assistant, dedicated to helping you maintain and enhance the SG Bookkeeper project (and any other codebase we work on) with the highest standards of quality, precision, and architectural foresight.
+
+Here's my understanding of my role and how I will handle your future requests, based on the comprehensive instructions you've provided:
+
+1.  **Core Commitment & Approach**:
+    *   I commit to a **meticulous, rigorous, and systematic approach** in all tasks. This means I will prioritize thoroughness and precision, aiming for error-free output.
+    *   I will engage in **deep thinking and deliberation**, using an internal "chain of thoughts" to explore various options and ensure I arrive at the most optimal solution. This includes carefully considering multiple implementation strategies before making a recommendation.
+
+2.  **Understanding & Diagnosing Tasks**:
+    *   **Deeply Understand Requirements**: I will ensure a complete grasp of each task, asking clarifying questions if needed, to understand the full scope, acceptance criteria, and constraints.
+    *   **Systematic Diagnosis**: I will methodically locate relevant code, trace execution paths for bugs, identify integration points for features, and assess the potential impact of any changes across the codebase.
+
+3.  **Solution Design & Implementation**:
+    *   **Thorough Analysis & Solution Architecture**: I will develop and compare multiple solution candidates, evaluating them against criteria like architectural alignment, minimal impact, performance, maintainability, and testability. I will present a preferred approach with clear rationale.
+    *   **Precise, Minimal-Impact Implementation**: My changes will be surgical, focusing on correctness and robustness while minimizing disruption. I will follow a detailed, step-by-step implementation plan.
+    *   **Rigorous Validation for File Updates**: This is a crucial point. When providing a "complete updated replacement file," I will:
+        *   Ensure it is **truly complete**, preserving all original, harmless code.
+        *   Modify **only what is necessary** to implement the request or fix the bug.
+        *   Provide **clear justification** for any removal of existing code, which will only occur if it directly conflicts, causes an error, or is part of an explicitly requested refactoring with a clear rationale.
+        *   **Meticulously use a line-by-line "diff" comparison** against the original file for every generated file. This is to double-check and validate that changes are correct, no original features or functions are accidentally omitted, and no new regression errors are introduced. This validation will be completed *before* I present the file to you.
+
+4.  **Code Quality & Long-Term Health**:
+    *   **Architectural Integrity**: I will respect and aim to enhance the existing architecture.
+    *   **Testing & Validation**: I will consider unit tests, integration tests, edge cases, and error recovery, and suggest validation strategies.
+    *   **Defensive Implementation**: I will anticipate edge cases and build robust solutions.
+    *   **Forward Compatibility**: I will design solutions with future enhancements in mind.
+
+5.  **Communication & Knowledge Transfer**:
+    *   **Clear Communication**: I will provide detailed explanations for my analysis, proposed solutions, and implemented changes, including the "what" and the "why."
+    *   **Structured Output**: I will use clear formatting (Markdown, code blocks, etc.) for readability.
+
+6.  **Operational Framework Adherence**:
+    *   I will operate according to the detailed framework you've provided, covering Project Onboarding, Task Intake, Solution Architecture, Implementation Planning & Execution, Testing & Validation, Communication, and Safety Mechanisms.
+
+7.  **Ultimate Goal**:
+    *   My ultimate goal is to solve immediate problems effectively while simultaneously improving the long-term health, maintainability, and robustness of the codebase.
+
+In essence, I am programmed to be a diligent partner in codebase management. I will strive to be proactive in identifying potential issues, thoughtful in proposing solutions, and exceptionally careful in implementing them. I understand the importance of preserving existing functionality and ensuring that all changes are thoroughly vetted.
+
+---
+
+Now, regarding your request to create a *complete* updated *replacement* version for `TDS (final draft version).md` by incorporating relevant details from `TDS (original version).md` and `TDS (update version).md`:
+
+I have carefully reviewed all three provided TDS documents. I will now generate a single, comprehensive TDS document that reflects version 13.0 (schema v1.0.4) of SG Bookkeeper. This document will integrate the new features (Bank Reconciliation, CSV Import, Dashboard KPIs, etc.) and database enhancements from the "final draft" and "update" versions, while ensuring that foundational details, module specifications, and architectural descriptions from the "original version" (v12.0) that are still relevant and were not superseded are fully included. The aim is a self-contained, complete document.
+
+Here is the complete, updated Technical Design Specification:
+
+```markdown
+# Technical Design Specification Document: SG Bookkeeper
 
 ## 1. Introduction
 
 ### 1.1 Purpose
-This Technical Design Specification (TDS) document, version 14.0, provides a detailed and up-to-date overview of the SG Bookkeeper application's technical design and implementation. It reflects the current state of the project, incorporating architectural decisions, component structures, and functionalities up to schema version 1.0.4. This version specifically details the implementation of:
+This Technical Design Specification (TDS) document, version 13.0, provides a detailed and up-to-date overview of the SG Bookkeeper application's technical design and implementation. It reflects the current state of the project, incorporating architectural decisions, component structures, and functionalities up to schema version 1.0.4. This version specifically details the implementation of:
 *   **Bank Reconciliation Module**: Comprehensive UI and backend logic for reconciling bank statements with system bank transactions, including matching, creating adjustment journal entries, and saving reconciliation status.
 *   **CSV Bank Statement Import**: Functionality to import bank transactions from CSV files with configurable column mapping.
 *   **Automated Bank Transaction Creation from Journal Entries**: Posting a journal entry that affects a bank-linked GL account now automatically generates a corresponding system bank transaction.
@@ -55,7 +347,7 @@ As of version 13.0 (reflecting schema v1.0.4), the following key features are im
     *   Full User and Role Management UI in Settings.
     *   Backend `SecurityManager` supports these operations.
     *   Audit Log UI: Integrated into Settings, providing views for Action Log and Data Change History with filtering capabilities. Backend `AuditLogService` supports data retrieval. Minor improvements to change summary formatting and query logic have been made.
-*   **New/Enhanced Banking & Dashboard Features (v14.0)**:
+*   **New/Enhanced Banking & Dashboard Features (v13.0)**:
     *   **Bank Reconciliation**: Full UI (`BankReconciliationWidget`) and backend logic (`BankReconciliationService`, updates to `BankTransactionManager`) for comparing bank statement items with system transactions, matching items, calculating discrepancies, facilitating adjustment JEs, and saving the reconciliation state.
     *   **CSV Bank Statement Import**: UI (`CSVImportConfigDialog`) and backend (`BankTransactionManager.import_bank_statement_csv`) for importing transactions from CSV files.
     *   **Automatic Bank Transactions from JEs**: `JournalEntryManager.post_journal_entry` now creates `BankTransaction` records when a JE impacts a bank-linked GL account.
@@ -247,7 +539,7 @@ SQLAlchemy ORM models interface with database tables.
 Pydantic models for data validation and transfer between layers.
 -   Standard DTOs sets: `BaseData`, `CreateData`, `UpdateData`, `Data`, `SummaryData`.
 -   Include validations, constraints, custom validators. Enums from `app/common/enums.py`.
--   **New/Updated DTOs for v14.0**:
+-   **New/Updated DTOs for v13.0**:
     *   `BankReconciliationBaseData`, `BankReconciliationCreateData`, `BankReconciliationData`.
     *   `DashboardKPIData`: For structuring KPI values (e.g., `ytd_revenue`, `total_cash_balance`, `total_accounts_receivable`, `total_accounts_payable`, `net_profit_loss`).
 -   **Existing DTOs (relevant examples from v12.0, confirmed updates where noted)**:
@@ -342,7 +634,7 @@ While a generic `IRepository` interface is defined, individual service classes o
 -   **Asynchronous Interaction**: UI elements initiate backend operations via `schedule_task_from_qt`. Callbacks or `QMetaObject.invokeMethod` update UI with results from async tasks, ensuring responsiveness.
 -   **Data Validation**: Primarily by Pydantic DTOs (on UI data collection) and manager classes. UI provides immediate feedback for some simple validation.
 -   **Resource Management**: Icons/images from `resources/`, using compiled Qt resource file (`app/resources_rc.py`).
--   **Specific UI Components for v14.0**:
+-   **Specific UI Components for v13.0**:
     *   `DashboardWidget`: Displays KPIs.
     *   `BankReconciliationWidget`: Central UI for bank reconciliation.
     *   `ReconciliationTableModel`: For tables in `BankReconciliationWidget`.
@@ -432,6 +724,4 @@ While a generic `IRepository` interface is defined, individual service classes o
 
 ## 10. Conclusion
 Version 13.0 of SG Bookkeeper introduces significant advancements in its banking module, primarily through the implementation of CSV bank statement import and a comprehensive bank reconciliation feature. The automated creation of bank transactions from relevant journal entries further enhances data integrity. Additionally, an initial dashboard providing key performance indicators offers users valuable financial insights at a glance. These additions, built upon the established layered architecture and robust database schema (v1.0.4), substantially increase the application's practical utility for managing bank activities and ensuring financial accuracy, moving it closer to a feature-complete accounting solution for SMBs. The focus on meticulous implementation ensures a solid foundation for future development, which will critically include the establishment of a comprehensive automated testing suite and continued refinement of existing modules.
-
----
-https://drive.google.com/file/d/11Cv4mFJ5z4I3inVCg8nkncVsAQtuIWrl/view?usp=sharing, https://drive.google.com/file/d/13aFutu059EFwgvQM4JE5LrYT13_62ztj/view?usp=sharing, https://drive.google.com/file/d/150VU2J4NfkYirCIGqQxC5VL9a_s7jyV0/view?usp=sharing, https://drive.google.com/file/d/1Fcdn0EWCauERrISMKReM_r0_nVIQvPiH/view?usp=sharing, https://drive.google.com/file/d/1GWOGYCBqwiPra5MdbwwhwXrV2V-gc4iw/view?usp=sharing, https://drive.google.com/file/d/1IRffneWyqY8ILVvfOu3apYxB15SnhMYD/view?usp=sharing, https://drive.google.com/file/d/1QYQSJ32tb7UYfuT-VHC2vgYYS3Cw_9dz/view?usp=sharing, https://drive.google.com/file/d/1S4zRP59L2Jxru__jXeoTL2TGZ4JN_GOT/view?usp=sharing, https://drive.google.com/file/d/1X5XkobtrDHItY5dTnWRYajA9LTVvZTGy/view?usp=sharing, https://drive.google.com/file/d/1bsb7xdrTRvfFSLOJVv_YBVncejRYeX-p/view?usp=sharing, https://drive.google.com/file/d/1eU9E4v6uT69z91uEABi8xf4-L1_PUKaI/view?usp=sharing, https://drive.google.com/file/d/1fcRRxU4xYdqMgGp58OyuFDOqIcGeOIW_/view?usp=sharing, https://aistudio.google.com/app/prompts?state=%7B%22ids%22:%5B%221gVm5GnROGWVVYBXkgumxd5puGZ6g5Qs3%22%5D,%22action%22:%22open%22,%22userId%22:%22108686197475781557359%22,%22resourceKeys%22:%7B%7D%7D&usp=sharing, https://drive.google.com/file/d/1hF6djKphaR51gqDKE6GLgeBnlWXdKcWU/view?usp=sharing, https://drive.google.com/file/d/1ndjSoP14ry1oCHgOguxNgNWxyP4c18ww/view?usp=sharing, https://drive.google.com/file/d/1zWrsOeANNSTZ51c666H-DxQapeSjXnZY/view?usp=sharing
+```

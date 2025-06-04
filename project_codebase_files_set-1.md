@@ -370,22 +370,21 @@ __all__ = [
 # app/tax/income_tax_manager.py
 ```py
 # File: app/tax/income_tax_manager.py
-# (Content as previously generated, verified for ApplicationCore property access)
-from typing import TYPE_CHECKING # Added TYPE_CHECKING
-# from app.core.application_core import ApplicationCore # Removed direct import
+from typing import TYPE_CHECKING # Ensured TYPE_CHECKING is imported
+# from app.core.application_core import ApplicationCore # Direct import removed, now under TYPE_CHECKING
 from app.services.account_service import AccountService
-from app.services.journal_service import JournalService
+# Removed: from app.services.journal_service import JournalService # Removed direct top-level import
 from app.services.fiscal_period_service import FiscalPeriodService
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore # For type hinting
-
+    from app.services.journal_service import JournalService # Added for type hinting
 
 class IncomeTaxManager:
-    def __init__(self, app_core: "ApplicationCore"): # Use string literal
+    def __init__(self, app_core: "ApplicationCore"): # String literal for app_core is fine
         self.app_core = app_core
         self.account_service: AccountService = app_core.account_service
-        self.journal_service: JournalService = app_core.journal_service
+        self.journal_service: "JournalService" = app_core.journal_service # Type hint uses the conditional import
         self.fiscal_period_service: FiscalPeriodService = app_core.fiscal_period_service
         # self.company_settings_service = app_core.company_settings_service
         print("IncomeTaxManager initialized (stub).")
@@ -402,24 +401,24 @@ class IncomeTaxManager:
         print(f"Fetching data for Form C-S for fiscal year ID {fiscal_year_id} (stub).")
         return {"company_name": "Example Pte Ltd", "revenue": 100000.00, "profit_before_tax": 20000.00}
 
+
 ```
 
 # app/tax/gst_manager.py
 ```py
 # File: app/tax/gst_manager.py
-from typing import Optional, Any, TYPE_CHECKING, List, Dict # Added Dict
+from typing import Optional, Any, TYPE_CHECKING, List, Dict
 from datetime import date, timedelta
 from dateutil.relativedelta import relativedelta 
 from decimal import Decimal
 
 from app.services.tax_service import TaxCodeService, GSTReturnService 
-from app.services.journal_service import JournalService
 from app.services.account_service import AccountService
 from app.services.fiscal_period_service import FiscalPeriodService
 from app.services.core_services import CompanySettingsService 
-from app.utils.sequence_generator import SequenceGenerator 
+# Removed: from app.utils.sequence_generator import SequenceGenerator # Direct top-level import
 from app.utils.result import Result
-from app.utils.pydantic_models import GSTReturnData, JournalEntryData, JournalEntryLineData, GSTTransactionLineDetail # Added GSTTransactionLineDetail
+from app.utils.pydantic_models import GSTReturnData, JournalEntryData, JournalEntryLineData, GSTTransactionLineDetail
 from app.models.accounting.gst_return import GSTReturn 
 from app.models.accounting.journal_entry import JournalEntry, JournalEntryLine
 from app.models.accounting.account import Account
@@ -428,16 +427,18 @@ from app.common.enums import GSTReturnStatusEnum
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore 
+    from app.services.journal_service import JournalService 
+    from app.utils.sequence_generator import SequenceGenerator # Import for type hinting only
 
 class GSTManager:
     def __init__(self, 
                  tax_code_service: TaxCodeService, 
-                 journal_service: JournalService, 
+                 journal_service: "JournalService", 
                  company_settings_service: CompanySettingsService, 
                  gst_return_service: GSTReturnService,
                  account_service: AccountService, 
                  fiscal_period_service: FiscalPeriodService, 
-                 sequence_generator: SequenceGenerator, 
+                 sequence_generator: "SequenceGenerator", # Type hint will use the conditional import
                  app_core: "ApplicationCore"): 
         self.tax_code_service = tax_code_service
         self.journal_service = journal_service
@@ -445,7 +446,7 @@ class GSTManager:
         self.gst_return_service = gst_return_service
         self.account_service = account_service 
         self.fiscal_period_service = fiscal_period_service 
-        self.sequence_generator = sequence_generator 
+        self.sequence_generator = sequence_generator
         self.app_core = app_core
 
     async def prepare_gst_return_data(self, start_date: date, end_date: date, user_id: int) -> Result[GSTReturnData]:
@@ -453,7 +454,6 @@ class GSTManager:
         if not company_settings:
             return Result.failure(["Company settings not found."])
 
-        # Initialize summary values
         std_rated_supplies = Decimal('0.00') 
         zero_rated_supplies = Decimal('0.00')  
         exempt_supplies = Decimal('0.00')     
@@ -461,7 +461,6 @@ class GSTManager:
         output_tax_calc = Decimal('0.00') 
         input_tax_calc = Decimal('0.00')  
         
-        # Initialize lists for detailed breakdown
         detailed_breakdown: Dict[str, List[GSTTransactionLineDetail]] = {
             "box1_standard_rated_supplies": [], "box2_zero_rated_supplies": [],
             "box3_exempt_supplies": [], "box5_taxable_purchases": [],
@@ -478,26 +477,18 @@ class GSTManager:
                 tax_code_orm: TaxCode = line.tax_code_obj
                 
                 line_net_value_for_gst_box: Decimal = Decimal('0.00')
-                # For Revenue accounts, credits increase revenue (positive for supplies).
-                # For Expense/Asset accounts, debits increase expense/asset (positive for purchases).
                 if account_orm.account_type == 'Revenue':
                     line_net_value_for_gst_box = line.credit_amount - line.debit_amount 
                 elif account_orm.account_type in ['Expense', 'Asset']:
                     line_net_value_for_gst_box = line.debit_amount - line.credit_amount 
 
-                # We are interested in the absolute net effect for box values,
-                # and the tax amount itself for boxes 6 and 7.
-                # For detailed breakdown, we want to record the contributing line.
-                
-                # Only consider lines that meaningfully contribute based on their value for box calculations
-                # and have a GST tax type.
                 if tax_code_orm.tax_type != 'GST' or abs(line_net_value_for_gst_box) < Decimal('0.01') and abs(line.tax_amount) < Decimal('0.01'):
                     continue
 
                 transaction_detail = GSTTransactionLineDetail(
                     transaction_date=entry.entry_date,
-                    document_no=entry.reference or entry.entry_no, # Prioritize JE reference
-                    entity_name=None, # Simplified for now, could try to derive later
+                    document_no=entry.reference or entry.entry_no, 
+                    entity_name=None, 
                     description=line.description or entry.description or "N/A",
                     account_code=account_orm.code,
                     account_name=account_orm.name,
@@ -511,7 +502,7 @@ class GSTManager:
                         std_rated_supplies += line_net_value_for_gst_box
                         output_tax_calc += line.tax_amount
                         detailed_breakdown["box1_standard_rated_supplies"].append(transaction_detail)
-                        if line.tax_amount != Decimal(0): # Only add to tax details if there's tax
+                        if line.tax_amount != Decimal(0):
                              detailed_breakdown["box6_output_tax_details"].append(transaction_detail)
                     elif tax_code_orm.code == 'ZR': 
                         zero_rated_supplies += line_net_value_for_gst_box
@@ -528,9 +519,8 @@ class GSTManager:
                         if line.tax_amount != Decimal(0):
                             detailed_breakdown["box7_input_tax_details"].append(transaction_detail)
                     elif tax_code_orm.code == 'BL': 
-                        taxable_purchases += line_net_value_for_gst_box # BL still part of taxable purchases value
+                        taxable_purchases += line_net_value_for_gst_box
                         detailed_breakdown["box5_taxable_purchases"].append(transaction_detail)
-                        # No input tax claim for BL, so not added to box7_input_tax_details
         
         total_supplies = std_rated_supplies + zero_rated_supplies + exempt_supplies
         tax_payable = output_tax_calc - input_tax_calc 
@@ -549,29 +539,23 @@ class GSTManager:
             taxable_purchases=taxable_purchases.quantize(Decimal("0.01")), 
             output_tax=output_tax_calc.quantize(Decimal("0.01")), 
             input_tax=input_tax_calc.quantize(Decimal("0.01")),   
-            tax_adjustments=Decimal(0), # Box 8 remains placeholder
+            tax_adjustments=Decimal(0),
             tax_payable=tax_payable.quantize(Decimal("0.01")), 
             status=GSTReturnStatusEnum.DRAFT.value,
             user_id=user_id,
-            detailed_breakdown=detailed_breakdown # Add the detailed breakdown
+            detailed_breakdown=detailed_breakdown
         )
         return Result.success(return_data)
 
     async def save_gst_return(self, gst_return_data: GSTReturnData) -> Result[GSTReturn]:
         current_user_id = gst_return_data.user_id
         orm_return: GSTReturn
-        
-        # Exclude detailed_breakdown when saving to DB if it's not a direct column
-        # The GSTReturn ORM model does not have a detailed_breakdown column.
-        # We construct the ORM from the DTO, minus this transient field.
-        
         core_data_dict = gst_return_data.model_dump(exclude={'id', 'user_id', 'detailed_breakdown'}, exclude_none=True)
 
         if gst_return_data.id: 
             existing_return = await self.gst_return_service.get_by_id(gst_return_data.id)
             if not existing_return:
                 return Result.failure([f"GST Return with ID {gst_return_data.id} not found for update."])
-            
             orm_return = existing_return
             for key, value in core_data_dict.items():
                 if hasattr(orm_return, key):
@@ -586,7 +570,6 @@ class GSTManager:
             if not orm_return.filing_due_date and orm_return.end_date: 
                  temp_due_date = orm_return.end_date + relativedelta(months=1)
                  orm_return.filing_due_date = temp_due_date + relativedelta(day=31)
-
         try:
             saved_return = await self.gst_return_service.save_gst_return(orm_return)
             return Result.success(saved_return)
@@ -607,17 +590,8 @@ class GSTManager:
         gst_return.updated_by_user_id = user_id
 
         if gst_return.tax_payable != Decimal(0):
-            sys_acc_config_section = 'SystemAccounts' # This way of getting config is a bit direct.
-            # Prefer using self.configuration_service from app_core
-            sys_acc_config = {}
-            if self.app_core.config_manager.parser.has_section(sys_acc_config_section):
-                sys_acc_config = self.app_core.config_manager.parser[sys_acc_config_section]
-            
             gst_output_tax_acc_code = await self.app_core.configuration_service.get_config_value("SysAcc_DefaultGSTOutput", "SYS-GST-OUTPUT")
             gst_input_tax_acc_code = await self.app_core.configuration_service.get_config_value("SysAcc_DefaultGSTInput", "SYS-GST-INPUT")
-            
-            # For control account, let's assume a single "GST Control" account, liability by nature.
-            # Positive tax_payable -> Credit GST Control. Negative tax_payable (refund) -> Debit GST Control.
             gst_control_acc_code = await self.app_core.configuration_service.get_config_value("SysAcc_GSTControl", "SYS-GST-CONTROL")
             
             output_tax_acc = await self.account_service.get_by_code(gst_output_tax_acc_code) # type: ignore
@@ -686,22 +660,22 @@ class GSTManager:
 # app/tax/withholding_tax_manager.py
 ```py
 # File: app/tax/withholding_tax_manager.py
-# (Content as previously generated, verified for ApplicationCore property access)
-from typing import TYPE_CHECKING # Added TYPE_CHECKING
-# from app.core.application_core import ApplicationCore # Removed direct import
+from typing import TYPE_CHECKING
+# from app.core.application_core import ApplicationCore # Direct import removed, now under TYPE_CHECKING
 from app.services.tax_service import TaxCodeService
-from app.services.journal_service import JournalService
-# from app.services.vendor_service import VendorService 
-# from app.models.accounting.withholding_tax_certificate import WithholdingTaxCertificate
+# Removed: from app.services.journal_service import JournalService # Removed direct top-level import
+# from app.services.vendor_service import VendorService # This was already commented out
+# from app.models.accounting.withholding_tax_certificate import WithholdingTaxCertificate # This was already commented out
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore # For type hinting
+    from app.services.journal_service import JournalService # Added for type hinting
 
 class WithholdingTaxManager:
-    def __init__(self, app_core: "ApplicationCore"): # Use string literal
+    def __init__(self, app_core: "ApplicationCore"): # String literal for app_core is fine
         self.app_core = app_core
         self.tax_code_service: TaxCodeService = app_core.tax_code_service # type: ignore
-        self.journal_service: JournalService = app_core.journal_service # type: ignore
+        self.journal_service: "JournalService" = app_core.journal_service # type: ignore # Type hint uses the conditional import
         # self.vendor_service = app_core.vendor_service 
         print("WithholdingTaxManager initialized (stub).")
 

@@ -1,7 +1,4 @@
-# Technical Design Specification Document: SG Bookkeeper (v12.0)
-
-**Version:** 12.0
-**Date:** 2025-06-03 
+# Technical Design Specification Document: SG Bookkeeper (update)
 
 ## 1. Introduction
 

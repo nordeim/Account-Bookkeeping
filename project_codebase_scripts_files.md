@@ -1,22 +1,517 @@
+# scripts/initial_data.sql
+```sql
+-- File: scripts/initial_data.sql
+-- ============================================================================
+-- INITIAL DATA (Version 1.0.3 - Added sequence grants for audit schema)
+-- ============================================================================
+
+-- Ensure this script is run by a superuser or the owner of the database/schemas
+-- Default user for application runtime: sgbookkeeper_user
+
+BEGIN;
+
+-- ----------------------------------------------------------------------------
+-- Insert default roles
+-- ----------------------------------------------------------------------------
+INSERT INTO core.roles (name, description) VALUES
+('Administrator', 'Full system access'),
+('Accountant', 'Access to accounting functions'),
+('Bookkeeper', 'Basic transaction entry and reporting'),
+('Manager', 'Access to reports and dashboards'),
+('Viewer', 'Read-only access to data')
+ON CONFLICT (name) DO UPDATE SET 
+    description = EXCLUDED.description, 
+    updated_at = CURRENT_TIMESTAMP;
+
+-- ----------------------------------------------------------------------------
+-- Insert default permissions
+-- ----------------------------------------------------------------------------
+INSERT INTO core.permissions (code, description, module) VALUES
+-- Core permissions
+('SYSTEM_SETTINGS', 'Manage system settings', 'System'),
+('USER_MANAGE', 'Manage users', 'System'),
+('ROLE_MANAGE', 'Manage roles and permissions', 'System'),
+('DATA_BACKUP', 'Backup and restore data', 'System'),
+('DATA_IMPORT', 'Import data', 'System'),
+('DATA_EXPORT', 'Export data', 'System'),
+('VIEW_AUDIT_LOG', 'View audit logs', 'System'),
+-- Accounting permissions
+('ACCOUNT_VIEW', 'View chart of accounts', 'Accounting'),
+('ACCOUNT_CREATE', 'Create accounts', 'Accounting'),
+('ACCOUNT_EDIT', 'Edit accounts', 'Accounting'),
+('ACCOUNT_DELETE', 'Delete/deactivate accounts', 'Accounting'),
+('JOURNAL_VIEW', 'View journal entries', 'Accounting'),
+('JOURNAL_CREATE', 'Create journal entries', 'Accounting'),
+('JOURNAL_EDIT', 'Edit draft journal entries', 'Accounting'),
+('JOURNAL_POST', 'Post journal entries', 'Accounting'),
+('JOURNAL_REVERSE', 'Reverse posted journal entries', 'Accounting'),
+('PERIOD_MANAGE', 'Manage fiscal periods', 'Accounting'),
+('YEAR_CLOSE', 'Close fiscal years', 'Accounting'),
+-- Business permissions
+('CUSTOMER_VIEW', 'View customers', 'Business'),
+('CUSTOMER_CREATE', 'Create customers', 'Business'),
+('CUSTOMER_EDIT', 'Edit customers', 'Business'),
+('CUSTOMER_DELETE', 'Delete customers', 'Business'),
+('VENDOR_VIEW', 'View vendors', 'Business'),
+('VENDOR_CREATE', 'Create vendors', 'Business'),
+('VENDOR_EDIT', 'Edit vendors', 'Business'),
+('VENDOR_DELETE', 'Delete vendors', 'Business'),
+('PRODUCT_VIEW', 'View products', 'Business'),
+('PRODUCT_CREATE', 'Create products', 'Business'),
+('PRODUCT_EDIT', 'Edit products', 'Business'),
+('PRODUCT_DELETE', 'Delete products', 'Business'),
+-- Transaction permissions
+('INVOICE_VIEW', 'View invoices', 'Transactions'),
+('INVOICE_CREATE', 'Create invoices', 'Transactions'),
+('INVOICE_EDIT', 'Edit invoices', 'Transactions'),
+('INVOICE_DELETE', 'Delete invoices', 'Transactions'),
+('INVOICE_APPROVE', 'Approve invoices', 'Transactions'),
+('PAYMENT_VIEW', 'View payments', 'Transactions'),
+('PAYMENT_CREATE', 'Create payments', 'Transactions'),
+('PAYMENT_EDIT', 'Edit payments', 'Transactions'),
+('PAYMENT_DELETE', 'Delete payments', 'Transactions'),
+('PAYMENT_APPROVE', 'Approve payments', 'Transactions'),
+-- Banking permissions
+('BANK_ACCOUNT_VIEW', 'View bank accounts', 'Banking'),
+('BANK_ACCOUNT_MANAGE', 'Manage bank accounts (CRUD)', 'Banking'),
+('BANK_TRANSACTION_VIEW', 'View bank transactions', 'Banking'),
+('BANK_TRANSACTION_MANAGE', 'Manage bank transactions (manual entry)', 'Banking'),
+('BANK_RECONCILE', 'Reconcile bank accounts', 'Banking'),
+('BANK_STATEMENT_IMPORT', 'Import bank statements', 'Banking'),
+-- Tax permissions
+('TAX_VIEW', 'View tax settings', 'Tax'),
+('TAX_EDIT', 'Edit tax settings', 'Tax'),
+('GST_PREPARE', 'Prepare GST returns', 'Tax'),
+('GST_SUBMIT', 'Mark GST returns as submitted', 'Tax'),
+('TAX_REPORT', 'Generate tax reports', 'Tax'),
+-- Reporting permissions
+('REPORT_FINANCIAL', 'Access financial reports', 'Reporting'),
+('REPORT_TAX', 'Access tax reports', 'Reporting'),
+('REPORT_MANAGEMENT', 'Access management reports', 'Reporting'),
+('REPORT_CUSTOM', 'Create custom reports', 'Reporting'),
+('REPORT_EXPORT', 'Export reports', 'Reporting')
+ON CONFLICT (code) DO UPDATE SET
+    description = EXCLUDED.description,
+    module = EXCLUDED.module;
+
+-- ----------------------------------------------------------------------------
+-- Insert System Init User (ID 1) - MUST BE CREATED EARLY
+-- ----------------------------------------------------------------------------
+INSERT INTO core.users (id, username, password_hash, email, full_name, is_active, require_password_change)
+VALUES (1, 'system_init_user', crypt('system_init_secure_password_!PLACEHOLDER!', gen_salt('bf')), 'system_init@sgbookkeeper.com', 'System Initializer', FALSE, FALSE) 
+ON CONFLICT (id) DO UPDATE SET 
+    username = EXCLUDED.username, 
+    password_hash = EXCLUDED.password_hash, 
+    email = EXCLUDED.email, 
+    full_name = EXCLUDED.full_name, 
+    is_active = EXCLUDED.is_active,
+    require_password_change = EXCLUDED.require_password_change,
+    updated_at = CURRENT_TIMESTAMP;
+
+SELECT setval(pg_get_serial_sequence('core.users', 'id'), COALESCE((SELECT MAX(id) FROM core.users), 1), true);
+
+-- ----------------------------------------------------------------------------
+-- Insert default currencies (SGD must be first for company_settings FK if it's the base)
+-- ----------------------------------------------------------------------------
+INSERT INTO accounting.currencies (code, name, symbol, is_active, decimal_places, created_by, updated_by) VALUES
+('SGD', 'Singapore Dollar', '$', TRUE, 2, 1, 1)
+ON CONFLICT (code) DO UPDATE SET 
+    name = EXCLUDED.name, symbol = EXCLUDED.symbol, is_active = EXCLUDED.is_active, 
+    decimal_places = EXCLUDED.decimal_places, created_by = COALESCE(accounting.currencies.created_by, EXCLUDED.created_by), 
+    updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
+
+INSERT INTO accounting.currencies (code, name, symbol, is_active, decimal_places, created_by, updated_by) VALUES
+('USD', 'US Dollar', '$', TRUE, 2, 1, 1),
+('EUR', 'Euro', '€', TRUE, 2, 1, 1),
+('GBP', 'British Pound', '£', TRUE, 2, 1, 1),
+('AUD', 'Australian Dollar', '$', TRUE, 2, 1, 1),
+('JPY', 'Japanese Yen', '¥', TRUE, 0, 1, 1),
+('CNY', 'Chinese Yuan', '¥', TRUE, 2, 1, 1),
+('MYR', 'Malaysian Ringgit', 'RM', TRUE, 2, 1, 1),
+('IDR', 'Indonesian Rupiah', 'Rp', TRUE, 0, 1, 1)
+ON CONFLICT (code) DO UPDATE SET 
+    name = EXCLUDED.name, symbol = EXCLUDED.symbol, is_active = EXCLUDED.is_active, 
+    decimal_places = EXCLUDED.decimal_places, created_by = COALESCE(accounting.currencies.created_by, EXCLUDED.created_by), 
+    updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
+
+-- ----------------------------------------------------------------------------
+-- Insert Default Company Settings (ID = 1)
+-- ----------------------------------------------------------------------------
+INSERT INTO core.company_settings (
+    id, company_name, legal_name, uen_no, gst_registration_no, gst_registered, 
+    address_line1, postal_code, city, country, 
+    fiscal_year_start_month, fiscal_year_start_day, base_currency, tax_id_label, date_format, 
+    updated_by 
+) VALUES (
+    1, 
+    'My Demo Company Pte. Ltd.', 
+    'My Demo Company Private Limited',
+    '202400001Z', 
+    'M90000001Z', 
+    TRUE,
+    '1 Marina Boulevard', 
+    '018989',
+    'Singapore',
+    'Singapore',
+    1, 
+    1, 
+    'SGD',
+    'UEN',
+    'dd/MM/yyyy',
+    1 
+)
+ON CONFLICT (id) DO UPDATE SET
+    company_name = EXCLUDED.company_name, legal_name = EXCLUDED.legal_name, uen_no = EXCLUDED.uen_no,
+    gst_registration_no = EXCLUDED.gst_registration_no, gst_registered = EXCLUDED.gst_registered,
+    address_line1 = EXCLUDED.address_line1, postal_code = EXCLUDED.postal_code, city = EXCLUDED.city, country = EXCLUDED.country,
+    fiscal_year_start_month = EXCLUDED.fiscal_year_start_month, fiscal_year_start_day = EXCLUDED.fiscal_year_start_day,
+    base_currency = EXCLUDED.base_currency, tax_id_label = EXCLUDED.tax_id_label, date_format = EXCLUDED.date_format,
+    updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
+
+-- ----------------------------------------------------------------------------
+-- Insert default document sequences
+-- ----------------------------------------------------------------------------
+INSERT INTO core.sequences (sequence_name, prefix, next_value, format_template) VALUES
+('journal_entry', 'JE', 1, '{PREFIX}{VALUE:06}'), ('sales_invoice', 'INV', 1, '{PREFIX}{VALUE:06}'),
+('purchase_invoice', 'PUR', 1, '{PREFIX}{VALUE:06}'), ('payment', 'PAY', 1, '{PREFIX}{VALUE:06}'),
+('receipt', 'REC', 1, '{PREFIX}{VALUE:06}'), ('customer', 'CUS', 1, '{PREFIX}{VALUE:04}'),
+('vendor', 'VEN', 1, '{PREFIX}{VALUE:04}'), ('product', 'PRD', 1, '{PREFIX}{VALUE:04}'),
+('wht_certificate', 'WHT', 1, '{PREFIX}{VALUE:06}')
+ON CONFLICT (sequence_name) DO UPDATE SET
+    prefix = EXCLUDED.prefix, next_value = GREATEST(core.sequences.next_value, EXCLUDED.next_value), 
+    format_template = EXCLUDED.format_template, updated_at = CURRENT_TIMESTAMP;
+
+-- ----------------------------------------------------------------------------
+-- Insert default configuration values
+-- ----------------------------------------------------------------------------
+INSERT INTO core.configuration (config_key, config_value, description, updated_by) VALUES
+('SysAcc_DefaultAR', '1120', 'Default Accounts Receivable account code', 1),
+('SysAcc_DefaultSalesRevenue', '4100', 'Default Sales Revenue account code', 1),
+('SysAcc_DefaultGSTOutput', 'SYS-GST-OUTPUT', 'Default GST Output Tax account code', 1),
+('SysAcc_DefaultAP', '2110', 'Default Accounts Payable account code', 1),
+('SysAcc_DefaultPurchaseExpense', '5100', 'Default Purchase/COGS account code', 1),
+('SysAcc_DefaultGSTInput', 'SYS-GST-INPUT', 'Default GST Input Tax account code', 1),
+('SysAcc_DefaultCash', '1112', 'Default Cash on Hand account code', 1), 
+('SysAcc_DefaultInventoryAsset', '1130', 'Default Inventory Asset account code', 1),
+('SysAcc_DefaultCOGS', '5100', 'Default Cost of Goods Sold account code', 1),
+('SysAcc_GSTControl', 'SYS-GST-CONTROL', 'GST Control/Clearing Account', 1)
+ON CONFLICT (config_key) DO UPDATE SET
+    config_value = EXCLUDED.config_value,
+    description = EXCLUDED.description,
+    updated_by = EXCLUDED.updated_by,
+    updated_at = CURRENT_TIMESTAMP;
+
+-- ----------------------------------------------------------------------------
+-- Insert account types
+-- ----------------------------------------------------------------------------
+INSERT INTO accounting.account_types (name, category, is_debit_balance, report_type, display_order, description) VALUES
+('Current Asset', 'Asset', TRUE, 'Balance Sheet', 10, 'Assets expected to be converted to cash within one year'),
+('Fixed Asset', 'Asset', TRUE, 'Balance Sheet', 20, 'Long-term tangible assets'),
+('Other Asset', 'Asset', TRUE, 'Balance Sheet', 30, 'Assets that don''t fit in other categories'),
+('Current Liability', 'Liability', FALSE, 'Balance Sheet', 40, 'Obligations due within one year'),
+('Long-term Liability', 'Liability', FALSE, 'Balance Sheet', 50, 'Obligations due beyond one year'),
+('Equity', 'Equity', FALSE, 'Balance Sheet', 60, 'Owner''s equity and retained earnings'),
+('Revenue', 'Revenue', FALSE, 'Income Statement', 70, 'Income from business operations'),
+('Cost of Sales', 'Expense', TRUE, 'Income Statement', 80, 'Direct costs of goods sold'),
+('Expense', 'Expense', TRUE, 'Income Statement', 90, 'General business expenses'),
+('Other Income', 'Revenue', FALSE, 'Income Statement', 100, 'Income from non-core activities'),
+('Other Expense', 'Expense', TRUE, 'Income Statement', 110, 'Expenses from non-core activities')
+ON CONFLICT (name) DO UPDATE SET
+    category = EXCLUDED.category, is_debit_balance = EXCLUDED.is_debit_balance, report_type = EXCLUDED.report_type,
+    display_order = EXCLUDED.display_order, description = EXCLUDED.description, updated_at = CURRENT_TIMESTAMP;
+
+-- ----------------------------------------------------------------------------
+-- Ensure key GL accounts for system configuration exist
+-- ----------------------------------------------------------------------------
+INSERT INTO accounting.accounts (code, name, account_type, sub_type, created_by, updated_by, is_active, is_control_account, is_bank_account) VALUES
+('1120', 'Accounts Receivable Control', 'Asset', 'Accounts Receivable', 1, 1, TRUE, TRUE, FALSE),
+('2110', 'Accounts Payable Control', 'Liability', 'Accounts Payable', 1, 1, TRUE, TRUE, FALSE),
+('4100', 'General Sales Revenue', 'Revenue', 'Sales', 1, 1, TRUE, FALSE, FALSE),
+('5100', 'General Cost of Goods Sold', 'Expense', 'Cost of Sales', 1, 1, TRUE, FALSE, FALSE),
+('SYS-GST-OUTPUT', 'System GST Output Tax', 'Liability', 'GST Payable', 1, 1, TRUE, FALSE, FALSE),
+('SYS-GST-INPUT', 'System GST Input Tax', 'Asset', 'GST Receivable', 1, 1, TRUE, FALSE, FALSE),
+('SYS-GST-CONTROL', 'System GST Control', 'Liability', 'GST Payable', 1, 1, TRUE, TRUE, FALSE),
+('1112', 'Cash on Hand', 'Asset', 'Cash and Cash Equivalents', 1,1, TRUE, FALSE, FALSE),
+('1130', 'Inventory Asset Control', 'Asset', 'Inventory', 1,1,TRUE, TRUE, FALSE)
+ON CONFLICT (code) DO NOTHING;
+
+-- ----------------------------------------------------------------------------
+-- Insert default tax codes (GST updated to 9%)
+-- ----------------------------------------------------------------------------
+INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id)
+SELECT 'SR', 'Standard Rate (9%)', 'GST', 9.00, TRUE, TRUE, 1, 1, acc.id FROM accounting.accounts acc WHERE acc.code = 'SYS-GST-OUTPUT'
+ON CONFLICT (code) DO UPDATE SET
+    description = EXCLUDED.description, tax_type = EXCLUDED.tax_type, rate = EXCLUDED.rate,
+    is_default = EXCLUDED.is_default, is_active = EXCLUDED.is_active, updated_by = EXCLUDED.updated_by, 
+    affects_account_id = EXCLUDED.affects_account_id, updated_at = CURRENT_TIMESTAMP;
+
+INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
+('ZR', 'Zero Rate', 'GST', 0.00, FALSE, TRUE, 1, 1, NULL)
+ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
+
+INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
+('ES', 'Exempt Supply', 'GST', 0.00, FALSE, TRUE, 1, 1, NULL)
+ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
+
+INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
+('OP', 'Out of Scope', 'GST', 0.00, FALSE, TRUE, 1, 1, NULL)
+ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
+
+INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id)
+SELECT 'TX', 'Taxable Purchase (9%)', 'GST', 9.00, FALSE, TRUE, 1, 1, acc.id FROM accounting.accounts acc WHERE acc.code = 'SYS-GST-INPUT'
+ON CONFLICT (code) DO UPDATE SET
+    description = EXCLUDED.description, tax_type = EXCLUDED.tax_type, rate = EXCLUDED.rate,
+    is_default = EXCLUDED.is_default, is_active = EXCLUDED.is_active, updated_by = EXCLUDED.updated_by, 
+    affects_account_id = EXCLUDED.affects_account_id, updated_at = CURRENT_TIMESTAMP;
+
+INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
+('BL', 'Blocked Input Tax (9%)', 'GST', 9.00, FALSE, TRUE, 1, 1, NULL)
+ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, rate = EXCLUDED.rate, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
+
+INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
+('NR', 'Non-Resident Services', 'Withholding Tax', 15.00, FALSE, TRUE, 1, 1, NULL)
+ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
+
+INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
+('ND', 'Non-Deductible', 'Income Tax', 0.00, FALSE, TRUE, 1, 1, NULL)
+ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
+
+INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
+('CA', 'Capital Allowance', 'Income Tax', 0.00, FALSE, TRUE, 1, 1, NULL)
+ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
+
+-- ----------------------------------------------------------------------------
+-- Create an active 'admin' user for application login
+-- ----------------------------------------------------------------------------
+INSERT INTO core.users (username, password_hash, email, full_name, is_active, require_password_change)
+VALUES ('admin', crypt('password', gen_salt('bf')), 'admin@sgbookkeeper.com', 'Administrator', TRUE, TRUE)
+ON CONFLICT (username) DO UPDATE SET
+    password_hash = EXCLUDED.password_hash, email = EXCLUDED.email, full_name = EXCLUDED.full_name,
+    is_active = EXCLUDED.is_active, require_password_change = EXCLUDED.require_password_change,
+    updated_at = CURRENT_TIMESTAMP;
+
+-- ----------------------------------------------------------------------------
+-- Assign 'Administrator' role to 'admin' user
+-- ----------------------------------------------------------------------------
+WITH admin_user_id_cte AS (SELECT id FROM core.users WHERE username = 'admin'),
+     admin_role_id_cte AS (SELECT id FROM core.roles WHERE name = 'Administrator')
+INSERT INTO core.user_roles (user_id, role_id, created_at)
+SELECT admin_user_id_cte.id, admin_role_id_cte.id, CURRENT_TIMESTAMP FROM admin_user_id_cte, admin_role_id_cte
+WHERE admin_user_id_cte.id IS NOT NULL AND admin_role_id_cte.id IS NOT NULL
+ON CONFLICT (user_id, role_id) DO NOTHING;
+
+-- ----------------------------------------------------------------------------
+-- For all permissions, grant them to the 'Administrator' role
+-- ----------------------------------------------------------------------------
+INSERT INTO core.role_permissions (role_id, permission_id, created_at)
+SELECT r.id, p.id, CURRENT_TIMESTAMP
+FROM core.roles r, core.permissions p
+WHERE r.name = 'Administrator'
+ON CONFLICT (role_id, permission_id) DO NOTHING;
+
+-- ----------------------------------------------------------------------------
+-- Grant Privileges to Application User (sgbookkeeper_user)
+-- This part is typically run by an admin user (e.g., postgres) after schema creation
+-- The application user 'sgbookkeeper_user' needs these privileges to operate.
+-- ----------------------------------------------------------------------------
+GRANT USAGE ON SCHEMA core, accounting, business, audit TO sgbookkeeper_user;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA core TO sgbookkeeper_user;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA accounting TO sgbookkeeper_user;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA business TO sgbookkeeper_user;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA audit TO sgbookkeeper_user;
+
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA core TO sgbookkeeper_user;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA accounting TO sgbookkeeper_user;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA business TO sgbookkeeper_user;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA audit TO sgbookkeeper_user; -- Added for audit schema sequences
+
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA core TO sgbookkeeper_user;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA accounting TO sgbookkeeper_user;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA business TO sgbookkeeper_user; -- Added for business schema functions
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA audit TO sgbookkeeper_user;
+
+-- Default privileges for future objects created by 'postgres' (or the user running db_init.py)
+-- This helps ensure sgbookkeeper_user can access newly created tables/sequences if schema evolves
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA core GRANT ALL ON TABLES TO sgbookkeeper_user;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA accounting GRANT ALL ON TABLES TO sgbookkeeper_user;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA business GRANT ALL ON TABLES TO sgbookkeeper_user;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA audit GRANT ALL ON TABLES TO sgbookkeeper_user;
+
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA core GRANT USAGE, SELECT ON SEQUENCES TO sgbookkeeper_user;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA accounting GRANT USAGE, SELECT ON SEQUENCES TO sgbookkeeper_user;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA business GRANT USAGE, SELECT ON SEQUENCES TO sgbookkeeper_user;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA audit GRANT USAGE, SELECT ON SEQUENCES TO sgbookkeeper_user; -- Added for audit schema
+
+COMMIT; 
+-- End of initial data
+
+```
+
+# scripts/db_init.py
+```py
+# File: scripts/db_init.py
+import asyncio
+import asyncpg # type: ignore
+import argparse
+import getpass
+import os
+import sys
+from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+SCHEMA_SQL_PATH = SCRIPT_DIR / 'schema.sql'
+INITIAL_DATA_SQL_PATH = SCRIPT_DIR / 'initial_data.sql'
+
+async def create_database(args):
+    """Create PostgreSQL database and initialize schema using reference SQL files."""
+    conn_admin = None 
+    db_conn = None 
+    try:
+        conn_params_admin = { 
+            "user": args.user,
+            "password": args.password,
+            "host": args.host,
+            "port": args.port,
+        }
+        conn_admin = await asyncpg.connect(**conn_params_admin, database='postgres') 
+    except Exception as e:
+        print(f"Error connecting to PostgreSQL server (postgres DB): {type(e).__name__} - {str(e)}", file=sys.stderr)
+        return False
+    
+    try:
+        exists = await conn_admin.fetchval(
+            "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)",
+            args.dbname
+        )
+        
+        if exists:
+            if args.drop_existing:
+                print(f"Terminating connections to '{args.dbname}'...")
+                await conn_admin.execute(f"""
+                    SELECT pg_terminate_backend(pid)
+                    FROM pg_stat_activity
+                    WHERE datname = '{args.dbname}' AND pid <> pg_backend_pid();
+                """)
+                print(f"Dropping existing database '{args.dbname}'...")
+                await conn_admin.execute(f"DROP DATABASE IF EXISTS \"{args.dbname}\"") 
+            else:
+                print(f"Database '{args.dbname}' already exists. Use --drop-existing to recreate.")
+                await conn_admin.close()
+                return False 
+        
+        print(f"Creating database '{args.dbname}'...")
+        await conn_admin.execute(f"CREATE DATABASE \"{args.dbname}\"") 
+        
+        await conn_admin.close() 
+        conn_admin = None 
+        
+        conn_params_db = {**conn_params_admin, "database": args.dbname}
+        db_conn = await asyncpg.connect(**conn_params_db) 
+        
+        if not SCHEMA_SQL_PATH.exists():
+            print(f"Error: schema.sql not found at {SCHEMA_SQL_PATH}", file=sys.stderr)
+            return False
+            
+        print(f"Initializing database schema from {SCHEMA_SQL_PATH}...")
+        with open(SCHEMA_SQL_PATH, 'r', encoding='utf-8') as f:
+            schema_sql = f.read()
+        await db_conn.execute(schema_sql)
+        print("Schema execution completed.")
+        
+        if not INITIAL_DATA_SQL_PATH.exists():
+            print(f"Warning: initial_data.sql not found at {INITIAL_DATA_SQL_PATH}. Skipping initial data.", file=sys.stderr)
+        else:
+            print(f"Loading initial data from {INITIAL_DATA_SQL_PATH}...")
+            with open(INITIAL_DATA_SQL_PATH, 'r', encoding='utf-8') as f:
+                data_sql = f.read()
+            await db_conn.execute(data_sql)
+            print("Initial data loading completed.")
+
+        print(f"Setting default search_path for database '{args.dbname}'...")
+        await db_conn.execute(f"""
+            ALTER DATABASE "{args.dbname}" 
+            SET search_path TO core, accounting, business, audit, public;
+        """)
+        print("Default search_path set.")
+        
+        print(f"Database '{args.dbname}' created and initialized successfully.")
+        return True
+    
+    except Exception as e:
+        print(f"Error during database creation/initialization: {type(e).__name__} - {str(e)}", file=sys.stderr)
+        if hasattr(e, 'sqlstate') and e.sqlstate: # type: ignore
+            print(f"  SQLSTATE: {e.sqlstate}", file=sys.stderr) # type: ignore
+        if hasattr(e, 'detail') and e.detail: # type: ignore
+             print(f"  DETAIL: {e.detail}", file=sys.stderr) # type: ignore
+        if hasattr(e, 'query') and e.query: # type: ignore
+            print(f"  Query context: {e.query[:200]}...", file=sys.stderr) # type: ignore
+        return False
+    
+    finally:
+        if conn_admin and not conn_admin.is_closed():
+            await conn_admin.close()
+        if db_conn and not db_conn.is_closed():
+            await db_conn.close()
+
+def parse_args():
+    parser = argparse.ArgumentParser(description='Initialize SG Bookkeeper database from reference SQL files.')
+    parser.add_argument('--host', default=os.getenv('PGHOST', 'localhost'), help='PostgreSQL server host (Env: PGHOST)')
+    parser.add_argument('--port', type=int, default=os.getenv('PGPORT', 5432), help='PostgreSQL server port (Env: PGPORT)')
+    parser.add_argument('--user', default=os.getenv('PGUSER', 'postgres'), help='PostgreSQL username (Env: PGUSER)')
+    parser.add_argument('--password', help='PostgreSQL password (Env: PGPASSWORD, or prompts if empty)')
+    parser.add_argument('--dbname', default=os.getenv('PGDATABASE', 'sg_bookkeeper'), help='Database name (Env: PGDATABASE)')
+    parser.add_argument('--drop-existing', action='store_true', help='Drop database if it already exists')
+    return parser.parse_args()
+
+def main():
+    args = parse_args()
+    
+    if not args.password:
+        pgpassword_env = os.getenv('PGPASSWORD')
+        if pgpassword_env:
+            args.password = pgpassword_env
+        else:
+            try:
+                args.password = getpass.getpass(f"Password for PostgreSQL user '{args.user}' on host '{args.host}': ")
+            except (EOFError, KeyboardInterrupt): 
+                print("\nPassword prompt cancelled or non-interactive environment. Exiting.", file=sys.stderr)
+                sys.exit(1)
+            except Exception as e: 
+                print(f"Could not read password securely: {e}. Try setting PGPASSWORD environment variable or using --password.", file=sys.stderr)
+                sys.exit(1)
+
+    try:
+        success = asyncio.run(create_database(args))
+    except KeyboardInterrupt:
+        print("\nDatabase initialization cancelled by user.", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e: 
+        print(f"An unexpected error occurred in main: {type(e).__name__} - {str(e)}", file=sys.stderr)
+        if hasattr(e, 'sqlstate') and e.sqlstate: # type: ignore
+             print(f"  SQLSTATE: {e.sqlstate}", file=sys.stderr) # type: ignore
+        success = False
+        
+    sys.exit(0 if success else 1)
+
+if __name__ == '__main__':
+    main()
+
+```
+
+# scripts/schema.sql
+```sql
 -- File: scripts/schema.sql
 -- ============================================================================
--- SG Bookkeeper - Complete Database Schema - Version 1.0.5
+-- SG Bookkeeper - Complete Database Schema - Version 1.0.3
+-- (Schema version updated for bank_transactions fields & corrected trial_balance view)
 -- ============================================================================
 -- This script creates the complete database schema for the SG Bookkeeper application.
--- Base version for this consolidated file was 1.0.3.
---
--- Changes from 1.0.3 to 1.0.4 (incorporated):
---  - Added business.bank_reconciliations table (for saving reconciliation state).
---  - Added last_reconciled_balance to business.bank_accounts.
---  - Added reconciled_bank_reconciliation_id to business.bank_transactions.
---  - Added relevant FK constraints for reconciliation features.
---
--- Changes from 1.0.4 to 1.0.5 (incorporated):
---  - Added status VARCHAR(20) NOT NULL DEFAULT 'Draft' with CHECK constraint to business.bank_reconciliations.
---
--- Features from 1.0.3 (base for this file):
---  - Schema version updated for bank_transactions fields (is_from_statement, raw_statement_data) & corrected trial_balance view logic.
---  - Trigger for automatic bank_account balance updates.
+-- Changes from 1.0.2:
+--  - Corrected accounting.trial_balance view logic.
+-- Changes from 1.0.1 (incorporated in 1.0.2):
+--  - Added is_from_statement and raw_statement_data to business.bank_transactions
+--  - Added trigger for automatic bank_account balance updates.
 --  - Extended audit logging to bank_accounts and bank_transactions.
 -- ============================================================================
 
@@ -444,26 +939,7 @@ CREATE TABLE business.purchase_invoice_lines (
 CREATE INDEX idx_purchase_invoice_lines_invoice ON business.purchase_invoice_lines(invoice_id); CREATE INDEX idx_purchase_invoice_lines_product ON business.purchase_invoice_lines(product_id);
 
 CREATE TABLE business.bank_accounts (
-    id SERIAL PRIMARY KEY, 
-    account_name VARCHAR(100) NOT NULL, 
-    account_number VARCHAR(50) NOT NULL, 
-    bank_name VARCHAR(100) NOT NULL, 
-    bank_branch VARCHAR(100), 
-    bank_swift_code VARCHAR(20), 
-    currency_code CHAR(3) NOT NULL, 
-    opening_balance NUMERIC(15,2) DEFAULT 0, 
-    current_balance NUMERIC(15,2) DEFAULT 0, 
-    last_reconciled_date DATE, 
-    last_reconciled_balance NUMERIC(15,2) NULL, -- Added from 1.0.4 patch
-    gl_account_id INTEGER NOT NULL, 
-    is_active BOOLEAN DEFAULT TRUE, 
-    description TEXT, 
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
-    created_by INTEGER NOT NULL, 
-    updated_by INTEGER NOT NULL
-);
-COMMENT ON COLUMN business.bank_accounts.last_reconciled_balance IS 'The ending balance of the bank account as per the last successfully completed reconciliation.';
+    id SERIAL PRIMARY KEY, account_name VARCHAR(100) NOT NULL, account_number VARCHAR(50) NOT NULL, bank_name VARCHAR(100) NOT NULL, bank_branch VARCHAR(100), bank_swift_code VARCHAR(20), currency_code CHAR(3) NOT NULL, opening_balance NUMERIC(15,2) DEFAULT 0, current_balance NUMERIC(15,2) DEFAULT 0, last_reconciled_date DATE, gl_account_id INTEGER NOT NULL, is_active BOOLEAN DEFAULT TRUE, description TEXT, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, created_by INTEGER NOT NULL, updated_by INTEGER NOT NULL);
 
 CREATE TABLE business.bank_transactions (
     id SERIAL PRIMARY KEY, 
@@ -478,9 +954,8 @@ CREATE TABLE business.bank_transactions (
     reconciled_date DATE, 
     statement_date DATE, 
     statement_id VARCHAR(50), 
-    is_from_statement BOOLEAN NOT NULL DEFAULT FALSE, -- From 1.0.2
-    raw_statement_data JSONB NULL, -- From 1.0.2
-    reconciled_bank_reconciliation_id INT NULL, -- Added from 1.0.4 patch
+    is_from_statement BOOLEAN NOT NULL DEFAULT FALSE, -- New column
+    raw_statement_data JSONB NULL, -- New column
     journal_entry_id INTEGER, 
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
@@ -490,29 +965,6 @@ CREATE TABLE business.bank_transactions (
 CREATE INDEX idx_bank_transactions_account ON business.bank_transactions(bank_account_id); 
 CREATE INDEX idx_bank_transactions_date ON business.bank_transactions(transaction_date); 
 CREATE INDEX idx_bank_transactions_reconciled ON business.bank_transactions(is_reconciled);
-COMMENT ON COLUMN business.bank_transactions.reconciled_bank_reconciliation_id IS 'Foreign key to business.bank_reconciliations, linking a transaction to the specific reconciliation it was cleared in.';
-
-CREATE TABLE business.bank_reconciliations (
-    id SERIAL PRIMARY KEY,
-    bank_account_id INTEGER NOT NULL,
-    statement_date DATE NOT NULL, 
-    statement_ending_balance NUMERIC(15,2) NOT NULL,
-    calculated_book_balance NUMERIC(15,2) NOT NULL, 
-    reconciled_difference NUMERIC(15,2) NOT NULL, 
-    reconciliation_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
-    notes TEXT NULL,
-    status VARCHAR(20) NOT NULL DEFAULT 'Draft', -- Added from 1.0.5 patch
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by_user_id INTEGER NOT NULL,
-    CONSTRAINT uq_bank_reconciliation_account_statement_date UNIQUE (bank_account_id, statement_date),
-    CONSTRAINT ck_bank_reconciliations_status CHECK (status IN ('Draft', 'Finalized')) -- Added from 1.0.5 patch
-);
-COMMENT ON TABLE business.bank_reconciliations IS 'Stores summary records of completed bank reconciliations.';
-COMMENT ON COLUMN business.bank_reconciliations.statement_date IS 'The end date of the bank statement that was reconciled.';
-COMMENT ON COLUMN business.bank_reconciliations.calculated_book_balance IS 'The book balance of the bank account as of the statement_date, after all reconciling items for this reconciliation are accounted for.';
-COMMENT ON COLUMN business.bank_reconciliations.status IS 'The status of the reconciliation, e.g., Draft, Finalized. Default is Draft.';
-
 
 CREATE TABLE business.payments (
     id SERIAL PRIMARY KEY, payment_no VARCHAR(20) NOT NULL UNIQUE, payment_type VARCHAR(20) NOT NULL CHECK (payment_type IN ('Customer Payment', 'Vendor Payment', 'Refund', 'Credit Note', 'Other')), payment_method VARCHAR(20) NOT NULL CHECK (payment_method IN ('Cash', 'Check', 'Bank Transfer', 'Credit Card', 'GIRO', 'PayNow', 'Other')), payment_date DATE NOT NULL, entity_type VARCHAR(20) NOT NULL CHECK (entity_type IN ('Customer', 'Vendor', 'Other')), entity_id INTEGER NOT NULL, bank_account_id INTEGER, currency_code CHAR(3) NOT NULL, exchange_rate NUMERIC(15,6) DEFAULT 1, amount NUMERIC(15,2) NOT NULL, reference VARCHAR(100), description TEXT, cheque_no VARCHAR(50), status VARCHAR(20) NOT NULL DEFAULT 'Draft' CHECK (status IN ('Draft', 'Approved', 'Completed', 'Voided', 'Returned')), journal_entry_id INTEGER, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, created_by INTEGER NOT NULL, updated_by INTEGER NOT NULL);
@@ -664,12 +1116,8 @@ ALTER TABLE business.bank_accounts ADD CONSTRAINT fk_ba_updated_by FOREIGN KEY (
 
 ALTER TABLE business.bank_transactions ADD CONSTRAINT fk_bt_bank_account FOREIGN KEY (bank_account_id) REFERENCES business.bank_accounts(id);
 ALTER TABLE business.bank_transactions ADD CONSTRAINT fk_bt_journal_entry FOREIGN KEY (journal_entry_id) REFERENCES accounting.journal_entries(id);
-ALTER TABLE business.bank_transactions ADD CONSTRAINT fk_bt_reconciliation FOREIGN KEY (reconciled_bank_reconciliation_id) REFERENCES business.bank_reconciliations(id) ON DELETE SET NULL; -- Added from 1.0.4 patch
 ALTER TABLE business.bank_transactions ADD CONSTRAINT fk_bt_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
 ALTER TABLE business.bank_transactions ADD CONSTRAINT fk_bt_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
-
-ALTER TABLE business.bank_reconciliations ADD CONSTRAINT fk_br_bank_account FOREIGN KEY (bank_account_id) REFERENCES business.bank_accounts(id) ON DELETE CASCADE; -- Added from 1.0.4 patch
-ALTER TABLE business.bank_reconciliations ADD CONSTRAINT fk_br_created_by FOREIGN KEY (created_by_user_id) REFERENCES core.users(id); -- Added from 1.0.4 patch
 
 ALTER TABLE business.payments ADD CONSTRAINT fk_pay_bank_account FOREIGN KEY (bank_account_id) REFERENCES business.bank_accounts(id);
 ALTER TABLE business.payments ADD CONSTRAINT fk_pay_currency FOREIGN KEY (currency_code) REFERENCES accounting.currencies(code);
@@ -947,7 +1395,7 @@ DECLARE
         'business.sales_invoices', 'business.purchase_invoices', 'business.payments',
         'accounting.tax_codes', 'accounting.gst_returns',
         'core.users', 'core.roles', 'core.company_settings', 
-        'business.bank_accounts', 'business.bank_transactions', 'business.bank_reconciliations' -- Added bank_reconciliations
+        'business.bank_accounts', 'business.bank_transactions' -- Added banking tables
     ];
     table_fullname TEXT;
     schema_name TEXT;
@@ -972,3 +1420,128 @@ AFTER INSERT OR UPDATE OR DELETE ON business.bank_transactions
 FOR EACH ROW EXECUTE FUNCTION business.update_bank_account_balance_trigger_func();
 
 -- End of script
+
+```
+
+# schema_update_patch.sql
+```sql
+-- FILE: schema_patch_1.0.3_to_1.0.4.sql
+-- PURPOSE: Updates SG Bookkeeper database schema from version 1.0.3 to 1.0.4
+--          Adds tables and columns required for saving bank reconciliation state.
+--
+-- PREVIOUS VERSION: 1.0.3 (Includes bank statement import fields, bank balance trigger, corrected trial_balance view)
+-- NEW VERSION: 1.0.4
+--
+-- Important: Ensure your database schema is at version 1.0.3 before applying this patch.
+-- It is recommended to backup your database before applying any schema changes.
+
+BEGIN;
+
+-- ----------------------------------------------------------------------------
+-- 1. Add new table: business.bank_reconciliations
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS business.bank_reconciliations (
+    id SERIAL PRIMARY KEY,
+    bank_account_id INTEGER NOT NULL,
+    statement_date DATE NOT NULL, -- The end date of the bank statement being reconciled
+    statement_ending_balance NUMERIC(15,2) NOT NULL,
+    calculated_book_balance NUMERIC(15,2) NOT NULL, -- The book balance that reconciles to the statement
+    reconciled_difference NUMERIC(15,2) NOT NULL, -- Should be close to zero
+    reconciliation_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, -- When this reconciliation record was created
+    notes TEXT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    created_by_user_id INTEGER NOT NULL,
+    CONSTRAINT uq_bank_reconciliation_account_statement_date UNIQUE (bank_account_id, statement_date)
+);
+
+COMMENT ON TABLE business.bank_reconciliations IS 'Stores summary records of completed bank reconciliations.';
+COMMENT ON COLUMN business.bank_reconciliations.statement_date IS 'The end date of the bank statement that was reconciled.';
+COMMENT ON COLUMN business.bank_reconciliations.calculated_book_balance IS 'The book balance of the bank account as of the statement_date, after all reconciling items for this reconciliation are accounted for.';
+
+
+-- ----------------------------------------------------------------------------
+-- 2. Add 'last_reconciled_balance' column to 'business.bank_accounts'
+-- ----------------------------------------------------------------------------
+ALTER TABLE business.bank_accounts
+ADD COLUMN IF NOT EXISTS last_reconciled_balance NUMERIC(15,2) NULL;
+
+COMMENT ON COLUMN business.bank_accounts.last_reconciled_balance IS 'The ending balance of the bank account as per the last successfully completed reconciliation.';
+
+
+-- ----------------------------------------------------------------------------
+-- 3. Add 'reconciled_bank_reconciliation_id' column to 'business.bank_transactions'
+-- ----------------------------------------------------------------------------
+ALTER TABLE business.bank_transactions
+ADD COLUMN IF NOT EXISTS reconciled_bank_reconciliation_id INT NULL;
+
+COMMENT ON COLUMN business.bank_transactions.reconciled_bank_reconciliation_id IS 'Foreign key to business.bank_reconciliations, linking a transaction to the specific reconciliation it was cleared in.';
+
+
+-- ----------------------------------------------------------------------------
+-- 4. Add Foreign Key Constraints for the new table and columns
+-- ----------------------------------------------------------------------------
+
+-- FK for business.bank_reconciliations table
+ALTER TABLE business.bank_reconciliations
+    ADD CONSTRAINT fk_br_bank_account FOREIGN KEY (bank_account_id) REFERENCES business.bank_accounts(id) ON DELETE CASCADE,
+    ADD CONSTRAINT fk_br_created_by FOREIGN KEY (created_by_user_id) REFERENCES core.users(id);
+
+-- FK for the new column in business.bank_transactions
+ALTER TABLE business.bank_transactions
+    ADD CONSTRAINT fk_bt_reconciliation FOREIGN KEY (reconciled_bank_reconciliation_id) REFERENCES business.bank_reconciliations(id) ON DELETE SET NULL;
+
+-- Update schema version comment in a conceptual way (actual file versioning would be manual)
+-- For tracking, this patch moves the schema towards 1.0.4.
+
+COMMIT;
+
+-- File: schema_update_patch.sql
+-- Purpose: Updates SG Bookkeeper database schema from v1.0.4 to v1.0.5
+-- Key Changes:
+--   - Adds 'status' column to 'business.bank_reconciliations' table.
+--   - Adds CHECK constraint for the 'status' column.
+--
+-- IMPORTANT:
+--   - Backup your database before applying this patch.
+--   - This patch is intended to be run ONCE on a database at schema v1.0.4.
+--   - Do NOT append this to the main schema.sql file (v1.0.5) which already includes these changes.
+
+BEGIN;
+
+-- 1. Add 'status' column to 'business.bank_reconciliations'
+-- Using IF NOT EXISTS for idempotency in case the column was manually added partially.
+ALTER TABLE business.bank_reconciliations
+ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'Draft';
+
+COMMENT ON COLUMN business.bank_reconciliations.status IS 'The status of the reconciliation, e.g., Draft, Finalized. Default is Draft.';
+
+-- 2. Add CHECK constraint for the 'status' column
+-- This DO block makes adding the constraint idempotent.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'ck_bank_reconciliations_status'
+          AND conrelid = 'business.bank_reconciliations'::regclass
+    ) THEN
+        ALTER TABLE business.bank_reconciliations
+        ADD CONSTRAINT ck_bank_reconciliations_status CHECK (status IN ('Draft', 'Finalized'));
+    END IF;
+END
+$$;
+
+-- Conceptually, update any internal schema version tracking if you have one.
+-- For example (this is illustrative, not executable without a version table):
+-- UPDATE core.schema_versions SET version = '1.0.5', applied_on = CURRENT_TIMESTAMP WHERE component = 'database';
+
+DO $$
+BEGIN
+    RAISE NOTICE 'Database schema patch to v1.0.5 (BankReconciliation status) applied successfully.';
+END $$;
+
+COMMIT;
+
+
+```
+

@@ -1,3 +1,700 @@
+# app/ui/vendors/vendor_table_model.py
+```py
+# File: app/ui/vendors/vendor_table_model.py
+from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
+from typing import List, Dict, Any, Optional
+
+from app.utils.pydantic_models import VendorSummaryData # Using the DTO for type safety
+
+class VendorTableModel(QAbstractTableModel):
+    def __init__(self, data: Optional[List[VendorSummaryData]] = None, parent=None):
+        super().__init__(parent)
+        # Headers should match fields in VendorSummaryData + any derived display fields
+        self._headers = ["ID", "Code", "Name", "Email", "Phone", "Active"]
+        self._data: List[VendorSummaryData] = data or []
+
+    def rowCount(self, parent=QModelIndex()) -> int:
+        if parent.isValid():
+            return 0
+        return len(self._data)
+
+    def columnCount(self, parent=QModelIndex()) -> int:
+        return len(self._headers)
+
+    def headerData(self, section: int, orientation: Qt.Orientation, role=Qt.ItemDataRole.DisplayRole) -> Optional[str]:
+        if role == Qt.ItemDataRole.DisplayRole and orientation == Qt.Orientation.Horizontal:
+            if 0 <= section < len(self._headers):
+                return self._headers[section]
+        return None
+
+    def data(self, index: QModelIndex, role=Qt.ItemDataRole.DisplayRole) -> Any:
+        if not index.isValid():
+            return None
+        
+        row = index.row()
+        col = index.column()
+
+        if not (0 <= row < len(self._data)):
+            return None
+            
+        vendor_summary: VendorSummaryData = self._data[row]
+
+        if role == Qt.ItemDataRole.DisplayRole:
+            if col == 0: return str(vendor_summary.id)
+            if col == 1: return vendor_summary.vendor_code
+            if col == 2: return vendor_summary.name
+            if col == 3: return str(vendor_summary.email) if vendor_summary.email else ""
+            if col == 4: return vendor_summary.phone if vendor_summary.phone else ""
+            if col == 5: return "Yes" if vendor_summary.is_active else "No"
+            
+            header_key = self._headers[col].lower().replace(' ', '_')
+            return str(getattr(vendor_summary, header_key, ""))
+
+        elif role == Qt.ItemDataRole.UserRole:
+            if col == 0: 
+                return vendor_summary.id
+        
+        elif role == Qt.ItemDataRole.TextAlignmentRole:
+            if col == 5: # Active status
+                return Qt.AlignmentFlag.AlignCenter
+        
+        return None
+
+    def get_vendor_id_at_row(self, row: int) -> Optional[int]:
+        if 0 <= row < len(self._data):
+            index = self.index(row, 0) 
+            id_val = self.data(index, Qt.ItemDataRole.UserRole)
+            if id_val is not None:
+                return int(id_val)
+            return self._data[row].id 
+        return None
+        
+    def get_vendor_status_at_row(self, row: int) -> Optional[bool]:
+        if 0 <= row < len(self._data):
+            return self._data[row].is_active
+        return None
+
+    def update_data(self, new_data: List[VendorSummaryData]):
+        self.beginResetModel()
+        self._data = new_data or []
+        self.endResetModel()
+
+```
+
+# app/ui/vendors/vendor_dialog.py
+```py
+# File: app/ui/vendors/vendor_dialog.py
+from PySide6.QtWidgets import (
+    QDialog, QVBoxLayout, QFormLayout, QLineEdit, QPushButton, QDialogButtonBox, 
+    QMessageBox, QCheckBox, QDateEdit, QComboBox, QSpinBox, QTextEdit, QDoubleSpinBox, # Added QDoubleSpinBox
+    QCompleter
+)
+from PySide6.QtCore import Qt, QDate, Slot, Signal, QTimer, QMetaObject, Q_ARG
+from PySide6.QtGui import QIcon
+from typing import Optional, List, Dict, Any, TYPE_CHECKING, cast
+from decimal import Decimal, InvalidOperation
+
+from app.core.application_core import ApplicationCore
+from app.main import schedule_task_from_qt
+from app.utils.pydantic_models import VendorCreateData, VendorUpdateData
+from app.models.business.vendor import Vendor
+from app.models.accounting.account import Account
+from app.models.accounting.currency import Currency
+from app.utils.result import Result
+from app.utils.json_helpers import json_converter, json_date_hook
+
+if TYPE_CHECKING:
+    from PySide6.QtGui import QPaintDevice
+
+class VendorDialog(QDialog):
+    vendor_saved = Signal(int) # Emits vendor ID on successful save
+
+    def __init__(self, app_core: "ApplicationCore", current_user_id: int, 
+                 vendor_id: Optional[int] = None, 
+                 parent: Optional["QWidget"] = None):
+        super().__init__(parent)
+        self.app_core = app_core
+        self.current_user_id = current_user_id
+        self.vendor_id = vendor_id
+        self.loaded_vendor_data: Optional[Vendor] = None 
+
+        self._currencies_cache: List[Currency] = []
+        self._payables_accounts_cache: List[Account] = []
+        
+        self.setWindowTitle("Edit Vendor" if self.vendor_id else "Add New Vendor")
+        self.setMinimumWidth(600) # Adjusted width for more fields
+        self.setModal(True)
+
+        self._init_ui()
+        self._connect_signals()
+
+        QTimer.singleShot(0, lambda: schedule_task_from_qt(self._load_combo_data()))
+        if self.vendor_id:
+            QTimer.singleShot(50, lambda: schedule_task_from_qt(self._load_existing_vendor_details()))
+
+    def _init_ui(self):
+        main_layout = QVBoxLayout(self)
+        form_layout = QFormLayout()
+        form_layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
+
+        # Basic Info
+        self.vendor_code_edit = QLineEdit(); form_layout.addRow("Vendor Code*:", self.vendor_code_edit)
+        self.name_edit = QLineEdit(); form_layout.addRow("Vendor Name*:", self.name_edit)
+        self.legal_name_edit = QLineEdit(); form_layout.addRow("Legal Name:", self.legal_name_edit)
+        self.uen_no_edit = QLineEdit(); form_layout.addRow("UEN No.:", self.uen_no_edit)
+        
+        gst_layout = QHBoxLayout()
+        self.gst_registered_check = QCheckBox("GST Registered"); gst_layout.addWidget(self.gst_registered_check)
+        self.gst_no_edit = QLineEdit(); self.gst_no_edit.setPlaceholderText("GST Registration No."); gst_layout.addWidget(self.gst_no_edit)
+        form_layout.addRow(gst_layout)
+
+        wht_layout = QHBoxLayout()
+        self.wht_applicable_check = QCheckBox("WHT Applicable"); wht_layout.addWidget(self.wht_applicable_check)
+        self.wht_rate_spin = QDoubleSpinBox(); 
+        self.wht_rate_spin.setDecimals(2); self.wht_rate_spin.setRange(0, 100); self.wht_rate_spin.setSuffix(" %")
+        wht_layout.addWidget(self.wht_rate_spin)
+        form_layout.addRow(wht_layout)
+
+
+        # Contact Info
+        self.contact_person_edit = QLineEdit(); form_layout.addRow("Contact Person:", self.contact_person_edit)
+        self.email_edit = QLineEdit(); self.email_edit.setPlaceholderText("example@domain.com"); form_layout.addRow("Email:", self.email_edit)
+        self.phone_edit = QLineEdit(); form_layout.addRow("Phone:", self.phone_edit)
+
+        # Address Info
+        self.address_line1_edit = QLineEdit(); form_layout.addRow("Address Line 1:", self.address_line1_edit)
+        self.address_line2_edit = QLineEdit(); form_layout.addRow("Address Line 2:", self.address_line2_edit)
+        self.postal_code_edit = QLineEdit(); form_layout.addRow("Postal Code:", self.postal_code_edit)
+        self.city_edit = QLineEdit(); self.city_edit.setText("Singapore"); form_layout.addRow("City:", self.city_edit)
+        self.country_edit = QLineEdit(); self.country_edit.setText("Singapore"); form_layout.addRow("Country:", self.country_edit)
+        
+        # Financial Info
+        self.payment_terms_spin = QSpinBox(); self.payment_terms_spin.setRange(0, 365); self.payment_terms_spin.setValue(30); form_layout.addRow("Payment Terms (Days):", self.payment_terms_spin)
+        
+        self.currency_code_combo = QComboBox(); self.currency_code_combo.setMinimumWidth(150)
+        form_layout.addRow("Default Currency*:", self.currency_code_combo)
+        
+        self.payables_account_combo = QComboBox(); self.payables_account_combo.setMinimumWidth(250)
+        form_layout.addRow("A/P Account:", self.payables_account_combo)
+
+        # Bank Details
+        bank_details_group = QGroupBox("Vendor Bank Details")
+        bank_form_layout = QFormLayout(bank_details_group)
+        self.bank_account_name_edit = QLineEdit(); bank_form_layout.addRow("Account Name:", self.bank_account_name_edit)
+        self.bank_account_number_edit = QLineEdit(); bank_form_layout.addRow("Account Number:", self.bank_account_number_edit)
+        self.bank_name_edit = QLineEdit(); bank_form_layout.addRow("Bank Name:", self.bank_name_edit)
+        self.bank_branch_edit = QLineEdit(); bank_form_layout.addRow("Bank Branch:", self.bank_branch_edit)
+        self.bank_swift_code_edit = QLineEdit(); bank_form_layout.addRow("SWIFT Code:", self.bank_swift_code_edit)
+        form_layout.addRow(bank_details_group)
+
+
+        # Other Info
+        self.is_active_check = QCheckBox("Is Active"); self.is_active_check.setChecked(True); form_layout.addRow(self.is_active_check)
+        self.vendor_since_date_edit = QDateEdit(QDate.currentDate()); self.vendor_since_date_edit.setCalendarPopup(True); self.vendor_since_date_edit.setDisplayFormat("dd/MM/yyyy"); form_layout.addRow("Vendor Since:", self.vendor_since_date_edit)
+        self.notes_edit = QTextEdit(); self.notes_edit.setFixedHeight(80); form_layout.addRow("Notes:", self.notes_edit)
+        
+        main_layout.addLayout(form_layout)
+
+        self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        main_layout.addWidget(self.button_box)
+        self.setLayout(main_layout)
+
+    def _connect_signals(self):
+        self.button_box.accepted.connect(self.on_save_vendor)
+        self.button_box.rejected.connect(self.reject)
+        self.gst_registered_check.stateChanged.connect(lambda state: self.gst_no_edit.setEnabled(state == Qt.CheckState.Checked.value))
+        self.gst_no_edit.setEnabled(self.gst_registered_check.isChecked())
+        self.wht_applicable_check.stateChanged.connect(lambda state: self.wht_rate_spin.setEnabled(state == Qt.CheckState.Checked.value))
+        self.wht_rate_spin.setEnabled(self.wht_applicable_check.isChecked())
+
+
+    async def _load_combo_data(self):
+        try:
+            if self.app_core.currency_manager:
+                active_currencies = await self.app_core.currency_manager.get_all_currencies()
+                self._currencies_cache = [c for c in active_currencies if c.is_active]
+            
+            if self.app_core.chart_of_accounts_manager:
+                # Fetch Liability accounts, ideally filtered for AP control accounts
+                ap_accounts = await self.app_core.chart_of_accounts_manager.get_accounts_for_selection(account_type="Liability", active_only=True)
+                self._payables_accounts_cache = [acc for acc in ap_accounts if acc.is_active and (acc.is_control_account or "Payable" in acc.name)] # Basic filter
+            
+            currencies_json = json.dumps([{"code": c.code, "name": c.name} for c in self._currencies_cache], default=json_converter)
+            accounts_json = json.dumps([{"id": acc.id, "code": acc.code, "name": acc.name} for acc in self._payables_accounts_cache], default=json_converter)
+
+            QMetaObject.invokeMethod(self, "_populate_combos_slot", Qt.ConnectionType.QueuedConnection, 
+                                     Q_ARG(str, currencies_json), Q_ARG(str, accounts_json))
+        except Exception as e:
+            self.app_core.logger.error(f"Error loading combo data for VendorDialog: {e}", exc_info=True)
+            QMessageBox.warning(self, "Data Load Error", f"Could not load data for dropdowns: {str(e)}")
+
+    @Slot(str, str)
+    def _populate_combos_slot(self, currencies_json: str, accounts_json: str):
+        try:
+            currencies_data = json.loads(currencies_json, object_hook=json_date_hook)
+            accounts_data = json.loads(accounts_json, object_hook=json_date_hook)
+        except json.JSONDecodeError as e:
+            self.app_core.logger.error(f"Error parsing combo JSON data for VendorDialog: {e}")
+            QMessageBox.warning(self, "Data Error", "Error parsing dropdown data.")
+            return
+
+        self.currency_code_combo.clear()
+        for curr in currencies_data: self.currency_code_combo.addItem(f"{curr['code']} - {curr['name']}", curr['code'])
+        
+        self.payables_account_combo.clear()
+        self.payables_account_combo.addItem("None", 0) 
+        for acc in accounts_data: self.payables_account_combo.addItem(f"{acc['code']} - {acc['name']}", acc['id'])
+        
+        if self.loaded_vendor_data: # If editing, set current values after combos are populated
+            self._populate_fields_from_orm(self.loaded_vendor_data)
+
+
+    async def _load_existing_vendor_details(self):
+        if not self.vendor_id or not self.app_core.vendor_manager: return # Changed from customer_manager
+        self.loaded_vendor_data = await self.app_core.vendor_manager.get_vendor_for_dialog(self.vendor_id) # Changed
+        if self.loaded_vendor_data:
+            vendor_dict = {col.name: getattr(self.loaded_vendor_data, col.name) for col in Vendor.__table__.columns}
+            vendor_json_str = json.dumps(vendor_dict, default=json_converter)
+            QMetaObject.invokeMethod(self, "_populate_fields_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, vendor_json_str))
+        else:
+            QMessageBox.warning(self, "Load Error", f"Vendor ID {self.vendor_id} not found.")
+            self.reject()
+
+    @Slot(str)
+    def _populate_fields_slot(self, vendor_json_str: str):
+        try:
+            vendor_data = json.loads(vendor_json_str, object_hook=json_date_hook)
+        except json.JSONDecodeError:
+            QMessageBox.critical(self, "Error", "Failed to parse vendor data for editing."); return
+        self._populate_fields_from_dict(vendor_data)
+
+    def _populate_fields_from_orm(self, vendor_orm: Vendor): # Called after combos populated, if editing
+        currency_idx = self.currency_code_combo.findData(vendor_orm.currency_code)
+        if currency_idx != -1: self.currency_code_combo.setCurrentIndex(currency_idx)
+        else: self.app_core.logger.warning(f"Loaded vendor currency '{vendor_orm.currency_code}' not found in active currencies combo.")
+
+        ap_acc_idx = self.payables_account_combo.findData(vendor_orm.payables_account_id or 0)
+        if ap_acc_idx != -1: self.payables_account_combo.setCurrentIndex(ap_acc_idx)
+        elif vendor_orm.payables_account_id:
+             self.app_core.logger.warning(f"Loaded vendor A/P account ID '{vendor_orm.payables_account_id}' not found in combo.")
+
+    def _populate_fields_from_dict(self, data: Dict[str, Any]):
+        self.vendor_code_edit.setText(data.get("vendor_code", ""))
+        self.name_edit.setText(data.get("name", ""))
+        self.legal_name_edit.setText(data.get("legal_name", "") or "")
+        self.uen_no_edit.setText(data.get("uen_no", "") or "")
+        self.gst_registered_check.setChecked(data.get("gst_registered", False))
+        self.gst_no_edit.setText(data.get("gst_no", "") or ""); self.gst_no_edit.setEnabled(data.get("gst_registered", False))
+        self.wht_applicable_check.setChecked(data.get("withholding_tax_applicable", False))
+        self.wht_rate_spin.setValue(float(data.get("withholding_tax_rate", 0.0) or 0.0))
+        self.wht_rate_spin.setEnabled(data.get("withholding_tax_applicable", False))
+        self.contact_person_edit.setText(data.get("contact_person", "") or "")
+        self.email_edit.setText(data.get("email", "") or "")
+        self.phone_edit.setText(data.get("phone", "") or "")
+        self.address_line1_edit.setText(data.get("address_line1", "") or "")
+        self.address_line2_edit.setText(data.get("address_line2", "") or "")
+        self.postal_code_edit.setText(data.get("postal_code", "") or "")
+        self.city_edit.setText(data.get("city", "") or "Singapore")
+        self.country_edit.setText(data.get("country", "") or "Singapore")
+        self.payment_terms_spin.setValue(data.get("payment_terms", 30))
+        
+        currency_idx = self.currency_code_combo.findData(data.get("currency_code", "SGD"))
+        if currency_idx != -1: self.currency_code_combo.setCurrentIndex(currency_idx)
+        
+        ap_acc_id = data.get("payables_account_id")
+        ap_acc_idx = self.payables_account_combo.findData(ap_acc_id if ap_acc_id is not None else 0)
+        if ap_acc_idx != -1: self.payables_account_combo.setCurrentIndex(ap_acc_idx)
+
+        self.bank_account_name_edit.setText(data.get("bank_account_name","") or "")
+        self.bank_account_number_edit.setText(data.get("bank_account_number","") or "")
+        self.bank_name_edit.setText(data.get("bank_name","") or "")
+        self.bank_branch_edit.setText(data.get("bank_branch","") or "")
+        self.bank_swift_code_edit.setText(data.get("bank_swift_code","") or "")
+
+        self.is_active_check.setChecked(data.get("is_active", True))
+        vs_date = data.get("vendor_since")
+        self.vendor_since_date_edit.setDate(QDate(vs_date) if vs_date else QDate.currentDate())
+        self.notes_edit.setText(data.get("notes", "") or "")
+
+    @Slot()
+    def on_save_vendor(self):
+        if not self.app_core.current_user: QMessageBox.warning(self, "Auth Error", "No user logged in."); return
+
+        payables_acc_id_data = self.payables_account_combo.currentData()
+        payables_acc_id = int(payables_acc_id_data) if payables_acc_id_data and int(payables_acc_id_data) != 0 else None
+        
+        vendor_since_py_date = self.vendor_since_date_edit.date().toPython()
+
+        data_dict = {
+            "vendor_code": self.vendor_code_edit.text().strip(), "name": self.name_edit.text().strip(),
+            "legal_name": self.legal_name_edit.text().strip() or None, "uen_no": self.uen_no_edit.text().strip() or None,
+            "gst_registered": self.gst_registered_check.isChecked(),
+            "gst_no": self.gst_no_edit.text().strip() if self.gst_registered_check.isChecked() else None,
+            "withholding_tax_applicable": self.wht_applicable_check.isChecked(),
+            "withholding_tax_rate": Decimal(str(self.wht_rate_spin.value())) if self.wht_applicable_check.isChecked() else None,
+            "contact_person": self.contact_person_edit.text().strip() or None,
+            "email": self.email_edit.text().strip() or None, 
+            "phone": self.phone_edit.text().strip() or None,
+            "address_line1": self.address_line1_edit.text().strip() or None,
+            "address_line2": self.address_line2_edit.text().strip() or None,
+            "postal_code": self.postal_code_edit.text().strip() or None,
+            "city": self.city_edit.text().strip() or None,
+            "country": self.country_edit.text().strip() or "Singapore",
+            "payment_terms": self.payment_terms_spin.value(),
+            "currency_code": self.currency_code_combo.currentData() or "SGD",
+            "is_active": self.is_active_check.isChecked(),
+            "vendor_since": vendor_since_py_date,
+            "notes": self.notes_edit.toPlainText().strip() or None,
+            "bank_account_name": self.bank_account_name_edit.text().strip() or None,
+            "bank_account_number": self.bank_account_number_edit.text().strip() or None,
+            "bank_name": self.bank_name_edit.text().strip() or None,
+            "bank_branch": self.bank_branch_edit.text().strip() or None,
+            "bank_swift_code": self.bank_swift_code_edit.text().strip() or None,
+            "payables_account_id": payables_acc_id,
+            "user_id": self.current_user_id
+        }
+
+        try:
+            if self.vendor_id: dto = VendorUpdateData(id=self.vendor_id, **data_dict) # type: ignore
+            else: dto = VendorCreateData(**data_dict) # type: ignore
+        except ValueError as pydantic_error: 
+             QMessageBox.warning(self, "Validation Error", f"Invalid data:\n{str(pydantic_error)}"); return
+
+        ok_button = self.button_box.button(QDialogButtonBox.StandardButton.Ok)
+        if ok_button: ok_button.setEnabled(False)
+        schedule_task_from_qt(self._perform_save(dto)).add_done_callback(
+            lambda _: ok_button.setEnabled(True) if ok_button else None)
+
+    async def _perform_save(self, dto: VendorCreateData | VendorUpdateData):
+        if not self.app_core.vendor_manager:
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str, "Vendor Manager not available."))
+            return
+
+        result: Result[Vendor]
+        if isinstance(dto, VendorUpdateData): result = await self.app_core.vendor_manager.update_vendor(dto.id, dto)
+        else: result = await self.app_core.vendor_manager.create_vendor(dto)
+
+        if result.is_success and result.value:
+            action = "updated" if isinstance(dto, VendorUpdateData) else "created"
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "information", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Success"), Q_ARG(str, f"Vendor {action} successfully (ID: {result.value.id})."))
+            self.vendor_saved.emit(result.value.id)
+            QMetaObject.invokeMethod(self, "accept", Qt.ConnectionType.QueuedConnection)
+        else:
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "warning", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Save Error"), Q_ARG(str, f"Failed to save vendor:\n{', '.join(result.errors)}"))
+
+```
+
+# app/ui/vendors/__init__.py
+```py
+# app/ui/vendors/__init__.py
+from .vendors_widget import VendorsWidget # Was previously just a stub, now functional
+from .vendor_dialog import VendorDialog
+from .vendor_table_model import VendorTableModel
+
+__all__ = [
+    "VendorsWidget",
+    "VendorDialog",
+    "VendorTableModel",
+]
+
+
+```
+
+# app/ui/vendors/vendors_widget.py
+```py
+# app/ui/vendors/vendors_widget.py
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QTableView, QPushButton, 
+    QToolBar, QMenu, QHeaderView, QAbstractItemView, QMessageBox,
+    QLabel, QLineEdit, QCheckBox # Added for filtering/search
+)
+from PySide6.QtCore import Qt, Slot, QTimer, QMetaObject, Q_ARG, QModelIndex, QSize
+from PySide6.QtGui import QIcon, QAction
+from typing import Optional, List, Dict, Any, TYPE_CHECKING
+
+import json
+
+from app.core.application_core import ApplicationCore
+from app.main import schedule_task_from_qt
+from app.ui.vendors.vendor_table_model import VendorTableModel 
+from app.ui.vendors.vendor_dialog import VendorDialog 
+from app.utils.pydantic_models import VendorSummaryData 
+from app.utils.json_helpers import json_converter, json_date_hook
+from app.utils.result import Result
+from app.models.business.vendor import Vendor # For Result type hint from manager
+
+if TYPE_CHECKING:
+    from PySide6.QtGui import QPaintDevice
+
+class VendorsWidget(QWidget):
+    def __init__(self, app_core: ApplicationCore, parent: Optional["QWidget"] = None):
+        super().__init__(parent)
+        self.app_core = app_core
+        
+        self.icon_path_prefix = "resources/icons/" 
+        try:
+            import app.resources_rc 
+            self.icon_path_prefix = ":/icons/"
+            self.app_core.logger.info("Using compiled Qt resources for VendorsWidget.")
+        except ImportError:
+            self.app_core.logger.info("VendorsWidget: Compiled Qt resources not found. Using direct file paths.")
+            # self.icon_path_prefix remains "resources/icons/"
+
+        self._init_ui()
+        # Initial load triggered by filter button click to respect default filter settings
+        QTimer.singleShot(0, lambda: self.toolbar_refresh_action.trigger() if hasattr(self, 'toolbar_refresh_action') else schedule_task_from_qt(self._load_vendors()))
+
+
+    def _init_ui(self):
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setSpacing(5)
+
+        # --- Toolbar ---
+        self._create_toolbar()
+        self.main_layout.addWidget(self.toolbar)
+
+        # --- Filter/Search Area ---
+        filter_layout = QHBoxLayout()
+        filter_layout.addWidget(QLabel("Search:"))
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText("Enter code, name, or email...")
+        self.search_edit.returnPressed.connect(self.toolbar_refresh_action.trigger) 
+        filter_layout.addWidget(self.search_edit)
+
+        self.show_inactive_check = QCheckBox("Show Inactive")
+        self.show_inactive_check.stateChanged.connect(self.toolbar_refresh_action.trigger) 
+        filter_layout.addWidget(self.show_inactive_check)
+        
+        self.clear_filters_button = QPushButton(QIcon(self.icon_path_prefix + "refresh.svg"),"Clear Filters")
+        self.clear_filters_button.clicked.connect(self._clear_filters_and_load)
+        filter_layout.addWidget(self.clear_filters_button)
+        filter_layout.addStretch()
+        self.main_layout.addLayout(filter_layout)
+
+        # --- Table View ---
+        self.vendors_table = QTableView()
+        self.vendors_table.setAlternatingRowColors(True)
+        self.vendors_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.vendors_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.vendors_table.horizontalHeader().setStretchLastSection(False) # Changed for better control
+        self.vendors_table.doubleClicked.connect(self._on_edit_vendor) # Or view_vendor
+        self.vendors_table.setSortingEnabled(True)
+
+        self.table_model = VendorTableModel()
+        self.vendors_table.setModel(self.table_model)
+        
+        # Configure columns after model is set
+        header = self.vendors_table.horizontalHeader()
+        for i in range(self.table_model.columnCount()): # Default to ResizeToContents
+            header.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
+
+        if "ID" in self.table_model._headers:
+            id_col_idx = self.table_model._headers.index("ID")
+            self.vendors_table.setColumnHidden(id_col_idx, True)
+        
+        if "Name" in self.table_model._headers:
+            name_col_model_idx = self.table_model._headers.index("Name")
+            # Calculate visible index for "Name" if "ID" is hidden before it
+            visible_name_idx = name_col_model_idx
+            if "ID" in self.table_model._headers and self.table_model._headers.index("ID") < name_col_model_idx and self.vendors_table.isColumnHidden(self.table_model._headers.index("ID")):
+                visible_name_idx -=1
+            
+            if not self.vendors_table.isColumnHidden(name_col_model_idx):
+                 header.setSectionResizeMode(visible_name_idx, QHeaderView.ResizeMode.Stretch)
+        else: 
+             # Fallback: if ID is hidden (col 0), then Code (model col 1 -> vis col 0), Name (model col 2 -> vis col 1)
+             # Stretch the second visible column which is typically Name.
+             if self.table_model.columnCount() > 2 and self.vendors_table.isColumnHidden(0):
+                header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch) 
+             elif self.table_model.columnCount() > 1: # If ID is not hidden or not present
+                header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+
+
+        self.main_layout.addWidget(self.vendors_table)
+        self.setLayout(self.main_layout)
+
+        if self.vendors_table.selectionModel():
+            self.vendors_table.selectionModel().selectionChanged.connect(self._update_action_states)
+        self._update_action_states()
+
+    def _create_toolbar(self):
+        self.toolbar = QToolBar("Vendor Toolbar")
+        self.toolbar.setIconSize(QSize(16, 16))
+
+        self.toolbar_add_action = QAction(QIcon(self.icon_path_prefix + "add.svg"), "Add Vendor", self)
+        self.toolbar_add_action.triggered.connect(self._on_add_vendor)
+        self.toolbar.addAction(self.toolbar_add_action)
+
+        self.toolbar_edit_action = QAction(QIcon(self.icon_path_prefix + "edit.svg"), "Edit Vendor", self)
+        self.toolbar_edit_action.triggered.connect(self._on_edit_vendor)
+        self.toolbar.addAction(self.toolbar_edit_action)
+
+        self.toolbar_toggle_active_action = QAction(QIcon(self.icon_path_prefix + "deactivate.svg"), "Toggle Active", self) # Icon might need specific "activate" variant too
+        self.toolbar_toggle_active_action.triggered.connect(self._on_toggle_active_status)
+        self.toolbar.addAction(self.toolbar_toggle_active_action)
+        
+        self.toolbar.addSeparator()
+        self.toolbar_refresh_action = QAction(QIcon(self.icon_path_prefix + "refresh.svg"), "Refresh List", self)
+        self.toolbar_refresh_action.triggered.connect(lambda: schedule_task_from_qt(self._load_vendors()))
+        self.toolbar.addAction(self.toolbar_refresh_action)
+
+    @Slot()
+    def _clear_filters_and_load(self):
+        self.search_edit.clear()
+        self.show_inactive_check.setChecked(False)
+        schedule_task_from_qt(self._load_vendors()) # Trigger load with cleared filters
+
+    @Slot()
+    def _update_action_states(self):
+        selected_rows = self.vendors_table.selectionModel().selectedRows()
+        has_selection = bool(selected_rows)
+        single_selection = len(selected_rows) == 1
+        
+        self.toolbar_edit_action.setEnabled(single_selection)
+        self.toolbar_toggle_active_action.setEnabled(single_selection)
+
+    async def _load_vendors(self):
+        if not self.app_core.vendor_manager:
+            self.app_core.logger.error("VendorManager not available in VendorsWidget.")
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Error"), Q_ARG(str,"Vendor Manager component not available."))
+            return
+        try:
+            search_term = self.search_edit.text().strip() or None
+            active_only = not self.show_inactive_check.isChecked()
+            
+            result: Result[List[VendorSummaryData]] = await self.app_core.vendor_manager.get_vendors_for_listing(
+                active_only=active_only, 
+                search_term=search_term,
+                page=1, 
+                page_size=200 # Load a reasonable number for MVP table, pagination UI later
+            )
+            
+            if result.is_success:
+                data_for_table = result.value if result.value is not None else []
+                list_of_dicts = [dto.model_dump() for dto in data_for_table]
+                json_data = json.dumps(list_of_dicts, default=json_converter)
+                QMetaObject.invokeMethod(self, "_update_table_model_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, json_data))
+            else:
+                error_msg = f"Failed to load vendors: {', '.join(result.errors)}"
+                self.app_core.logger.error(error_msg)
+                QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "warning", Qt.ConnectionType.QueuedConnection,
+                    Q_ARG(QWidget, self), Q_ARG(str, "Load Error"), Q_ARG(str, error_msg))
+        except Exception as e:
+            error_msg = f"Unexpected error loading vendors: {str(e)}"
+            self.app_core.logger.error(error_msg, exc_info=True)
+            QMetaObject.invokeMethod(QMessageBox.staticMetaObject, "critical", Qt.ConnectionType.QueuedConnection,
+                Q_ARG(QWidget, self), Q_ARG(str, "Load Error"), Q_ARG(str, error_msg))
+
+    @Slot(str)
+    def _update_table_model_slot(self, json_data_str: str):
+        try:
+            list_of_dicts = json.loads(json_data_str, object_hook=json_date_hook)
+            vendor_summaries: List[VendorSummaryData] = [VendorSummaryData.model_validate(item) for item in list_of_dicts]
+            self.table_model.update_data(vendor_summaries)
+        except json.JSONDecodeError as e:
+            QMessageBox.critical(self, "Data Error", f"Failed to parse vendor data: {e}")
+        except Exception as p_error: 
+            QMessageBox.critical(self, "Data Error", f"Invalid vendor data format: {p_error}")
+        finally:
+            self._update_action_states()
+
+    @Slot()
+    def _on_add_vendor(self):
+        if not self.app_core.current_user:
+            QMessageBox.warning(self, "Auth Error", "Please log in to add a vendor.")
+            return
+        
+        dialog = VendorDialog(self.app_core, self.app_core.current_user.id, parent=self)
+        dialog.vendor_saved.connect(lambda _id: schedule_task_from_qt(self._load_vendors()))
+        dialog.exec()
+
+    def _get_selected_vendor_id(self) -> Optional[int]:
+        selected_rows = self.vendors_table.selectionModel().selectedRows()
+        if not selected_rows: # No message if simply no selection for state update
+            return None
+        if len(selected_rows) > 1:
+            QMessageBox.information(self, "Selection", "Please select only a single vendor for this action.")
+            return None
+        return self.table_model.get_vendor_id_at_row(selected_rows[0].row())
+
+    @Slot()
+    def _on_edit_vendor(self):
+        vendor_id = self._get_selected_vendor_id()
+        if vendor_id is None: 
+            # Message only if action was explicitly triggered and no single item was selected
+            if self.sender() == self.toolbar_edit_action : # type: ignore
+                 QMessageBox.information(self, "Selection", "Please select a single vendor to edit.")
+            return
+
+        if not self.app_core.current_user:
+            QMessageBox.warning(self, "Auth Error", "Please log in to edit a vendor.")
+            return
+            
+        dialog = VendorDialog(self.app_core, self.app_core.current_user.id, vendor_id=vendor_id, parent=self)
+        dialog.vendor_saved.connect(lambda _id: schedule_task_from_qt(self._load_vendors()))
+        dialog.exec()
+        
+    @Slot(QModelIndex)
+    def _on_view_vendor_double_click(self, index: QModelIndex): # Renamed for clarity
+        if not index.isValid(): return
+        vendor_id = self.table_model.get_vendor_id_at_row(index.row())
+        if vendor_id is None: return
+        
+        if not self.app_core.current_user:
+            QMessageBox.warning(self, "Auth Error", "Please log in to view/edit vendor.")
+            return
+        # For MVP, double-click opens for edit. Can be changed to view-only later.
+        dialog = VendorDialog(self.app_core, self.app_core.current_user.id, vendor_id=vendor_id, parent=self)
+        dialog.vendor_saved.connect(lambda _id: schedule_task_from_qt(self._load_vendors()))
+        dialog.exec()
+
+    @Slot()
+    def _on_toggle_active_status(self):
+        vendor_id = self._get_selected_vendor_id()
+        if vendor_id is None: 
+            QMessageBox.information(self, "Selection", "Please select a single vendor to toggle status.")
+            return
+
+        if not self.app_core.current_user:
+            QMessageBox.warning(self, "Auth Error", "Please log in to change vendor status.")
+            return
+            
+        vendor_status_active = self.table_model.get_vendor_status_at_row(self.vendors_table.currentIndex().row())
+        action_verb = "deactivate" if vendor_status_active else "activate"
+        reply = QMessageBox.question(self, f"Confirm {action_verb.capitalize()}",
+                                     f"Are you sure you want to {action_verb} this vendor?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                     QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.No:
+            return
+
+        future = schedule_task_from_qt(
+            self.app_core.vendor_manager.toggle_vendor_active_status(vendor_id, self.app_core.current_user.id)
+        )
+        if future: future.add_done_callback(self._handle_toggle_active_result)
+        else: self._handle_toggle_active_result(None) # Handle scheduling failure
+
+    def _handle_toggle_active_result(self, future):
+        if future is None: QMessageBox.critical(self, "Task Error", "Failed to schedule vendor status toggle."); return
+        try:
+            result: Result[Vendor] = future.result()
+            if result.is_success:
+                action_verb_past = "activated" if result.value and result.value.is_active else "deactivated"
+                QMessageBox.information(self, "Success", f"Vendor {action_verb_past} successfully.")
+                schedule_task_from_qt(self._load_vendors()) 
+            else:
+                QMessageBox.warning(self, "Error", f"Failed to toggle vendor status:\n{', '.join(result.errors)}")
+        except Exception as e:
+            self.app_core.logger.error(f"Error handling toggle active status result for vendor: {e}", exc_info=True)
+            QMessageBox.critical(self, "Error", f"An unexpected error occurred: {str(e)}")
+
+
+```
+
 # app/ui/dashboard/__init__.py
 ```py
 # File: app/ui/dashboard/__init__.py
@@ -11,19 +708,198 @@ __all__ = ["DashboardWidget"]
 # app/ui/dashboard/dashboard_widget.py
 ```py
 # File: app/ui/dashboard/dashboard_widget.py
-# (Stub content as previously generated)
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel
-from app.core.application_core import ApplicationCore 
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGridLayout, QGroupBox, QPushButton, QMessageBox
+)
+from PySide6.QtCore import Qt, Slot, QTimer, QMetaObject, Q_ARG
+from PySide6.QtGui import QFont, QIcon
+from typing import Optional, TYPE_CHECKING
+from decimal import Decimal
+import json 
+
+from app.utils.pydantic_models import DashboardKPIData
+from app.main import schedule_task_from_qt
+
+if TYPE_CHECKING:
+    from app.core.application_core import ApplicationCore 
 
 class DashboardWidget(QWidget):
-    def __init__(self, app_core: ApplicationCore, parent=None): 
+    def __init__(self, app_core: "ApplicationCore", parent: Optional[QWidget] = None): 
         super().__init__(parent)
         self.app_core = app_core
+        self._load_request_count = 0 
         
-        self.layout = QVBoxLayout(self)
-        self.label = QLabel("Dashboard Widget Content (Financial Snapshots, KPIs - To be implemented)")
-        self.layout.addWidget(self.label)
-        self.setLayout(self.layout)
+        self.icon_path_prefix = "resources/icons/" 
+        try:
+            import app.resources_rc 
+            self.icon_path_prefix = ":/icons/"
+        except ImportError:
+            pass
+
+        self._init_ui()
+        self.app_core.logger.info("DashboardWidget: Scheduling initial KPI load.")
+        QTimer.singleShot(0, self._request_kpi_load)
+
+    def _init_ui(self):
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+        refresh_button_layout = QHBoxLayout()
+        self.refresh_button = QPushButton(QIcon(self.icon_path_prefix + "refresh.svg"), "Refresh KPIs")
+        self.refresh_button.clicked.connect(self._request_kpi_load)
+        refresh_button_layout.addStretch()
+        refresh_button_layout.addWidget(self.refresh_button)
+        self.main_layout.addLayout(refresh_button_layout)
+
+        kpi_group = QGroupBox("Key Performance Indicators")
+        self.main_layout.addWidget(kpi_group)
+        
+        kpi_layout = QGridLayout(kpi_group)
+        kpi_layout.setSpacing(10)
+
+        def add_kpi_row(layout: QGridLayout, row: int, title: str) -> QLabel:
+            title_label = QLabel(title)
+            title_label.setFont(QFont(self.font().family(), -1, QFont.Weight.Bold))
+            value_label = QLabel("Loading...")
+            value_label.setFont(QFont(self.font().family(), 11))
+            value_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            layout.addWidget(title_label, row, 0)
+            layout.addWidget(value_label, row, 1)
+            return value_label
+
+        current_row = 0
+        self.period_label = QLabel("Period: Loading...")
+        self.period_label.setStyleSheet("font-style: italic; color: grey;")
+        kpi_layout.addWidget(self.period_label, current_row, 0, 1, 2, Qt.AlignmentFlag.AlignCenter)
+        current_row += 1
+
+        self.base_currency_label = QLabel("Currency: Loading...")
+        self.base_currency_label.setStyleSheet("font-style: italic; color: grey;")
+        kpi_layout.addWidget(self.base_currency_label, current_row, 0, 1, 2, Qt.AlignmentFlag.AlignCenter)
+        current_row += 1
+        
+        kpi_layout.setRowStretch(current_row, 1) 
+        current_row +=1
+
+        self.revenue_value_label = add_kpi_row(kpi_layout, current_row, "Total Revenue (YTD):")
+        current_row += 1
+        self.expenses_value_label = add_kpi_row(kpi_layout, current_row, "Total Expenses (YTD):")
+        current_row += 1
+        self.net_profit_value_label = add_kpi_row(kpi_layout, current_row, "Net Profit / (Loss) (YTD):")
+        current_row += 1
+
+        kpi_layout.setRowStretch(current_row, 1) 
+        current_row +=1
+        
+        self.cash_balance_value_label = add_kpi_row(kpi_layout, current_row, "Current Cash Balance:")
+        current_row += 1
+        self.ar_value_label = add_kpi_row(kpi_layout, current_row, "Total Outstanding Accounts Receivable:")
+        current_row += 1
+        self.ar_overdue_value_label = add_kpi_row(kpi_layout, current_row, "Total AR Overdue:") # New KPI Label
+        current_row += 1
+        self.ap_value_label = add_kpi_row(kpi_layout, current_row, "Total Outstanding Accounts Payable:")
+        current_row += 1
+        self.ap_overdue_value_label = add_kpi_row(kpi_layout, current_row, "Total AP Overdue:") # New KPI Label
+        current_row += 1
+        
+        kpi_layout.setColumnStretch(1, 1) 
+        self.main_layout.addStretch()
+
+    def _format_decimal_for_display(self, value: Optional[Decimal], currency_symbol: str = "") -> str:
+        if value is None:
+            return "N/A"
+        prefix = f"{currency_symbol} " if currency_symbol else ""
+        return f"{prefix}{value:,.2f}"
+
+    @Slot()
+    def _request_kpi_load(self):
+        self._load_request_count += 1
+        self.app_core.logger.info(f"DashboardWidget: _request_kpi_load called (Count: {self._load_request_count}). Setting labels to 'Loading...'.")
+        
+        self.refresh_button.setEnabled(False)
+        labels_to_reset = [
+            self.revenue_value_label, self.expenses_value_label, self.net_profit_value_label,
+            self.cash_balance_value_label, self.ar_value_label, self.ap_value_label,
+            self.ar_overdue_value_label, self.ap_overdue_value_label # New labels
+        ]
+        for label in labels_to_reset:
+            if hasattr(self, 'app_core') and self.app_core and hasattr(self.app_core, 'logger'):
+                 self.app_core.logger.debug(f"DashboardWidget: Resetting label to 'Loading...'")
+            label.setText("Loading...")
+        self.period_label.setText("Period: Loading...")
+        self.base_currency_label.setText("Currency: Loading...")
+
+        future = schedule_task_from_qt(self._fetch_kpis_data())
+        if future:
+            future.add_done_callback(
+                lambda res: QMetaObject.invokeMethod(self.refresh_button, "setEnabled", Qt.ConnectionType.QueuedConnection, Q_ARG(bool, True))
+            )
+        else:
+            self.app_core.logger.error("DashboardWidget: Failed to schedule _fetch_kpis_data task.")
+            self.refresh_button.setEnabled(True) 
+
+    async def _fetch_kpis_data(self):
+        self.app_core.logger.info("DashboardWidget: _fetch_kpis_data started.")
+        kpi_data_result: Optional[DashboardKPIData] = None
+        json_payload: Optional[str] = None
+        try:
+            if not self.app_core.dashboard_manager:
+                self.app_core.logger.error("DashboardWidget: Dashboard Manager not available in _fetch_kpis_data.")
+            else:
+                kpi_data_result = await self.app_core.dashboard_manager.get_dashboard_kpis()
+                if kpi_data_result:
+                    self.app_core.logger.info(f"DashboardWidget: Fetched KPI data: Period='{kpi_data_result.kpi_period_description}', Revenue='{kpi_data_result.total_revenue_ytd}'")
+                    json_payload = kpi_data_result.model_dump_json()
+                else:
+                    self.app_core.logger.warning("DashboardWidget: DashboardManager.get_dashboard_kpis returned None.")
+        except Exception as e:
+            self.app_core.logger.error(f"DashboardWidget: Exception in _fetch_kpis_data during manager call: {e}", exc_info=True)
+        
+        self.app_core.logger.info(f"DashboardWidget: Queuing _update_kpi_display_slot with payload: {'JSON string' if json_payload else 'None'}")
+        QMetaObject.invokeMethod(self, "_update_kpi_display_slot", 
+                                 Qt.ConnectionType.QueuedConnection, 
+                                 Q_ARG(str, json_payload if json_payload is not None else ""))
+
+    @Slot(str)
+    def _update_kpi_display_slot(self, kpi_data_json_str: str):
+        self.app_core.logger.info(f"DashboardWidget: _update_kpi_display_slot called. Received JSON string length: {len(kpi_data_json_str)}")
+        self.refresh_button.setEnabled(True)
+        
+        kpi_data_dto: Optional[DashboardKPIData] = None
+        if kpi_data_json_str:
+            try:
+                kpi_data_dto = DashboardKPIData.model_validate_json(kpi_data_json_str)
+                self.app_core.logger.info(f"DashboardWidget: Successfully deserialized KPI JSON to DTO.")
+            except Exception as e:
+                self.app_core.logger.error(f"DashboardWidget: Error deserializing/validating KPI JSON: '{kpi_data_json_str[:100]}...' - Error: {e}", exc_info=True)
+        
+        if kpi_data_dto:
+            self.app_core.logger.info(f"DashboardWidget: Updating UI with KPI Data: Period='{kpi_data_dto.kpi_period_description}'")
+            self.period_label.setText(f"Period: {kpi_data_dto.kpi_period_description}")
+            self.base_currency_label.setText(f"Currency: {kpi_data_dto.base_currency}")
+            bc_symbol = kpi_data_dto.base_currency 
+            
+            self.revenue_value_label.setText(self._format_decimal_for_display(kpi_data_dto.total_revenue_ytd, bc_symbol))
+            self.expenses_value_label.setText(self._format_decimal_for_display(kpi_data_dto.total_expenses_ytd, bc_symbol))
+            self.net_profit_value_label.setText(self._format_decimal_for_display(kpi_data_dto.net_profit_ytd, bc_symbol))
+            self.cash_balance_value_label.setText(self._format_decimal_for_display(kpi_data_dto.current_cash_balance, bc_symbol))
+            self.ar_value_label.setText(self._format_decimal_for_display(kpi_data_dto.total_outstanding_ar, bc_symbol))
+            self.ap_value_label.setText(self._format_decimal_for_display(kpi_data_dto.total_outstanding_ap, bc_symbol))
+            self.ar_overdue_value_label.setText(self._format_decimal_for_display(kpi_data_dto.total_ar_overdue, bc_symbol)) # New KPI
+            self.ap_overdue_value_label.setText(self._format_decimal_for_display(kpi_data_dto.total_ap_overdue, bc_symbol)) # New KPI
+            
+            self.app_core.logger.info("DashboardWidget: UI labels updated with KPI data.")
+        else:
+            self.app_core.logger.warning("DashboardWidget: _update_kpi_display_slot called with no valid DTO. Setting error text.")
+            error_text = "N/A - Data unavailable"
+            self.period_label.setText("Period: N/A")
+            self.base_currency_label.setText("Currency: N/A")
+            for label in [self.revenue_value_label, self.expenses_value_label, self.net_profit_value_label,
+                          self.cash_balance_value_label, self.ar_value_label, self.ap_value_label,
+                          self.ar_overdue_value_label, self.ap_overdue_value_label]: # Include new labels
+                label.setText(error_text)
+            if kpi_data_json_str: 
+                 QMessageBox.warning(self, "Dashboard Data Error", "Could not process Key Performance Indicators data.")
 
 ```
 
@@ -1082,7 +1958,7 @@ class PaymentTableModel(QAbstractTableModel):
 
 # app/ui/main_window.py
 ```py
-# app/ui/main_window.py
+# File: app/ui/main_window.py
 from PySide6.QtWidgets import (
     QMainWindow, QTabWidget, QToolBar, QStatusBar, 
     QVBoxLayout, QWidget, QMessageBox, QLabel 
@@ -1094,11 +1970,12 @@ from app.ui.dashboard.dashboard_widget import DashboardWidget
 from app.ui.accounting.accounting_widget import AccountingWidget
 from app.ui.sales_invoices.sales_invoices_widget import SalesInvoicesWidget
 from app.ui.purchase_invoices.purchase_invoices_widget import PurchaseInvoicesWidget
-from app.ui.payments.payments_widget import PaymentsWidget # Corrected: was already added
+from app.ui.payments.payments_widget import PaymentsWidget 
 from app.ui.customers.customers_widget import CustomersWidget
 from app.ui.vendors.vendors_widget import VendorsWidget
 from app.ui.products.products_widget import ProductsWidget
 from app.ui.banking.banking_widget import BankingWidget
+from app.ui.banking.bank_reconciliation_widget import BankReconciliationWidget 
 from app.ui.reports.reports_widget import ReportsWidget
 from app.ui.settings.settings_widget import SettingsWidget
 from app.core.application_core import ApplicationCore
@@ -1132,11 +2009,8 @@ class MainWindow(QMainWindow):
     def _init_ui(self):
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
-        
         self.main_layout = QVBoxLayout(self.central_widget)
-        self.main_layout.setContentsMargins(0, 0, 0, 0)
-        self.main_layout.setSpacing(0)
-        
+        self.main_layout.setContentsMargins(0, 0, 0, 0); self.main_layout.setSpacing(0)
         self._create_toolbar()
         
         self.tab_widget = QTabWidget()
@@ -1151,44 +2025,26 @@ class MainWindow(QMainWindow):
         self._create_menus()
     
     def _create_toolbar(self):
-        self.toolbar = QToolBar("Main Toolbar")
-        self.toolbar.setObjectName("MainToolbar") 
-        self.toolbar.setMovable(False)
-        self.toolbar.setIconSize(QSize(24, 24)) 
+        self.toolbar = QToolBar("Main Toolbar"); self.toolbar.setObjectName("MainToolbar") 
+        self.toolbar.setMovable(False); self.toolbar.setIconSize(QSize(24, 24)) 
         self.toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.toolbar) 
     
     def _add_module_tabs(self):
-        self.dashboard_widget = DashboardWidget(self.app_core)
-        self.tab_widget.addTab(self.dashboard_widget, QIcon(self.icon_path_prefix + "dashboard.svg"), "Dashboard")
-        
-        self.accounting_widget = AccountingWidget(self.app_core)
-        self.tab_widget.addTab(self.accounting_widget, QIcon(self.icon_path_prefix + "accounting.svg"), "Accounting")
-        
-        self.sales_invoices_widget = SalesInvoicesWidget(self.app_core)
-        self.tab_widget.addTab(self.sales_invoices_widget, QIcon(self.icon_path_prefix + "transactions.svg"), "Sales") 
-
-        self.purchase_invoices_widget = PurchaseInvoicesWidget(self.app_core) 
-        self.tab_widget.addTab(self.purchase_invoices_widget, QIcon(self.icon_path_prefix + "vendors.svg"), "Purchases") 
-
-        self.payments_widget = PaymentsWidget(self.app_core) 
-        self.tab_widget.addTab(self.payments_widget, QIcon(self.icon_path_prefix + "banking.svg"), "Payments") 
-
-        self.customers_widget = CustomersWidget(self.app_core)
-        self.tab_widget.addTab(self.customers_widget, QIcon(self.icon_path_prefix + "customers.svg"), "Customers")
-        
-        self.vendors_widget = VendorsWidget(self.app_core)
-        self.tab_widget.addTab(self.vendors_widget, QIcon(self.icon_path_prefix + "vendors.svg"), "Vendors")
-
-        self.products_widget = ProductsWidget(self.app_core) 
-        self.tab_widget.addTab(self.products_widget, QIcon(self.icon_path_prefix + "product.svg"), "Products & Services")
-        
+        self.dashboard_widget = DashboardWidget(self.app_core); self.tab_widget.addTab(self.dashboard_widget, QIcon(self.icon_path_prefix + "dashboard.svg"), "Dashboard")
+        self.accounting_widget = AccountingWidget(self.app_core); self.tab_widget.addTab(self.accounting_widget, QIcon(self.icon_path_prefix + "accounting.svg"), "Accounting")
+        self.sales_invoices_widget = SalesInvoicesWidget(self.app_core); self.tab_widget.addTab(self.sales_invoices_widget, QIcon(self.icon_path_prefix + "transactions.svg"), "Sales") 
+        self.purchase_invoices_widget = PurchaseInvoicesWidget(self.app_core); self.tab_widget.addTab(self.purchase_invoices_widget, QIcon(self.icon_path_prefix + "vendors.svg"), "Purchases") 
+        self.payments_widget = PaymentsWidget(self.app_core); self.tab_widget.addTab(self.payments_widget, QIcon(self.icon_path_prefix + "banking.svg"), "Payments") 
+        self.customers_widget = CustomersWidget(self.app_core); self.tab_widget.addTab(self.customers_widget, QIcon(self.icon_path_prefix + "customers.svg"), "Customers")
+        self.vendors_widget = VendorsWidget(self.app_core); self.tab_widget.addTab(self.vendors_widget, QIcon(self.icon_path_prefix + "vendors.svg"), "Vendors")
+        self.products_widget = ProductsWidget(self.app_core); self.tab_widget.addTab(self.products_widget, QIcon(self.icon_path_prefix + "product.svg"), "Products & Services")
         self.banking_widget = BankingWidget(self.app_core)
-        self.tab_widget.addTab(self.banking_widget, QIcon(self.icon_path_prefix + "banking.svg"), "Banking")
-        
+        self.tab_widget.addTab(self.banking_widget, QIcon(self.icon_path_prefix + "banking.svg"), "Banking C.R.U.D") 
+        self.bank_reconciliation_widget = BankReconciliationWidget(self.app_core)
+        self.tab_widget.addTab(self.bank_reconciliation_widget, QIcon(self.icon_path_prefix + "transactions.svg"), "Bank Reconciliation") 
         self.reports_widget = ReportsWidget(self.app_core)
         self.tab_widget.addTab(self.reports_widget, QIcon(self.icon_path_prefix + "reports.svg"), "Reports")
-        
         self.settings_widget = SettingsWidget(self.app_core)
         self.tab_widget.addTab(self.settings_widget, QIcon(self.icon_path_prefix + "settings.svg"), "Settings")
     
@@ -1229,14 +2085,9 @@ class MainWindow(QMainWindow):
     def on_preferences(self): 
         settings_tab_index = -1
         for i in range(self.tab_widget.count()):
-            if self.tab_widget.widget(i) == self.settings_widget:
-                settings_tab_index = i
-                break
-        if settings_tab_index != -1:
-            self.tab_widget.setCurrentIndex(settings_tab_index)
-        else:
-            QMessageBox.information(self, "Preferences", "Preferences (Settings Tab) not found or full dialog not yet implemented.")
-
+            if self.tab_widget.widget(i) == self.settings_widget: settings_tab_index = i; break
+        if settings_tab_index != -1: self.tab_widget.setCurrentIndex(settings_tab_index)
+        else: QMessageBox.information(self, "Preferences", "Preferences (Settings Tab) not found or full dialog not yet implemented.")
     @Slot()
     def on_help_contents(self): QMessageBox.information(self, "Help", "Help system not yet implemented.")
     @Slot()
@@ -1246,7 +2097,6 @@ class MainWindow(QMainWindow):
         reply = QMessageBox.question(self, "Confirm Exit", "Are you sure you want to exit?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
         if reply == QMessageBox.StandardButton.Yes: event.accept() 
         else: event.ignore()
-
 
 ```
 

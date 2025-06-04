@@ -1,3 +1,248 @@
+<think>
+The user wants me to update two specific SQL files: `scripts/schema.sql` and `scripts/initial_data.sql`.
+The updates need to incorporate changes from a provided `schema_update_patch.sql` file, which seems to contain two patches (one from 1.0.3 to 1.0.4, and another from 1.0.4 to 1.0.5).
+The `project_codebase_scripts_files.md` contains the original versions of `scripts/schema.sql` (labelled as v1.0.3), `scripts/initial_data.sql` (labelled as v1.0.3), and the content of `schema_update_patch.sql`.
+
+My goal is to produce the "final" versions of `schema.sql` and `initial_data.sql` that would represent schema version 1.0.5.
+
+**Plan:**
+
+1.  **Analyze `schema_update_patch.sql`:**
+    *   The patch file has two distinct parts, separated by a `COMMIT;` and comments.
+    *   **Part 1 (1.0.3 to 1.0.4):**
+        *   Creates `business.bank_reconciliations` table.
+        *   Adds `last_reconciled_balance` to `business.bank_accounts`.
+        *   Adds `reconciled_bank_reconciliation_id` to `business.bank_transactions`.
+        *   Adds FK constraints for these new elements.
+    *   **Part 2 (1.0.4 to 1.0.5):**
+        *   Adds `status VARCHAR(20) NOT NULL DEFAULT 'Draft'` to `business.bank_reconciliations`.
+        *   Adds a `CHECK` constraint `ck_bank_reconciliations_status` for this new `status` column.
+
+2.  **Update `scripts/schema.sql`:**
+    *   The provided `scripts/schema.sql` is labelled as "Complete Database Schema - Version 1.0.3". This version already includes:
+        *   `is_from_statement` and `raw_statement_data` in `business.bank_transactions` (mentioned as changes from 1.0.1 incorporated in 1.0.2, and schema is 1.0.3).
+        *   Trigger `business.update_bank_account_balance_trigger_func()` (mentioned as from 1.0.1 incorporated in 1.0.2).
+        *   Audit logging extended to `bank_accounts` and `bank_transactions`.
+    *   I need to integrate the changes from **both parts** of `schema_update_patch.sql` into this base `scripts/schema.sql`.
+    *   **Specifically for `scripts/schema.sql` update:**
+        *   **Patch 1 (1.0.3 -> 1.0.4 changes):**
+            *   The `business.bank_reconciliations` table definition needs to be added in the "BUSINESS SCHEMA TABLES" section.
+            *   The `ALTER TABLE business.bank_accounts ADD COLUMN IF NOT EXISTS last_reconciled_balance...` needs to be integrated into the `CREATE TABLE business.bank_accounts` definition. The original `schema.sql` for `bank_accounts` is:
+                ```sql
+                CREATE TABLE business.bank_accounts (
+                    id SERIAL PRIMARY KEY, account_name VARCHAR(100) NOT NULL, account_number VARCHAR(50) NOT NULL, bank_name VARCHAR(100) NOT NULL, bank_branch VARCHAR(100), bank_swift_code VARCHAR(20), currency_code CHAR(3) NOT NULL, opening_balance NUMERIC(15,2) DEFAULT 0, current_balance NUMERIC(15,2) DEFAULT 0, last_reconciled_date DATE, gl_account_id INTEGER NOT NULL, is_active BOOLEAN DEFAULT TRUE, description TEXT, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, created_by INTEGER NOT NULL, updated_by INTEGER NOT NULL);
+                ```
+                I need to add `last_reconciled_balance NUMERIC(15,2) NULL`.
+            *   The `ALTER TABLE business.bank_transactions ADD COLUMN IF NOT EXISTS reconciled_bank_reconciliation_id...` needs to be integrated into the `CREATE TABLE business.bank_transactions` definition. The original `schema.sql` for `bank_transactions` already has `is_from_statement` and `raw_statement_data`.
+                ```sql
+                CREATE TABLE business.bank_transactions (
+                    id SERIAL PRIMARY KEY, 
+                    bank_account_id INTEGER NOT NULL, 
+                    transaction_date DATE NOT NULL, 
+                    value_date DATE, 
+                    transaction_type VARCHAR(20) NOT NULL CHECK (transaction_type IN ('Deposit', 'Withdrawal', 'Transfer', 'Interest', 'Fee', 'Adjustment')), 
+                    description VARCHAR(200) NOT NULL, 
+                    reference VARCHAR(100), 
+                    amount NUMERIC(15,2) NOT NULL, -- Signed amount: positive for inflow, negative for outflow
+                    is_reconciled BOOLEAN DEFAULT FALSE NOT NULL, 
+                    reconciled_date DATE, 
+                    statement_date DATE, 
+                    statement_id VARCHAR(50), 
+                    is_from_statement BOOLEAN NOT NULL DEFAULT FALSE, -- New column (from 1.0.2)
+                    raw_statement_data JSONB NULL, -- New column (from 1.0.2)
+                    journal_entry_id INTEGER, 
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
+                    created_by INTEGER NOT NULL, 
+                    updated_by INTEGER NOT NULL
+                );
+                ```
+                I need to add `reconciled_bank_reconciliation_id INT NULL`.
+            *   The FK constraints from the patch for `bank_reconciliations` and `bank_transactions.reconciled_bank_reconciliation_id` need to be added in the "ADDING FOREIGN KEY CONSTRAINTS" section.
+        *   **Patch 2 (1.0.4 -> 1.0.5 changes):**
+            *   The `ALTER TABLE business.bank_reconciliations ADD COLUMN IF NOT EXISTS status...` and its `CHECK` constraint need to be integrated directly into the `CREATE TABLE business.bank_reconciliations` definition that I'm adding from Patch 1.
+        *   Update the version comment at the top of `schema.sql` to reflect "Version 1.0.5" and summarize the changes incorporated.
+
+3.  **Update `scripts/initial_data.sql`:**
+    *   The provided `scripts/initial_data.sql` is labelled as "Version 1.0.3".
+    *   The `schema_update_patch.sql` primarily deals with DDL (schema changes) and doesn't seem to contain DML (data changes) that would directly affect `initial_data.sql`.
+    *   However, new tables or columns might necessitate new default permissions or configurations if they were part of a complete feature rollout.
+    *   **Key things to check/consider for `initial_data.sql`:**
+        *   **Permissions:** The `bank_reconciliations` table is new. Are there new permissions related to managing/viewing reconciliations? The patch doesn't add permissions. The original `initial_data.sql` *already* has:
+            ```sql
+            ('BANK_RECONCILE', 'Reconcile bank accounts', 'Banking'),
+            ('BANK_STATEMENT_IMPORT', 'Import bank statements', 'Banking'),
+            ```
+            These permissions seem to cover the functionality introduced by the schema patches. So, no new permissions seem strictly required by the *patch file content itself*.
+        *   **Configuration:** Are there any new `core.configuration` entries needed for the reconciliation feature? The patch doesn't add any.
+        *   **Default Data:** Does the new `bank_reconciliations` table need any default entries? Unlikely for this kind of table.
+        *   **Sequence Grants:** The `initial_data.sql` has a comment "Version 1.0.3 - Added sequence grants for audit schema". The patch doesn't modify sequences. The new `bank_reconciliations` table has `id SERIAL PRIMARY KEY`, so `sgbookkeeper_user` will need `USAGE, SELECT` on its sequence. The existing `GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA business TO sgbookkeeper_user;` and the `ALTER DEFAULT PRIVILEGES` should cover this new sequence automatically if the table is created before grants are applied or if grants are broad enough.
+            The `GRANT ... ON ALL TABLES IN SCHEMA business` will also cover the new table.
+    *   **Conclusion for `initial_data.sql`**: Based purely on the `schema_update_patch.sql`, there are no direct DML changes. The main task is to update the version comment. If I assume the permissions already in `initial_data.sql` (like `BANK_RECONCILE`) were forward-looking or added as part of the 1.0.3 feature set whose schema parts are now being fully defined, then `initial_data.sql` might only need a version bump in its comment.
+    *   I will double check if any existing permissions relate to the new `status` column on `bank_reconciliations` (e.g., a permission to finalize a reconciliation). The existing `BANK_RECONCILE` is broad and likely covers this.
+
+4.  **Perform Line-by-Line "Diff" (Mental or Actual):**
+    *   Once I've drafted the new versions of `schema.sql` and `initial_data.sql`, I will carefully compare them to their original versions from `project_codebase_scripts_files.md` to ensure:
+        *   No original, harmless lines are accidentally omitted.
+        *   Only the intended changes from the patch are incorporated.
+        *   The structure and existing content are preserved as much as possible.
+
+**Detailed `schema.sql` update process:**
+
+*   Locate `CREATE TABLE business.bank_accounts`. Add `last_reconciled_balance NUMERIC(15,2) NULL,` before the `gl_account_id` or another suitable place.
+*   Locate `CREATE TABLE business.bank_transactions`. Add `reconciled_bank_reconciliation_id INT NULL,` before `journal_entry_id` or another suitable place. (It already has `is_from_statement` and `raw_statement_data`).
+*   Add the new table definition for `business.bank_reconciliations` in the "BUSINESS SCHEMA TABLES" section. This definition should include the `status VARCHAR(20) NOT NULL DEFAULT 'Draft'` and the `CONSTRAINT ck_bank_reconciliations_status CHECK (status IN ('Draft', 'Finalized'))` directly.
+    ```sql
+    CREATE TABLE business.bank_reconciliations (
+        id SERIAL PRIMARY KEY,
+        bank_account_id INTEGER NOT NULL,
+        statement_date DATE NOT NULL,
+        statement_ending_balance NUMERIC(15,2) NOT NULL,
+        calculated_book_balance NUMERIC(15,2) NOT NULL,
+        reconciled_difference NUMERIC(15,2) NOT NULL,
+        reconciliation_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        notes TEXT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'Draft', -- Added from 1.0.5 patch
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        created_by_user_id INTEGER NOT NULL,
+        CONSTRAINT uq_bank_reconciliation_account_statement_date UNIQUE (bank_account_id, statement_date),
+        CONSTRAINT ck_bank_reconciliations_status CHECK (status IN ('Draft', 'Finalized')) -- Added from 1.0.5 patch
+    );
+    ```
+*   Add comments for the new table and columns as specified in the patch.
+*   In the "ADDING FOREIGN KEY CONSTRAINTS" section, under "Business Schema FKs", add the new FKs:
+    ```sql
+    -- FKs for business.bank_reconciliations
+    ALTER TABLE business.bank_reconciliations ADD CONSTRAINT fk_br_bank_account FOREIGN KEY (bank_account_id) REFERENCES business.bank_accounts(id) ON DELETE CASCADE;
+    ALTER TABLE business.bank_reconciliations ADD CONSTRAINT fk_br_created_by FOREIGN KEY (created_by_user_id) REFERENCES core.users(id);
+
+    -- FK for business.bank_transactions.reconciled_bank_reconciliation_id
+    ALTER TABLE business.bank_transactions ADD CONSTRAINT fk_bt_reconciliation FOREIGN KEY (reconciled_bank_reconciliation_id) REFERENCES business.bank_reconciliations(id) ON DELETE SET NULL;
+    ```
+*   Update the top comment in `schema.sql` to:
+    ```sql
+    -- File: scripts/schema.sql
+    -- ============================================================================
+    -- SG Bookkeeper - Complete Database Schema - Version 1.0.5
+    -- Changes from 1.0.3 (this file's base):
+    --  - Added business.bank_reconciliations table (for saving reconciliation state).
+    --  - Added last_reconciled_balance to business.bank_accounts.
+    --  - Added reconciled_bank_reconciliation_id to business.bank_transactions.
+    --  - Added status (Draft/Finalized) to business.bank_reconciliations.
+    --  - Added relevant FK constraints.
+    -- (Schema version 1.0.3 itself included bank_transactions fields for import, bank balance trigger, corrected trial_balance view)
+    -- ============================================================================
+    ```
+
+**Detailed `initial_data.sql` update process:**
+
+*   The only change needed for `initial_data.sql` based on the patch file and existing content is to update the version comment at the top. The permissions `BANK_RECONCILE` and `BANK_STATEMENT_IMPORT` are already present. No new configuration values or default data for `bank_reconciliations` are implied by the patch.
+*   Update the top comment in `initial_data.sql` to:
+    ```sql
+    -- File: scripts/initial_data.sql
+    -- ============================================================================
+    -- INITIAL DATA (Version 1.0.5 - Corresponds to schema version 1.0.5)
+    -- (No data changes directly from schema patches 1.0.4/1.0.5, permissions for banking/reconciliation features were already present)
+    -- ============================================================================
+    ```
+    Or maybe more simply:
+    ```sql
+    -- File: scripts/initial_data.sql
+    -- ============================================================================
+    -- INITIAL DATA (Version 1.0.5)
+    -- Corresponds to schema version 1.0.5.
+    -- Previous version 1.0.3 added sequence grants for audit schema.
+    -- No functional data changes in this version, version bump for consistency.
+    -- ============================================================================
+    ```
+This looks like a solid plan. I will proceed with generating the updated files. I need to be very careful with copy-pasting and integrating, ensuring the final SQL is valid and complete.
+The `db_init.py` and its `__pycache__` file are listed in the user's prompt "list of files to update..." but the actual request is "create for me a *complete* updated replacement files for `scripts/schema.sql` and `scripts/initial_data.sql`". So I will only provide these two SQL files.
+
+One final check on the schema version comment in `schema.sql`. The original file is 1.0.3. The first patch takes it to 1.0.4. The second patch takes it to 1.0.5. So the final `schema.sql` should indeed be 1.0.5.
+The original comment in `schema.sql` states:
+```sql
+-- File: scripts/schema.sql
+-- ============================================================================
+-- SG Bookkeeper - Complete Database Schema - Version 1.0.3
+-- (Schema version updated for bank_transactions fields & corrected trial_balance view)
+-- ============================================================================
+-- This script creates the complete database schema for the SG Bookkeeper application.
+-- Changes from 1.0.2:
+--  - Corrected accounting.trial_balance view logic.
+-- Changes from 1.0.1 (incorporated in 1.0.2):
+--  - Added is_from_statement and raw_statement_data to business.bank_transactions
+--  - Added trigger for automatic bank_account balance updates.
+--  - Extended audit logging to bank_accounts and bank_transactions.
+-- ============================================================================
+```
+My proposed new comment for 1.0.5 should build on this, explaining what 1.0.4 and 1.0.5 introduced *on top of* 1.0.3.
+
+Revised schema header comment:
+```sql
+-- File: scripts/schema.sql
+-- ============================================================================
+-- SG Bookkeeper - Complete Database Schema - Version 1.0.5
+-- ============================================================================
+-- This script creates the complete database schema for the SG Bookkeeper application.
+-- Base version for this consolidated file was 1.0.3.
+--
+-- Changes from 1.0.3 to 1.0.4 (incorporated):
+--  - Added business.bank_reconciliations table (for saving reconciliation state).
+--  - Added last_reconciled_balance to business.bank_accounts.
+--  - Added reconciled_bank_reconciliation_id to business.bank_transactions.
+--  - Added relevant FK constraints for reconciliation features.
+--
+-- Changes from 1.0.4 to 1.0.5 (incorporated):
+--  - Added status VARCHAR(20) NOT NULL DEFAULT 'Draft' with CHECK constraint to business.bank_reconciliations.
+--
+-- Features from 1.0.3 (base for this file):
+--  - Schema version updated for bank_transactions fields (is_from_statement, raw_statement_data) & corrected trial_balance view logic.
+--  - Trigger for automatic bank_account balance updates.
+--  - Extended audit logging to bank_accounts and bank_transactions.
+-- ============================================================================
+```
+This revised header is more explicit about the lineage.
+
+For `initial_data.sql`, the original header is:
+```sql
+-- File: scripts/initial_data.sql
+-- ============================================================================
+-- INITIAL DATA (Version 1.0.3 - Added sequence grants for audit schema)
+-- ============================================================================
+```
+My proposed new header for `initial_data.sql`:
+```sql
+-- File: scripts/initial_data.sql
+-- ============================================================================
+-- INITIAL DATA (Version 1.0.5)
+-- ============================================================================
+-- This version corresponds to schema version 1.0.5.
+-- No functional data changes were introduced by schema patches 1.0.4 or 1.0.5.
+-- Existing permissions for banking/reconciliation were already present in v1.0.3.
+-- Version 1.0.3 (base) added sequence grants for audit schema.
+-- ============================================================================
+```
+This also clarifies the state of `initial_data.sql`.
+
+Looks good. I'll generate the files.Okay, I have carefully reviewed the `project_codebase_scripts_files.md` and the task to update `scripts/schema.sql` and `scripts/initial_data.sql` by incorporating the changes from `schema_update_patch.sql`.
+
+My process involved:
+1.  Analyzing the two distinct patches within `schema_update_patch.sql` (1.0.3 -> 1.0.4, and 1.0.4 -> 1.0.5).
+2.  Identifying the DDL changes (table creations, column additions, constraint additions) from these patches.
+3.  Integrating these DDL changes directly into the base `scripts/schema.sql` (which was at v1.0.3). This means new tables are fully defined with all columns (including those from later patches) in one `CREATE TABLE` statement, and new columns are added to existing `CREATE TABLE` statements.
+4.  Ensuring all foreign key constraints from the patches are added to the appropriate section in `schema.sql`.
+5.  Updating the version comments at the top of `scripts/schema.sql` to reflect its new state (v1.0.5) and summarize the incorporated changes.
+6.  For `scripts/initial_data.sql`, I confirmed that the schema patches did not introduce new data requirements (like new permissions or configuration values that weren't already covered). The primary change is updating the version comment for consistency with the schema.
+7.  I performed a mental line-by-line "diff" during this integration to ensure that all original content from the base files was preserved and that changes were applied correctly and seamlessly.
+
+Here are the complete updated replacement files:
+
+---
+
+**File 1: `scripts/schema.sql` (Updated to Version 1.0.5)**
+
+```sql
 -- File: scripts/schema.sql
 -- ============================================================================
 -- SG Bookkeeper - Complete Database Schema - Version 1.0.5
@@ -972,3 +1217,367 @@ AFTER INSERT OR UPDATE OR DELETE ON business.bank_transactions
 FOR EACH ROW EXECUTE FUNCTION business.update_bank_account_balance_trigger_func();
 
 -- End of script
+
+```
+
+---
+
+**File 2: `scripts/initial_data.sql` (Updated to Version 1.0.5)**
+
+```sql
+-- File: scripts/initial_data.sql
+-- ============================================================================
+-- INITIAL DATA (Version 1.0.5)
+-- ============================================================================
+-- This version corresponds to schema version 1.0.5.
+-- No functional data changes were introduced by schema patches 1.0.4 or 1.0.5.
+-- Existing permissions for banking/reconciliation were already present in v1.0.3.
+-- Version 1.0.3 (base) added sequence grants for audit schema.
+-- ============================================================================
+
+-- Ensure this script is run by a superuser or the owner of the database/schemas
+-- Default user for application runtime: sgbookkeeper_user
+
+BEGIN;
+
+-- ----------------------------------------------------------------------------
+-- Insert default roles
+-- ----------------------------------------------------------------------------
+INSERT INTO core.roles (name, description) VALUES
+('Administrator', 'Full system access'),
+('Accountant', 'Access to accounting functions'),
+('Bookkeeper', 'Basic transaction entry and reporting'),
+('Manager', 'Access to reports and dashboards'),
+('Viewer', 'Read-only access to data')
+ON CONFLICT (name) DO UPDATE SET 
+    description = EXCLUDED.description, 
+    updated_at = CURRENT_TIMESTAMP;
+
+-- ----------------------------------------------------------------------------
+-- Insert default permissions
+-- ----------------------------------------------------------------------------
+INSERT INTO core.permissions (code, description, module) VALUES
+-- Core permissions
+('SYSTEM_SETTINGS', 'Manage system settings', 'System'),
+('USER_MANAGE', 'Manage users', 'System'),
+('ROLE_MANAGE', 'Manage roles and permissions', 'System'),
+('DATA_BACKUP', 'Backup and restore data', 'System'),
+('DATA_IMPORT', 'Import data', 'System'),
+('DATA_EXPORT', 'Export data', 'System'),
+('VIEW_AUDIT_LOG', 'View audit logs', 'System'),
+-- Accounting permissions
+('ACCOUNT_VIEW', 'View chart of accounts', 'Accounting'),
+('ACCOUNT_CREATE', 'Create accounts', 'Accounting'),
+('ACCOUNT_EDIT', 'Edit accounts', 'Accounting'),
+('ACCOUNT_DELETE', 'Delete/deactivate accounts', 'Accounting'),
+('JOURNAL_VIEW', 'View journal entries', 'Accounting'),
+('JOURNAL_CREATE', 'Create journal entries', 'Accounting'),
+('JOURNAL_EDIT', 'Edit draft journal entries', 'Accounting'),
+('JOURNAL_POST', 'Post journal entries', 'Accounting'),
+('JOURNAL_REVERSE', 'Reverse posted journal entries', 'Accounting'),
+('PERIOD_MANAGE', 'Manage fiscal periods', 'Accounting'),
+('YEAR_CLOSE', 'Close fiscal years', 'Accounting'),
+-- Business permissions
+('CUSTOMER_VIEW', 'View customers', 'Business'),
+('CUSTOMER_CREATE', 'Create customers', 'Business'),
+('CUSTOMER_EDIT', 'Edit customers', 'Business'),
+('CUSTOMER_DELETE', 'Delete customers', 'Business'),
+('VENDOR_VIEW', 'View vendors', 'Business'),
+('VENDOR_CREATE', 'Create vendors', 'Business'),
+('VENDOR_EDIT', 'Edit vendors', 'Business'),
+('VENDOR_DELETE', 'Delete vendors', 'Business'),
+('PRODUCT_VIEW', 'View products', 'Business'),
+('PRODUCT_CREATE', 'Create products', 'Business'),
+('PRODUCT_EDIT', 'Edit products', 'Business'),
+('PRODUCT_DELETE', 'Delete products', 'Business'),
+-- Transaction permissions
+('INVOICE_VIEW', 'View invoices', 'Transactions'),
+('INVOICE_CREATE', 'Create invoices', 'Transactions'),
+('INVOICE_EDIT', 'Edit invoices', 'Transactions'),
+('INVOICE_DELETE', 'Delete invoices', 'Transactions'),
+('INVOICE_APPROVE', 'Approve invoices', 'Transactions'),
+('PAYMENT_VIEW', 'View payments', 'Transactions'),
+('PAYMENT_CREATE', 'Create payments', 'Transactions'),
+('PAYMENT_EDIT', 'Edit payments', 'Transactions'),
+('PAYMENT_DELETE', 'Delete payments', 'Transactions'),
+('PAYMENT_APPROVE', 'Approve payments', 'Transactions'),
+-- Banking permissions
+('BANK_ACCOUNT_VIEW', 'View bank accounts', 'Banking'),
+('BANK_ACCOUNT_MANAGE', 'Manage bank accounts (CRUD)', 'Banking'),
+('BANK_TRANSACTION_VIEW', 'View bank transactions', 'Banking'),
+('BANK_TRANSACTION_MANAGE', 'Manage bank transactions (manual entry)', 'Banking'),
+('BANK_RECONCILE', 'Reconcile bank accounts', 'Banking'),
+('BANK_STATEMENT_IMPORT', 'Import bank statements', 'Banking'),
+-- Tax permissions
+('TAX_VIEW', 'View tax settings', 'Tax'),
+('TAX_EDIT', 'Edit tax settings', 'Tax'),
+('GST_PREPARE', 'Prepare GST returns', 'Tax'),
+('GST_SUBMIT', 'Mark GST returns as submitted', 'Tax'),
+('TAX_REPORT', 'Generate tax reports', 'Tax'),
+-- Reporting permissions
+('REPORT_FINANCIAL', 'Access financial reports', 'Reporting'),
+('REPORT_TAX', 'Access tax reports', 'Reporting'),
+('REPORT_MANAGEMENT', 'Access management reports', 'Reporting'),
+('REPORT_CUSTOM', 'Create custom reports', 'Reporting'),
+('REPORT_EXPORT', 'Export reports', 'Reporting')
+ON CONFLICT (code) DO UPDATE SET
+    description = EXCLUDED.description,
+    module = EXCLUDED.module;
+
+-- ----------------------------------------------------------------------------
+-- Insert System Init User (ID 1) - MUST BE CREATED EARLY
+-- ----------------------------------------------------------------------------
+INSERT INTO core.users (id, username, password_hash, email, full_name, is_active, require_password_change)
+VALUES (1, 'system_init_user', crypt('system_init_secure_password_!PLACEHOLDER!', gen_salt('bf')), 'system_init@sgbookkeeper.com', 'System Initializer', FALSE, FALSE) 
+ON CONFLICT (id) DO UPDATE SET 
+    username = EXCLUDED.username, 
+    password_hash = EXCLUDED.password_hash, 
+    email = EXCLUDED.email, 
+    full_name = EXCLUDED.full_name, 
+    is_active = EXCLUDED.is_active,
+    require_password_change = EXCLUDED.require_password_change,
+    updated_at = CURRENT_TIMESTAMP;
+
+SELECT setval(pg_get_serial_sequence('core.users', 'id'), COALESCE((SELECT MAX(id) FROM core.users), 1), true);
+
+-- ----------------------------------------------------------------------------
+-- Insert default currencies (SGD must be first for company_settings FK if it's the base)
+-- ----------------------------------------------------------------------------
+INSERT INTO accounting.currencies (code, name, symbol, is_active, decimal_places, created_by, updated_by) VALUES
+('SGD', 'Singapore Dollar', '$', TRUE, 2, 1, 1)
+ON CONFLICT (code) DO UPDATE SET 
+    name = EXCLUDED.name, symbol = EXCLUDED.symbol, is_active = EXCLUDED.is_active, 
+    decimal_places = EXCLUDED.decimal_places, created_by = COALESCE(accounting.currencies.created_by, EXCLUDED.created_by), 
+    updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
+
+INSERT INTO accounting.currencies (code, name, symbol, is_active, decimal_places, created_by, updated_by) VALUES
+('USD', 'US Dollar', '$', TRUE, 2, 1, 1),
+('EUR', 'Euro', '€', TRUE, 2, 1, 1),
+('GBP', 'British Pound', '£', TRUE, 2, 1, 1),
+('AUD', 'Australian Dollar', '$', TRUE, 2, 1, 1),
+('JPY', 'Japanese Yen', '¥', TRUE, 0, 1, 1),
+('CNY', 'Chinese Yuan', '¥', TRUE, 2, 1, 1),
+('MYR', 'Malaysian Ringgit', 'RM', TRUE, 2, 1, 1),
+('IDR', 'Indonesian Rupiah', 'Rp', TRUE, 0, 1, 1)
+ON CONFLICT (code) DO UPDATE SET 
+    name = EXCLUDED.name, symbol = EXCLUDED.symbol, is_active = EXCLUDED.is_active, 
+    decimal_places = EXCLUDED.decimal_places, created_by = COALESCE(accounting.currencies.created_by, EXCLUDED.created_by), 
+    updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
+
+-- ----------------------------------------------------------------------------
+-- Insert Default Company Settings (ID = 1)
+-- ----------------------------------------------------------------------------
+INSERT INTO core.company_settings (
+    id, company_name, legal_name, uen_no, gst_registration_no, gst_registered, 
+    address_line1, postal_code, city, country, 
+    fiscal_year_start_month, fiscal_year_start_day, base_currency, tax_id_label, date_format, 
+    updated_by 
+) VALUES (
+    1, 
+    'My Demo Company Pte. Ltd.', 
+    'My Demo Company Private Limited',
+    '202400001Z', 
+    'M90000001Z', 
+    TRUE,
+    '1 Marina Boulevard', 
+    '018989',
+    'Singapore',
+    'Singapore',
+    1, 
+    1, 
+    'SGD',
+    'UEN',
+    'dd/MM/yyyy',
+    1 
+)
+ON CONFLICT (id) DO UPDATE SET
+    company_name = EXCLUDED.company_name, legal_name = EXCLUDED.legal_name, uen_no = EXCLUDED.uen_no,
+    gst_registration_no = EXCLUDED.gst_registration_no, gst_registered = EXCLUDED.gst_registered,
+    address_line1 = EXCLUDED.address_line1, postal_code = EXCLUDED.postal_code, city = EXCLUDED.city, country = EXCLUDED.country,
+    fiscal_year_start_month = EXCLUDED.fiscal_year_start_month, fiscal_year_start_day = EXCLUDED.fiscal_year_start_day,
+    base_currency = EXCLUDED.base_currency, tax_id_label = EXCLUDED.tax_id_label, date_format = EXCLUDED.date_format,
+    updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
+
+-- ----------------------------------------------------------------------------
+-- Insert default document sequences
+-- ----------------------------------------------------------------------------
+INSERT INTO core.sequences (sequence_name, prefix, next_value, format_template) VALUES
+('journal_entry', 'JE', 1, '{PREFIX}{VALUE:06}'), ('sales_invoice', 'INV', 1, '{PREFIX}{VALUE:06}'),
+('purchase_invoice', 'PUR', 1, '{PREFIX}{VALUE:06}'), ('payment', 'PAY', 1, '{PREFIX}{VALUE:06}'),
+('receipt', 'REC', 1, '{PREFIX}{VALUE:06}'), ('customer', 'CUS', 1, '{PREFIX}{VALUE:04}'),
+('vendor', 'VEN', 1, '{PREFIX}{VALUE:04}'), ('product', 'PRD', 1, '{PREFIX}{VALUE:04}'),
+('wht_certificate', 'WHT', 1, '{PREFIX}{VALUE:06}')
+ON CONFLICT (sequence_name) DO UPDATE SET
+    prefix = EXCLUDED.prefix, next_value = GREATEST(core.sequences.next_value, EXCLUDED.next_value), 
+    format_template = EXCLUDED.format_template, updated_at = CURRENT_TIMESTAMP;
+
+-- ----------------------------------------------------------------------------
+-- Insert default configuration values
+-- ----------------------------------------------------------------------------
+INSERT INTO core.configuration (config_key, config_value, description, updated_by) VALUES
+('SysAcc_DefaultAR', '1120', 'Default Accounts Receivable account code', 1),
+('SysAcc_DefaultSalesRevenue', '4100', 'Default Sales Revenue account code', 1),
+('SysAcc_DefaultGSTOutput', 'SYS-GST-OUTPUT', 'Default GST Output Tax account code', 1),
+('SysAcc_DefaultAP', '2110', 'Default Accounts Payable account code', 1),
+('SysAcc_DefaultPurchaseExpense', '5100', 'Default Purchase/COGS account code', 1),
+('SysAcc_DefaultGSTInput', 'SYS-GST-INPUT', 'Default GST Input Tax account code', 1),
+('SysAcc_DefaultCash', '1112', 'Default Cash on Hand account code', 1), 
+('SysAcc_DefaultInventoryAsset', '1130', 'Default Inventory Asset account code', 1),
+('SysAcc_DefaultCOGS', '5100', 'Default Cost of Goods Sold account code', 1),
+('SysAcc_GSTControl', 'SYS-GST-CONTROL', 'GST Control/Clearing Account', 1)
+ON CONFLICT (config_key) DO UPDATE SET
+    config_value = EXCLUDED.config_value,
+    description = EXCLUDED.description,
+    updated_by = EXCLUDED.updated_by,
+    updated_at = CURRENT_TIMESTAMP;
+
+-- ----------------------------------------------------------------------------
+-- Insert account types
+-- ----------------------------------------------------------------------------
+INSERT INTO accounting.account_types (name, category, is_debit_balance, report_type, display_order, description) VALUES
+('Current Asset', 'Asset', TRUE, 'Balance Sheet', 10, 'Assets expected to be converted to cash within one year'),
+('Fixed Asset', 'Asset', TRUE, 'Balance Sheet', 20, 'Long-term tangible assets'),
+('Other Asset', 'Asset', TRUE, 'Balance Sheet', 30, 'Assets that don''t fit in other categories'),
+('Current Liability', 'Liability', FALSE, 'Balance Sheet', 40, 'Obligations due within one year'),
+('Long-term Liability', 'Liability', FALSE, 'Balance Sheet', 50, 'Obligations due beyond one year'),
+('Equity', 'Equity', FALSE, 'Balance Sheet', 60, 'Owner''s equity and retained earnings'),
+('Revenue', 'Revenue', FALSE, 'Income Statement', 70, 'Income from business operations'),
+('Cost of Sales', 'Expense', TRUE, 'Income Statement', 80, 'Direct costs of goods sold'),
+('Expense', 'Expense', TRUE, 'Income Statement', 90, 'General business expenses'),
+('Other Income', 'Revenue', FALSE, 'Income Statement', 100, 'Income from non-core activities'),
+('Other Expense', 'Expense', TRUE, 'Income Statement', 110, 'Expenses from non-core activities')
+ON CONFLICT (name) DO UPDATE SET
+    category = EXCLUDED.category, is_debit_balance = EXCLUDED.is_debit_balance, report_type = EXCLUDED.report_type,
+    display_order = EXCLUDED.display_order, description = EXCLUDED.description, updated_at = CURRENT_TIMESTAMP;
+
+-- ----------------------------------------------------------------------------
+-- Ensure key GL accounts for system configuration exist
+-- ----------------------------------------------------------------------------
+INSERT INTO accounting.accounts (code, name, account_type, sub_type, created_by, updated_by, is_active, is_control_account, is_bank_account) VALUES
+('1120', 'Accounts Receivable Control', 'Asset', 'Accounts Receivable', 1, 1, TRUE, TRUE, FALSE),
+('2110', 'Accounts Payable Control', 'Liability', 'Accounts Payable', 1, 1, TRUE, TRUE, FALSE),
+('4100', 'General Sales Revenue', 'Revenue', 'Sales', 1, 1, TRUE, FALSE, FALSE),
+('5100', 'General Cost of Goods Sold', 'Expense', 'Cost of Sales', 1, 1, TRUE, FALSE, FALSE),
+('SYS-GST-OUTPUT', 'System GST Output Tax', 'Liability', 'GST Payable', 1, 1, TRUE, FALSE, FALSE),
+('SYS-GST-INPUT', 'System GST Input Tax', 'Asset', 'GST Receivable', 1, 1, TRUE, FALSE, FALSE),
+('SYS-GST-CONTROL', 'System GST Control', 'Liability', 'GST Payable', 1, 1, TRUE, TRUE, FALSE),
+('1112', 'Cash on Hand', 'Asset', 'Cash and Cash Equivalents', 1,1, TRUE, FALSE, FALSE),
+('1130', 'Inventory Asset Control', 'Asset', 'Inventory', 1,1,TRUE, TRUE, FALSE)
+ON CONFLICT (code) DO NOTHING;
+
+-- ----------------------------------------------------------------------------
+-- Insert default tax codes (GST updated to 9%)
+-- ----------------------------------------------------------------------------
+INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id)
+SELECT 'SR', 'Standard Rate (9%)', 'GST', 9.00, TRUE, TRUE, 1, 1, acc.id FROM accounting.accounts acc WHERE acc.code = 'SYS-GST-OUTPUT'
+ON CONFLICT (code) DO UPDATE SET
+    description = EXCLUDED.description, tax_type = EXCLUDED.tax_type, rate = EXCLUDED.rate,
+    is_default = EXCLUDED.is_default, is_active = EXCLUDED.is_active, updated_by = EXCLUDED.updated_by, 
+    affects_account_id = EXCLUDED.affects_account_id, updated_at = CURRENT_TIMESTAMP;
+
+INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
+('ZR', 'Zero Rate', 'GST', 0.00, FALSE, TRUE, 1, 1, NULL)
+ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
+
+INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
+('ES', 'Exempt Supply', 'GST', 0.00, FALSE, TRUE, 1, 1, NULL)
+ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
+
+INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
+('OP', 'Out of Scope', 'GST', 0.00, FALSE, TRUE, 1, 1, NULL)
+ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
+
+INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id)
+SELECT 'TX', 'Taxable Purchase (9%)', 'GST', 9.00, FALSE, TRUE, 1, 1, acc.id FROM accounting.accounts acc WHERE acc.code = 'SYS-GST-INPUT'
+ON CONFLICT (code) DO UPDATE SET
+    description = EXCLUDED.description, tax_type = EXCLUDED.tax_type, rate = EXCLUDED.rate,
+    is_default = EXCLUDED.is_default, is_active = EXCLUDED.is_active, updated_by = EXCLUDED.updated_by, 
+    affects_account_id = EXCLUDED.affects_account_id, updated_at = CURRENT_TIMESTAMP;
+
+INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
+('BL', 'Blocked Input Tax (9%)', 'GST', 9.00, FALSE, TRUE, 1, 1, NULL)
+ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, rate = EXCLUDED.rate, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
+
+INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
+('NR', 'Non-Resident Services', 'Withholding Tax', 15.00, FALSE, TRUE, 1, 1, NULL)
+ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
+
+INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
+('ND', 'Non-Deductible', 'Income Tax', 0.00, FALSE, TRUE, 1, 1, NULL)
+ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
+
+INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
+('CA', 'Capital Allowance', 'Income Tax', 0.00, FALSE, TRUE, 1, 1, NULL)
+ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
+
+-- ----------------------------------------------------------------------------
+-- Create an active 'admin' user for application login
+-- ----------------------------------------------------------------------------
+INSERT INTO core.users (username, password_hash, email, full_name, is_active, require_password_change)
+VALUES ('admin', crypt('password', gen_salt('bf')), 'admin@sgbookkeeper.com', 'Administrator', TRUE, TRUE)
+ON CONFLICT (username) DO UPDATE SET
+    password_hash = EXCLUDED.password_hash, email = EXCLUDED.email, full_name = EXCLUDED.full_name,
+    is_active = EXCLUDED.is_active, require_password_change = EXCLUDED.require_password_change,
+    updated_at = CURRENT_TIMESTAMP;
+
+-- ----------------------------------------------------------------------------
+-- Assign 'Administrator' role to 'admin' user
+-- ----------------------------------------------------------------------------
+WITH admin_user_id_cte AS (SELECT id FROM core.users WHERE username = 'admin'),
+     admin_role_id_cte AS (SELECT id FROM core.roles WHERE name = 'Administrator')
+INSERT INTO core.user_roles (user_id, role_id, created_at)
+SELECT admin_user_id_cte.id, admin_role_id_cte.id, CURRENT_TIMESTAMP FROM admin_user_id_cte, admin_role_id_cte
+WHERE admin_user_id_cte.id IS NOT NULL AND admin_role_id_cte.id IS NOT NULL
+ON CONFLICT (user_id, role_id) DO NOTHING;
+
+-- ----------------------------------------------------------------------------
+-- For all permissions, grant them to the 'Administrator' role
+-- ----------------------------------------------------------------------------
+INSERT INTO core.role_permissions (role_id, permission_id, created_at)
+SELECT r.id, p.id, CURRENT_TIMESTAMP
+FROM core.roles r, core.permissions p
+WHERE r.name = 'Administrator'
+ON CONFLICT (role_id, permission_id) DO NOTHING;
+
+-- ----------------------------------------------------------------------------
+-- Grant Privileges to Application User (sgbookkeeper_user)
+-- This part is typically run by an admin user (e.g., postgres) after schema creation
+-- The application user 'sgbookkeeper_user' needs these privileges to operate.
+-- ----------------------------------------------------------------------------
+GRANT USAGE ON SCHEMA core, accounting, business, audit TO sgbookkeeper_user;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA core TO sgbookkeeper_user;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA accounting TO sgbookkeeper_user;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA business TO sgbookkeeper_user;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA audit TO sgbookkeeper_user;
+
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA core TO sgbookkeeper_user;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA accounting TO sgbookkeeper_user;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA business TO sgbookkeeper_user;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA audit TO sgbookkeeper_user; -- Added for audit schema sequences
+
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA core TO sgbookkeeper_user;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA accounting TO sgbookkeeper_user;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA business TO sgbookkeeper_user; -- Added for business schema functions
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA audit TO sgbookkeeper_user;
+
+-- Default privileges for future objects created by 'postgres' (or the user running db_init.py)
+-- This helps ensure sgbookkeeper_user can access newly created tables/sequences if schema evolves
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA core GRANT ALL ON TABLES TO sgbookkeeper_user;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA accounting GRANT ALL ON TABLES TO sgbookkeeper_user;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA business GRANT ALL ON TABLES TO sgbookkeeper_user;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA audit GRANT ALL ON TABLES TO sgbookkeeper_user;
+
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA core GRANT USAGE, SELECT ON SEQUENCES TO sgbookkeeper_user;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA accounting GRANT USAGE, SELECT ON SEQUENCES TO sgbookkeeper_user;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA business GRANT USAGE, SELECT ON SEQUENCES TO sgbookkeeper_user;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA audit GRANT USAGE, SELECT ON SEQUENCES TO sgbookkeeper_user; -- Added for audit schema
+
+COMMIT; 
+-- End of initial data
+
+```
+
+---
+https://aistudio.google.com/app/prompts?state=%7B%22ids%22:%5B%2216tABsm1Plf_0fhtruoJyyxobBli3e8-7%22%5D,%22action%22:%22open%22,%22userId%22:%22108686197475781557359%22,%22resourceKeys%22:%7B%7D%7D&usp=sharing, https://drive.google.com/file/d/19T9JbSrHCuXhHpzFMUh4Ti_0sDPDycSW/view?usp=sharing, https://drive.google.com/file/d/1EGOoM0TGqPgNBJzwxKdVO2u331Myhd4b/view?usp=sharing, https://drive.google.com/file/d/1bSRRtsWeJI9djXTDZTZTjZxnsWS3cvsV/view?usp=sharing, https://drive.google.com/file/d/1vTPAoLcEetjBj17-5nTa_Z6RS7ND5Wmz/view?usp=sharing
+

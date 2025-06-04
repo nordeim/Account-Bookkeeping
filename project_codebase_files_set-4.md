@@ -81,15 +81,29 @@ class Result(Generic[T]):
 # File: app/utils/__init__.py
 from .converters import to_decimal
 from .formatting import format_currency, format_date, format_datetime
-from .json_helpers import json_converter, json_date_hook # Added
+from .json_helpers import json_converter, json_date_hook
 from .pydantic_models import (
     AppBaseModel, UserAuditData, 
     AccountBaseData, AccountCreateData, AccountUpdateData,
     JournalEntryLineData, JournalEntryData,
-    GSTReturnData, TaxCalculationResultData,
+    GSTReturnData, TaxCalculationResultData, GSTTransactionLineDetail,
     TransactionLineTaxData, TransactionTaxData,
     AccountValidationResult, AccountValidator, CompanySettingData,
-    FiscalYearCreateData, FiscalYearData, FiscalPeriodData # Added Fiscal DTOs
+    FiscalYearCreateData, FiscalYearData, FiscalPeriodData,
+    CustomerBaseData, CustomerCreateData, CustomerUpdateData, CustomerSummaryData, CustomerData,
+    VendorBaseData, VendorCreateData, VendorUpdateData, VendorSummaryData, VendorData,
+    ProductBaseData, ProductCreateData, ProductUpdateData, ProductSummaryData, ProductData,
+    SalesInvoiceLineBaseData, SalesInvoiceBaseData, SalesInvoiceCreateData, SalesInvoiceUpdateData, SalesInvoiceData, SalesInvoiceSummaryData,
+    RoleData, UserSummaryData, UserRoleAssignmentData, UserBaseData, UserCreateInternalData, UserCreateData, UserUpdateData, UserPasswordChangeData,
+    RoleCreateData, RoleUpdateData, PermissionData,
+    PurchaseInvoiceLineBaseData, PurchaseInvoiceBaseData, PurchaseInvoiceCreateData, PurchaseInvoiceUpdateData, PurchaseInvoiceData, PurchaseInvoiceSummaryData,
+    BankAccountBaseData, BankAccountCreateData, BankAccountUpdateData, BankAccountSummaryData,
+    BankTransactionBaseData, BankTransactionCreateData, BankTransactionSummaryData,
+    PaymentAllocationBaseData, PaymentBaseData, PaymentCreateData, PaymentSummaryData,
+    AuditLogEntryData, DataChangeHistoryEntryData,
+    BankReconciliationBaseData, BankReconciliationCreateData, BankReconciliationData,
+    BankReconciliationSummaryData, # New DTO export
+    DashboardKPIData
 )
 from .result import Result
 from .sequence_generator import SequenceGenerator
@@ -97,14 +111,28 @@ from .validation import is_valid_uen
 
 __all__ = [
     "to_decimal", "format_currency", "format_date", "format_datetime",
-    "json_converter", "json_date_hook", # Added
+    "json_converter", "json_date_hook",
     "AppBaseModel", "UserAuditData", 
     "AccountBaseData", "AccountCreateData", "AccountUpdateData",
     "JournalEntryLineData", "JournalEntryData",
-    "GSTReturnData", "TaxCalculationResultData",
+    "GSTReturnData", "TaxCalculationResultData", "GSTTransactionLineDetail",
     "TransactionLineTaxData", "TransactionTaxData",
     "AccountValidationResult", "AccountValidator", "CompanySettingData",
-    "FiscalYearCreateData", "FiscalYearData", "FiscalPeriodData", # Added Fiscal DTOs
+    "FiscalYearCreateData", "FiscalYearData", "FiscalPeriodData",
+    "CustomerBaseData", "CustomerCreateData", "CustomerUpdateData", "CustomerSummaryData", "CustomerData",
+    "VendorBaseData", "VendorCreateData", "VendorUpdateData", "VendorSummaryData", "VendorData",
+    "ProductBaseData", "ProductCreateData", "ProductUpdateData", "ProductSummaryData", "ProductData",
+    "SalesInvoiceLineBaseData", "SalesInvoiceBaseData", "SalesInvoiceCreateData", "SalesInvoiceUpdateData", "SalesInvoiceData", "SalesInvoiceSummaryData",
+    "RoleData", "UserSummaryData", "UserRoleAssignmentData", "UserBaseData", "UserCreateInternalData", "UserCreateData", "UserUpdateData", "UserPasswordChangeData",
+    "RoleCreateData", "RoleUpdateData", "PermissionData",
+    "PurchaseInvoiceLineBaseData", "PurchaseInvoiceBaseData", "PurchaseInvoiceCreateData", "PurchaseInvoiceUpdateData", "PurchaseInvoiceData", "PurchaseInvoiceSummaryData",
+    "BankAccountBaseData", "BankAccountCreateData", "BankAccountUpdateData", "BankAccountSummaryData",
+    "BankTransactionBaseData", "BankTransactionCreateData", "BankTransactionSummaryData",
+    "PaymentAllocationBaseData", "PaymentBaseData", "PaymentCreateData", "PaymentSummaryData",
+    "AuditLogEntryData", "DataChangeHistoryEntryData",
+    "BankReconciliationBaseData", "BankReconciliationCreateData", "BankReconciliationData",
+    "BankReconciliationSummaryData", # New DTO export
+    "DashboardKPIData",
     "Result", "SequenceGenerator", "is_valid_uen"
 ]
 
@@ -121,7 +149,7 @@ from decimal import Decimal
 from app.common.enums import ( 
     ProductTypeEnum, InvoiceStatusEnum, BankTransactionTypeEnum,
     PaymentTypeEnum, PaymentMethodEnum, PaymentEntityTypeEnum, PaymentStatusEnum, 
-    PaymentAllocationDocTypeEnum, DataChangeTypeEnum # Added DataChangeTypeEnum
+    PaymentAllocationDocTypeEnum, DataChangeTypeEnum
 )
 
 class AppBaseModel(BaseModel):
@@ -309,22 +337,7 @@ class VendorSummaryData(AppBaseModel): id: int; vendor_code: str; name: str; ema
 
 # --- Product/Service Related DTOs ---
 class ProductBaseData(AppBaseModel): 
-    product_code: str = Field(..., min_length=1, max_length=20)
-    name: str = Field(..., min_length=1, max_length=100)
-    description: Optional[str] = None
-    product_type: ProductTypeEnum
-    category: Optional[str] = Field(None, max_length=50)
-    unit_of_measure: Optional[str] = Field(None, max_length=20)
-    barcode: Optional[str] = Field(None, max_length=50)
-    sales_price: Optional[Decimal] = Field(None, ge=Decimal(0))       
-    purchase_price: Optional[Decimal] = Field(None, ge=Decimal(0))    
-    sales_account_id: Optional[int] = None
-    purchase_account_id: Optional[int] = None
-    inventory_account_id: Optional[int] = None
-    tax_code: Optional[str] = Field(None, max_length=20)
-    is_active: bool = True
-    min_stock_level: Optional[Decimal] = Field(None, ge=Decimal(0))   
-    reorder_point: Optional[Decimal] = Field(None, ge=Decimal(0))     
+    product_code: str = Field(..., min_length=1, max_length=20); name: str = Field(..., min_length=1, max_length=100); description: Optional[str] = None; product_type: ProductTypeEnum; category: Optional[str] = Field(None, max_length=50); unit_of_measure: Optional[str] = Field(None, max_length=20); barcode: Optional[str] = Field(None, max_length=50); sales_price: Optional[Decimal] = Field(None, ge=Decimal(0)); purchase_price: Optional[Decimal] = Field(None, ge=Decimal(0)); sales_account_id: Optional[int] = None; purchase_account_id: Optional[int] = None; inventory_account_id: Optional[int] = None; tax_code: Optional[str] = Field(None, max_length=20); is_active: bool = True; min_stock_level: Optional[Decimal] = Field(None, ge=Decimal(0)); reorder_point: Optional[Decimal] = Field(None, ge=Decimal(0))     
     @validator('sales_price', 'purchase_price', 'min_stock_level', 'reorder_point', pre=True, always=True)
     def product_decimal_fields(cls, v): return Decimal(str(v)) if v is not None else None
     @root_validator(skip_on_failure=True)
@@ -343,9 +356,7 @@ class ProductSummaryData(AppBaseModel): id: int; product_code: str; name: str; p
 
 # --- Sales Invoice Related DTOs ---
 class SalesInvoiceLineBaseData(AppBaseModel):
-    product_id: Optional[int] = None; description: str = Field(..., min_length=1, max_length=200); quantity: Decimal = Field(..., gt=Decimal(0)); unit_price: Decimal = Field(..., ge=Decimal(0)); discount_percent: Decimal = Field(Decimal(0), ge=Decimal(0), le=Decimal(100)); tax_code: Optional[str] = Field(None, max_length=20)
-    dimension1_id: Optional[int] = None 
-    dimension2_id: Optional[int] = None 
+    product_id: Optional[int] = None; description: str = Field(..., min_length=1, max_length=200); quantity: Decimal = Field(..., gt=Decimal(0)); unit_price: Decimal = Field(..., ge=Decimal(0)); discount_percent: Decimal = Field(Decimal(0), ge=Decimal(0), le=Decimal(100)); tax_code: Optional[str] = Field(None, max_length=20); dimension1_id: Optional[int] = None; dimension2_id: Optional[int] = None 
     @validator('quantity', 'unit_price', 'discount_percent', pre=True, always=True)
     def sales_inv_line_decimals(cls, v): return Decimal(str(v)) if v is not None else Decimal(0)
 class SalesInvoiceBaseData(AppBaseModel):
@@ -363,313 +374,149 @@ class SalesInvoiceData(SalesInvoiceBaseData): id: int; invoice_no: str; subtotal
 class SalesInvoiceSummaryData(AppBaseModel): id: int; invoice_no: str; invoice_date: date; due_date: date; customer_name: str; total_amount: Decimal; amount_paid: Decimal; status: InvoiceStatusEnum; currency_code: str
 
 # --- User & Role Management DTOs ---
-class RoleData(AppBaseModel): 
-    id: int
-    name: str
-    description: Optional[str] = None
-    permission_ids: List[int] = Field(default_factory=list) 
-
-class UserSummaryData(AppBaseModel): 
-    id: int
-    username: str
-    full_name: Optional[str] = None
-    email: Optional[EmailStr] = None
-    is_active: bool
-    last_login: Optional[datetime] = None
-    roles: List[str] = Field(default_factory=list) 
-
-class UserRoleAssignmentData(AppBaseModel): 
-    role_id: int
-
-class UserBaseData(AppBaseModel): 
-    username: str = Field(..., min_length=3, max_length=50)
-    full_name: Optional[str] = Field(None, max_length=100)
-    email: Optional[EmailStr] = None
-    is_active: bool = True
-
-class UserCreateInternalData(UserBaseData): 
-    password_hash: str 
-    assigned_roles: List[UserRoleAssignmentData] = Field(default_factory=list)
-
+class RoleData(AppBaseModel): id: int; name: str; description: Optional[str] = None; permission_ids: List[int] = Field(default_factory=list) 
+class UserSummaryData(AppBaseModel): id: int; username: str; full_name: Optional[str] = None; email: Optional[EmailStr] = None; is_active: bool; last_login: Optional[datetime] = None; roles: List[str] = Field(default_factory=list) 
+class UserRoleAssignmentData(AppBaseModel): role_id: int
+class UserBaseData(AppBaseModel): username: str = Field(..., min_length=3, max_length=50); full_name: Optional[str] = Field(None, max_length=100); email: Optional[EmailStr] = None; is_active: bool = True
+class UserCreateInternalData(UserBaseData): password_hash: str; assigned_roles: List[UserRoleAssignmentData] = Field(default_factory=list)
 class UserCreateData(UserBaseData, UserAuditData): 
-    password: str = Field(..., min_length=8)
-    confirm_password: str
-    assigned_role_ids: List[int] = Field(default_factory=list)
-
+    password: str = Field(..., min_length=8); confirm_password: str; assigned_role_ids: List[int] = Field(default_factory=list)
     @root_validator(skip_on_failure=True)
     def passwords_match(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         pw1, pw2 = values.get('password'), values.get('confirm_password')
-        if pw1 is not None and pw2 is not None and pw1 != pw2:
-            raise ValueError('Passwords do not match')
+        if pw1 is not None and pw2 is not None and pw1 != pw2: raise ValueError('Passwords do not match')
         return values
-
-class UserUpdateData(UserBaseData, UserAuditData): 
-    id: int
-    assigned_role_ids: List[int] = Field(default_factory=list)
-
+class UserUpdateData(UserBaseData, UserAuditData): id: int; assigned_role_ids: List[int] = Field(default_factory=list)
 class UserPasswordChangeData(AppBaseModel, UserAuditData): 
-    user_id_to_change: int 
-    new_password: str = Field(..., min_length=8)
-    confirm_new_password: str
+    user_id_to_change: int; new_password: str = Field(..., min_length=8); confirm_new_password: str
     @root_validator(skip_on_failure=True)
     def new_passwords_match(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         pw1, pw2 = values.get('new_password'), values.get('confirm_new_password')
-        if pw1 is not None and pw2 is not None and pw1 != pw2:
-            raise ValueError('New passwords do not match')
+        if pw1 is not None and pw2 is not None and pw1 != pw2: raise ValueError('New passwords do not match')
         return values
-
-class RoleCreateData(AppBaseModel): 
-    name: str = Field(..., min_length=3, max_length=50)
-    description: Optional[str] = Field(None, max_length=200)
-    permission_ids: List[int] = Field(default_factory=list)
-
-class RoleUpdateData(RoleCreateData):
-    id: int
-
-class PermissionData(AppBaseModel): 
-    id: int
-    code: str
-    description: Optional[str] = None
-    module: str
+class RoleCreateData(AppBaseModel): name: str = Field(..., min_length=3, max_length=50); description: Optional[str] = Field(None, max_length=200); permission_ids: List[int] = Field(default_factory=list)
+class RoleUpdateData(RoleCreateData): id: int
+class PermissionData(AppBaseModel): id: int; code: str; description: Optional[str] = None; module: str
 
 # --- Purchase Invoice Related DTOs ---
 class PurchaseInvoiceLineBaseData(AppBaseModel):
-    product_id: Optional[int] = None
-    description: str = Field(..., min_length=1, max_length=200)
-    quantity: Decimal = Field(..., gt=Decimal(0))
-    unit_price: Decimal = Field(..., ge=Decimal(0))
-    discount_percent: Decimal = Field(Decimal(0), ge=Decimal(0), le=Decimal(100))
-    tax_code: Optional[str] = Field(None, max_length=20)
-    dimension1_id: Optional[int] = None
-    dimension2_id: Optional[int] = None
-
+    product_id: Optional[int] = None; description: str = Field(..., min_length=1, max_length=200); quantity: Decimal = Field(..., gt=Decimal(0)); unit_price: Decimal = Field(..., ge=Decimal(0)); discount_percent: Decimal = Field(Decimal(0), ge=Decimal(0), le=Decimal(100)); tax_code: Optional[str] = Field(None, max_length=20); dimension1_id: Optional[int] = None; dimension2_id: Optional[int] = None
     @validator('quantity', 'unit_price', 'discount_percent', pre=True, always=True)
-    def purch_inv_line_decimals(cls, v):
-        return Decimal(str(v)) if v is not None else Decimal(0)
-
+    def purch_inv_line_decimals(cls, v): return Decimal(str(v)) if v is not None else Decimal(0)
 class PurchaseInvoiceBaseData(AppBaseModel):
-    vendor_id: int
-    vendor_invoice_no: Optional[str] = Field(None, max_length=50) 
-    invoice_date: date
-    due_date: date
-    currency_code: str = Field("SGD", min_length=3, max_length=3)
-    exchange_rate: Decimal = Field(Decimal(1), ge=Decimal(0))
-    notes: Optional[str] = None
-    
+    vendor_id: int; vendor_invoice_no: Optional[str] = Field(None, max_length=50); invoice_date: date; due_date: date; currency_code: str = Field("SGD", min_length=3, max_length=3); exchange_rate: Decimal = Field(Decimal(1), ge=Decimal(0)); notes: Optional[str] = None
     @validator('exchange_rate', pre=True, always=True)
-    def purch_inv_hdr_decimals(cls, v):
-        return Decimal(str(v)) if v is not None else Decimal(1)
-
+    def purch_inv_hdr_decimals(cls, v): return Decimal(str(v)) if v is not None else Decimal(1)
     @root_validator(skip_on_failure=True)
     def check_pi_due_date(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         invoice_date, due_date = values.get('invoice_date'), values.get('due_date')
-        if invoice_date and due_date and due_date < invoice_date:
-            raise ValueError("Due date cannot be before invoice date.")
+        if invoice_date and due_date and due_date < invoice_date: raise ValueError("Due date cannot be before invoice date.")
         return values
-
-class PurchaseInvoiceCreateData(PurchaseInvoiceBaseData, UserAuditData):
-    lines: List[PurchaseInvoiceLineBaseData] = Field(..., min_length=1)
-
-class PurchaseInvoiceUpdateData(PurchaseInvoiceBaseData, UserAuditData):
-    id: int
-    lines: List[PurchaseInvoiceLineBaseData] = Field(..., min_length=1)
-
-class PurchaseInvoiceData(PurchaseInvoiceBaseData): 
-    id: int
-    invoice_no: str 
-    subtotal: Decimal
-    tax_amount: Decimal
-    total_amount: Decimal
-    amount_paid: Decimal
-    status: InvoiceStatusEnum 
-    journal_entry_id: Optional[int] = None
-    lines: List[PurchaseInvoiceLineBaseData] 
-    created_at: datetime
-    updated_at: datetime
-    created_by_user_id: int
-    updated_by_user_id: int
-
-class PurchaseInvoiceSummaryData(AppBaseModel): 
-    id: int
-    invoice_no: str 
-    vendor_invoice_no: Optional[str] = None
-    invoice_date: date
-    vendor_name: str 
-    total_amount: Decimal
-    status: InvoiceStatusEnum
-    currency_code: str 
+class PurchaseInvoiceCreateData(PurchaseInvoiceBaseData, UserAuditData): lines: List[PurchaseInvoiceLineBaseData] = Field(..., min_length=1)
+class PurchaseInvoiceUpdateData(PurchaseInvoiceBaseData, UserAuditData): id: int; lines: List[PurchaseInvoiceLineBaseData] = Field(..., min_length=1)
+class PurchaseInvoiceData(PurchaseInvoiceBaseData): id: int; invoice_no: str; subtotal: Decimal; tax_amount: Decimal; total_amount: Decimal; amount_paid: Decimal; status: InvoiceStatusEnum; journal_entry_id: Optional[int] = None; lines: List[PurchaseInvoiceLineBaseData]; created_at: datetime; updated_at: datetime; created_by_user_id: int; updated_by_user_id: int
+class PurchaseInvoiceSummaryData(AppBaseModel): id: int; invoice_no: str; vendor_invoice_no: Optional[str] = None; invoice_date: date; vendor_name: str; total_amount: Decimal; status: InvoiceStatusEnum; currency_code: str 
 
 # --- Bank Account DTOs ---
 class BankAccountBaseData(AppBaseModel):
-    account_name: str = Field(..., min_length=1, max_length=100)
-    account_number: str = Field(..., min_length=1, max_length=50)
-    bank_name: str = Field(..., min_length=1, max_length=100)
-    bank_branch: Optional[str] = Field(None, max_length=100)
-    bank_swift_code: Optional[str] = Field(None, max_length=20)
-    currency_code: str = Field("SGD", min_length=3, max_length=3)
-    opening_balance: Decimal = Field(Decimal(0))
-    opening_balance_date: Optional[date] = None
-    gl_account_id: int 
-    is_active: bool = True
-    description: Optional[str] = None
-
+    account_name: str = Field(..., min_length=1, max_length=100); account_number: str = Field(..., min_length=1, max_length=50); bank_name: str = Field(..., min_length=1, max_length=100); bank_branch: Optional[str] = Field(None, max_length=100); bank_swift_code: Optional[str] = Field(None, max_length=20); currency_code: str = Field("SGD", min_length=3, max_length=3); opening_balance: Decimal = Field(Decimal(0)); opening_balance_date: Optional[date] = None; gl_account_id: int; is_active: bool = True; description: Optional[str] = None
     @validator('opening_balance', pre=True, always=True)
-    def bank_opening_balance_to_decimal(cls, v):
-        return Decimal(str(v)) if v is not None else Decimal(0)
-
+    def bank_opening_balance_to_decimal(cls, v): return Decimal(str(v)) if v is not None else Decimal(0)
     @root_validator(skip_on_failure=True)
     def check_ob_date_if_ob_exists_bank(cls, values: Dict[str, Any]) -> Dict[str, Any]:
-        ob = values.get('opening_balance')
-        ob_date = values.get('opening_balance_date')
-        if ob is not None and ob != Decimal(0) and ob_date is None:
-            raise ValueError("Opening Balance Date is required if Opening Balance is not zero.")
-        if ob_date is not None and (ob is None or ob == Decimal(0)):
-            values['opening_balance_date'] = None 
+        ob = values.get('opening_balance'); ob_date = values.get('opening_balance_date')
+        if ob is not None and ob != Decimal(0) and ob_date is None: raise ValueError("Opening Balance Date is required if Opening Balance is not zero.")
+        if ob_date is not None and (ob is None or ob == Decimal(0)): values['opening_balance_date'] = None 
         return values
-
-class BankAccountCreateData(BankAccountBaseData, UserAuditData):
-    pass
-
-class BankAccountUpdateData(BankAccountBaseData, UserAuditData):
-    id: int
-
-class BankAccountSummaryData(AppBaseModel):
-    id: int
-    account_name: str
-    bank_name: str
-    account_number: str 
-    currency_code: str
-    current_balance: Decimal 
-    gl_account_code: Optional[str] = None 
-    gl_account_name: Optional[str] = None 
-    is_active: bool
+class BankAccountCreateData(BankAccountBaseData, UserAuditData): pass
+class BankAccountUpdateData(BankAccountBaseData, UserAuditData): id: int
+class BankAccountSummaryData(AppBaseModel): id: int; account_name: str; bank_name: str; account_number: str; currency_code: str; current_balance: Decimal; gl_account_code: Optional[str] = None; gl_account_name: Optional[str] = None; is_active: bool
 
 # --- Bank Transaction DTOs ---
 class BankTransactionBaseData(AppBaseModel):
-    bank_account_id: int
-    transaction_date: date
-    value_date: Optional[date] = None 
-    transaction_type: BankTransactionTypeEnum 
-    description: str = Field(..., min_length=1, max_length=200)
-    reference: Optional[str] = Field(None, max_length=100)
-    amount: Decimal 
-
+    bank_account_id: int; transaction_date: date; value_date: Optional[date] = None; transaction_type: BankTransactionTypeEnum; description: str = Field(..., min_length=1, max_length=200); reference: Optional[str] = Field(None, max_length=100); amount: Decimal 
     @validator('amount', pre=True, always=True)
-    def bank_txn_amount_to_decimal(cls, v):
-        return Decimal(str(v)) if v is not None else Decimal(0)
-
+    def bank_txn_amount_to_decimal(cls, v): return Decimal(str(v)) if v is not None else Decimal(0)
     @root_validator(skip_on_failure=True)
     def check_amount_sign_vs_type_bank_txn(cls, values: Dict[str, Any]) -> Dict[str, Any]:
-        amount = values.get('amount')
-        txn_type = values.get('transaction_type')
-        if amount is None or txn_type is None: 
-            return values 
+        amount = values.get('amount'); txn_type = values.get('transaction_type')
+        if amount is None or txn_type is None: return values 
         if txn_type in [BankTransactionTypeEnum.DEPOSIT, BankTransactionTypeEnum.INTEREST]:
-            if amount < Decimal(0):
-                raise ValueError(f"{txn_type.value} amount must be positive or zero.")
+            if amount < Decimal(0): raise ValueError(f"{txn_type.value} amount must be positive or zero.")
         elif txn_type in [BankTransactionTypeEnum.WITHDRAWAL, BankTransactionTypeEnum.FEE]:
-            if amount > Decimal(0):
-                raise ValueError(f"{txn_type.value} amount must be negative or zero.")
+            if amount > Decimal(0): raise ValueError(f"{txn_type.value} amount must be negative or zero.")
         return values
-
-class BankTransactionCreateData(BankTransactionBaseData, UserAuditData):
-    pass
-
-class BankTransactionSummaryData(AppBaseModel):
-    id: int
-    transaction_date: date
-    value_date: Optional[date] = None
-    transaction_type: BankTransactionTypeEnum
-    description: str
-    reference: Optional[str] = None
-    amount: Decimal 
-    is_reconciled: bool = False
+class BankTransactionCreateData(BankTransactionBaseData, UserAuditData): pass
+class BankTransactionSummaryData(AppBaseModel): id: int; transaction_date: date; value_date: Optional[date] = None; transaction_type: BankTransactionTypeEnum; description: str; reference: Optional[str] = None; amount: Decimal; is_reconciled: bool = False
 
 # --- Payment DTOs ---
 class PaymentAllocationBaseData(AppBaseModel):
-    document_id: int 
-    document_type: PaymentAllocationDocTypeEnum
-    amount_allocated: Decimal = Field(..., gt=Decimal(0))
-
+    document_id: int; document_type: PaymentAllocationDocTypeEnum; amount_allocated: Decimal = Field(..., gt=Decimal(0))
     @validator('amount_allocated', pre=True, always=True)
-    def payment_alloc_amount_to_decimal(cls, v):
-        return Decimal(str(v)) if v is not None else Decimal(0)
-
+    def payment_alloc_amount_to_decimal(cls, v): return Decimal(str(v)) if v is not None else Decimal(0)
 class PaymentBaseData(AppBaseModel):
-    payment_type: PaymentTypeEnum
-    payment_method: PaymentMethodEnum
-    payment_date: date
-    entity_type: PaymentEntityTypeEnum
-    entity_id: int 
-    bank_account_id: Optional[int] = None 
-    currency_code: str = Field(..., min_length=3, max_length=3)
-    exchange_rate: Decimal = Field(Decimal(1), ge=Decimal(0))
-    amount: Decimal = Field(..., gt=Decimal(0)) 
-    reference: Optional[str] = Field(None, max_length=100)
-    description: Optional[str] = None
-    cheque_no: Optional[str] = Field(None, max_length=50)
-
+    payment_type: PaymentTypeEnum; payment_method: PaymentMethodEnum; payment_date: date; entity_type: PaymentEntityTypeEnum; entity_id: int; bank_account_id: Optional[int] = None; currency_code: str = Field(..., min_length=3, max_length=3); exchange_rate: Decimal = Field(Decimal(1), ge=Decimal(0)); amount: Decimal = Field(..., gt=Decimal(0)); reference: Optional[str] = Field(None, max_length=100); description: Optional[str] = None; cheque_no: Optional[str] = Field(None, max_length=50)
     @validator('exchange_rate', 'amount', pre=True, always=True)
-    def payment_base_decimals(cls, v):
-        return Decimal(str(v)) if v is not None else Decimal(0)
-        
+    def payment_base_decimals(cls, v): return Decimal(str(v)) if v is not None else Decimal(0)
     @root_validator(skip_on_failure=True)
     def check_bank_account_for_non_cash(cls, values: Dict[str, Any]) -> Dict[str, Any]:
-        payment_method = values.get('payment_method')
-        bank_account_id = values.get('bank_account_id')
-        if payment_method != PaymentMethodEnum.CASH and bank_account_id is None:
-            raise ValueError("Bank Account is required for non-cash payment methods.")
-        if payment_method == PaymentMethodEnum.CASH and bank_account_id is not None:
-            raise ValueError("Bank Account should not be specified for Cash payment method.")
+        payment_method = values.get('payment_method'); bank_account_id = values.get('bank_account_id')
+        if payment_method != PaymentMethodEnum.CASH and bank_account_id is None: raise ValueError("Bank Account is required for non-cash payment methods.")
+        if payment_method == PaymentMethodEnum.CASH and bank_account_id is not None: raise ValueError("Bank Account should not be specified for Cash payment method.")
         return values
-
 class PaymentCreateData(PaymentBaseData, UserAuditData):
     allocations: List[PaymentAllocationBaseData] = Field(default_factory=list)
-
     @root_validator(skip_on_failure=True)
     def check_total_allocation_vs_payment_amount(cls, values: Dict[str, Any]) -> Dict[str, Any]:
-        payment_amount = values.get('amount', Decimal(0))
-        allocations = values.get('allocations', [])
-        total_allocated = sum(alloc.amount_allocated for alloc in allocations)
-        
-        if total_allocated > payment_amount:
-            raise ValueError(f"Total allocated amount ({total_allocated}) cannot exceed payment amount ({payment_amount}).")
+        payment_amount = values.get('amount', Decimal(0)); allocations = values.get('allocations', []); total_allocated = sum(alloc.amount_allocated for alloc in allocations)
+        if total_allocated > payment_amount: raise ValueError(f"Total allocated amount ({total_allocated}) cannot exceed payment amount ({payment_amount}).")
         return values
+class PaymentSummaryData(AppBaseModel): id: int; payment_no: str; payment_date: date; payment_type: PaymentTypeEnum; payment_method: PaymentMethodEnum; entity_type: PaymentEntityTypeEnum; entity_name: str; amount: Decimal; currency_code: str; status: PaymentStatusEnum
 
-class PaymentSummaryData(AppBaseModel):
-    id: int
-    payment_no: str
-    payment_date: date
-    payment_type: PaymentTypeEnum
-    payment_method: PaymentMethodEnum
-    entity_type: PaymentEntityTypeEnum
-    entity_name: str 
-    amount: Decimal
-    currency_code: str
-    status: PaymentStatusEnum
+# --- Audit Log DTOs ---
+class AuditLogEntryData(AppBaseModel): id: int; timestamp: datetime; username: Optional[str] = "System"; action: str; entity_type: str; entity_id: Optional[int] = None; entity_name: Optional[str] = None; changes_summary: Optional[str] = None; ip_address: Optional[str] = None
+class DataChangeHistoryEntryData(AppBaseModel): id: int; changed_at: datetime; table_name: str; record_id: int; field_name: str; old_value: Optional[str] = None; new_value: Optional[str] = None; change_type: DataChangeTypeEnum; changed_by_username: Optional[str] = "System"
 
-# --- Audit Log DTOs (New) ---
-class AuditLogEntryData(AppBaseModel):
-    id: int
-    timestamp: datetime
-    username: Optional[str] = "System" # Default if user_id is None or user not found
-    action: str
-    entity_type: str
-    entity_id: Optional[int] = None
-    entity_name: Optional[str] = None
-    changes_summary: Optional[str] = None # Simplified view of JSONB changes
-    ip_address: Optional[str] = None
+# --- Bank Reconciliation DTOs ---
+class BankReconciliationBaseData(AppBaseModel):
+    bank_account_id: int
+    statement_date: date
+    statement_ending_balance: Decimal
+    calculated_book_balance: Decimal
+    reconciled_difference: Decimal
+    notes: Optional[str] = None
 
-class DataChangeHistoryEntryData(AppBaseModel):
+class BankReconciliationCreateData(BankReconciliationBaseData, UserAuditData):
+    pass 
+
+class BankReconciliationData(BankReconciliationBaseData): 
     id: int
-    changed_at: datetime
-    table_name: str
-    record_id: int
-    field_name: str
-    old_value: Optional[str] = None
-    new_value: Optional[str] = None
-    change_type: DataChangeTypeEnum 
-    changed_by_username: Optional[str] = "System" # Default if changed_by is None
+    reconciliation_date: datetime 
+    created_at: datetime
+    updated_at: datetime
+    created_by_user_id: int
+    
+class BankReconciliationSummaryData(AppBaseModel): # New DTO for history list
+    id: int
+    statement_date: date
+    statement_ending_balance: Decimal
+    reconciled_difference: Decimal
+    reconciliation_date: datetime
+    created_by_username: Optional[str] = None
+
+
+# --- Dashboard DTOs ---
+class DashboardKPIData(AppBaseModel):
+    kpi_period_description: str
+    base_currency: str
+    total_revenue_ytd: Decimal = Field(Decimal(0))
+    total_expenses_ytd: Decimal = Field(Decimal(0))
+    net_profit_ytd: Decimal = Field(Decimal(0))
+    current_cash_balance: Decimal = Field(Decimal(0))
+    total_outstanding_ar: Decimal = Field(Decimal(0))
+    total_outstanding_ap: Decimal = Field(Decimal(0))
+    total_ar_overdue: Decimal = Field(Decimal(0)) 
+    total_ap_overdue: Decimal = Field(Decimal(0)) 
 
 ```
 
@@ -969,26 +816,28 @@ class JournalService(IJournalEntryRepository):
 
 # app/services/audit_services.py
 ```py
-# app/services/audit_services.py
+# File: app/services/audit_services.py
 from abc import ABC, abstractmethod
-from typing import List, Optional, Any, TYPE_CHECKING, Dict, Tuple, Union # Added Union
+from typing import List, Optional, Any, TYPE_CHECKING, Dict, Tuple, Union # Ensure Union is imported
 from sqlalchemy import select, func, and_, or_
 from sqlalchemy.orm import selectinload, aliased
-from datetime import datetime, date
+from datetime import datetime, date # date might not be used directly but good to have with datetime
 
 from app.core.database_manager import DatabaseManager
 from app.models.audit.audit_log import AuditLog
 from app.models.audit.data_change_history import DataChangeHistory
 from app.models.core.user import User 
-from app.services import IRepository 
+from app.services import IRepository # Base repository interface
 from app.utils.pydantic_models import AuditLogEntryData, DataChangeHistoryEntryData
-from app.utils.result import Result
+# from app.utils.result import Result # Not typically returned by services, but managers
 from app.common.enums import DataChangeTypeEnum
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore
+    # from sqlalchemy.ext.asyncio import AsyncSession # If session is passed around
 
-class IAuditLogRepository(IRepository[AuditLog, int]): 
+# Define Interfaces (can also be in __init__.py, but here for clarity with service)
+class IAuditLogRepository(IRepository[AuditLog, int]):
     @abstractmethod
     async def get_audit_logs_paginated(
         self,
@@ -1000,9 +849,10 @@ class IAuditLogRepository(IRepository[AuditLog, int]):
         end_date_filter: Optional[datetime] = None,
         page: int = 1,
         page_size: int = 50
-    ) -> Tuple[List[AuditLogEntryData], int]: pass
+    ) -> Tuple[List[AuditLogEntryData], int]: # Returns list of DTOs and total count
+        pass
 
-class IDataChangeHistoryRepository(IRepository[DataChangeHistory, int]): 
+class IDataChangeHistoryRepository(IRepository[DataChangeHistory, int]):
     @abstractmethod
     async def get_data_change_history_paginated(
         self,
@@ -1013,28 +863,44 @@ class IDataChangeHistoryRepository(IRepository[DataChangeHistory, int]):
         end_date_filter: Optional[datetime] = None,
         page: int = 1,
         page_size: int = 50
-    ) -> Tuple[List[DataChangeHistoryEntryData], int]: pass
+    ) -> Tuple[List[DataChangeHistoryEntryData], int]: # Returns list of DTOs and total count
+        pass
 
 
 class AuditLogService(IAuditLogRepository, IDataChangeHistoryRepository): 
     def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
         self.db_manager = db_manager
-        self.app_core = app_core
+        self.app_core = app_core # app_core can be used for accessing logger or other global components
 
+    # --- Standard IRepository Stubs (Audit logs are mostly read-only from app perspective) ---
     async def get_by_id(self, id_val: int) -> Optional[Union[AuditLog, DataChangeHistory]]:
+        # This method might be less useful for audit logs which are usually queried by context, not ID.
+        # However, implementing for interface compliance or specific edge cases.
         async with self.db_manager.session() as session:
-            # Attempt to get AuditLog first, then DataChangeHistory if context isn't clear
-            # This method is less ideal for a service implementing multiple specific repositories
             log_entry = await session.get(AuditLog, id_val)
             if log_entry:
+                # Could convert to DTO here if consistency is desired, but service usually returns ORM
                 return log_entry
             history_entry = await session.get(DataChangeHistory, id_val)
-            return history_entry # Will be None if not found in DataChangeHistory either
+            return history_entry # Could also be DTO
+            
+    async def get_all(self) -> List[Union[AuditLog, DataChangeHistory]]:
+        # Not practical for potentially huge audit tables. Use paginated methods.
+        raise NotImplementedError("Use paginated methods for audit logs. Get_all is not supported.")
 
-    async def get_all(self) -> List[Union[AuditLog, DataChangeHistory]]: raise NotImplementedError("Use paginated methods for audit logs.")
-    async def add(self, entity: Union[AuditLog, DataChangeHistory]) -> Union[AuditLog, DataChangeHistory]: raise NotImplementedError("Audit logs are system-generated.")
-    async def update(self, entity: Union[AuditLog, DataChangeHistory]) -> Union[AuditLog, DataChangeHistory]: raise NotImplementedError("Audit logs are immutable.")
-    async def delete(self, id_val: int) -> bool: raise NotImplementedError("Audit logs should generally not be deleted programmatically.")
+    async def add(self, entity: Union[AuditLog, DataChangeHistory]) -> Union[AuditLog, DataChangeHistory]:
+        # Audit logs are typically generated by database triggers or specialized logging calls, not generic add.
+        raise NotImplementedError("Audit logs are system-generated and cannot be added via this service.")
+
+    async def update(self, entity: Union[AuditLog, DataChangeHistory]) -> Union[AuditLog, DataChangeHistory]:
+        # Audit logs should be immutable.
+        raise NotImplementedError("Audit logs are immutable and cannot be updated.")
+
+    async def delete(self, id_val: int) -> bool:
+        # Audit logs should generally not be deleted programmatically, archiving is preferred.
+        raise NotImplementedError("Audit logs should not be deleted programmatically via this service.")
+
+    # --- Custom Service Methods for Audit Logs ---
 
     def _format_changes_summary(self, changes_jsonb: Optional[Dict[str, Any]]) -> Optional[str]:
         if not changes_jsonb:
@@ -1044,18 +910,49 @@ class AuditLogService(IAuditLogRepository, IDataChangeHistoryRepository):
         old_data = changes_jsonb.get('old')
         new_data = changes_jsonb.get('new')
 
-        if isinstance(new_data, dict) and isinstance(old_data, dict): 
+        action = "Modified" # Default action
+        if isinstance(new_data, dict) and old_data is None:
+            action = "Created"
+        elif new_data is None and isinstance(old_data, dict):
+            action = "Deleted"
+        
+        if action == "Created" and isinstance(new_data, dict):
+            # For created records, list some key fields if possible, or just confirm creation
+            # Example: List up to 3 non-sensitive fields.
+            keys_to_show = [k for k in new_data.keys() if k not in ["id", "created_at", "updated_at", "password_hash", "logo"]][:3]
+            if keys_to_show:
+                details = ", ".join([f"{k}: '{str(new_data[k])[:30]}...'" if len(str(new_data[k])) > 30 else f"{k}: '{str(new_data[k])}'" for k in keys_to_show])
+                summary_parts.append(f"Record {action}. Details: {details}")
+            else:
+                summary_parts.append(f"Record {action}.")
+        elif action == "Deleted" and isinstance(old_data, dict):
+            summary_parts.append(f"Record {action}.")
+        elif action == "Modified" and isinstance(new_data, dict) and isinstance(old_data, dict):
+            changed_fields_count = 0
             for key, new_val in new_data.items():
-                if key in ["created_at", "updated_at", "password_hash"]: continue 
-                old_val = old_data.get(key)
-                if old_val != new_val: 
-                    summary_parts.append(f"'{key}': '{str(old_val)[:50]}' -> '{str(new_val)[:50]}'")
-        elif isinstance(new_data, dict): 
-            summary_parts.append("New record created.")
-        elif isinstance(old_data, dict): 
-            summary_parts.append("Record deleted.")
+                if key in ["created_at", "updated_at", "password_hash", "logo"]: # Skip noisy or sensitive fields
+                    continue 
+                old_val = old_data.get(key) # Use .get() in case old_data doesn't have the key (new field added to schema)
+                
+                # Handle cases where a value might be a list or dict itself (e.g. JSONB field)
+                # For simplicity, we'll compare their string representations for this summary
+                str_old_val = str(old_val)
+                str_new_val = str(new_val)
 
-        return "; ".join(summary_parts) if summary_parts else "No changes detailed or only timestamp/sensitive fields changed."
+                if str_old_val != str_new_val: 
+                    changed_fields_count += 1
+                    if changed_fields_count <= 3: # Show details for first few changes
+                        summary_parts.append(
+                            f"'{key}': '{str_old_val[:30]}...' -> '{str_new_val[:30]}...'" 
+                            if len(str_old_val) > 30 or len(str_new_val) > 30 
+                            else f"'{key}': '{str_old_val}' -> '{str_new_val}'"
+                        )
+            if changed_fields_count > 3:
+                summary_parts.append(f"...and {changed_fields_count - 3} other field(s).")
+            if not summary_parts and changed_fields_count == 0 : # Only timestamps / sensitive fields changed
+                 summary_parts.append("Minor updates (e.g., timestamps).")
+
+        return "; ".join(summary_parts) if summary_parts else "No changes detailed or only sensitive fields updated."
 
 
     async def get_audit_logs_paginated(
@@ -1074,41 +971,46 @@ class AuditLogService(IAuditLogRepository, IDataChangeHistoryRepository):
             if user_id_filter is not None:
                 conditions.append(AuditLog.user_id == user_id_filter)
             if action_filter:
-                conditions.append(AuditLog.action.ilike(f"%{action_filter}%"))
+                conditions.append(AuditLog.action.ilike(f"%{action_filter}%")) # Case-insensitive search
             if entity_type_filter:
                 conditions.append(AuditLog.entity_type.ilike(f"%{entity_type_filter}%"))
             if entity_id_filter is not None:
                 conditions.append(AuditLog.entity_id == entity_id_filter)
             if start_date_filter:
                 conditions.append(AuditLog.timestamp >= start_date_filter)
-            if end_date_filter:
-                conditions.append(AuditLog.timestamp <= end_date_filter)
+            if end_date_filter: # Add 1 day to end_date_filter to make it inclusive of the whole day
+                conditions.append(AuditLog.timestamp < (end_date_filter + datetime.timedelta(days=1)))
 
-            UserAlias = aliased(User)
+
+            UserAlias = aliased(User, name="user_alias") # Explicit alias name
             
+            # Count total matching records
             count_stmt = select(func.count(AuditLog.id))
             if conditions:
                 count_stmt = count_stmt.where(and_(*conditions))
             total_count_res = await session.execute(count_stmt)
             total_count = total_count_res.scalar_one()
 
+            # Fetch paginated records
             stmt = select(AuditLog, UserAlias.username.label("username")).outerjoin(
-                UserAlias, AuditLog.user_id == UserAlias.id
+                UserAlias, AuditLog.user_id == UserAlias.id # Ensure correct join condition
             )
             if conditions:
                 stmt = stmt.where(and_(*conditions))
             
-            stmt = stmt.order_by(AuditLog.timestamp.desc()) # type: ignore
-            if page_size > 0:
+            stmt = stmt.order_by(AuditLog.timestamp.desc()) # type: ignore[attr-defined]
+            if page_size > 0: # Allow page_size=0 or negative to fetch all (though not recommended for large tables)
                  stmt = stmt.limit(page_size).offset((page - 1) * page_size)
             
             result = await session.execute(stmt)
-            log_entries: List[AuditLogEntryData] = []
-            for row in result.mappings().all(): 
-                log_orm = row[AuditLog]
-                username = row.username if row.username else (f"User ID: {log_orm.user_id}" if log_orm.user_id else "System/Unknown")
+            log_entries_data: List[AuditLogEntryData] = []
+            
+            for row_mapping in result.mappings().all(): # Use mappings() for dict-like access
+                log_orm = row_mapping[AuditLog]
+                username = row_mapping["username"] if row_mapping["username"] else \
+                           (f"User ID: {log_orm.user_id}" if log_orm.user_id else "System/Unknown")
                 
-                log_entries.append(AuditLogEntryData(
+                log_entries_data.append(AuditLogEntryData(
                     id=log_orm.id,
                     timestamp=log_orm.timestamp,
                     username=username,
@@ -1119,7 +1021,7 @@ class AuditLogService(IAuditLogRepository, IDataChangeHistoryRepository):
                     changes_summary=self._format_changes_summary(log_orm.changes),
                     ip_address=log_orm.ip_address
                 ))
-            return log_entries, total_count
+            return log_entries_data, total_count
 
     async def get_data_change_history_paginated(
         self,
@@ -1141,35 +1043,39 @@ class AuditLogService(IAuditLogRepository, IDataChangeHistoryRepository):
                 conditions.append(DataChangeHistory.changed_by == changed_by_user_id_filter)
             if start_date_filter:
                 conditions.append(DataChangeHistory.changed_at >= start_date_filter)
-            if end_date_filter:
-                conditions.append(DataChangeHistory.changed_at <= end_date_filter)
+            if end_date_filter: # Add 1 day to end_date_filter to make it inclusive of the whole day
+                conditions.append(DataChangeHistory.changed_at < (end_date_filter + datetime.timedelta(days=1)))
 
-            UserAlias = aliased(User)
 
+            UserAlias = aliased(User, name="changed_by_user_alias") # Explicit alias name
+
+            # Count total matching records
             count_stmt = select(func.count(DataChangeHistory.id))
             if conditions:
                 count_stmt = count_stmt.where(and_(*conditions))
             total_count_res = await session.execute(count_stmt)
             total_count = total_count_res.scalar_one()
 
-
+            # Fetch paginated records
             stmt = select(DataChangeHistory, UserAlias.username.label("changed_by_username")).outerjoin(
-                UserAlias, DataChangeHistory.changed_by == UserAlias.id
+                UserAlias, DataChangeHistory.changed_by == UserAlias.id # Ensure correct join condition
             )
             if conditions:
                 stmt = stmt.where(and_(*conditions))
             
-            stmt = stmt.order_by(DataChangeHistory.changed_at.desc()) # type: ignore
+            stmt = stmt.order_by(DataChangeHistory.changed_at.desc()) # type: ignore[attr-defined]
             if page_size > 0:
                  stmt = stmt.limit(page_size).offset((page - 1) * page_size)
 
             result = await session.execute(stmt)
-            history_entries: List[DataChangeHistoryEntryData] = []
-            for row in result.mappings().all():
-                hist_orm = row[DataChangeHistory]
-                username = row.changed_by_username if row.changed_by_username else (f"User ID: {hist_orm.changed_by}" if hist_orm.changed_by else "System/Unknown")
+            history_entries_data: List[DataChangeHistoryEntryData] = []
+
+            for row_mapping in result.mappings().all(): # Use mappings() for dict-like access
+                hist_orm = row_mapping[DataChangeHistory]
+                username = row_mapping["changed_by_username"] if row_mapping["changed_by_username"] else \
+                           (f"User ID: {hist_orm.changed_by}" if hist_orm.changed_by else "System/Unknown")
                 
-                history_entries.append(DataChangeHistoryEntryData(
+                history_entries_data.append(DataChangeHistoryEntryData(
                     id=hist_orm.id,
                     changed_at=hist_orm.changed_at,
                     table_name=hist_orm.table_name,
@@ -1177,11 +1083,10 @@ class AuditLogService(IAuditLogRepository, IDataChangeHistoryRepository):
                     field_name=hist_orm.field_name,
                     old_value=hist_orm.old_value,
                     new_value=hist_orm.new_value,
-                    change_type=DataChangeTypeEnum(hist_orm.change_type), 
+                    change_type=DataChangeTypeEnum(hist_orm.change_type), # Convert string from DB to Enum
                     changed_by_username=username
                 ))
-            return history_entries, total_count
-
+            return history_entries_data, total_count
 
 ```
 
@@ -1265,11 +1170,12 @@ class CompanySettingsService:
 
 # app/services/__init__.py
 ```py
-# app/services/__init__.py
+# File: app/services/__init__.py
 from abc import ABC, abstractmethod
-from typing import List, Optional, Any, Generic, TypeVar, Dict, Tuple # Added Tuple
-from datetime import date, datetime # Corrected import to include datetime
+from typing import List, Optional, Any, Generic, TypeVar, Dict, Tuple 
+from datetime import date, datetime 
 from decimal import Decimal 
+from sqlalchemy.ext.asyncio import AsyncSession
 
 T = TypeVar('T') 
 ID = TypeVar('ID') 
@@ -1312,7 +1218,7 @@ from app.models.business.bank_transaction import BankTransaction
 from app.models.business.payment import Payment, PaymentAllocation 
 from app.models.audit.audit_log import AuditLog 
 from app.models.audit.data_change_history import DataChangeHistory 
-
+from app.models.business.bank_reconciliation import BankReconciliation
 
 # --- DTO Imports (for return types in interfaces) ---
 from app.utils.pydantic_models import (
@@ -1320,17 +1226,18 @@ from app.utils.pydantic_models import (
     SalesInvoiceSummaryData, PurchaseInvoiceSummaryData,
     BankAccountSummaryData, BankTransactionSummaryData,
     PaymentSummaryData,
-    AuditLogEntryData, DataChangeHistoryEntryData 
+    AuditLogEntryData, DataChangeHistoryEntryData, BankReconciliationData,
+    BankReconciliationSummaryData, 
+    DashboardKPIData
 )
-
-# --- Enum Imports (for filter types in interfaces) ---
+from app.utils.result import Result # For finalize_reconciliation return type
 from app.common.enums import ( 
     ProductTypeEnum, InvoiceStatusEnum, BankTransactionTypeEnum,
     PaymentTypeEnum, PaymentEntityTypeEnum, PaymentStatusEnum, DataChangeTypeEnum 
 )
 
-
 # --- Existing Interfaces ---
+# ... (IAccountRepository to IDataChangeHistoryRepository interfaces remain unchanged from response_48) ...
 class IAccountRepository(IRepository[Account, int]): 
     @abstractmethod
     async def get_by_code(self, code: str) -> Optional[Account]: pass
@@ -1445,6 +1352,11 @@ class ICustomerRepository(IRepository[Customer, int]):
                               search_term: Optional[str] = None,
                               page: int = 1, page_size: int = 50
                              ) -> List[CustomerSummaryData]: pass
+    @abstractmethod
+    async def get_total_outstanding_balance(self) -> Decimal: pass
+    @abstractmethod 
+    async def get_total_overdue_balance(self) -> Decimal: pass
+
 
 class IVendorRepository(IRepository[Vendor, int]): 
     @abstractmethod
@@ -1454,6 +1366,10 @@ class IVendorRepository(IRepository[Vendor, int]):
                               search_term: Optional[str] = None,
                               page: int = 1, page_size: int = 50
                              ) -> List[VendorSummaryData]: pass
+    @abstractmethod
+    async def get_total_outstanding_balance(self) -> Decimal: pass
+    @abstractmethod 
+    async def get_total_overdue_balance(self) -> Decimal: pass
 
 class IProductRepository(IRepository[Product, int]): 
     @abstractmethod
@@ -1497,7 +1413,7 @@ class IPurchaseInvoiceRepository(IRepository[PurchaseInvoice, int]):
 
 class IInventoryMovementRepository(IRepository[InventoryMovement, int]):
     @abstractmethod
-    async def save(self, entity: InventoryMovement, session: Optional[Any]=None) -> InventoryMovement: pass 
+    async def save(self, entity: InventoryMovement, session: Optional[AsyncSession]=None) -> InventoryMovement: pass
 
 class IDimensionRepository(IRepository[Dimension, int]):
     @abstractmethod
@@ -1525,10 +1441,11 @@ class IBankTransactionRepository(IRepository[BankTransaction, int]):
                                        end_date: Optional[date] = None,
                                        transaction_type: Optional[BankTransactionTypeEnum] = None,
                                        is_reconciled: Optional[bool] = None,
+                                       is_from_statement_filter: Optional[bool] = None, 
                                        page: int = 1, page_size: int = 50
                                       ) -> List[BankTransactionSummaryData]: pass 
     @abstractmethod
-    async def save(self, entity: BankTransaction, session: Optional[Any] = None) -> BankTransaction: pass
+    async def save(self, entity: BankTransaction, session: Optional[AsyncSession] = None) -> BankTransaction: pass
 
 class IPaymentRepository(IRepository[Payment, int]):
     @abstractmethod
@@ -1543,37 +1460,82 @@ class IPaymentRepository(IRepository[Payment, int]):
                               page: int = 1, page_size: int = 50
                              ) -> List[PaymentSummaryData]: pass
     @abstractmethod
-    async def save(self, entity: Payment, session: Optional[Any] = None) -> Payment: pass
+    async def save(self, entity: Payment, session: Optional[AsyncSession] = None) -> Payment: pass
 
 class IAuditLogRepository(IRepository[AuditLog, int]):
     @abstractmethod
     async def get_audit_logs_paginated(
-        self,
-        user_id_filter: Optional[int] = None,
-        action_filter: Optional[str] = None,
-        entity_type_filter: Optional[str] = None,
-        entity_id_filter: Optional[int] = None,
-        start_date_filter: Optional[datetime] = None, 
-        end_date_filter: Optional[datetime] = None,   
-        page: int = 1,
-        page_size: int = 50
+        self, user_id_filter: Optional[int] = None, action_filter: Optional[str] = None, entity_type_filter: Optional[str] = None,
+        entity_id_filter: Optional[int] = None, start_date_filter: Optional[datetime] = None, end_date_filter: Optional[datetime] = None,   
+        page: int = 1, page_size: int = 50
     ) -> Tuple[List[AuditLogEntryData], int]: pass 
 
 class IDataChangeHistoryRepository(IRepository[DataChangeHistory, int]):
     @abstractmethod
     async def get_data_change_history_paginated(
-        self,
-        table_name_filter: Optional[str] = None,
-        record_id_filter: Optional[int] = None,
-        changed_by_user_id_filter: Optional[int] = None,
-        start_date_filter: Optional[datetime] = None, 
-        end_date_filter: Optional[datetime] = None,   
-        page: int = 1,
-        page_size: int = 50
+        self, table_name_filter: Optional[str] = None, record_id_filter: Optional[int] = None, changed_by_user_id_filter: Optional[int] = None,
+        start_date_filter: Optional[datetime] = None, end_date_filter: Optional[datetime] = None,   
+        page: int = 1, page_size: int = 50
     ) -> Tuple[List[DataChangeHistoryEntryData], int]: pass 
 
+class IBankReconciliationRepository(IRepository[BankReconciliation, int]):
+    @abstractmethod
+    async def get_or_create_draft_reconciliation(
+        self, 
+        bank_account_id: int, 
+        statement_date: date, 
+        statement_ending_balance: Decimal, # Added statement_ending_balance
+        user_id: int, 
+        session: AsyncSession
+    ) -> BankReconciliation: pass # Return type changed to ORM
 
-# --- Service Implementations ---
+    @abstractmethod
+    async def mark_transactions_as_provisionally_reconciled(
+        self, 
+        draft_reconciliation_id: int, 
+        transaction_ids: List[int], 
+        statement_date: date, # Reconciled_date will be statement_date
+        user_id: int, # For audit trail on BankTransaction if updated_by is tracked
+        session: AsyncSession
+    ) -> bool: pass
+
+    @abstractmethod
+    async def finalize_reconciliation(
+        self, 
+        draft_reconciliation_id: int, 
+        statement_ending_balance: Decimal, 
+        calculated_book_balance: Decimal, 
+        reconciled_difference: Decimal,
+        user_id: int,
+        session: AsyncSession
+    ) -> Result[BankReconciliation]: pass # Return Result with ORM
+
+    @abstractmethod
+    async def unreconcile_transactions( # For future "Unmatch" feature
+        self, 
+        transaction_ids: List[int], 
+        user_id: int, 
+        session: AsyncSession
+    ) -> bool: pass
+    
+    @abstractmethod # From previous step, ensure it's present
+    async def get_reconciliations_for_account(
+        self, 
+        bank_account_id: int, 
+        page: int = 1, 
+        page_size: int = 20
+    ) -> Tuple[List[BankReconciliationSummaryData], int]: pass
+    
+    @abstractmethod # From previous step, ensure it's present
+    async def get_transactions_for_reconciliation(
+        self, 
+        reconciliation_id: int
+    ) -> Tuple[List[BankTransactionSummaryData], List[BankTransactionSummaryData]]: pass
+
+    # Removed save_reconciliation_details, its functionality is split/refined
+    # async def save_reconciliation_details(...) -> BankReconciliation: pass
+
+
 from .account_service import AccountService
 from .journal_service import JournalService
 from .fiscal_period_service import FiscalPeriodService
@@ -1583,7 +1545,8 @@ from .accounting_services import AccountTypeService, CurrencyService, ExchangeRa
 from .business_services import (
     CustomerService, VendorService, ProductService, 
     SalesInvoiceService, PurchaseInvoiceService, InventoryMovementService,
-    BankAccountService, BankTransactionService, PaymentService 
+    BankAccountService, BankTransactionService, PaymentService, 
+    BankReconciliationService
 )
 from .audit_services import AuditLogService 
 
@@ -1601,6 +1564,7 @@ __all__ = [
     "IBankTransactionRepository", 
     "IPaymentRepository", 
     "IAuditLogRepository", "IDataChangeHistoryRepository", 
+    "IBankReconciliationRepository", 
     "AccountService", "JournalService", "FiscalPeriodService", "FiscalYearService",
     "TaxCodeService", "GSTReturnService",
     "SequenceService", "ConfigurationService", "CompanySettingsService",
@@ -1612,8 +1576,8 @@ __all__ = [
     "BankTransactionService",
     "PaymentService", 
     "AuditLogService", 
+    "BankReconciliationService", 
 ]
-
 
 ```
 
@@ -2191,13 +2155,15 @@ class AccountService(IAccountRepository):
 
 # app/services/business_services.py
 ```py
-# app/services/business_services.py
-from typing import List, Optional, Any, TYPE_CHECKING, Dict
-from sqlalchemy import select, func, and_, or_, literal_column, case # Added 'case'
+# File: app/services/business_services.py
+from typing import List, Optional, Any, TYPE_CHECKING, Dict, Tuple
+from sqlalchemy import select, func, and_, or_, literal_column, case, update as sqlalchemy_update, table, column
+from sqlalchemy.types import DECIMAL 
 from sqlalchemy.ext.asyncio import AsyncSession 
 from sqlalchemy.orm import selectinload, joinedload 
 from decimal import Decimal
 import logging 
+from datetime import date, datetime 
 
 from app.core.database_manager import DatabaseManager
 from app.models.business.customer import Customer
@@ -2209,25 +2175,42 @@ from app.models.business.inventory_movement import InventoryMovement
 from app.models.business.bank_account import BankAccount 
 from app.models.business.bank_transaction import BankTransaction
 from app.models.business.payment import Payment, PaymentAllocation 
+from app.models.business.bank_reconciliation import BankReconciliation
 from app.models.accounting.account import Account 
 from app.models.accounting.currency import Currency 
 from app.models.accounting.tax_code import TaxCode 
+from app.models.core.user import User
 from app.services import (
     ICustomerRepository, IVendorRepository, IProductRepository, 
     ISalesInvoiceRepository, IPurchaseInvoiceRepository, IInventoryMovementRepository,
-    IBankAccountRepository, IBankTransactionRepository, IPaymentRepository 
+    IBankAccountRepository, IBankTransactionRepository, IPaymentRepository,
+    IBankReconciliationRepository
 )
 from app.utils.pydantic_models import (
     CustomerSummaryData, VendorSummaryData, ProductSummaryData, 
     SalesInvoiceSummaryData, PurchaseInvoiceSummaryData,
     BankAccountSummaryData, BankTransactionSummaryData,
-    PaymentSummaryData 
+    PaymentSummaryData, BankReconciliationSummaryData
 )
+from app.utils.result import Result # For finalize_reconciliation
 from app.common.enums import ProductTypeEnum, InvoiceStatusEnum, BankTransactionTypeEnum, PaymentEntityTypeEnum, PaymentStatusEnum 
-from datetime import date 
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore
+
+customer_balances_view_table = table(
+    "customer_balances",
+    column("outstanding_balance", DECIMAL(15, 2)), 
+    column("overdue_amount", DECIMAL(15, 2)),
+    schema="business"
+)
+
+vendor_balances_view_table = table(
+    "vendor_balances",
+    column("outstanding_balance", DECIMAL(15, 2)),
+    column("overdue_amount", DECIMAL(15, 2)),
+    schema="business"
+)
 
 class CustomerService(ICustomerRepository):
     def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
@@ -2260,10 +2243,19 @@ class CustomerService(ICustomerRepository):
     async def add(self, entity: Customer) -> Customer: return await self.save(entity)
     async def update(self, entity: Customer) -> Customer: return await self.save(entity)
     async def delete(self, customer_id: int) -> bool:
-        log_msg = f"Hard delete attempted for Customer ID {customer_id}. Not implemented; use deactivation."
-        if self.logger: self.logger.warning(log_msg)
-        else: print(f"Warning: {log_msg}")
         raise NotImplementedError("Hard delete of customers is not supported. Use deactivation.")
+    async def get_total_outstanding_balance(self) -> Decimal:
+        async with self.db_manager.session() as session:
+            stmt = select(func.sum(customer_balances_view_table.c.outstanding_balance))
+            result = await session.execute(stmt)
+            total_outstanding = result.scalar_one_or_none()
+            return total_outstanding if total_outstanding is not None else Decimal(0)
+    async def get_total_overdue_balance(self) -> Decimal:
+        async with self.db_manager.session() as session:
+            stmt = select(func.sum(customer_balances_view_table.c.overdue_amount))
+            result = await session.execute(stmt)
+            total_overdue = result.scalar_one_or_none()
+            return total_overdue if total_overdue is not None else Decimal(0)
 
 class VendorService(IVendorRepository):
     def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
@@ -2295,12 +2287,23 @@ class VendorService(IVendorRepository):
     async def add(self, entity: Vendor) -> Vendor: return await self.save(entity)
     async def update(self, entity: Vendor) -> Vendor: return await self.save(entity)
     async def delete(self, vendor_id: int) -> bool:
-        log_msg = f"Hard delete attempted for Vendor ID {vendor_id}. Not implemented; use deactivation."
-        if self.logger: self.logger.warning(log_msg)
-        else: print(f"Warning: {log_msg}")
         raise NotImplementedError("Hard delete of vendors is not supported. Use deactivation.")
+    async def get_total_outstanding_balance(self) -> Decimal:
+        async with self.db_manager.session() as session:
+            stmt = select(func.sum(vendor_balances_view_table.c.outstanding_balance))
+            result = await session.execute(stmt)
+            total_outstanding = result.scalar_one_or_none()
+            return total_outstanding if total_outstanding is not None else Decimal(0)
+    async def get_total_overdue_balance(self) -> Decimal:
+        async with self.db_manager.session() as session:
+            stmt = select(func.sum(vendor_balances_view_table.c.overdue_amount))
+            result = await session.execute(stmt)
+            total_overdue = result.scalar_one_or_none()
+            return total_overdue if total_overdue is not None else Decimal(0)
 
-class ProductService(IProductRepository):
+# ... (ProductService, SalesInvoiceService, PurchaseInvoiceService, InventoryMovementService, BankAccountService, BankTransactionService, PaymentService are unchanged from response_48) ...
+# (Content of other services from response_48 is preserved here)
+class ProductService(IProductRepository): # Start of preserved content
     def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
         self.db_manager = db_manager; self.app_core = app_core
         self.logger = app_core.logger if app_core and hasattr(app_core, 'logger') else logging.getLogger(self.__class__.__name__)
@@ -2331,9 +2334,6 @@ class ProductService(IProductRepository):
     async def add(self, entity: Product) -> Product: return await self.save(entity)
     async def update(self, entity: Product) -> Product: return await self.save(entity)
     async def delete(self, product_id: int) -> bool:
-        log_msg = f"Hard delete attempted for Product/Service ID {product_id}. Not implemented; use deactivation."
-        if self.logger: self.logger.warning(log_msg)
-        else: print(f"Warning: {log_msg}")
         raise NotImplementedError("Hard delete of products/services is not supported. Use deactivation.")
 
 class SalesInvoiceService(ISalesInvoiceRepository):
@@ -2343,30 +2343,20 @@ class SalesInvoiceService(ISalesInvoiceRepository):
         self.logger = app_core.logger if app_core and hasattr(app_core, 'logger') else logging.getLogger(self.__class__.__name__)
     async def get_by_id(self, invoice_id: int) -> Optional[SalesInvoice]:
         async with self.db_manager.session() as session:
-            stmt = select(SalesInvoice).options(
-                selectinload(SalesInvoice.lines).selectinload(SalesInvoiceLine.product),
-                selectinload(SalesInvoice.lines).selectinload(SalesInvoiceLine.tax_code_obj),
-                selectinload(SalesInvoice.customer), selectinload(SalesInvoice.currency),
-                selectinload(SalesInvoice.journal_entry), 
-                selectinload(SalesInvoice.created_by_user), selectinload(SalesInvoice.updated_by_user)
-            ).where(SalesInvoice.id == invoice_id)
+            stmt = select(SalesInvoice).options(selectinload(SalesInvoice.lines).selectinload(SalesInvoiceLine.product),selectinload(SalesInvoice.lines).selectinload(SalesInvoiceLine.tax_code_obj),selectinload(SalesInvoice.customer), selectinload(SalesInvoice.currency),selectinload(SalesInvoice.journal_entry), selectinload(SalesInvoice.created_by_user), selectinload(SalesInvoice.updated_by_user)).where(SalesInvoice.id == invoice_id)
             result = await session.execute(stmt); return result.scalars().first()
     async def get_all(self) -> List[SalesInvoice]:
         async with self.db_manager.session() as session:
             stmt = select(SalesInvoice).order_by(SalesInvoice.invoice_date.desc(), SalesInvoice.invoice_no.desc()) # type: ignore
             result = await session.execute(stmt); return list(result.scalars().all())
-    async def get_all_summary(self, customer_id: Optional[int] = None, status: Optional[InvoiceStatusEnum] = None, 
-                              start_date: Optional[date] = None, end_date: Optional[date] = None,
-                              page: int = 1, page_size: int = 50) -> List[SalesInvoiceSummaryData]:
+    async def get_all_summary(self, customer_id: Optional[int] = None, status: Optional[InvoiceStatusEnum] = None, start_date: Optional[date] = None, end_date: Optional[date] = None,page: int = 1, page_size: int = 50) -> List[SalesInvoiceSummaryData]:
         async with self.db_manager.session() as session:
             conditions = []
             if customer_id is not None: conditions.append(SalesInvoice.customer_id == customer_id)
             if status: conditions.append(SalesInvoice.status == status.value)
             if start_date: conditions.append(SalesInvoice.invoice_date >= start_date)
             if end_date: conditions.append(SalesInvoice.invoice_date <= end_date)
-            stmt = select( SalesInvoice.id, SalesInvoice.invoice_no, SalesInvoice.invoice_date, SalesInvoice.due_date,
-                Customer.name.label("customer_name"), SalesInvoice.total_amount, SalesInvoice.amount_paid, SalesInvoice.status
-            ).join(Customer, SalesInvoice.customer_id == Customer.id) 
+            stmt = select( SalesInvoice.id, SalesInvoice.invoice_no, SalesInvoice.invoice_date, SalesInvoice.due_date, Customer.name.label("customer_name"), SalesInvoice.total_amount, SalesInvoice.amount_paid, SalesInvoice.status, SalesInvoice.currency_code).join(Customer, SalesInvoice.customer_id == Customer.id) 
             if conditions: stmt = stmt.where(and_(*conditions))
             stmt = stmt.order_by(SalesInvoice.invoice_date.desc(), SalesInvoice.invoice_no.desc()) # type: ignore
             if page_size > 0 : stmt = stmt.limit(page_size).offset((page - 1) * page_size)
@@ -2378,15 +2368,11 @@ class SalesInvoiceService(ISalesInvoiceRepository):
     async def save(self, invoice: SalesInvoice) -> SalesInvoice:
         async with self.db_manager.session() as session:
             session.add(invoice); await session.flush(); await session.refresh(invoice)
-            if invoice.id and invoice.lines: 
-                await session.refresh(invoice, attribute_names=['lines'])
+            if invoice.id and invoice.lines: await session.refresh(invoice, attribute_names=['lines'])
             return invoice
     async def add(self, entity: SalesInvoice) -> SalesInvoice: return await self.save(entity)
     async def update(self, entity: SalesInvoice) -> SalesInvoice: return await self.save(entity)
     async def delete(self, invoice_id: int) -> bool:
-        log_msg = f"Hard delete attempted for Sales Invoice ID {invoice_id}. Not implemented; use voiding/cancellation."
-        if self.logger: self.logger.warning(log_msg)
-        else: print(f"Warning: {log_msg}")
         raise NotImplementedError("Hard delete of sales invoices is not supported. Use voiding/cancellation.")
 
 class PurchaseInvoiceService(IPurchaseInvoiceRepository):
@@ -2396,31 +2382,20 @@ class PurchaseInvoiceService(IPurchaseInvoiceRepository):
         self.logger = app_core.logger if app_core and hasattr(app_core, 'logger') else logging.getLogger(self.__class__.__name__)
     async def get_by_id(self, invoice_id: int) -> Optional[PurchaseInvoice]:
         async with self.db_manager.session() as session:
-            stmt = select(PurchaseInvoice).options(
-                selectinload(PurchaseInvoice.lines).selectinload(PurchaseInvoiceLine.product),
-                selectinload(PurchaseInvoice.lines).selectinload(PurchaseInvoiceLine.tax_code_obj),
-                selectinload(PurchaseInvoice.vendor), selectinload(PurchaseInvoice.currency),
-                selectinload(PurchaseInvoice.journal_entry),
-                selectinload(PurchaseInvoice.created_by_user), selectinload(PurchaseInvoice.updated_by_user)
-            ).where(PurchaseInvoice.id == invoice_id)
+            stmt = select(PurchaseInvoice).options(selectinload(PurchaseInvoice.lines).selectinload(PurchaseInvoiceLine.product),selectinload(PurchaseInvoice.lines).selectinload(PurchaseInvoiceLine.tax_code_obj),selectinload(PurchaseInvoice.vendor), selectinload(PurchaseInvoice.currency),selectinload(PurchaseInvoice.journal_entry),selectinload(PurchaseInvoice.created_by_user), selectinload(PurchaseInvoice.updated_by_user)).where(PurchaseInvoice.id == invoice_id)
             result = await session.execute(stmt); return result.scalars().first()
     async def get_all(self) -> List[PurchaseInvoice]:
         async with self.db_manager.session() as session:
             stmt = select(PurchaseInvoice).order_by(PurchaseInvoice.invoice_date.desc(), PurchaseInvoice.invoice_no.desc()) # type: ignore
             result = await session.execute(stmt); return list(result.scalars().all())
-    async def get_all_summary(self, vendor_id: Optional[int] = None, status: Optional[InvoiceStatusEnum] = None, 
-                              start_date: Optional[date] = None, end_date: Optional[date] = None,
-                              page: int = 1, page_size: int = 50) -> List[PurchaseInvoiceSummaryData]:
+    async def get_all_summary(self, vendor_id: Optional[int] = None, status: Optional[InvoiceStatusEnum] = None, start_date: Optional[date] = None, end_date: Optional[date] = None,page: int = 1, page_size: int = 50) -> List[PurchaseInvoiceSummaryData]:
         async with self.db_manager.session() as session:
             conditions = []
             if vendor_id is not None: conditions.append(PurchaseInvoice.vendor_id == vendor_id)
             if status: conditions.append(PurchaseInvoice.status == status.value)
             if start_date: conditions.append(PurchaseInvoice.invoice_date >= start_date)
             if end_date: conditions.append(PurchaseInvoice.invoice_date <= end_date)
-            stmt = select( PurchaseInvoice.id, PurchaseInvoice.invoice_no, PurchaseInvoice.vendor_invoice_no, 
-                PurchaseInvoice.invoice_date, Vendor.name.label("vendor_name"), 
-                PurchaseInvoice.total_amount, PurchaseInvoice.status
-            ).join(Vendor, PurchaseInvoice.vendor_id == Vendor.id)
+            stmt = select( PurchaseInvoice.id, PurchaseInvoice.invoice_no, PurchaseInvoice.vendor_invoice_no, PurchaseInvoice.invoice_date, Vendor.name.label("vendor_name"), PurchaseInvoice.total_amount, PurchaseInvoice.status, PurchaseInvoice.currency_code).join(Vendor, PurchaseInvoice.vendor_id == Vendor.id)
             if conditions: stmt = stmt.where(and_(*conditions))
             stmt = stmt.order_by(PurchaseInvoice.invoice_date.desc(), PurchaseInvoice.invoice_no.desc()) # type: ignore
             if page_size > 0: stmt = stmt.limit(page_size).offset((page - 1) * page_size)
@@ -2443,28 +2418,213 @@ class PurchaseInvoiceService(IPurchaseInvoiceRepository):
     async def delete(self, invoice_id: int) -> bool:
         async with self.db_manager.session() as session:
             pi = await session.get(PurchaseInvoice, invoice_id)
-            if pi and pi.status == InvoiceStatusEnum.DRAFT.value: 
-                await session.delete(pi); return True
+            if pi and pi.status == InvoiceStatusEnum.DRAFT.value: await session.delete(pi); return True
             elif pi: self.logger.warning(f"Attempt to delete non-draft PI ID {invoice_id} with status {pi.status}. Denied."); raise ValueError(f"Cannot delete PI {pi.invoice_no} as its status is '{pi.status}'. Only Draft invoices can be deleted.")
         return False
 
 class InventoryMovementService(IInventoryMovementRepository):
     def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
+        self.db_manager = db_manager; self.app_core = app_core
+        self.logger = app_core.logger if app_core and hasattr(app_core, 'logger') else logging.getLogger(self.__class__.__name__)
+    async def get_by_id(self, id_val: int) -> Optional[InventoryMovement]:
+        async with self.db_manager.session() as session: return await session.get(InventoryMovement, id_val)
+    async def get_all(self) -> List[InventoryMovement]:
+        async with self.db_manager.session() as session:
+            stmt = select(InventoryMovement).order_by(InventoryMovement.movement_date.desc(), InventoryMovement.id.desc()) # type: ignore
+            result = await session.execute(stmt); return list(result.scalars().all())
+    async def save(self, entity: InventoryMovement, session: Optional[AsyncSession] = None) -> InventoryMovement:
+        async def _save_logic(current_session: AsyncSession):
+            current_session.add(entity); await current_session.flush(); await current_session.refresh(entity); return entity
+        if session: return await _save_logic(session)
+        else:
+            async with self.db_manager.session() as new_session: return await _save_logic(new_session) # type: ignore
+    async def add(self, entity: InventoryMovement) -> InventoryMovement: return await self.save(entity) 
+    async def update(self, entity: InventoryMovement) -> InventoryMovement:
+        self.logger.warning(f"Update called on InventoryMovementService for ID {entity.id}. Typically movements are immutable.")
+        return await self.save(entity)
+    async def delete(self, id_val: int) -> bool:
+        self.logger.warning(f"Hard delete attempted for InventoryMovement ID {id_val}. This is generally not recommended.")
+        async with self.db_manager.session() as session:
+            entity = await session.get(InventoryMovement, id_val)
+            if entity: await session.delete(entity); return True
+            return False
+
+class BankAccountService(IBankAccountRepository):
+    def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
+        self.db_manager = db_manager; self.app_core = app_core
+        self.logger = app_core.logger if app_core and hasattr(app_core, 'logger') else logging.getLogger(self.__class__.__name__)
+    async def get_by_id(self, id_val: int) -> Optional[BankAccount]:
+        async with self.db_manager.session() as session:
+            stmt = select(BankAccount).options(selectinload(BankAccount.currency),selectinload(BankAccount.gl_account),selectinload(BankAccount.created_by_user),selectinload(BankAccount.updated_by_user)).where(BankAccount.id == id_val)
+            result = await session.execute(stmt); return result.scalars().first()
+    async def get_all(self) -> List[BankAccount]:
+        async with self.db_manager.session() as session:
+            stmt = select(BankAccount).order_by(BankAccount.account_name); result = await session.execute(stmt); return list(result.scalars().all())
+    async def get_all_summary(self, active_only: bool = True, currency_code: Optional[str] = None,page: int = 1, page_size: int = 50) -> List[BankAccountSummaryData]:
+        async with self.db_manager.session() as session:
+            conditions = []
+            if active_only: conditions.append(BankAccount.is_active == True)
+            if currency_code: conditions.append(BankAccount.currency_code == currency_code)
+            stmt = select(BankAccount.id, BankAccount.account_name, BankAccount.bank_name,BankAccount.account_number, BankAccount.currency_code,BankAccount.current_balance, BankAccount.is_active,Account.code.label("gl_account_code"), Account.name.label("gl_account_name")).join(Account, BankAccount.gl_account_id == Account.id)
+            if conditions: stmt = stmt.where(and_(*conditions))
+            stmt = stmt.order_by(BankAccount.account_name)
+            if page_size > 0 : stmt = stmt.limit(page_size).offset((page - 1) * page_size)
+            result = await session.execute(stmt); return [BankAccountSummaryData.model_validate(row._asdict()) for row in result.mappings().all()]
+    async def get_by_account_number(self, account_number: str) -> Optional[BankAccount]:
+        async with self.db_manager.session() as session:
+            stmt = select(BankAccount).where(BankAccount.account_number == account_number); result = await session.execute(stmt); return result.scalars().first()
+    async def save(self, entity: BankAccount) -> BankAccount:
+        async with self.db_manager.session() as session:
+            session.add(entity); await session.flush(); await session.refresh(entity); return entity
+    async def add(self, entity: BankAccount) -> BankAccount: return await self.save(entity)
+    async def update(self, entity: BankAccount) -> BankAccount: return await self.save(entity)
+    async def delete(self, id_val: int) -> bool:
+        bank_account = await self.get_by_id(id_val)
+        if bank_account:
+            if bank_account.is_active: bank_account.is_active = False; await self.save(bank_account); return True
+            else: self.logger.info(f"BankAccount ID {id_val} is already inactive. No change made by delete."); return True 
+        return False
+
+class BankTransactionService(IBankTransactionRepository):
+    def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
+        self.db_manager = db_manager; self.app_core = app_core
+        self.logger = app_core.logger if app_core and hasattr(app_core, 'logger') else logging.getLogger(self.__class__.__name__)
+    async def get_by_id(self, id_val: int) -> Optional[BankTransaction]:
+        async with self.db_manager.session() as session:
+            stmt = select(BankTransaction).options(selectinload(BankTransaction.bank_account),selectinload(BankTransaction.journal_entry), selectinload(BankTransaction.created_by_user),selectinload(BankTransaction.updated_by_user)).where(BankTransaction.id == id_val)
+            result = await session.execute(stmt); return result.scalars().first()
+    async def get_all(self) -> List[BankTransaction]: 
+        async with self.db_manager.session() as session:
+            stmt = select(BankTransaction).order_by(BankTransaction.transaction_date.desc(), BankTransaction.id.desc()) # type: ignore
+            result = await session.execute(stmt); return list(result.scalars().all())
+    async def get_all_for_bank_account(self, bank_account_id: int,start_date: Optional[date] = None,end_date: Optional[date] = None,transaction_type: Optional[BankTransactionTypeEnum] = None,is_reconciled: Optional[bool] = None,is_from_statement_filter: Optional[bool] = None, page: int = 1, page_size: int = 50) -> List[BankTransactionSummaryData]:
+        async with self.db_manager.session() as session:
+            conditions = [BankTransaction.bank_account_id == bank_account_id]
+            if start_date: conditions.append(BankTransaction.transaction_date >= start_date)
+            if end_date: conditions.append(BankTransaction.transaction_date <= end_date)
+            if transaction_type: conditions.append(BankTransaction.transaction_type == transaction_type.value)
+            if is_reconciled is not None: conditions.append(BankTransaction.is_reconciled == is_reconciled)
+            if is_from_statement_filter is not None: conditions.append(BankTransaction.is_from_statement == is_from_statement_filter)
+            stmt = select(BankTransaction).where(and_(*conditions)).order_by(BankTransaction.transaction_date.desc(), BankTransaction.value_date.desc(), BankTransaction.id.desc()) # type: ignore
+            if page_size > 0: stmt = stmt.limit(page_size).offset((page - 1) * page_size)
+            result = await session.execute(stmt); txns_orm = result.scalars().all()
+            summaries: List[BankTransactionSummaryData] = []
+            for txn in txns_orm:
+                summaries.append(BankTransactionSummaryData(id=txn.id,transaction_date=txn.transaction_date,value_date=txn.value_date,transaction_type=BankTransactionTypeEnum(txn.transaction_type), description=txn.description,reference=txn.reference,amount=txn.amount, is_reconciled=txn.is_reconciled))
+            return summaries
+    async def save(self, entity: BankTransaction, session: Optional[AsyncSession] = None) -> BankTransaction:
+        async def _save_logic(current_session: AsyncSession):
+            current_session.add(entity); await current_session.flush(); await current_session.refresh(entity); return entity
+        if session: return await _save_logic(session)
+        else:
+            async with self.db_manager.session() as new_session: return await _save_logic(new_session) # type: ignore
+    async def add(self, entity: BankTransaction) -> BankTransaction: return await self.save(entity)
+    async def update(self, entity: BankTransaction) -> BankTransaction: return await self.save(entity)
+    async def delete(self, id_val: int) -> bool:
+        async with self.db_manager.session() as session:
+            entity = await session.get(BankTransaction, id_val)
+            if entity:
+                if entity.is_reconciled: self.logger.warning(f"Attempt to delete reconciled BankTransaction ID {id_val}. Denied."); return False 
+                await session.delete(entity); return True
+            return False
+
+class PaymentService(IPaymentRepository):
+    def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
+        self.db_manager = db_manager; self.app_core = app_core
+        self.logger = app_core.logger if app_core and hasattr(app_core, 'logger') else logging.getLogger(self.__class__.__name__)
+    async def get_by_id(self, id_val: int) -> Optional[Payment]:
+        async with self.db_manager.session() as session:
+            stmt = select(Payment).options(selectinload(Payment.allocations),selectinload(Payment.bank_account),selectinload(Payment.currency),selectinload(Payment.journal_entry),selectinload(Payment.created_by_user),selectinload(Payment.updated_by_user)).where(Payment.id == id_val)
+            result = await session.execute(stmt); return result.scalars().first()
+    async def get_all(self) -> List[Payment]:
+        async with self.db_manager.session() as session:
+            stmt = select(Payment).order_by(Payment.payment_date.desc(), Payment.payment_no.desc()) # type: ignore
+            result = await session.execute(stmt); return list(result.scalars().all())
+    async def get_by_payment_no(self, payment_no: str) -> Optional[Payment]:
+        async with self.db_manager.session() as session:
+            stmt = select(Payment).options(selectinload(Payment.allocations)).where(Payment.payment_no == payment_no)
+            result = await session.execute(stmt); return result.scalars().first()
+    async def get_all_summary(self, entity_type: Optional[PaymentEntityTypeEnum] = None,entity_id: Optional[int] = None,status: Optional[PaymentStatusEnum] = None,start_date: Optional[date] = None,end_date: Optional[date] = None,page: int = 1, page_size: int = 50) -> List[PaymentSummaryData]:
+        async with self.db_manager.session() as session:
+            conditions = []
+            if entity_type: conditions.append(Payment.entity_type == entity_type.value)
+            if entity_id is not None: conditions.append(Payment.entity_id == entity_id)
+            if status: conditions.append(Payment.status == status.value)
+            if start_date: conditions.append(Payment.payment_date >= start_date)
+            if end_date: conditions.append(Payment.payment_date <= end_date)
+            stmt = select(Payment.id, Payment.payment_no, Payment.payment_date, Payment.payment_type,Payment.payment_method, Payment.entity_type, Payment.entity_id,Payment.amount, Payment.currency_code, Payment.status,case((Payment.entity_type == PaymentEntityTypeEnum.CUSTOMER.value, select(Customer.name).where(Customer.id == Payment.entity_id).scalar_subquery()),(Payment.entity_type == PaymentEntityTypeEnum.VENDOR.value, select(Vendor.name).where(Vendor.id == Payment.entity_id).scalar_subquery()),else_=literal_column("'Other/N/A'")).label("entity_name"))
+            if conditions: stmt = stmt.where(and_(*conditions))
+            stmt = stmt.order_by(Payment.payment_date.desc(), Payment.payment_no.desc()) # type: ignore
+            if page_size > 0: stmt = stmt.limit(page_size).offset((page - 1) * page_size)
+            result = await session.execute(stmt); return [PaymentSummaryData.model_validate(row._asdict()) for row in result.mappings().all()]
+    async def save(self, entity: Payment, session: Optional[AsyncSession] = None) -> Payment:
+        async def _save_logic(current_session: AsyncSession):
+            current_session.add(entity); await current_session.flush(); await current_session.refresh(entity)
+            if entity.id and entity.allocations: await current_session.refresh(entity, attribute_names=['allocations'])
+            return entity
+        if session: return await _save_logic(session)
+        else:
+            async with self.db_manager.session() as new_session: return await _save_logic(new_session) # type: ignore
+    async def add(self, entity: Payment) -> Payment: return await self.save(entity)
+    async def update(self, entity: Payment) -> Payment: return await self.save(entity)
+    async def delete(self, id_val: int) -> bool:
+        async with self.db_manager.session() as session:
+            payment = await session.get(Payment, id_val)
+            if payment:
+                if payment.status == PaymentStatusEnum.DRAFT.value: await session.delete(payment); self.logger.info(f"Draft Payment ID {id_val} deleted."); return True
+                else: self.logger.warning(f"Attempt to delete non-draft Payment ID {id_val} (status: {payment.status}). Denied."); return False 
+            return False
+# End of preserved content
+
+class BankReconciliationService(IBankReconciliationRepository):
+    def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
         self.db_manager = db_manager
         self.app_core = app_core
         self.logger = app_core.logger if app_core and hasattr(app_core, 'logger') else logging.getLogger(self.__class__.__name__)
 
-    async def get_by_id(self, id_val: int) -> Optional[InventoryMovement]:
+    async def get_by_id(self, id_val: int) -> Optional[BankReconciliation]:
         async with self.db_manager.session() as session:
-            return await session.get(InventoryMovement, id_val)
+            stmt = select(BankReconciliation).options(
+                selectinload(BankReconciliation.created_by_user)
+            ).where(BankReconciliation.id == id_val)
+            result = await session.execute(stmt)
+            return result.scalars().first()
 
-    async def get_all(self) -> List[InventoryMovement]:
+    async def get_all(self) -> List[BankReconciliation]:
         async with self.db_manager.session() as session:
-            stmt = select(InventoryMovement).order_by(InventoryMovement.movement_date.desc(), InventoryMovement.id.desc()) # type: ignore
+            stmt = select(BankReconciliation).order_by(BankReconciliation.statement_date.desc()) # type: ignore
             result = await session.execute(stmt)
             return list(result.scalars().all())
-    
-    async def save(self, entity: InventoryMovement, session: Optional[AsyncSession] = None) -> InventoryMovement:
+
+    async def add(self, entity: BankReconciliation, session: Optional[AsyncSession] = None) -> BankReconciliation:
+        # For adding a new reconciliation, it's typically created via get_or_create_draft_reconciliation
+        # or directly saved by a manager that sets user_id.
+        # This generic add might need user_id logic if called directly.
+        return await self.save(entity, session)
+
+    async def update(self, entity: BankReconciliation, session: Optional[AsyncSession] = None) -> BankReconciliation:
+        # Similar to add, ensure updated_by if applicable.
+        return await self.save(entity, session)
+
+    async def delete(self, id_val: int) -> bool:
+        self.logger.warning(f"Deletion of BankReconciliation ID {id_val} attempted. This operation un-reconciles linked transactions.")
+        async with self.db_manager.session() as session:
+            async with session.begin(): 
+                update_stmt = (
+                    sqlalchemy_update(BankTransaction)
+                    .where(BankTransaction.reconciled_bank_reconciliation_id == id_val)
+                    .values(is_reconciled=False, reconciled_date=None, reconciled_bank_reconciliation_id=None)
+                    .execution_options(synchronize_session=False) 
+                )
+                await session.execute(update_stmt)
+                entity = await session.get(BankReconciliation, id_val)
+                if entity:
+                    await session.delete(entity)
+                    return True
+            return False 
+            
+    async def save(self, entity: BankReconciliation, session: Optional[AsyncSession] = None) -> BankReconciliation:
+        # This is a generic save. Specific audit fields (created_by) should be set before calling.
         async def _save_logic(current_session: AsyncSession):
             current_session.add(entity)
             await current_session.flush()
@@ -2472,311 +2632,196 @@ class InventoryMovementService(IInventoryMovementRepository):
             return entity
         if session: return await _save_logic(session)
         else:
-            async with self.db_manager.session() as new_session: # type: ignore
+            async with self.db_manager.session() as new_session: 
                 return await _save_logic(new_session)
 
-    async def add(self, entity: InventoryMovement) -> InventoryMovement:
-        return await self.save(entity) 
+    async def get_or_create_draft_reconciliation(
+        self, 
+        bank_account_id: int, 
+        statement_date: date, 
+        statement_ending_balance: Decimal, # Added to potentially update/set if new
+        user_id: int, 
+        session: AsyncSession
+    ) -> BankReconciliation:
+        draft_stmt = select(BankReconciliation).where(
+            BankReconciliation.bank_account_id == bank_account_id,
+            BankReconciliation.statement_date == statement_date,
+            BankReconciliation.status == "Draft"
+        )
+        result = await session.execute(draft_stmt)
+        existing_draft = result.scalars().first()
 
-    async def update(self, entity: InventoryMovement) -> InventoryMovement:
-        self.logger.warning(f"Update called on InventoryMovementService for ID {entity.id}. Typically movements are immutable.")
-        return await self.save(entity)
-
-    async def delete(self, id_val: int) -> bool:
-        self.logger.warning(f"Hard delete attempted for InventoryMovement ID {id_val}. This is generally not recommended.")
-        async with self.db_manager.session() as session:
-            entity = await session.get(InventoryMovement, id_val)
-            if entity:
-                await session.delete(entity)
-                return True
-            return False
-
-class BankAccountService(IBankAccountRepository):
-    def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
-        self.db_manager = db_manager
-        self.app_core = app_core
-        self.logger = app_core.logger if app_core and hasattr(app_core, 'logger') else logging.getLogger(self.__class__.__name__)
-
-    async def get_by_id(self, id_val: int) -> Optional[BankAccount]:
-        async with self.db_manager.session() as session:
-            stmt = select(BankAccount).options(
-                selectinload(BankAccount.currency),
-                selectinload(BankAccount.gl_account),
-                selectinload(BankAccount.created_by_user),
-                selectinload(BankAccount.updated_by_user)
-            ).where(BankAccount.id == id_val)
-            result = await session.execute(stmt)
-            return result.scalars().first()
-
-    async def get_all(self) -> List[BankAccount]:
-        async with self.db_manager.session() as session:
-            stmt = select(BankAccount).order_by(BankAccount.account_name)
-            result = await session.execute(stmt)
-            return list(result.scalars().all())
-    
-    async def get_all_summary(self, active_only: bool = True, 
-                              currency_code: Optional[str] = None,
-                              page: int = 1, page_size: int = 50
-                             ) -> List[BankAccountSummaryData]:
-        async with self.db_manager.session() as session:
-            conditions = []
-            if active_only:
-                conditions.append(BankAccount.is_active == True)
-            if currency_code:
-                conditions.append(BankAccount.currency_code == currency_code)
-            
-            stmt = select(
-                BankAccount.id, BankAccount.account_name, BankAccount.bank_name,
-                BankAccount.account_number, BankAccount.currency_code,
-                BankAccount.current_balance, BankAccount.is_active,
-                Account.code.label("gl_account_code"), Account.name.label("gl_account_name")
-            ).join(Account, BankAccount.gl_account_id == Account.id)
-
-            if conditions:
-                stmt = stmt.where(and_(*conditions))
-            
-            stmt = stmt.order_by(BankAccount.account_name)
-            if page_size > 0 :
-                stmt = stmt.limit(page_size).offset((page - 1) * page_size)
-            
-            result = await session.execute(stmt)
-            return [BankAccountSummaryData.model_validate(row._asdict()) for row in result.mappings().all()]
-
-
-    async def get_by_account_number(self, account_number: str) -> Optional[BankAccount]:
-        async with self.db_manager.session() as session:
-            stmt = select(BankAccount).where(BankAccount.account_number == account_number)
-            result = await session.execute(stmt)
-            return result.scalars().first()
-
-    async def save(self, entity: BankAccount) -> BankAccount:
-        async with self.db_manager.session() as session:
-            session.add(entity)
-            await session.flush()
-            await session.refresh(entity)
-            return entity
-
-    async def add(self, entity: BankAccount) -> BankAccount:
-        return await self.save(entity)
-
-    async def update(self, entity: BankAccount) -> BankAccount:
-        return await self.save(entity)
-
-    async def delete(self, id_val: int) -> bool:
-        bank_account = await self.get_by_id(id_val)
-        if bank_account:
-            if bank_account.is_active: 
-                bank_account.is_active = False
-                await self.save(bank_account)
-                return True
-            else: 
-                self.logger.info(f"BankAccount ID {id_val} is already inactive. No change made by delete.")
-                return True 
-        return False
-
-class BankTransactionService(IBankTransactionRepository):
-    def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
-        self.db_manager = db_manager
-        self.app_core = app_core
-        self.logger = app_core.logger if app_core and hasattr(app_core, 'logger') else logging.getLogger(self.__class__.__name__)
-
-    async def get_by_id(self, id_val: int) -> Optional[BankTransaction]:
-        async with self.db_manager.session() as session:
-            stmt = select(BankTransaction).options(
-                selectinload(BankTransaction.bank_account),
-                selectinload(BankTransaction.journal_entry), 
-                selectinload(BankTransaction.created_by_user),
-                selectinload(BankTransaction.updated_by_user)
-            ).where(BankTransaction.id == id_val)
-            result = await session.execute(stmt)
-            return result.scalars().first()
-
-    async def get_all(self) -> List[BankTransaction]: 
-        async with self.db_manager.session() as session:
-            stmt = select(BankTransaction).order_by(BankTransaction.transaction_date.desc(), BankTransaction.id.desc()) # type: ignore
-            result = await session.execute(stmt)
-            return list(result.scalars().all())
-
-    async def get_all_for_bank_account(self, bank_account_id: int,
-                                       start_date: Optional[date] = None,
-                                       end_date: Optional[date] = None,
-                                       transaction_type: Optional[BankTransactionTypeEnum] = None,
-                                       is_reconciled: Optional[bool] = None,
-                                       page: int = 1, page_size: int = 50
-                                      ) -> List[BankTransactionSummaryData]:
-        async with self.db_manager.session() as session:
-            conditions = [BankTransaction.bank_account_id == bank_account_id]
-            if start_date:
-                conditions.append(BankTransaction.transaction_date >= start_date)
-            if end_date:
-                conditions.append(BankTransaction.transaction_date <= end_date)
-            if transaction_type:
-                conditions.append(BankTransaction.transaction_type == transaction_type.value)
-            if is_reconciled is not None:
-                conditions.append(BankTransaction.is_reconciled == is_reconciled)
-            
-            stmt = select(BankTransaction).where(and_(*conditions)).order_by(BankTransaction.transaction_date.desc(), BankTransaction.id.desc()) # type: ignore
-            
-            if page_size > 0:
-                stmt = stmt.limit(page_size).offset((page - 1) * page_size)
-            
-            result = await session.execute(stmt)
-            txns_orm = result.scalars().all()
-            
-            summaries: List[BankTransactionSummaryData] = []
-            for txn in txns_orm:
-                summaries.append(BankTransactionSummaryData(
-                    id=txn.id,
-                    transaction_date=txn.transaction_date,
-                    value_date=txn.value_date,
-                    transaction_type=BankTransactionTypeEnum(txn.transaction_type), 
-                    description=txn.description,
-                    reference=txn.reference,
-                    amount=txn.amount, 
-                    is_reconciled=txn.is_reconciled
-                ))
-            return summaries
-
-    async def save(self, entity: BankTransaction, session: Optional[AsyncSession] = None) -> BankTransaction:
-        async def _save_logic(current_session: AsyncSession):
-            current_session.add(entity)
-            await current_session.flush()
-            await current_session.refresh(entity)
-            return entity
-
-        if session:
-            return await _save_logic(session)
+        if existing_draft:
+            self.logger.info(f"Found existing draft reconciliation ID {existing_draft.id} for account {bank_account_id} on {statement_date}.")
+            # Optionally update its statement_ending_balance if it changed in the UI
+            if existing_draft.statement_ending_balance != statement_ending_balance:
+                existing_draft.statement_ending_balance = statement_ending_balance
+                # updated_by_user_id should be set if available, or rely on TimestampMixin
+            return existing_draft
         else:
-            async with self.db_manager.session() as new_session: # type: ignore
-                return await _save_logic(new_session)
-    
-    async def add(self, entity: BankTransaction) -> BankTransaction:
-        return await self.save(entity)
-
-    async def update(self, entity: BankTransaction) -> BankTransaction:
-        return await self.save(entity)
-
-    async def delete(self, id_val: int) -> bool:
-        async with self.db_manager.session() as session:
-            entity = await session.get(BankTransaction, id_val)
-            if entity:
-                if entity.is_reconciled:
-                    self.logger.warning(f"Attempt to delete reconciled BankTransaction ID {id_val}. Denied.")
-                    return False 
-                await session.delete(entity)
-                return True
-            return False
-
-class PaymentService(IPaymentRepository):
-    def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
-        self.db_manager = db_manager
-        self.app_core = app_core
-        self.logger = app_core.logger if app_core and hasattr(app_core, 'logger') else logging.getLogger(self.__class__.__name__)
-
-    async def get_by_id(self, id_val: int) -> Optional[Payment]:
-        async with self.db_manager.session() as session:
-            stmt = select(Payment).options(
-                selectinload(Payment.allocations),
-                selectinload(Payment.bank_account),
-                selectinload(Payment.currency),
-                selectinload(Payment.journal_entry),
-                selectinload(Payment.created_by_user),
-                selectinload(Payment.updated_by_user)
-            ).where(Payment.id == id_val)
-            result = await session.execute(stmt)
-            return result.scalars().first()
-
-    async def get_all(self) -> List[Payment]:
-        async with self.db_manager.session() as session:
-            stmt = select(Payment).order_by(Payment.payment_date.desc(), Payment.payment_no.desc()) # type: ignore
-            result = await session.execute(stmt)
-            return list(result.scalars().all())
-
-    async def get_by_payment_no(self, payment_no: str) -> Optional[Payment]:
-        async with self.db_manager.session() as session:
-            stmt = select(Payment).options(selectinload(Payment.allocations)).where(Payment.payment_no == payment_no)
-            result = await session.execute(stmt)
-            return result.scalars().first()
-
-    async def get_all_summary(self, 
-                              entity_type: Optional[PaymentEntityTypeEnum] = None,
-                              entity_id: Optional[int] = None,
-                              status: Optional[PaymentStatusEnum] = None,
-                              start_date: Optional[date] = None,
-                              end_date: Optional[date] = None,
-                              page: int = 1, page_size: int = 50
-                             ) -> List[PaymentSummaryData]:
-        async with self.db_manager.session() as session:
-            conditions = []
-            if entity_type:
-                conditions.append(Payment.entity_type == entity_type.value)
-            if entity_id is not None:
-                conditions.append(Payment.entity_id == entity_id)
-            if status:
-                conditions.append(Payment.status == status.value)
-            if start_date:
-                conditions.append(Payment.payment_date >= start_date)
-            if end_date:
-                conditions.append(Payment.payment_date <= end_date)
-            
-            stmt = select(
-                Payment.id, Payment.payment_no, Payment.payment_date, Payment.payment_type,
-                Payment.payment_method, Payment.entity_type, Payment.entity_id,
-                Payment.amount, Payment.currency_code, Payment.status,
-                case(
-                    (Payment.entity_type == PaymentEntityTypeEnum.CUSTOMER.value, 
-                     select(Customer.name).where(Customer.id == Payment.entity_id).scalar_subquery()),
-                    (Payment.entity_type == PaymentEntityTypeEnum.VENDOR.value, 
-                     select(Vendor.name).where(Vendor.id == Payment.entity_id).scalar_subquery()),
-                    else_=literal_column("'Other/N/A'") 
-                ).label("entity_name")
+            self.logger.info(f"Creating new draft reconciliation for account {bank_account_id} on {statement_date}.")
+            new_draft = BankReconciliation(
+                bank_account_id=bank_account_id,
+                statement_date=statement_date,
+                statement_ending_balance=statement_ending_balance,
+                calculated_book_balance=Decimal(0), # Placeholder, will be updated on finalize
+                reconciled_difference=statement_ending_balance, # Placeholder
+                status="Draft",
+                created_by_user_id=user_id
+                # reconciliation_date is set on finalization
             )
+            session.add(new_draft)
+            await session.flush()
+            await session.refresh(new_draft)
+            return new_draft
+
+    async def mark_transactions_as_provisionally_reconciled(
+        self, 
+        draft_reconciliation_id: int, 
+        transaction_ids: List[int], 
+        statement_date: date, # This is the reconciled_date
+        user_id: int, # For audit on BankTransaction if needed
+        session: AsyncSession
+    ) -> bool:
+        if not transaction_ids:
+            return True # Nothing to mark
+
+        update_stmt = (
+            sqlalchemy_update(BankTransaction)
+            .where(BankTransaction.id.in_(transaction_ids))
+            .values(
+                is_reconciled=True,
+                reconciled_date=statement_date,
+                reconciled_bank_reconciliation_id=draft_reconciliation_id
+                # updated_by_user_id=user_id # If BankTransaction has this field
+            )
+            .execution_options(synchronize_session=False) # Typically 'fetch' or False for bulk
+        )
+        result = await session.execute(update_stmt)
+        self.logger.info(f"Marked {result.rowcount} transactions as provisionally reconciled for draft recon ID {draft_reconciliation_id}.")
+        return result.rowcount == len(transaction_ids)
+
+
+    async def finalize_reconciliation(
+        self, 
+        draft_reconciliation_id: int, 
+        statement_ending_balance: Decimal, 
+        calculated_book_balance: Decimal, 
+        reconciled_difference: Decimal,
+        user_id: int,
+        session: AsyncSession # Expects to be called within a transaction
+    ) -> Result[BankReconciliation]:
+        recon_orm = await session.get(BankReconciliation, draft_reconciliation_id, options=[selectinload(BankReconciliation.bank_account)])
+        if not recon_orm:
+            return Result.failure([f"Draft Reconciliation ID {draft_reconciliation_id} not found."])
+        if recon_orm.status == "Finalized":
+            return Result.failure([f"Reconciliation ID {draft_reconciliation_id} is already finalized."])
+
+        recon_orm.status = "Finalized"
+        recon_orm.statement_ending_balance = statement_ending_balance
+        recon_orm.calculated_book_balance = calculated_book_balance
+        recon_orm.reconciled_difference = reconciled_difference
+        recon_orm.reconciliation_date = datetime.now(datetime.timezone.utc) # Actual finalization time
+        # created_by_user_id was set on draft creation. updated_by can be handled by TimestampMixin.
+        
+        # Update the BankAccount's last reconciled info
+        if recon_orm.bank_account:
+            recon_orm.bank_account.last_reconciled_date = recon_orm.statement_date
+            recon_orm.bank_account.last_reconciled_balance = recon_orm.statement_ending_balance
+            # updated_by_user_id for bank_account also needed if UserAuditMixin is used
+            session.add(recon_orm.bank_account)
+        else:
+            self.logger.error(f"BankAccount not found for Reconciliation ID {draft_reconciliation_id} during finalization.")
+            return Result.failure([f"Associated BankAccount for Reconciliation ID {draft_reconciliation_id} not found."])
             
-            if conditions:
-                stmt = stmt.where(and_(*conditions))
-            
-            stmt = stmt.order_by(Payment.payment_date.desc(), Payment.payment_no.desc()) # type: ignore
-            
+        session.add(recon_orm)
+        # Transactions linked via reconciled_bank_reconciliation_id are already marked as is_reconciled=True
+        # No further changes to BankTransaction needed here unless un-provisionally matching other items.
+        
+        # await session.flush() # Flush will happen on session.commit() by the caller or context manager
+        # await session.refresh(recon_orm) # Refresh after commit if needed by caller
+        return Result.success(recon_orm)
+
+    async def unreconcile_transactions(
+        self, 
+        transaction_ids: List[int], 
+        user_id: int, # For audit on BankTransaction if needed
+        session: AsyncSession
+    ) -> bool:
+        if not transaction_ids:
+            return True
+        
+        update_stmt = (
+            sqlalchemy_update(BankTransaction)
+            .where(BankTransaction.id.in_(transaction_ids))
+            .values(
+                is_reconciled=False,
+                reconciled_date=None,
+                reconciled_bank_reconciliation_id=None
+                # updated_by_user_id=user_id
+            )
+            .execution_options(synchronize_session=False)
+        )
+        result = await session.execute(update_stmt)
+        self.logger.info(f"Unreconciled {result.rowcount} transactions.")
+        return result.rowcount == len(transaction_ids)
+
+
+    async def get_reconciliations_for_account(
+        self, 
+        bank_account_id: int, 
+        page: int = 1, 
+        page_size: int = 20
+    ) -> Tuple[List[BankReconciliationSummaryData], int]:
+        async with self.db_manager.session() as session:
+            base_conditions = [
+                BankReconciliation.bank_account_id == bank_account_id,
+                BankReconciliation.status == "Finalized" 
+            ]
+            count_stmt = select(func.count(BankReconciliation.id)).where(and_(*base_conditions))
+            total_count_res = await session.execute(count_stmt)
+            total_records = total_count_res.scalar_one_or_none() or 0
+
+            stmt = select(BankReconciliation, User.username.label("created_by_username"))\
+                .join(User, BankReconciliation.created_by_user_id == User.id)\
+                .where(and_(*base_conditions))\
+                .order_by(BankReconciliation.statement_date.desc(), BankReconciliation.id.desc())
             if page_size > 0:
                 stmt = stmt.limit(page_size).offset((page - 1) * page_size)
-            
             result = await session.execute(stmt)
-            return [PaymentSummaryData.model_validate(row._asdict()) for row in result.mappings().all()]
+            summaries: List[BankReconciliationSummaryData] = []
+            for row in result.mappings().all():
+                recon_orm = row[BankReconciliation]
+                summaries.append(BankReconciliationSummaryData(
+                    id=recon_orm.id, statement_date=recon_orm.statement_date,
+                    statement_ending_balance=recon_orm.statement_ending_balance,
+                    reconciled_difference=recon_orm.reconciled_difference,
+                    reconciliation_date=recon_orm.reconciliation_date,
+                    created_by_username=row.created_by_username
+                ))
+            return summaries, total_records
 
-    async def save(self, entity: Payment, session: Optional[AsyncSession] = None) -> Payment:
-        async def _save_logic(current_session: AsyncSession):
-            current_session.add(entity)
-            await current_session.flush() 
-            await current_session.refresh(entity)
-            if entity.id and entity.allocations: 
-                 await current_session.refresh(entity, attribute_names=['allocations'])
-            return entity
-
-        if session:
-            return await _save_logic(session)
-        else:
-            async with self.db_manager.session() as new_session: # type: ignore
-                return await _save_logic(new_session)
-
-    async def add(self, entity: Payment) -> Payment:
-        return await self.save(entity)
-
-    async def update(self, entity: Payment) -> Payment:
-        return await self.save(entity)
-
-    async def delete(self, id_val: int) -> bool:
+    async def get_transactions_for_reconciliation(
+        self, reconciliation_id: int
+    ) -> Tuple[List[BankTransactionSummaryData], List[BankTransactionSummaryData]]:
         async with self.db_manager.session() as session:
-            payment = await session.get(Payment, id_val)
-            if payment:
-                if payment.status == PaymentStatusEnum.DRAFT.value: 
-                    await session.delete(payment) 
-                    self.logger.info(f"Draft Payment ID {id_val} deleted.")
-                    return True
-                else:
-                    self.logger.warning(f"Attempt to delete non-draft Payment ID {id_val} (status: {payment.status}). Denied.")
-                    return False 
-            return False
-
+            stmt = select(BankTransaction)\
+                .where(BankTransaction.reconciled_bank_reconciliation_id == reconciliation_id)\
+                .order_by(BankTransaction.transaction_date, BankTransaction.id)
+            result = await session.execute(stmt)
+            all_txns_orm = result.scalars().all()
+            statement_items: List[BankTransactionSummaryData] = []
+            system_items: List[BankTransactionSummaryData] = []
+            for txn_orm in all_txns_orm:
+                summary_dto = BankTransactionSummaryData(
+                    id=txn_orm.id, transaction_date=txn_orm.transaction_date,
+                    value_date=txn_orm.value_date, transaction_type=BankTransactionTypeEnum(txn_orm.transaction_type),
+                    description=txn_orm.description, reference=txn_orm.reference,
+                    amount=txn_orm.amount, is_reconciled=txn_orm.is_reconciled
+                )
+                if txn_orm.is_from_statement: statement_items.append(summary_dto)
+                else: system_items.append(summary_dto)
+            return statement_items, system_items
 
 ```
 
@@ -3520,31 +3565,24 @@ class ModuleManager:
 # app/core/application_core.py
 ```py
 # File: app/core/application_core.py
-from typing import Optional, Any
+from typing import Optional, Any, TYPE_CHECKING
 from app.core.config_manager import ConfigManager
 from app.core.database_manager import DatabaseManager 
 from app.core.security_manager import SecurityManager
 from app.core.module_manager import ModuleManager
 
-# Accounting Managers
+# Accounting Managers (Direct imports if they don't create cycles starting from here)
 from app.accounting.chart_of_accounts_manager import ChartOfAccountsManager
-from app.accounting.journal_entry_manager import JournalEntryManager
-from app.accounting.fiscal_period_manager import FiscalPeriodManager
-from app.accounting.currency_manager import CurrencyManager
 
-# Business Logic Managers
+# Business Logic Managers (Direct imports if they don't create cycles starting from here)
 from app.business_logic.customer_manager import CustomerManager 
 from app.business_logic.vendor_manager import VendorManager 
 from app.business_logic.product_manager import ProductManager
-from app.business_logic.sales_invoice_manager import SalesInvoiceManager
-from app.business_logic.purchase_invoice_manager import PurchaseInvoiceManager 
 from app.business_logic.bank_account_manager import BankAccountManager 
 from app.business_logic.bank_transaction_manager import BankTransactionManager
-from app.business_logic.payment_manager import PaymentManager 
 
-# Services
+# Services (Direct imports if they don't create cycles starting from here)
 from app.services.account_service import AccountService
-from app.services.journal_service import JournalService
 from app.services.fiscal_period_service import FiscalPeriodService
 from app.services.core_services import SequenceService, CompanySettingsService, ConfigurationService
 from app.services.tax_service import TaxCodeService, GSTReturnService 
@@ -3555,19 +3593,30 @@ from app.services.accounting_services import (
 from app.services.business_services import (
     CustomerService, VendorService, ProductService, 
     SalesInvoiceService, PurchaseInvoiceService, InventoryMovementService,
-    BankAccountService, BankTransactionService, PaymentService 
+    BankAccountService, BankTransactionService, PaymentService, 
+    BankReconciliationService
 )
-from app.services.audit_services import AuditLogService # New Import
+from app.services.audit_services import AuditLogService
 
 # Utilities
-from app.utils.sequence_generator import SequenceGenerator 
-
-# Tax and Reporting
-from app.tax.gst_manager import GSTManager
-from app.tax.tax_calculator import TaxCalculator
-from app.reporting.financial_statement_generator import FinancialStatementGenerator
-from app.reporting.report_engine import ReportEngine
+# Removed: from app.utils.sequence_generator import SequenceGenerator # Moved to TYPE_CHECKING and local import
 import logging 
+
+if TYPE_CHECKING:
+    # Imports for type hinting that might cause circular dependencies if imported at top level
+    from app.services.journal_service import JournalService
+    from app.accounting.journal_entry_manager import JournalEntryManager
+    from app.accounting.fiscal_period_manager import FiscalPeriodManager
+    from app.accounting.currency_manager import CurrencyManager
+    from app.business_logic.sales_invoice_manager import SalesInvoiceManager
+    from app.business_logic.purchase_invoice_manager import PurchaseInvoiceManager
+    from app.business_logic.payment_manager import PaymentManager
+    from app.tax.gst_manager import GSTManager
+    from app.tax.tax_calculator import TaxCalculator
+    from app.reporting.financial_statement_generator import FinancialStatementGenerator
+    from app.reporting.report_engine import ReportEngine
+    from app.reporting.dashboard_manager import DashboardManager
+    from app.utils.sequence_generator import SequenceGenerator # Added for type hinting if needed elsewhere in class
 
 class ApplicationCore:
     def __init__(self, config_manager: ConfigManager, db_manager: DatabaseManager):
@@ -3584,9 +3633,9 @@ class ApplicationCore:
         self.security_manager = SecurityManager(self.db_manager)
         self.module_manager = ModuleManager(self)
 
-        # --- Service Instance Placeholders ---
+        # Service Instance Placeholders
         self._account_service_instance: Optional[AccountService] = None
-        self._journal_service_instance: Optional[JournalService] = None
+        self._journal_service_instance: Optional[JournalService] = None 
         self._fiscal_period_service_instance: Optional[FiscalPeriodService] = None
         self._fiscal_year_service_instance: Optional[FiscalYearService] = None
         self._sequence_service_instance: Optional[SequenceService] = None
@@ -3607,44 +3656,47 @@ class ApplicationCore:
         self._bank_account_service_instance: Optional[BankAccountService] = None 
         self._bank_transaction_service_instance: Optional[BankTransactionService] = None
         self._payment_service_instance: Optional[PaymentService] = None
-        self._audit_log_service_instance: Optional[AuditLogService] = None # New service placeholder
+        self._audit_log_service_instance: Optional[AuditLogService] = None
+        self._bank_reconciliation_service_instance: Optional[BankReconciliationService] = None
 
-        # --- Manager Instance Placeholders ---
+        # Manager Instance Placeholders
         self._coa_manager_instance: Optional[ChartOfAccountsManager] = None
-        self._je_manager_instance: Optional[JournalEntryManager] = None
+        self._je_manager_instance: Optional[JournalEntryManager] = None 
         self._fp_manager_instance: Optional[FiscalPeriodManager] = None
-        # ... (all other manager placeholders restored/present) ...
+        self._currency_manager_instance: Optional[CurrencyManager] = None
+        self._gst_manager_instance: Optional[GSTManager] = None
+        self._tax_calculator_instance: Optional[TaxCalculator] = None
+        self._financial_statement_generator_instance: Optional[FinancialStatementGenerator] = None
+        self._report_engine_instance: Optional[ReportEngine] = None
+        self._customer_manager_instance: Optional[CustomerManager] = None
+        self._vendor_manager_instance: Optional[VendorManager] = None
+        self._product_manager_instance: Optional[ProductManager] = None
+        self._sales_invoice_manager_instance: Optional[SalesInvoiceManager] = None
+        self._purchase_invoice_manager_instance: Optional[PurchaseInvoiceManager] = None
+        self._bank_account_manager_instance: Optional[BankAccountManager] = None
+        self._bank_transaction_manager_instance: Optional[BankTransactionManager] = None
         self._payment_manager_instance: Optional[PaymentManager] = None
-
+        self._dashboard_manager_instance: Optional[DashboardManager] = None
+        
         self.logger.info("ApplicationCore initialized.")
 
     async def startup(self):
         self.logger.info("ApplicationCore starting up...")
         await self.db_manager.initialize() 
         
-        # Initialize Core Services
+        # Initialize services that are unlikely to cause deep import cycles first
         self._sequence_service_instance = SequenceService(self.db_manager)
-        # ... (other core services) ...
         self._company_settings_service_instance = CompanySettingsService(self.db_manager, self)
         self._configuration_service_instance = ConfigurationService(self.db_manager)
-
-        # Initialize Accounting Services
-        # ... (all existing accounting services) ...
         self._account_service_instance = AccountService(self.db_manager, self)
-        self._journal_service_instance = JournalService(self.db_manager, self)
         self._fiscal_period_service_instance = FiscalPeriodService(self.db_manager)
         self._fiscal_year_service_instance = FiscalYearService(self.db_manager, self)
         self._account_type_service_instance = AccountTypeService(self.db_manager, self) 
         self._currency_repo_service_instance = CurrencyRepoService(self.db_manager, self)
         self._exchange_rate_service_instance = ExchangeRateService(self.db_manager, self)
         self._dimension_service_instance = DimensionService(self.db_manager, self)
-        
-        # Initialize Tax Services
         self._tax_code_service_instance = TaxCodeService(self.db_manager, self)
         self._gst_return_service_instance = GSTReturnService(self.db_manager, self)
-        
-        # Initialize Business Services
-        # ... (all existing business services) ...
         self._customer_service_instance = CustomerService(self.db_manager, self)
         self._vendor_service_instance = VendorService(self.db_manager, self) 
         self._product_service_instance = ProductService(self.db_manager, self)
@@ -3654,30 +3706,46 @@ class ApplicationCore:
         self._bank_account_service_instance = BankAccountService(self.db_manager, self) 
         self._bank_transaction_service_instance = BankTransactionService(self.db_manager, self)
         self._payment_service_instance = PaymentService(self.db_manager, self) 
-        
-        # Initialize Audit Service (New)
         self._audit_log_service_instance = AuditLogService(self.db_manager, self)
+        self._bank_reconciliation_service_instance = BankReconciliationService(self.db_manager, self)
 
-
-        # Initialize Managers
+        # Import and instantiate services/classes that might be part of cycles locally
+        from app.services.journal_service import JournalService 
+        self._journal_service_instance = JournalService(self.db_manager, self)
+        
+        from app.utils.sequence_generator import SequenceGenerator # Local import for instantiation
         py_sequence_generator = SequenceGenerator(self.sequence_service, app_core_ref=self) 
-        # ... (all existing manager initializations) ...
+        
+        # Import and instantiate Managers locally to manage import order
+        from app.accounting.journal_entry_manager import JournalEntryManager
+        from app.accounting.fiscal_period_manager import FiscalPeriodManager
+        from app.accounting.currency_manager import CurrencyManager
+        from app.tax.gst_manager import GSTManager
+        from app.tax.tax_calculator import TaxCalculator
+        from app.reporting.financial_statement_generator import FinancialStatementGenerator
+        from app.reporting.report_engine import ReportEngine
+        from app.reporting.dashboard_manager import DashboardManager
+        from app.business_logic.sales_invoice_manager import SalesInvoiceManager
+        from app.business_logic.purchase_invoice_manager import PurchaseInvoiceManager
+        from app.business_logic.payment_manager import PaymentManager
+        
         self._coa_manager_instance = ChartOfAccountsManager(self.account_service, self)
-        self._je_manager_instance = JournalEntryManager(self.journal_service, self.account_service, self.fiscal_period_service, py_sequence_generator, self)
+        self._je_manager_instance = JournalEntryManager(self.journal_service, self.account_service, self.fiscal_period_service, self)
         self._fp_manager_instance = FiscalPeriodManager(self) 
         self._currency_manager_instance = CurrencyManager(self) 
         self._tax_calculator_instance = TaxCalculator(self.tax_code_service) 
         self._gst_manager_instance = GSTManager(self.tax_code_service, self.journal_service, self.company_settings_service, self.gst_return_service, self.account_service, self.fiscal_period_service, py_sequence_generator, self)
         self._financial_statement_generator_instance = FinancialStatementGenerator(self.account_service, self.journal_service, self.fiscal_period_service, self.account_type_service, self.tax_code_service, self.company_settings_service, self.dimension_service)
         self._report_engine_instance = ReportEngine(self)
-        self._customer_manager_instance = CustomerManager(customer_service=self.customer_service, account_service=self.account_service, currency_service=self.currency_service, app_core=self)
-        self._vendor_manager_instance = VendorManager( vendor_service=self.vendor_service, account_service=self.account_service, currency_service=self.currency_service, app_core=self)
+        self._customer_manager_instance = CustomerManager(customer_service=self.customer_service, account_service=self.account_service, currency_service=self.currency_repo_service, app_core=self)
+        self._vendor_manager_instance = VendorManager( vendor_service=self.vendor_service, account_service=self.account_service, currency_service=self.currency_repo_service, app_core=self)
         self._product_manager_instance = ProductManager( product_service=self.product_service, account_service=self.account_service, tax_code_service=self.tax_code_service, app_core=self)
         self._sales_invoice_manager_instance = SalesInvoiceManager(sales_invoice_service=self.sales_invoice_service, customer_service=self.customer_service, product_service=self.product_service, tax_code_service=self.tax_code_service, tax_calculator=self.tax_calculator, sequence_service=self.sequence_service, account_service=self.account_service, configuration_service=self.configuration_service, app_core=self, inventory_movement_service=self.inventory_movement_service)
         self._purchase_invoice_manager_instance = PurchaseInvoiceManager( purchase_invoice_service=self.purchase_invoice_service, vendor_service=self.vendor_service, product_service=self.product_service, tax_code_service=self.tax_code_service, tax_calculator=self.tax_calculator, sequence_service=self.sequence_service, account_service=self.account_service, configuration_service=self.configuration_service, app_core=self, inventory_movement_service=self.inventory_movement_service)
-        self._bank_account_manager_instance = BankAccountManager( bank_account_service=self.bank_account_service, account_service=self.account_service, currency_service=self.currency_service, app_core=self)
+        self._bank_account_manager_instance = BankAccountManager( bank_account_service=self.bank_account_service, account_service=self.account_service, currency_service=self.currency_repo_service, app_core=self)
         self._bank_transaction_manager_instance = BankTransactionManager( bank_transaction_service=self.bank_transaction_service, bank_account_service=self.bank_account_service, app_core=self)
         self._payment_manager_instance = PaymentManager( payment_service=self.payment_service, sequence_service=self.sequence_service, bank_account_service=self.bank_account_service, customer_service=self.customer_service, vendor_service=self.vendor_service, sales_invoice_service=self.sales_invoice_service, purchase_invoice_service=self.purchase_invoice_service, journal_entry_manager=self.journal_entry_manager, account_service=self.account_service, configuration_service=self.configuration_service, app_core=self)
+        self._dashboard_manager_instance = DashboardManager(self)
         
         self.module_manager.load_all_modules() 
         self.logger.info("ApplicationCore startup complete.")
@@ -3691,16 +3759,15 @@ class ApplicationCore:
     def current_user(self): 
         return self.security_manager.get_current_user()
 
-    # --- Service Properties ---
-    # ... (all existing service properties restored/present, including payment_service) ...
+    # Service Properties
     @property
     def account_service(self) -> AccountService: 
         if not self._account_service_instance: raise RuntimeError("AccountService not initialized.")
         return self._account_service_instance
     @property
-    def journal_service(self) -> JournalService: 
+    def journal_service(self) -> "JournalService": 
         if not self._journal_service_instance: raise RuntimeError("JournalService not initialized.")
-        return self._journal_service_instance
+        return self._journal_service_instance # type: ignore
     @property
     def fiscal_period_service(self) -> FiscalPeriodService: 
         if not self._fiscal_period_service_instance: raise RuntimeError("FiscalPeriodService not initialized.")
@@ -3737,8 +3804,8 @@ class ApplicationCore:
     def currency_repo_service(self) -> CurrencyRepoService: 
         if not self._currency_repo_service_instance: raise RuntimeError("CurrencyRepoService not initialized.")
         return self._currency_repo_service_instance 
-    @property
-    def currency_service(self) -> CurrencyRepoService: 
+    @property 
+    def currency_service(self) -> CurrencyRepoService: # Alias
         if not self._currency_repo_service_instance: raise RuntimeError("CurrencyService (CurrencyRepoService) not initialized.")
         return self._currency_repo_service_instance
     @property
@@ -3786,48 +3853,50 @@ class ApplicationCore:
         if not self._payment_service_instance: raise RuntimeError("PaymentService not initialized.")
         return self._payment_service_instance
     @property
-    def audit_log_service(self) -> AuditLogService: # New service property
+    def audit_log_service(self) -> AuditLogService: 
         if not self._audit_log_service_instance: raise RuntimeError("AuditLogService not initialized.")
         return self._audit_log_service_instance
+    @property
+    def bank_reconciliation_service(self) -> BankReconciliationService:
+        if not self._bank_reconciliation_service_instance: raise RuntimeError("BankReconciliationService not initialized.")
+        return self._bank_reconciliation_service_instance
 
-
-    # --- Manager Properties ---
-    # ... (all existing manager properties restored/present, including payment_manager) ...
+    # Manager Properties
     @property
     def chart_of_accounts_manager(self) -> ChartOfAccountsManager: 
         if not self._coa_manager_instance: raise RuntimeError("ChartOfAccountsManager not initialized.")
         return self._coa_manager_instance
-    @property
-    def accounting_service(self) -> ChartOfAccountsManager: 
+    @property 
+    def accounting_service(self) -> ChartOfAccountsManager: # Alias for backward compatibility
         return self.chart_of_accounts_manager
     @property
-    def journal_entry_manager(self) -> JournalEntryManager: 
+    def journal_entry_manager(self) -> "JournalEntryManager": 
         if not self._je_manager_instance: raise RuntimeError("JournalEntryManager not initialized.")
-        return self._je_manager_instance
+        return self._je_manager_instance # type: ignore
     @property
-    def fiscal_period_manager(self) -> FiscalPeriodManager: 
+    def fiscal_period_manager(self) -> "FiscalPeriodManager": 
         if not self._fp_manager_instance: raise RuntimeError("FiscalPeriodManager not initialized.")
-        return self._fp_manager_instance
+        return self._fp_manager_instance # type: ignore
     @property
-    def currency_manager(self) -> CurrencyManager: 
+    def currency_manager(self) -> "CurrencyManager": 
         if not self._currency_manager_instance: raise RuntimeError("CurrencyManager not initialized.")
-        return self._currency_manager_instance
+        return self._currency_manager_instance # type: ignore
     @property
-    def gst_manager(self) -> GSTManager: 
+    def gst_manager(self) -> "GSTManager": 
         if not self._gst_manager_instance: raise RuntimeError("GSTManager not initialized.")
-        return self._gst_manager_instance
+        return self._gst_manager_instance # type: ignore
     @property
-    def tax_calculator(self) -> TaxCalculator: 
+    def tax_calculator(self) -> "TaxCalculator": 
         if not self._tax_calculator_instance: raise RuntimeError("TaxCalculator not initialized.")
-        return self._tax_calculator_instance
+        return self._tax_calculator_instance # type: ignore
     @property
-    def financial_statement_generator(self) -> FinancialStatementGenerator: 
+    def financial_statement_generator(self) -> "FinancialStatementGenerator": 
         if not self._financial_statement_generator_instance: raise RuntimeError("FinancialStatementGenerator not initialized.")
-        return self._financial_statement_generator_instance
+        return self._financial_statement_generator_instance # type: ignore
     @property
-    def report_engine(self) -> ReportEngine: 
+    def report_engine(self) -> "ReportEngine": 
         if not self._report_engine_instance: raise RuntimeError("ReportEngine not initialized.")
-        return self._report_engine_instance
+        return self._report_engine_instance # type: ignore
     @property
     def customer_manager(self) -> CustomerManager: 
         if not self._customer_manager_instance: raise RuntimeError("CustomerManager not initialized.")
@@ -3841,13 +3910,13 @@ class ApplicationCore:
         if not self._product_manager_instance: raise RuntimeError("ProductManager not initialized.")
         return self._product_manager_instance
     @property
-    def sales_invoice_manager(self) -> SalesInvoiceManager: 
+    def sales_invoice_manager(self) -> "SalesInvoiceManager": 
         if not self._sales_invoice_manager_instance: raise RuntimeError("SalesInvoiceManager not initialized.")
-        return self._sales_invoice_manager_instance
+        return self._sales_invoice_manager_instance # type: ignore
     @property
-    def purchase_invoice_manager(self) -> PurchaseInvoiceManager: 
+    def purchase_invoice_manager(self) -> "PurchaseInvoiceManager": 
         if not self._purchase_invoice_manager_instance: raise RuntimeError("PurchaseInvoiceManager not initialized.")
-        return self._purchase_invoice_manager_instance
+        return self._purchase_invoice_manager_instance # type: ignore
     @property
     def bank_account_manager(self) -> BankAccountManager: 
         if not self._bank_account_manager_instance: raise RuntimeError("BankAccountManager not initialized.")
@@ -3857,9 +3926,14 @@ class ApplicationCore:
         if not self._bank_transaction_manager_instance: raise RuntimeError("BankTransactionManager not initialized.")
         return self._bank_transaction_manager_instance
     @property
-    def payment_manager(self) -> PaymentManager: 
+    def payment_manager(self) -> "PaymentManager": 
         if not self._payment_manager_instance: raise RuntimeError("PaymentManager not initialized.")
-        return self._payment_manager_instance
+        return self._payment_manager_instance # type: ignore
+    @property
+    def dashboard_manager(self) -> "DashboardManager":
+        if not self._dashboard_manager_instance: raise RuntimeError("DashboardManager not initialized.")
+        return self._dashboard_manager_instance # type: ignore
+
 
 ```
 

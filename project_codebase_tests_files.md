@@ -390,7 +390,8 @@ def test_je_valid_lines_with_optional_fields(sample_valid_lines: list[dict]):
 # File: tests/unit/utils/test_sequence_generator.py
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from decimal import Decimal # Not directly used, but good to have context from other tests
+from decimal import Decimal # Not directly used for SequenceGenerator, but often in related tests
+import logging # Added import for logging.Logger
 
 from app.utils.sequence_generator import SequenceGenerator
 from app.services.core_services import SequenceService # For mocking interface
@@ -406,7 +407,7 @@ def mock_sequence_service() -> AsyncMock:
     """Fixture to create a mock SequenceService."""
     service = AsyncMock(spec=SequenceService)
     service.get_sequence_by_name = AsyncMock()
-    service.save_sequence = AsyncMock(return_value=None) # save_sequence returns the saved object, but mock can be simpler
+    service.save_sequence = AsyncMock(return_value=None) 
     return service
 
 @pytest.fixture
@@ -414,8 +415,7 @@ def mock_db_manager() -> AsyncMock:
     """Fixture to create a mock DatabaseManager."""
     db_manager = AsyncMock(spec=DatabaseManager)
     db_manager.execute_scalar = AsyncMock()
-    # Mock logger on db_manager if SequenceGenerator tries to use it
-    db_manager.logger = AsyncMock(spec=logging.Logger)
+    db_manager.logger = AsyncMock(spec=logging.Logger) # logging.Logger can now be resolved
     db_manager.logger.warning = MagicMock()
     db_manager.logger.error = MagicMock()
     db_manager.logger.info = MagicMock()
@@ -426,14 +426,13 @@ def mock_app_core(mock_db_manager: AsyncMock, mock_sequence_service: AsyncMock) 
     """Fixture to create a mock ApplicationCore providing mocked db_manager and sequence_service."""
     app_core = MagicMock(spec=ApplicationCore)
     app_core.db_manager = mock_db_manager
-    app_core.sequence_service = mock_sequence_service # Though SequenceGenerator takes service directly
-    app_core.logger = MagicMock(spec=logging.Logger) # Mock logger on app_core too
+    app_core.sequence_service = mock_sequence_service
+    app_core.logger = MagicMock(spec=logging.Logger) 
     return app_core
 
 @pytest.fixture
 def sequence_generator(mock_sequence_service: AsyncMock, mock_app_core: MagicMock) -> SequenceGenerator:
     """Fixture to create a SequenceGenerator instance."""
-    # SequenceGenerator constructor: sequence_service, app_core_ref
     return SequenceGenerator(sequence_service=mock_sequence_service, app_core_ref=mock_app_core)
 
 # --- Test Cases ---
@@ -461,16 +460,15 @@ async def test_next_sequence_db_function_returns_none_fallback(
 ):
     """Test Python fallback when DB function returns None."""
     sequence_name = "PURCHASE_ORDER"
-    mock_app_core.db_manager.execute_scalar.return_value = None # Simulate DB function failure
+    mock_app_core.db_manager.execute_scalar.return_value = None 
 
-    # Setup for Python fallback
     mock_sequence_orm = SequenceModel(
         id=1, sequence_name=sequence_name, prefix="PO", next_value=10, 
         increment_by=1, min_value=1, max_value=9999, cycle=False,
-        format_template="{PREFIX}-{VALUE:04d}" # Ensure 'd' for integer formatting
+        format_template="{PREFIX}-{VALUE:04d}"
     )
     mock_sequence_service.get_sequence_by_name.return_value = mock_sequence_orm
-    mock_sequence_service.save_sequence.side_effect = lambda seq_obj: seq_obj # Return the object passed to it
+    mock_sequence_service.save_sequence.side_effect = lambda seq_obj: seq_obj 
 
     result = await sequence_generator.next_sequence(sequence_name)
 
@@ -478,7 +476,7 @@ async def test_next_sequence_db_function_returns_none_fallback(
     mock_app_core.db_manager.execute_scalar.assert_awaited_once()
     mock_sequence_service.get_sequence_by_name.assert_awaited_once_with(sequence_name)
     mock_sequence_service.save_sequence.assert_awaited_once()
-    assert mock_sequence_orm.next_value == 11 # Check increment
+    assert mock_sequence_orm.next_value == 11
 
 async def test_next_sequence_db_function_exception_fallback(
     sequence_generator: SequenceGenerator,
@@ -504,17 +502,14 @@ async def test_next_sequence_db_function_exception_fallback(
 
 async def test_next_sequence_python_fallback_new_sequence(
     sequence_generator: SequenceGenerator,
-    mock_app_core: MagicMock, # For db_manager to be present on app_core
+    mock_app_core: MagicMock, 
     mock_sequence_service: AsyncMock
 ):
     """Test Python fallback creates a new sequence if not found in DB."""
     sequence_name = "NEW_SEQ"
-    # Simulate DB function failure (e.g., returns None or raises error, leading to fallback)
     mock_app_core.db_manager.execute_scalar.return_value = None 
-    mock_sequence_service.get_sequence_by_name.return_value = None # Sequence not found
+    mock_sequence_service.get_sequence_by_name.return_value = None 
 
-    # The save_sequence mock should capture the argument passed to it
-    # so we can assert its properties.
     saved_sequence_holder = {}
     async def capture_save(seq_obj):
         saved_sequence_holder['seq'] = seq_obj
@@ -523,21 +518,15 @@ async def test_next_sequence_python_fallback_new_sequence(
     
     result = await sequence_generator.next_sequence(sequence_name)
 
-    assert result == "NEW-000001" # Based on default prefix logic and format_template
-    
-    # Check that get_sequence_by_name was called
+    assert result == "NEW-000001" 
     mock_sequence_service.get_sequence_by_name.assert_awaited_once_with(sequence_name)
-    
-    # Check that save_sequence was called (once for creation, once for update)
     assert mock_sequence_service.save_sequence.await_count == 2
     
-    # Check the details of the created sequence object
     created_seq = saved_sequence_holder['seq']
     assert created_seq.sequence_name == sequence_name
-    assert created_seq.prefix == "NEW" # Default prefix logic: sequence_name.upper()[:3]
-    assert created_seq.next_value == 2 # Initial value was 1, used, then incremented
+    assert created_seq.prefix == "NEW"
+    assert created_seq.next_value == 2
     assert created_seq.format_template == "{PREFIX}-{VALUE:06d}"
-
 
 async def test_next_sequence_python_fallback_prefix_override(
     sequence_generator: SequenceGenerator,
@@ -546,7 +535,6 @@ async def test_next_sequence_python_fallback_prefix_override(
 ):
     """Test Python fallback with prefix_override."""
     sequence_name = "ITEM_CODE"
-    # DB function is skipped when prefix_override is used, so mock it to ensure it's not called.
     mock_app_core.db_manager.execute_scalar.side_effect = AssertionError("DB function should not be called with prefix_override")
 
     mock_sequence_orm = SequenceModel(
@@ -559,7 +547,7 @@ async def test_next_sequence_python_fallback_prefix_override(
     result = await sequence_generator.next_sequence(sequence_name, prefix_override="OVERRIDE")
 
     assert result == "OVERRIDE-005"
-    mock_app_core.db_manager.execute_scalar.assert_not_awaited() # Verify DB func not called
+    mock_app_core.db_manager.execute_scalar.assert_not_awaited() 
     mock_sequence_service.get_sequence_by_name.assert_awaited_once_with(sequence_name)
     assert mock_sequence_orm.next_value == 6
 
@@ -570,7 +558,7 @@ async def test_next_sequence_python_fallback_cycle(
 ):
     """Test Python fallback sequence cycling."""
     sequence_name = "CYCLE_SEQ"
-    mock_app_core.db_manager.execute_scalar.return_value = None # Force Python fallback
+    mock_app_core.db_manager.execute_scalar.return_value = None 
 
     mock_sequence_orm = SequenceModel(
         id=4, sequence_name=sequence_name, prefix="CY", next_value=3, 
@@ -580,11 +568,11 @@ async def test_next_sequence_python_fallback_cycle(
     mock_sequence_service.get_sequence_by_name.return_value = mock_sequence_orm
     mock_sequence_service.save_sequence.side_effect = lambda seq_obj: seq_obj
 
-    result1 = await sequence_generator.next_sequence(sequence_name) # Uses 3, next_value becomes 1 (cycles)
+    result1 = await sequence_generator.next_sequence(sequence_name) 
     assert result1 == "CY3"
-    assert mock_sequence_orm.next_value == 1 # Cycled
+    assert mock_sequence_orm.next_value == 1 
 
-    result2 = await sequence_generator.next_sequence(sequence_name) # Uses 1, next_value becomes 2
+    result2 = await sequence_generator.next_sequence(sequence_name) 
     assert result2 == "CY1"
     assert mock_sequence_orm.next_value == 2
 
@@ -599,17 +587,16 @@ async def test_next_sequence_python_fallback_max_value_no_cycle(
 
     mock_sequence_orm = SequenceModel(
         id=5, sequence_name=sequence_name, prefix="MX", next_value=3, 
-        increment_by=1, min_value=1, max_value=3, cycle=False, # cycle=False
+        increment_by=1, min_value=1, max_value=3, cycle=False, 
         format_template="{PREFIX}{VALUE}"
     )
     mock_sequence_service.get_sequence_by_name.return_value = mock_sequence_orm
     mock_sequence_service.save_sequence.side_effect = lambda seq_obj: seq_obj
 
-    result = await sequence_generator.next_sequence(sequence_name) # Uses 3, next_value becomes 4
+    result = await sequence_generator.next_sequence(sequence_name) 
     assert result == "MX3"
     assert mock_sequence_orm.next_value == 4 
 
-    # Next call should raise ValueError
     with pytest.raises(ValueError) as excinfo:
         await sequence_generator.next_sequence(sequence_name)
     assert f"Sequence '{sequence_name}' has reached its maximum value (3) and cannot cycle." in str(excinfo.value)
@@ -625,7 +612,7 @@ async def test_next_sequence_format_template_zfill_variant(
 
     mock_sequence_orm = SequenceModel(
         id=6, sequence_name=sequence_name, prefix="ZF", next_value=7,
-        increment_by=1, format_template="{PREFIX}{VALUE:06}" # Note: no 'd'
+        increment_by=1, format_template="{PREFIX}{VALUE:06}"
     )
     mock_sequence_service.get_sequence_by_name.return_value = mock_sequence_orm
     mock_sequence_service.save_sequence.side_effect = lambda seq_obj: seq_obj
@@ -1816,6 +1803,216 @@ async def test_get_by_type_and_code_not_found(dimension_service: DimensionServic
     
     result = await dimension_service.get_by_type_and_code("Department", "NONEXISTENT")
     assert result is None
+
+```
+
+# tests/unit/services/test_bank_reconciliation_service.py
+```py
+# File: tests/unit/services/test_bank_reconciliation_service.py
+import pytest
+from unittest.mock import AsyncMock, MagicMock, call # Import call for checking multiple calls
+from typing import List, Optional, Tuple
+from datetime import date, datetime
+from decimal import Decimal
+import logging # For logger spec
+
+from sqlalchemy import select, update as sqlalchemy_update # For constructing expected statements
+
+from app.services.business_services import BankReconciliationService
+from app.models.business.bank_reconciliation import BankReconciliation as BankReconciliationModel
+from app.models.business.bank_transaction import BankTransaction as BankTransactionModel
+from app.models.business.bank_account import BankAccount as BankAccountModel
+from app.models.core.user import User as UserModel
+from app.core.database_manager import DatabaseManager
+from app.core.application_core import ApplicationCore
+from app.utils.pydantic_models import BankReconciliationSummaryData, BankTransactionSummaryData
+from app.common.enums import BankTransactionTypeEnum
+
+
+# Mark all tests in this module as asyncio
+pytestmark = pytest.mark.asyncio
+
+@pytest.fixture
+def mock_session() -> AsyncMock:
+    session = AsyncMock()
+    session.get = AsyncMock()
+    session.execute = AsyncMock()
+    session.add = MagicMock()
+    session.delete = AsyncMock() # Changed to AsyncMock for await session.delete(entity)
+    session.flush = AsyncMock()
+    session.refresh = AsyncMock()
+    return session
+
+@pytest.fixture
+def mock_db_manager(mock_session: AsyncMock) -> MagicMock:
+    db_manager = MagicMock(spec=DatabaseManager)
+    db_manager.session.return_value.__aenter__.return_value = mock_session
+    db_manager.session.return_value.__aexit__.return_value = None
+    return db_manager
+
+@pytest.fixture
+def mock_app_core() -> MagicMock:
+    app_core = MagicMock(spec=ApplicationCore)
+    app_core.logger = MagicMock(spec=logging.Logger)
+    return app_core
+
+@pytest.fixture
+def reconciliation_service(mock_db_manager: MagicMock, mock_app_core: MagicMock) -> BankReconciliationService:
+    return BankReconciliationService(db_manager=mock_db_manager, app_core=mock_app_core)
+
+# Sample Data
+@pytest.fixture
+def sample_bank_account() -> BankAccountModel:
+    return BankAccountModel(id=1, account_name="Test Bank Account", gl_account_id=101, currency_code="SGD", created_by_user_id=1, updated_by_user_id=1)
+
+@pytest.fixture
+def sample_user() -> UserModel:
+    return UserModel(id=1, username="testuser")
+
+@pytest.fixture
+def sample_reconciliation(sample_bank_account: BankAccountModel, sample_user: UserModel) -> BankReconciliationModel:
+    return BankReconciliationModel(
+        id=1,
+        bank_account_id=sample_bank_account.id,
+        statement_date=date(2023, 1, 31),
+        statement_ending_balance=Decimal("1000.00"),
+        calculated_book_balance=Decimal("1000.00"),
+        reconciled_difference=Decimal("0.00"),
+        reconciliation_date=datetime(2023, 2, 1, 10, 0, 0),
+        created_by_user_id=sample_user.id
+    )
+
+@pytest.fixture
+def sample_statement_txn(sample_bank_account: BankAccountModel, sample_user: UserModel) -> BankTransactionModel:
+    return BankTransactionModel(
+        id=10, bank_account_id=sample_bank_account.id, transaction_date=date(2023,1,15),
+        amount=Decimal("100.00"), description="Statement Inflow", transaction_type=BankTransactionTypeEnum.DEPOSIT.value,
+        is_from_statement=True, created_by_user_id=sample_user.id, updated_by_user_id=sample_user.id
+    )
+
+@pytest.fixture
+def sample_system_txn(sample_bank_account: BankAccountModel, sample_user: UserModel) -> BankTransactionModel:
+    return BankTransactionModel(
+        id=20, bank_account_id=sample_bank_account.id, transaction_date=date(2023,1,16),
+        amount=Decimal("-50.00"), description="System Outflow", transaction_type=BankTransactionTypeEnum.WITHDRAWAL.value,
+        is_from_statement=False, created_by_user_id=sample_user.id, updated_by_user_id=sample_user.id
+    )
+    
+# --- Test Cases ---
+
+async def test_get_reconciliation_by_id_found(
+    reconciliation_service: BankReconciliationService, 
+    mock_session: AsyncMock, 
+    sample_reconciliation: BankReconciliationModel
+):
+    mock_session.get.return_value = sample_reconciliation
+    result = await reconciliation_service.get_by_id(1)
+    assert result == sample_reconciliation
+    mock_session.get.assert_awaited_once_with(BankReconciliationModel, 1)
+
+async def test_get_reconciliations_for_account(
+    reconciliation_service: BankReconciliationService, 
+    mock_session: AsyncMock,
+    sample_reconciliation: BankReconciliationModel,
+    sample_user: UserModel
+):
+    # Mock for the count query
+    mock_count_execute_result = AsyncMock()
+    mock_count_execute_result.scalar_one_or_none.return_value = 1
+    
+    # Mock for the data query
+    mock_data_execute_result = AsyncMock()
+    # Simulate result from join: (BankReconciliation_instance, username_str)
+    mock_data_execute_result.mappings.return_value.all.return_value = [
+        {BankReconciliationModel: sample_reconciliation, "created_by_username": sample_user.username}
+    ]
+    mock_session.execute.side_effect = [mock_count_execute_result, mock_data_execute_result]
+
+    summaries, total_records = await reconciliation_service.get_reconciliations_for_account(bank_account_id=1)
+    
+    assert total_records == 1
+    assert len(summaries) == 1
+    assert summaries[0].id == sample_reconciliation.id
+    assert summaries[0].created_by_username == sample_user.username
+    assert mock_session.execute.await_count == 2
+
+async def test_get_transactions_for_reconciliation(
+    reconciliation_service: BankReconciliationService, 
+    mock_session: AsyncMock,
+    sample_statement_txn: BankTransactionModel,
+    sample_system_txn: BankTransactionModel
+):
+    mock_execute_result = AsyncMock()
+    # Ensure the mocked transactions have reconciled_bank_reconciliation_id set as if they belong to a reconciliation
+    sample_statement_txn.reconciled_bank_reconciliation_id = 1
+    sample_system_txn.reconciled_bank_reconciliation_id = 1
+    
+    mock_execute_result.scalars.return_value.all.return_value = [sample_statement_txn, sample_system_txn]
+    mock_session.execute.return_value = mock_execute_result
+
+    stmt_txns, sys_txns = await reconciliation_service.get_transactions_for_reconciliation(reconciliation_id=1)
+    
+    assert len(stmt_txns) == 1
+    assert stmt_txns[0].id == sample_statement_txn.id
+    assert len(sys_txns) == 1
+    assert sys_txns[0].id == sample_system_txn.id
+    mock_session.execute.assert_awaited_once()
+
+async def test_save_reconciliation_details(
+    reconciliation_service: BankReconciliationService, 
+    mock_session: AsyncMock,
+    sample_reconciliation: BankReconciliationModel, # This will be the ORM object to save
+    sample_bank_account: BankAccountModel
+):
+    statement_date = sample_reconciliation.statement_date
+    bank_account_id = sample_reconciliation.bank_account_id
+    statement_ending_balance = sample_reconciliation.statement_ending_balance
+    
+    cleared_stmt_ids = [10, 11]
+    cleared_sys_ids = [20, 21]
+    all_cleared_ids = [10, 11, 20, 21]
+
+    mock_session.get.return_value = sample_bank_account # For fetching BankAccount to update
+
+    saved_recon = await reconciliation_service.save_reconciliation_details(
+        reconciliation_orm=sample_reconciliation,
+        cleared_statement_txn_ids=cleared_stmt_ids,
+        cleared_system_txn_ids=cleared_sys_ids,
+        statement_end_date=statement_date,
+        bank_account_id=bank_account_id,
+        statement_ending_balance=statement_ending_balance,
+        session=mock_session # Pass the mock session
+    )
+
+    mock_session.add.assert_any_call(sample_reconciliation) # Called to save/update reconciliation
+    mock_session.add.assert_any_call(sample_bank_account)  # Called to save/update bank account
+    
+    # Check if BankTransaction update was executed
+    assert mock_session.execute.await_count == 1 
+    # A more robust check would inspect the actual update statement
+    # For example, by checking call_args on mock_session.execute
+
+    await mock_session.flush.call_count == 2 # Once after adding reconciliation, once after all updates
+    
+    assert sample_bank_account.last_reconciled_date == statement_date
+    assert sample_bank_account.last_reconciled_balance == statement_ending_balance
+    assert saved_recon == sample_reconciliation
+
+async def test_delete_reconciliation(
+    reconciliation_service: BankReconciliationService, 
+    mock_session: AsyncMock, 
+    sample_reconciliation: BankReconciliationModel
+):
+    mock_session.get.return_value = sample_reconciliation # Simulate reconciliation exists
+
+    deleted = await reconciliation_service.delete(sample_reconciliation.id)
+
+    assert deleted is True
+    # Verify that transactions were updated to be unreconciled
+    mock_session.execute.assert_awaited_once() # For the update statement
+    # Verify that the reconciliation record was deleted
+    mock_session.delete.assert_awaited_once_with(sample_reconciliation)
+    mock_session.flush.assert_awaited_once()
 
 ```
 
