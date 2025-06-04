@@ -35,6 +35,7 @@ from app.utils.pydantic_models import (
     BankAccountSummaryData, BankTransactionSummaryData,
     PaymentSummaryData, BankReconciliationSummaryData
 )
+from app.utils.result import Result # For finalize_reconciliation
 from app.common.enums import ProductTypeEnum, InvoiceStatusEnum, BankTransactionTypeEnum, PaymentEntityTypeEnum, PaymentStatusEnum 
 
 if TYPE_CHECKING:
@@ -143,8 +144,8 @@ class VendorService(IVendorRepository):
             total_overdue = result.scalar_one_or_none()
             return total_overdue if total_overdue is not None else Decimal(0)
 
-# ProductService, SalesInvoiceService, PurchaseInvoiceService, InventoryMovementService, BankAccountService, BankTransactionService, PaymentService
-# ... (These services are preserved as they were in response_47)
+# ... (ProductService, SalesInvoiceService, PurchaseInvoiceService, InventoryMovementService, BankAccountService, BankTransactionService, PaymentService are unchanged from response_48) ...
+# (Content of other services from response_48 is preserved here)
 class ProductService(IProductRepository): # Start of preserved content
     def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
         self.db_manager = db_manager; self.app_core = app_core
@@ -427,7 +428,7 @@ class BankReconciliationService(IBankReconciliationRepository):
     async def get_by_id(self, id_val: int) -> Optional[BankReconciliation]:
         async with self.db_manager.session() as session:
             stmt = select(BankReconciliation).options(
-                selectinload(BankReconciliation.created_by_user) # Eager load user for summary
+                selectinload(BankReconciliation.created_by_user)
             ).where(BankReconciliation.id == id_val)
             result = await session.execute(stmt)
             return result.scalars().first()
@@ -439,15 +440,19 @@ class BankReconciliationService(IBankReconciliationRepository):
             return list(result.scalars().all())
 
     async def add(self, entity: BankReconciliation, session: Optional[AsyncSession] = None) -> BankReconciliation:
+        # For adding a new reconciliation, it's typically created via get_or_create_draft_reconciliation
+        # or directly saved by a manager that sets user_id.
+        # This generic add might need user_id logic if called directly.
         return await self.save(entity, session)
 
     async def update(self, entity: BankReconciliation, session: Optional[AsyncSession] = None) -> BankReconciliation:
+        # Similar to add, ensure updated_by if applicable.
         return await self.save(entity, session)
 
     async def delete(self, id_val: int) -> bool:
         self.logger.warning(f"Deletion of BankReconciliation ID {id_val} attempted. This operation un-reconciles linked transactions.")
         async with self.db_manager.session() as session:
-            async with session.begin(): # Ensure atomic operation
+            async with session.begin(): 
                 update_stmt = (
                     sqlalchemy_update(BankTransaction)
                     .where(BankTransaction.reconciled_bank_reconciliation_id == id_val)
@@ -455,15 +460,14 @@ class BankReconciliationService(IBankReconciliationRepository):
                     .execution_options(synchronize_session=False) 
                 )
                 await session.execute(update_stmt)
-                
                 entity = await session.get(BankReconciliation, id_val)
                 if entity:
                     await session.delete(entity)
-                    # No explicit flush needed here, commit from session.begin() handles it
                     return True
             return False 
             
     async def save(self, entity: BankReconciliation, session: Optional[AsyncSession] = None) -> BankReconciliation:
+        # This is a generic save. Specific audit fields (created_by) should be set before calling.
         async def _save_logic(current_session: AsyncSession):
             current_session.add(entity)
             await current_session.flush()
@@ -471,8 +475,140 @@ class BankReconciliationService(IBankReconciliationRepository):
             return entity
         if session: return await _save_logic(session)
         else:
-            async with self.db_manager.session() as new_session: # type: ignore
+            async with self.db_manager.session() as new_session: 
                 return await _save_logic(new_session)
+
+    async def get_or_create_draft_reconciliation(
+        self, 
+        bank_account_id: int, 
+        statement_date: date, 
+        statement_ending_balance: Decimal, # Added to potentially update/set if new
+        user_id: int, 
+        session: AsyncSession
+    ) -> BankReconciliation:
+        draft_stmt = select(BankReconciliation).where(
+            BankReconciliation.bank_account_id == bank_account_id,
+            BankReconciliation.statement_date == statement_date,
+            BankReconciliation.status == "Draft"
+        )
+        result = await session.execute(draft_stmt)
+        existing_draft = result.scalars().first()
+
+        if existing_draft:
+            self.logger.info(f"Found existing draft reconciliation ID {existing_draft.id} for account {bank_account_id} on {statement_date}.")
+            # Optionally update its statement_ending_balance if it changed in the UI
+            if existing_draft.statement_ending_balance != statement_ending_balance:
+                existing_draft.statement_ending_balance = statement_ending_balance
+                # updated_by_user_id should be set if available, or rely on TimestampMixin
+            return existing_draft
+        else:
+            self.logger.info(f"Creating new draft reconciliation for account {bank_account_id} on {statement_date}.")
+            new_draft = BankReconciliation(
+                bank_account_id=bank_account_id,
+                statement_date=statement_date,
+                statement_ending_balance=statement_ending_balance,
+                calculated_book_balance=Decimal(0), # Placeholder, will be updated on finalize
+                reconciled_difference=statement_ending_balance, # Placeholder
+                status="Draft",
+                created_by_user_id=user_id
+                # reconciliation_date is set on finalization
+            )
+            session.add(new_draft)
+            await session.flush()
+            await session.refresh(new_draft)
+            return new_draft
+
+    async def mark_transactions_as_provisionally_reconciled(
+        self, 
+        draft_reconciliation_id: int, 
+        transaction_ids: List[int], 
+        statement_date: date, # This is the reconciled_date
+        user_id: int, # For audit on BankTransaction if needed
+        session: AsyncSession
+    ) -> bool:
+        if not transaction_ids:
+            return True # Nothing to mark
+
+        update_stmt = (
+            sqlalchemy_update(BankTransaction)
+            .where(BankTransaction.id.in_(transaction_ids))
+            .values(
+                is_reconciled=True,
+                reconciled_date=statement_date,
+                reconciled_bank_reconciliation_id=draft_reconciliation_id
+                # updated_by_user_id=user_id # If BankTransaction has this field
+            )
+            .execution_options(synchronize_session=False) # Typically 'fetch' or False for bulk
+        )
+        result = await session.execute(update_stmt)
+        self.logger.info(f"Marked {result.rowcount} transactions as provisionally reconciled for draft recon ID {draft_reconciliation_id}.")
+        return result.rowcount == len(transaction_ids)
+
+
+    async def finalize_reconciliation(
+        self, 
+        draft_reconciliation_id: int, 
+        statement_ending_balance: Decimal, 
+        calculated_book_balance: Decimal, 
+        reconciled_difference: Decimal,
+        user_id: int,
+        session: AsyncSession # Expects to be called within a transaction
+    ) -> Result[BankReconciliation]:
+        recon_orm = await session.get(BankReconciliation, draft_reconciliation_id, options=[selectinload(BankReconciliation.bank_account)])
+        if not recon_orm:
+            return Result.failure([f"Draft Reconciliation ID {draft_reconciliation_id} not found."])
+        if recon_orm.status == "Finalized":
+            return Result.failure([f"Reconciliation ID {draft_reconciliation_id} is already finalized."])
+
+        recon_orm.status = "Finalized"
+        recon_orm.statement_ending_balance = statement_ending_balance
+        recon_orm.calculated_book_balance = calculated_book_balance
+        recon_orm.reconciled_difference = reconciled_difference
+        recon_orm.reconciliation_date = datetime.now(datetime.timezone.utc) # Actual finalization time
+        # created_by_user_id was set on draft creation. updated_by can be handled by TimestampMixin.
+        
+        # Update the BankAccount's last reconciled info
+        if recon_orm.bank_account:
+            recon_orm.bank_account.last_reconciled_date = recon_orm.statement_date
+            recon_orm.bank_account.last_reconciled_balance = recon_orm.statement_ending_balance
+            # updated_by_user_id for bank_account also needed if UserAuditMixin is used
+            session.add(recon_orm.bank_account)
+        else:
+            self.logger.error(f"BankAccount not found for Reconciliation ID {draft_reconciliation_id} during finalization.")
+            return Result.failure([f"Associated BankAccount for Reconciliation ID {draft_reconciliation_id} not found."])
+            
+        session.add(recon_orm)
+        # Transactions linked via reconciled_bank_reconciliation_id are already marked as is_reconciled=True
+        # No further changes to BankTransaction needed here unless un-provisionally matching other items.
+        
+        # await session.flush() # Flush will happen on session.commit() by the caller or context manager
+        # await session.refresh(recon_orm) # Refresh after commit if needed by caller
+        return Result.success(recon_orm)
+
+    async def unreconcile_transactions(
+        self, 
+        transaction_ids: List[int], 
+        user_id: int, # For audit on BankTransaction if needed
+        session: AsyncSession
+    ) -> bool:
+        if not transaction_ids:
+            return True
+        
+        update_stmt = (
+            sqlalchemy_update(BankTransaction)
+            .where(BankTransaction.id.in_(transaction_ids))
+            .values(
+                is_reconciled=False,
+                reconciled_date=None,
+                reconciled_bank_reconciliation_id=None
+                # updated_by_user_id=user_id
+            )
+            .execution_options(synchronize_session=False)
+        )
+        result = await session.execute(update_stmt)
+        self.logger.info(f"Unreconciled {result.rowcount} transactions.")
+        return result.rowcount == len(transaction_ids)
+
 
     async def get_reconciliations_for_account(
         self, 
@@ -481,12 +617,10 @@ class BankReconciliationService(IBankReconciliationRepository):
         page_size: int = 20
     ) -> Tuple[List[BankReconciliationSummaryData], int]:
         async with self.db_manager.session() as session:
-            # Filter for finalized reconciliations
             base_conditions = [
                 BankReconciliation.bank_account_id == bank_account_id,
-                BankReconciliation.status == "Finalized" # Only show finalized in history
+                BankReconciliation.status == "Finalized" 
             ]
-            
             count_stmt = select(func.count(BankReconciliation.id)).where(and_(*base_conditions))
             total_count_res = await session.execute(count_stmt)
             total_records = total_count_res.scalar_one_or_none() or 0
@@ -494,18 +628,15 @@ class BankReconciliationService(IBankReconciliationRepository):
             stmt = select(BankReconciliation, User.username.label("created_by_username"))\
                 .join(User, BankReconciliation.created_by_user_id == User.id)\
                 .where(and_(*base_conditions))\
-                .order_by(BankReconciliation.statement_date.desc(), BankReconciliation.id.desc()) # Added secondary sort for stability
-            
+                .order_by(BankReconciliation.statement_date.desc(), BankReconciliation.id.desc())
             if page_size > 0:
                 stmt = stmt.limit(page_size).offset((page - 1) * page_size)
-            
             result = await session.execute(stmt)
             summaries: List[BankReconciliationSummaryData] = []
             for row in result.mappings().all():
                 recon_orm = row[BankReconciliation]
                 summaries.append(BankReconciliationSummaryData(
-                    id=recon_orm.id,
-                    statement_date=recon_orm.statement_date,
+                    id=recon_orm.id, statement_date=recon_orm.statement_date,
                     statement_ending_balance=recon_orm.statement_ending_balance,
                     reconciled_difference=recon_orm.reconciled_difference,
                     reconciliation_date=recon_orm.reconciliation_date,
@@ -514,75 +645,23 @@ class BankReconciliationService(IBankReconciliationRepository):
             return summaries, total_records
 
     async def get_transactions_for_reconciliation(
-        self, 
-        reconciliation_id: int
+        self, reconciliation_id: int
     ) -> Tuple[List[BankTransactionSummaryData], List[BankTransactionSummaryData]]:
         async with self.db_manager.session() as session:
             stmt = select(BankTransaction)\
                 .where(BankTransaction.reconciled_bank_reconciliation_id == reconciliation_id)\
-                .order_by(BankTransaction.transaction_date, BankTransaction.id) # Consistent ordering
-            
+                .order_by(BankTransaction.transaction_date, BankTransaction.id)
             result = await session.execute(stmt)
             all_txns_orm = result.scalars().all()
-
             statement_items: List[BankTransactionSummaryData] = []
             system_items: List[BankTransactionSummaryData] = []
-
             for txn_orm in all_txns_orm:
                 summary_dto = BankTransactionSummaryData(
-                    id=txn_orm.id,
-                    transaction_date=txn_orm.transaction_date,
-                    value_date=txn_orm.value_date,
-                    transaction_type=BankTransactionTypeEnum(txn_orm.transaction_type),
-                    description=txn_orm.description,
-                    reference=txn_orm.reference,
-                    amount=txn_orm.amount,
-                    is_reconciled=txn_orm.is_reconciled 
+                    id=txn_orm.id, transaction_date=txn_orm.transaction_date,
+                    value_date=txn_orm.value_date, transaction_type=BankTransactionTypeEnum(txn_orm.transaction_type),
+                    description=txn_orm.description, reference=txn_orm.reference,
+                    amount=txn_orm.amount, is_reconciled=txn_orm.is_reconciled
                 )
-                if txn_orm.is_from_statement:
-                    statement_items.append(summary_dto)
-                else:
-                    system_items.append(summary_dto)
-            
+                if txn_orm.is_from_statement: statement_items.append(summary_dto)
+                else: system_items.append(summary_dto)
             return statement_items, system_items
-
-    async def save_reconciliation_details(
-        self, 
-        reconciliation_orm: BankReconciliation,
-        cleared_statement_txn_ids: List[int], 
-        cleared_system_txn_ids: List[int],
-        statement_end_date: date,
-        bank_account_id: int,
-        statement_ending_balance: Decimal, 
-        session: AsyncSession 
-    ) -> BankReconciliation:
-        session.add(reconciliation_orm) # reconciliation_orm status should be set to 'Finalized' by caller
-        await session.flush() 
-        await session.refresh(reconciliation_orm)
-        
-        all_cleared_txn_ids = list(set(cleared_statement_txn_ids + cleared_system_txn_ids))
-        if all_cleared_txn_ids:
-            update_txn_stmt = (
-                sqlalchemy_update(BankTransaction)
-                .where(BankTransaction.id.in_(all_cleared_txn_ids))
-                .values(
-                    is_reconciled=True,
-                    reconciled_date=statement_end_date, 
-                    reconciled_bank_reconciliation_id=reconciliation_orm.id
-                )
-                .execution_options(synchronize_session="fetch") 
-            )
-            await session.execute(update_txn_stmt)
-
-        bank_account_to_update = await session.get(BankAccount, bank_account_id)
-        if bank_account_to_update:
-            bank_account_to_update.last_reconciled_date = statement_end_date
-            bank_account_to_update.last_reconciled_balance = statement_ending_balance 
-            session.add(bank_account_to_update)
-        else:
-            self.logger.error(f"BankAccount ID {bank_account_id} not found during reconciliation save for BankReconciliation ID {reconciliation_orm.id}.")
-            raise ValueError(f"BankAccount ID {bank_account_id} not found during reconciliation save.")
-
-        await session.flush() 
-        await session.refresh(reconciliation_orm) 
-        return reconciliation_orm

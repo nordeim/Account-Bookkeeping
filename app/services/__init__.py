@@ -55,15 +55,17 @@ from app.utils.pydantic_models import (
     BankAccountSummaryData, BankTransactionSummaryData,
     PaymentSummaryData,
     AuditLogEntryData, DataChangeHistoryEntryData, BankReconciliationData,
-    BankReconciliationSummaryData, # New DTO Import
+    BankReconciliationSummaryData, 
     DashboardKPIData
 )
+from app.utils.result import Result # For finalize_reconciliation return type
 from app.common.enums import ( 
     ProductTypeEnum, InvoiceStatusEnum, BankTransactionTypeEnum,
     PaymentTypeEnum, PaymentEntityTypeEnum, PaymentStatusEnum, DataChangeTypeEnum 
 )
 
 # --- Existing Interfaces ---
+# ... (IAccountRepository to IDataChangeHistoryRepository interfaces remain unchanged from response_48) ...
 class IAccountRepository(IRepository[Account, int]): 
     @abstractmethod
     async def get_by_code(self, code: str) -> Optional[Account]: pass
@@ -306,28 +308,60 @@ class IDataChangeHistoryRepository(IRepository[DataChangeHistory, int]):
 
 class IBankReconciliationRepository(IRepository[BankReconciliation, int]):
     @abstractmethod
-    async def save_reconciliation_details(
+    async def get_or_create_draft_reconciliation(
         self, 
-        reconciliation_orm: BankReconciliation,
-        cleared_statement_txn_ids: List[int], 
-        cleared_system_txn_ids: List[int],
-        statement_end_date: date,
-        bank_account_id: int,
-        statement_ending_balance: Decimal,
-        session: AsyncSession 
-    ) -> BankReconciliation: pass
-    @abstractmethod # New method for history
+        bank_account_id: int, 
+        statement_date: date, 
+        statement_ending_balance: Decimal, # Added statement_ending_balance
+        user_id: int, 
+        session: AsyncSession
+    ) -> BankReconciliation: pass # Return type changed to ORM
+
+    @abstractmethod
+    async def mark_transactions_as_provisionally_reconciled(
+        self, 
+        draft_reconciliation_id: int, 
+        transaction_ids: List[int], 
+        statement_date: date, # Reconciled_date will be statement_date
+        user_id: int, # For audit trail on BankTransaction if updated_by is tracked
+        session: AsyncSession
+    ) -> bool: pass
+
+    @abstractmethod
+    async def finalize_reconciliation(
+        self, 
+        draft_reconciliation_id: int, 
+        statement_ending_balance: Decimal, 
+        calculated_book_balance: Decimal, 
+        reconciled_difference: Decimal,
+        user_id: int,
+        session: AsyncSession
+    ) -> Result[BankReconciliation]: pass # Return Result with ORM
+
+    @abstractmethod
+    async def unreconcile_transactions( # For future "Unmatch" feature
+        self, 
+        transaction_ids: List[int], 
+        user_id: int, 
+        session: AsyncSession
+    ) -> bool: pass
+    
+    @abstractmethod # From previous step, ensure it's present
     async def get_reconciliations_for_account(
         self, 
         bank_account_id: int, 
         page: int = 1, 
         page_size: int = 20
     ) -> Tuple[List[BankReconciliationSummaryData], int]: pass
-    @abstractmethod # New method for history details
+    
+    @abstractmethod # From previous step, ensure it's present
     async def get_transactions_for_reconciliation(
         self, 
         reconciliation_id: int
     ) -> Tuple[List[BankTransactionSummaryData], List[BankTransactionSummaryData]]: pass
+
+    # Removed save_reconciliation_details, its functionality is split/refined
+    # async def save_reconciliation_details(...) -> BankReconciliation: pass
 
 
 from .account_service import AccountService
