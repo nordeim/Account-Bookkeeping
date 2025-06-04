@@ -1,34 +1,34 @@
 $ poetry run sg_bookkeeper
 Starting global asyncio event loop thread...
 Asyncio event loop <_UnixSelectorEventLoop running=False closed=False debug=False> started in thread AsyncioLoopThread and set as current.
-Global asyncio event loop <_UnixSelectorEventLoop running=False closed=False debug=False> confirmed running in dedicated thread.
+Global asyncio event loop <_UnixSelectorEventLoop running=True closed=False debug=False> confirmed running in dedicated thread.
 Successfully imported compiled Qt resources (resources_rc.py).
 Using compiled Qt resources.
-2025-06-04 21:34:40,095 - SGBookkeeperAppCore - INFO - ApplicationCore initialized.
-2025-06-04 21:34:40,095 - SGBookkeeperAppCore - INFO - ApplicationCore starting up...
+2025-06-05 07:10:54,286 - SGBookkeeperAppCore - INFO - ApplicationCore initialized.
+2025-06-05 07:10:54,286 - SGBookkeeperAppCore - INFO - ApplicationCore starting up...
 ModuleManager: load_all_modules called (conceptual).
-2025-06-04 21:34:40,450 - SGBookkeeperAppCore - INFO - ApplicationCore startup complete.
-2025-06-04 21:34:40,731 - SGBookkeeperAppCore - INFO - DashboardWidget: Scheduling initial KPI load.
-2025-06-04 21:34:40,753 - SGBookkeeperAppCore - INFO - Using compiled Qt resources for JournalEntriesWidget.
-2025-06-04 21:34:40,761 - SGBookkeeperAppCore - INFO - Using compiled Qt resources for SalesInvoicesWidget.
-2025-06-04 21:34:40,766 - SGBookkeeperAppCore - INFO - Using compiled Qt resources for PurchaseInvoicesWidget.
-2025-06-04 21:34:40,776 - SGBookkeeperAppCore - INFO - Using compiled Qt resources for CustomersWidget.
-2025-06-04 21:34:40,778 - SGBookkeeperAppCore - INFO - Using compiled Qt resources for VendorsWidget.
-2025-06-04 21:34:40,781 - SGBookkeeperAppCore - INFO - Using compiled Qt resources for ProductsWidget.
-2025-06-04 21:34:40,845 - SGBookkeeperAppCore - INFO - DashboardWidget: _request_kpi_load called (Count: 1). Setting labels to 'Loading...'.
-2025-06-04 21:34:40,845 - SGBookkeeperAppCore - INFO - DashboardWidget: _fetch_kpis_data started.
-2025-06-04 21:34:40,845 - SGBookkeeperAppCore - INFO - Fetching dashboard KPIs...
-2025-06-04 21:34:41,288 - SGBookkeeperAppCore - WARNING - No fiscal year found. Cannot calculate YTD KPIs.
-2025-06-04 21:34:41,391 - SGBookkeeperAppCore - INFO - DashboardWidget: Fetched KPI data: Period='As of 04 Jun 2025 (No active FY)', Revenue='0'
-2025-06-04 21:34:41,391 - SGBookkeeperAppCore - INFO - DashboardWidget: Queuing _update_kpi_display_slot with payload: JSON string
-2025-06-04 21:34:41,392 - SGBookkeeperAppCore - INFO - DashboardWidget: _update_kpi_display_slot called. Received JSON string length: 280
-2025-06-04 21:34:41,393 - SGBookkeeperAppCore - INFO - DashboardWidget: Successfully deserialized KPI JSON to DTO.
-2025-06-04 21:34:41,393 - SGBookkeeperAppCore - INFO - DashboardWidget: Updating UI with KPI Data: Period='As of 04 Jun 2025 (No active FY)'
-2025-06-04 21:34:41,393 - SGBookkeeperAppCore - INFO - DashboardWidget: UI labels updated with KPI data.
+2025-06-05 07:10:54,642 - SGBookkeeperAppCore - INFO - ApplicationCore startup complete.
+2025-06-05 07:10:54,936 - SGBookkeeperAppCore - INFO - DashboardWidget: Scheduling initial KPI load.
+2025-06-05 07:10:54,954 - SGBookkeeperAppCore - INFO - Using compiled Qt resources for JournalEntriesWidget.
+2025-06-05 07:10:54,964 - SGBookkeeperAppCore - INFO - Using compiled Qt resources for SalesInvoicesWidget.
+2025-06-05 07:10:54,969 - SGBookkeeperAppCore - INFO - Using compiled Qt resources for PurchaseInvoicesWidget.
+2025-06-05 07:10:54,978 - SGBookkeeperAppCore - INFO - Using compiled Qt resources for CustomersWidget.
+2025-06-05 07:10:54,980 - SGBookkeeperAppCore - INFO - Using compiled Qt resources for VendorsWidget.
+2025-06-05 07:10:54,982 - SGBookkeeperAppCore - INFO - Using compiled Qt resources for ProductsWidget.
+2025-06-05 07:10:55,054 - SGBookkeeperAppCore - INFO - DashboardWidget: _request_kpi_load called (Count: 1). Setting labels to 'Loading...'.
+2025-06-05 07:10:55,054 - SGBookkeeperAppCore - INFO - DashboardWidget: _fetch_kpis_data started.
+2025-06-05 07:10:55,054 - SGBookkeeperAppCore - INFO - Fetching dashboard KPIs...
+2025-06-05 07:10:55,482 - SGBookkeeperAppCore - WARNING - No fiscal year found. Cannot calculate YTD KPIs.
+2025-06-05 07:10:55,673 - SGBookkeeperAppCore - INFO - DashboardWidget: Fetched KPI data: Period='As of 05 Jun 2025 (No active FY)', Revenue='0'
+2025-06-05 07:10:55,673 - SGBookkeeperAppCore - INFO - DashboardWidget: Queuing _update_kpi_display_slot with payload: JSON string
+2025-06-05 07:10:55,673 - SGBookkeeperAppCore - INFO - DashboardWidget: _update_kpi_display_slot called. Received JSON string length: 280
+2025-06-05 07:10:55,674 - SGBookkeeperAppCore - INFO - DashboardWidget: Successfully deserialized KPI JSON to DTO.
+2025-06-05 07:10:55,674 - SGBookkeeperAppCore - INFO - DashboardWidget: Updating UI with KPI Data: Period='As of 05 Jun 2025 (No active FY)'
+2025-06-05 07:10:55,674 - SGBookkeeperAppCore - INFO - DashboardWidget: UI labels updated with KPI data.
 Application shutting down (actual_shutdown_sequence)...
 Scheduling ApplicationCore shutdown...
-2025-06-04 21:36:00,516 - SGBookkeeperAppCore - INFO - ApplicationCore shutting down...
-2025-06-04 21:36:00,521 - SGBookkeeperAppCore - INFO - ApplicationCore shutdown complete.
+2025-06-05 07:12:15,143 - SGBookkeeperAppCore - INFO - ApplicationCore shutting down...
+2025-06-05 07:12:15,147 - SGBookkeeperAppCore - INFO - ApplicationCore shutdown complete.
 ApplicationCore shutdown completed.
 Requesting global asyncio event loop to stop...
 Joining asyncio event loop thread...

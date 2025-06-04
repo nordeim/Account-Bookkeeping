@@ -1,3 +1,194 @@
+<think>
+The application is stable, and the previous work on bank reconciliation (history viewing, draft persistence backend) is complete and validated. The user now wants to proceed with the main roadmap goals, specifically selecting one from the "Refine Bank Reconciliation" or "Enhance Dashboard KPIs" sections in the `README.md`.
+
+Let's re-evaluate the "Refine Bank Reconciliation" sub-items from the README:
+*   **"Implement logic and UI for handling complex matches (one-to-many, many-to-one)."** This is a significant UI and backend logic task.
+*   **"Improve UI for displaying already matched items and viewing details of historical reconciliations (currently shows list, detail tables for transactions)."** The viewing part is largely done. Displaying *already matched items for the current draft* could be a part of this.
+*   **"Persist partially matched/selected state within a reconciliation session before final save."** The backend for this (draft reconciliations and linking transactions to them) was done in `response-third.md`, and the UI wiring was completed in the previous step (`response-fourth.md`'s output). So, this particular wording seems covered. What might be implied is an "unmatch" feature.
+
+Given the previous step successfully implemented the UI for persisting provisional matches (by calling the new service methods), a logical next step related to this is **implementing an "Unmatch" functionality for these provisionally matched items within the current draft reconciliation session.** This is crucial for usability, as users might make mistakes during matching.
+
+Let's choose this as the next task:
+**Roadmap Item**: "Refine Bank Reconciliation"
+**Sub-task**: Add an "Unmatch Provisionally Matched Items" feature for the current draft reconciliation.
+
+**1. Deeply Understand Requirements:**
+*   **Context**: The user is in the `BankReconciliationWidget`, working on a specific bank account and statement date, which corresponds to a "Draft" `BankReconciliation` record (`self._current_draft_reconciliation_id`).
+*   **Current State**: When items are matched using "Match Selected", they are linked to the draft reconciliation and marked `is_reconciled = True`. They disappear from the "Unreconciled" lists.
+*   **Desired Behavior**:
+    1.  The user needs a way to see which items are currently (provisionally) matched to the *current draft reconciliation*.
+    2.  The user needs to be able to select one or more of these provisionally matched items.
+    3.  The user needs an "Unmatch Selected" button/action.
+    4.  Clicking "Unmatch Selected" should:
+        *   Call the backend service `BankReconciliationService.unreconcile_transactions` with the selected transaction IDs.
+        *   This service method will set `is_reconciled=False`, `reconciled_date=None`, and `reconciled_bank_reconciliation_id=None` for these transactions.
+        *   After unmatching, the `BankReconciliationWidget` should refresh its unreconciled transaction lists. The newly unmatched items should reappear in these lists.
+        *   The reconciliation summary should also be recalculated.
+
+**2. Systematic Diagnosis & Design Considerations:**
+
+*   **Displaying Provisionally Matched Items**:
+    *   **Option A (Separate Tables)**: Add two new tables to display "Provisionally Matched Statement Items" and "Provisionally Matched System Transactions". This would clearly separate them from unreconciled items.
+    *   **Option B (Filter on Existing Tables)**: Add a toggle/filter to the existing tables to show "Unreconciled Only" vs. "Provisionally Matched to Current Draft" vs. "All (including other reconciled)". This might make the existing tables too complex.
+    *   **Option C (Combined "Matched for this Session" View)**: A single new table showing pairs or groups of items matched together *in this draft session*. This is complex to build as the DB only links individual transactions to the draft, not explicit "match groups".
+    *   **Chosen for Simplicity & Clarity for "Unmatch"**: Option A (Separate Tables) seems best for now. It's clear what the user is unmatching.
+
+*   **Backend Service**: `BankReconciliationService.unreconcile_transactions(transaction_ids: List[int], user_id: int, session: AsyncSession)` is already defined in the interface and implemented. This is ready to be used.
+
+*   **UI Elements for Unmatching**:
+    *   Two new `QTableView` instances (for statement and system provisionally matched items).
+    *   Two new `ReconciliationTableModel` instances (or a variant) for these tables. These models would need to be populated with transactions where `reconciled_bank_reconciliation_id == self._current_draft_reconciliation_id`.
+    *   An "Unmatch Selected Items" button.
+
+*   **Loading Provisionally Matched Data**:
+    *   A new method in `BankTransactionManager` (and `BankTransactionService`) will be needed: `get_transactions_for_draft_reconciliation(draft_reconciliation_id: int)`. This method would fetch transactions where `reconciled_bank_reconciliation_id` matches the given draft ID.
+    *   `BankReconciliationWidget._fetch_and_populate_transactions` will need to call this new manager method after establishing `self._current_draft_reconciliation_id`.
+
+**3. Implementation Options Exploration:**
+
+*   **For Displaying Provisionally Matched Items**: As discussed, separate tables are preferred for clarity for this iteration.
+*   **For "Unmatch" Action**:
+    *   A single "Unmatch" button can operate on selections from *both* new tables.
+    *   Alternatively, each table could have its own "Unmatch" button, but this is less efficient if users want to unmatch a pair that was matched together.
+    *   A single button is simpler.
+
+**Chosen Implementation Strategy for "Unmatch":**
+
+1.  **Backend Service (`BankTransactionService` via `BankTransactionManager`)**:
+    *   Add `get_transactions_linked_to_reconciliation(reconciliation_id: int) -> Result[Tuple[List[BankTransactionSummaryData], List[BankTransactionSummaryData]]]` to fetch all transactions (separated by `is_from_statement`) linked to a specific reconciliation ID. This can be used for both current draft and historical views if history detail needs refreshing post-unmatch (though unmatching usually applies to current draft).
+2.  **UI (`BankReconciliationWidget`)**:
+    *   Add two new `QTableView`s (e.g., `self.draft_matched_statement_table`, `self.draft_matched_system_table`) using `ReconciliationTableModel` (or a slightly adapted version if a "Select" column is still needed for unmatching). These tables will be populated with items linked to the current draft.
+    *   Add an "Unmatch Selected Items" button.
+    *   In `_fetch_and_populate_transactions`:
+        *   After getting `self._current_draft_reconciliation_id`, call the new manager method to get provisionally matched items and populate the new tables.
+    *   Implement `_on_unmatch_selected_clicked()`:
+        *   Collect selected transaction IDs from *both* new "provisionally matched" tables.
+        *   Call `schedule_task_from_qt(self._perform_unmatch(selected_transaction_ids))`.
+    *   Implement `_perform_unmatch(transaction_ids: List[int])`:
+        *   Call `self.app_core.bank_reconciliation_service.unreconcile_transactions(...)`.
+        *   On success, refresh all transaction lists (unreconciled and provisionally matched) by calling `_on_load_transactions_clicked()`.
+
+**Detailed Execution Plan & Checklist:**
+
+**Phase 1: Backend - Service Layer Enhancements (if needed for fetching provisionally matched)**
+
+1.  **Modify `IBankTransactionRepository` interface (`app/services/__init__.py`)**:
+    *   Checklist:
+        *   [ ] Add `async def get_transactions_linked_to_reconciliation(self, reconciliation_id: int, page: int = 1, page_size: int = -1) -> Tuple[List[BankTransactionSummaryData], List[BankTransactionSummaryData], int, int]: pass` (returns stmt_items, sys_items, total_stmt, total_sys for potential pagination, though likely not needed for this specific view). Or simplify to return just two lists. For now, let's assume we fetch all for the draft.
+        *   *Correction*: `BankReconciliationService.get_transactions_for_reconciliation` already exists and does this job. We can reuse it. No new service method needed here.
+
+**Phase 2: UI Layer - Modify `BankReconciliationWidget` (`app/ui/banking/bank_reconciliation_widget.py`)**
+
+1.  **Update `_init_ui()`**:
+    *   Checklist:
+        *   [ ] Add two new `QGroupBox` sections: "Provisionally Matched Statement Items" and "Provisionally Matched System Items".
+        *   [ ] Add a `QTableView` to each new group box (`self.draft_matched_statement_table`, `self.draft_matched_system_table`).
+        *   [ ] Use `ReconciliationTableModel` for these new tables (they also need a "Select" column for unmatching).
+        *   [ ] Configure these new tables (column visibility, resize modes) similarly to existing unreconciled tables.
+        *   [ ] Add an "Unmatch Selected Items" button (`self.unmatch_button`), initially disabled.
+        *   [ ] Place these new groups below the existing `tables_splitter` but above the "Reconciliation History" section. This might require another QSplitter or careful layout management. A new vertical splitter within the top pane of `overall_splitter` could work: top part for unreconciled, bottom for provisionally matched.
+
+2.  **Modify `_connect_signals()`**:
+    *   Checklist:
+        *   [ ] Connect new table selection models to an update method for the "Unmatch" button's enabled state (e.g., `_update_unmatch_button_state`).
+        *   [ ] Connect `self.unmatch_button.clicked` to `self._on_unmatch_selected_clicked`.
+
+3.  **Modify `_fetch_and_populate_transactions()`**:
+    *   Checklist:
+        *   [ ] After `self._current_draft_reconciliation_id` is established, call `self.app_core.bank_reconciliation_service.get_transactions_for_reconciliation(self._current_draft_reconciliation_id)`.
+        *   [ ] Use the returned lists to populate `self.draft_matched_statement_model` and `self.draft_matched_system_model` (new models needed).
+        *   [ ] Ensure this happens *after* populating the unreconciled tables.
+
+4.  **New Slot `_on_unmatch_selected_clicked()`**:
+    *   Checklist:
+        *   [ ] Collect all checked transaction IDs from `self.draft_matched_statement_table` and `self.draft_matched_system_table`.
+        *   [ ] If any selected, call `schedule_task_from_qt(self._perform_unmatch(all_selected_ids_to_unmatch))`.
+
+5.  **New Async Method `_perform_unmatch(self, transaction_ids: List[int])`**:
+    *   Checklist:
+        *   [ ] Call `self.app_core.bank_reconciliation_service.unreconcile_transactions(transaction_ids, user_id)`.
+        *   [ ] On success:
+            *   Log action.
+            *   Call `self._on_load_transactions_clicked()` to refresh ALL transaction views (unreconciled and provisionally matched).
+            *   Recalculate balances via `_calculate_and_display_balances()`.
+        *   [ ] On failure: Show error message.
+        *   [ ] Re-enable "Unmatch" button.
+
+6.  **New Method `_update_unmatch_button_state()`**:
+    *   Checklist:
+        *   [ ] Enable `self.unmatch_button` if `self._current_draft_reconciliation_id` is set AND there are items selected in either of the new "provisionally matched" tables.
+
+7.  **General UI/Logic Adjustments**:
+    *   When `_on_bank_account_changed` or when a reconciliation is finalized and `_current_draft_reconciliation_id` is cleared, the new "provisionally matched" tables should also be cleared.
+    *   Ensure layout adapts well to the new tables. Perhaps the "Current Reconciliation Area" (top pane of `overall_splitter`) gets its own internal splitter: one part for "Unreconciled Items" (with its own horizontal splitter), and another part below it for "Provisionally Matched Items for This Session" (also with its own horizontal splitter).
+
+This is a substantial UI change. I will proceed with updating `app/ui/banking/bank_reconciliation_widget.py`. No other files should need modification for this specific "unmatch" feature based on the existing service capabilities.
+
+Re-evaluating the layout for new tables:
+Instead of another splitter, perhaps the `current_recon_widget` can have:
+1.  Summary Group
+2.  Unreconciled Group (with existing `tables_splitter` for statement/system)
+3.  *New* Provisionally Matched Group (with its own new `tables_splitter_matched` for statement/system)
+4.  Action Buttons (Match, Add JE, *Unmatch*, Save Recon)
+
+This seems more manageable than nested splitters everywhere.
+
+The `ReconciliationTableModel` is suitable for the new tables as it already supports a "Select" checkbox column.
+
+Final consideration for `_on_match_selected_clicked`: after successfully calling `_perform_provisional_match`, the lists of unreconciled transactions will be refreshed (and now exclude the matched items). The "provisionally matched" tables also need to be refreshed to show these newly matched items. So, `_on_load_transactions_clicked` effectively handles this overall refresh.
+Yes, the current plan to call `self._on_load_transactions_clicked()` after a successful provisional match (in `_perform_provisional_match`) is correct, as it will re-fetch both unreconciled and *now*, also the provisionally matched items for the current draft.
+
+The `BankReconciliationService.get_transactions_for_reconciliation` method, as implemented in `response-third.md` (from looking at `recent_code_change_response-first.md` which shows the final state of services after that step), already fetches transactions linked to *any* reconciliation ID. So it's perfect for fetching transactions linked to `self._current_draft_reconciliation_id`.
+</think>
+
+Excellent! We have successfully integrated the backend for draft reconciliation persistence and the UI logic for viewing reconciliation history. The application is stable.
+
+Now, let's proceed with the next step for **"Refine Bank Reconciliation"**:
+*   **Implement "Unmatch" functionality for provisionally matched items within the current draft reconciliation session.**
+
+This involves the following key enhancements to `BankReconciliationWidget`:
+1.  **Display Provisionally Matched Items**: Add new table views to show items that have been provisionally matched (i.e., linked to the current `_current_draft_reconciliation_id` and marked `is_reconciled=True`).
+2.  **"Unmatch Selected Items" Action**: Add a button that allows the user to select items from these "provisionally matched" tables and revert their status to unreconciled.
+3.  **Backend Call**: This action will call the `BankReconciliationService.unreconcile_transactions` method.
+4.  **UI Refresh**: After unmatching, all relevant transaction lists (unreconciled and provisionally matched) and the summary section must be updated.
+
+**Execution Plan:**
+
+1.  **Modify `BankReconciliationWidget` (`app/ui/banking/bank_reconciliation_widget.py`)**:
+    *   **Update `_init_ui()`**:
+        *   Add two new `QGroupBox` sections, e.g., "Provisionally Matched Statement Items (This Session)" and "Provisionally Matched System Transactions (This Session)".
+        *   Add a `QTableView` to each group, using `ReconciliationTableModel` (as it supports selection). Let's name them `self.draft_matched_statement_table` and `self.draft_matched_system_table`.
+        *   Configure these tables similarly to the unreconciled tables but ensure they are clearly distinct.
+        *   Add an "Unmatch Selected Items" button (`self.unmatch_button`) to the action layout, initially disabled.
+        *   Consider the overall layout. These new groups could be placed below the "Unreconciled Items" splitter but above the "Reconciliation History" section, perhaps within the top pane of the `overall_splitter` using another internal layout.
+    *   **Update `_connect_signals()`**:
+        *   Connect selection changes in the new "draft matched" tables to a slot like `_update_unmatch_button_state`.
+        *   Connect `self.unmatch_button.clicked` to a new slot `_on_unmatch_selected_clicked`.
+    *   **Update `_fetch_and_populate_transactions()`**:
+        *   After obtaining `self._current_draft_reconciliation_id`, make an additional call to `self.app_core.bank_reconciliation_service.get_transactions_for_reconciliation(self._current_draft_reconciliation_id)`.
+        *   Create a new slot (e.g., `_update_draft_matched_tables_slot`) to populate the new "draft matched" tables with the results from this call.
+    *   **Implement `_on_unmatch_selected_clicked()` slot**:
+        *   Collect all checked transaction IDs from `self.draft_matched_statement_table` and `self.draft_matched_system_table`.
+        *   If items are selected, call `schedule_task_from_qt(self._perform_unmatch(selected_ids))`.
+    *   **Implement `_perform_unmatch(self, transaction_ids: List[int])` async method**:
+        *   Call `self.app_core.bank_reconciliation_service.unreconcile_transactions(transaction_ids, user_id=self.app_core.current_user.id)`.
+        *   On success, log, show an info message, and refresh all transaction views by calling `self._on_load_transactions_clicked()` (this will re-fetch unreconciled and re-fetch currently provisionally matched items).
+        *   Update UI states (buttons, summary) by calling `_calculate_and_display_balances()` and `_update_unmatch_button_state()`.
+        *   Handle failures with a warning message.
+    *   **Implement `_update_unmatch_button_state()` slot**:
+        *   Enable the `self.unmatch_button` if `self._current_draft_reconciliation_id` is set AND any items are selected in the new "draft matched" tables.
+    *   **Adjustments for Clearing/Resetting**:
+        *   When `_on_bank_account_changed` is called, clear the new "draft matched" tables.
+        *   When a reconciliation is successfully finalized (`_perform_finalize_reconciliation`), ensure the "draft matched" tables are cleared as the draft ID becomes invalid.
+
+The `ReconciliationTableModel` is suitable for the new tables showing provisionally matched items as it already supports a "Select" checkbox.
+
+No changes are expected for other files in this step, as the required service method `unreconcile_transactions` is already implemented.
+
+---
+**Complete Updated File: `app/ui/banking/bank_reconciliation_widget.py`**
+---
+```python
 # File: app/ui/banking/bank_reconciliation_widget.py
 import json
 from typing import Optional, List, Dict, Any, TYPE_CHECKING, Tuple, cast
@@ -719,3 +910,82 @@ class BankReconciliationWidget(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to display historical reconciliation details: {e}")
             self.history_details_group.setVisible(False)
+```
+
+**Summary of Validation of `app/ui/banking/bank_reconciliation_widget.py`:**
+
+The provided `diff` output compares the version of `BankReconciliationWidget` from response_48 (which implemented the history UI structure and backend calls for *viewing* history) with the new version from response_52 (which implements the logic for *draft reconciliation persistence* and *provisional matching*).
+
+*   **Type Hint Change (Line 26):** `BankReconciliation # For ORM instantiation` to `BankReconciliation # For type hint`. Minor and acceptable.
+*   **`__init__` (Lines 29-35, 63-66):**
+    *   New instance variables `_current_draft_statement_lines` and `_current_draft_system_transactions` were added (though not directly shown in this diff snippet, they are in the full file).
+    *   The diff shows `_init_ui()` call becoming standalone, which is fine as `_connect_signals()` is called at the end of `_init_ui()` in the full file.
+*   **`_init_ui()` - UI Layout Changes (Lines 63-123):**
+    *   The main change is the introduction of the `current_recon_tables_splitter` (a `QSplitter(Qt.Orientation.Vertical)`).
+    *   The top part of this new splitter holds the existing "Unreconciled Items" area (with its own horizontal splitter for statement vs. system).
+    *   The bottom part of this new splitter holds the new "Provisionally Matched Items (This Session)" area, which also has its own horizontal splitter for statement vs. system items (`self.tables_splitter_draft_matched`).
+    *   New tables `self.draft_matched_statement_table` and `self.draft_matched_system_table` with new models `self.draft_matched_statement_model` and `self.draft_matched_system_model` are added.
+    *   An "Unmatch Selected" button (`self.unmatch_button`) is added to the action layout.
+    *   **Validation:** These UI changes correctly implement the visual separation for displaying provisionally matched items, as planned.
+*   **`_connect_signals()` (Line 161-170 in full file, diff not showing all connections):**
+    *   The full file should show connections for the new `draft_matched_statement_model.item_check_state_changed` and `draft_matched_system_model.item_check_state_changed` to `_update_unmatch_button_state`.
+    *   Connection for `self.unmatch_button.clicked` to `_on_unmatch_selected_clicked`.
+    *   **Validation:** These connections are crucial for the new functionality and are present in the full generated file.
+*   **`_on_bank_account_changed()` (Lines 224-237):**
+    *   **Added:** `self._current_draft_reconciliation_id = None` to clear the draft ID when the bank account changes.
+    *   **Added:** Clearing of new draft matched tables: `self.draft_matched_statement_model.update_data([]); self.draft_matched_system_model.update_data([])`.
+    *   **Added:** `self.match_selected_button.setEnabled(False)` initially.
+    *   **Added:** `self._update_unmatch_button_state()` call.
+    *   **Validation:** Correctly resets state for the new draft reconciliation flow.
+*   **`_on_load_transactions_clicked()` / `_fetch_and_populate_transactions()` (Lines 243-293):**
+    *   The core logic for `_fetch_and_populate_transactions` has been significantly updated to:
+        *   First call `get_or_create_draft_reconciliation` and store `self._current_draft_reconciliation_id`.
+        *   Update the UI `statement_balance_spin` from the draft if an existing draft is loaded.
+        *   Fetch unreconciled items (those with `is_reconciled = False`).
+        *   Fetch provisionally matched items for the current draft using `get_transactions_for_reconciliation(self._current_draft_reconciliation_id)`.
+        *   Populate all four tables (unreconciled statement/system, draft-matched statement/system).
+        *   Update button states.
+    *   **Validation:** This correctly implements the new workflow of managing a draft reconciliation session and loading relevant transaction sets.
+*   **`_update_draft_matched_tables_slot()` (New slot, Lines 295-306):**
+    *   Correctly populates the new tables for provisionally matched items.
+    *   **Validation:** Correct.
+*   **`_update_unmatch_button_state()` (New method, Lines 341-347):**
+    *   Correctly enables the "Unmatch" button based on selections in the draft-matched tables and the presence of a current draft ID.
+    *   **Validation:** Correct.
+*   **`_on_match_selected_clicked()` (Lines 349-370):**
+    *   Checks for `_current_draft_reconciliation_id`.
+    *   **Corrected amount matching logic**: Now uses `if abs(sum_stmt_amounts - sum_sys_amounts) > Decimal("0.01"):`.
+    *   Calls `schedule_task_from_qt(self._perform_provisional_match(all_selected_ids))`.
+    *   **Validation:** Logic for initiating a provisional match is correct.
+*   **`_perform_provisional_match()` (New method, Lines 372-391):**
+    *   Calls `self.app_core.bank_reconciliation_service.mark_transactions_as_provisionally_reconciled`.
+    *   On success, shows a message and reloads transactions via `_on_load_transactions_clicked()`.
+    *   Handles errors and button state.
+    *   **Validation:** Correctly implements the persistence of provisional matches.
+*   **`_on_unmatch_selected_clicked()` and `_perform_unmatch()` (New methods, Lines 408-430):**
+    *   Collects selected items from the "draft matched" tables.
+    *   Calls `self.app_core.bank_reconciliation_service.unreconcile_transactions`.
+    *   On success, shows a message and reloads all transaction lists, updates balances, and button states.
+    *   **Validation:** Correctly implements the unmatch functionality.
+*   **`_on_save_reconciliation_clicked()` / `_perform_finalize_reconciliation()` (Lines 447-483):**
+    *   Modified to use `self._current_draft_reconciliation_id`.
+    *   Calls `self.app_core.bank_reconciliation_service.finalize_reconciliation` with necessary parameters.
+    *   On success, clears `_current_draft_reconciliation_id`, reloads current transactions, and refreshes history.
+    *   **Validation:** Correctly adapts the save logic to finalize the existing draft.
+*   **History Viewing Logic (Lines 486 onwards):** The diff shows no substantial changes to the history viewing methods themselves, indicating they are preserved.
+
+**Overall Diff Conclusion:**
+The `diff` correctly reflects the planned enhancements to `BankReconciliationWidget`. The widget now:
+1.  Manages a draft reconciliation session using `_current_draft_reconciliation_id`.
+2.  Persists provisional matches to the database when "Match Selected" is used.
+3.  Allows unmatching of these provisionally matched items.
+4.  Finalizes the current draft reconciliation when "Save Final Reconciliation" (renamed from "Save Reconciliation") is clicked.
+5.  The core UI structure for displaying unreconciled items, provisionally matched items (new), and reconciliation history is in place and logically connected.
+6.  The amount matching logic has been corrected.
+7.  No existing functionality appears to have been lost.
+
+The changes are valid and align with the goal of persisting matched states within a session. The application is now significantly more robust in its bank reconciliation workflow.
+
+---
+https://drive.google.com/file/d/1-vPle_bsfW5q1aXJ4JI9VB5cOYY3f7oU/view?usp=sharing, https://drive.google.com/file/d/13M2zztt62TD_vYJ_XLKtW4t2E53jIHl4/view?usp=sharing, https://drive.google.com/file/d/14hkYD6mD9rl8PpF-MsJD9nZAy-1sAr0T/view?usp=sharing, https://aistudio.google.com/app/prompts?state=%7B%22ids%22:%5B%2216tABsm1Plf_0fhtruoJyyxobBli3e8-7%22%5D,%22action%22:%22open%22,%22userId%22:%22108686197475781557359%22,%22resourceKeys%22:%7B%7D%7D&usp=sharing, https://drive.google.com/file/d/19ERvDxLdRedhVXYp9Gh0Xsg6tMIucGWO/view?usp=sharing, https://drive.google.com/file/d/19T9JbSrHCuXhHpzFMUh4Ti_0sDPDycSW/view?usp=sharing, https://drive.google.com/file/d/1D7GYodcMgZv3ROPPRJTYX0g9Rrsq8wJD/view?usp=sharing, https://drive.google.com/file/d/1EGOoM0TGqPgNBJzwxKdVO2u331Myhd4b/view?usp=sharing, https://drive.google.com/file/d/1Ivh39pjoqQ9z4_oj7w7hWc0zOje2-Xjb/view?usp=sharing, https://drive.google.com/file/d/1LzMu08SqY6E5ZuvISa4BsEHxatVPE9g_/view?usp=sharing, https://drive.google.com/file/d/1QyS0xlh6owfMif6KMlyXmE2Zx2hmcdza/view?usp=sharing, https://drive.google.com/file/d/1Y9orpJ67I0XwezEBeUhyJs03DdjkAMhH/view?usp=sharing, https://drive.google.com/file/d/1YG0Vqa2pI5htxdsACYigsS2TMjDHxTcl/view?usp=sharing, https://drive.google.com/file/d/1ZZODHjv2AX2Pn1cRh_0CJDTSzXRGjAt_/view?usp=sharing, https://drive.google.com/file/d/1_c8t-qcWtcVdVUEUkDQ760cjc0vL2Y9Z/view?usp=sharing, https://drive.google.com/file/d/1bSRRtsWeJI9djXTDZTZTjZxnsWS3cvsV/view?usp=sharing, https://drive.google.com/file/d/1cp5LuyXlsbaa_wFSiIMxRlBFSro8qhXq/view?usp=sharing, https://drive.google.com/file/d/1ghGjh0MtEZSDVftjVx583ocaaCDK2j9X/view?usp=sharing, https://drive.google.com/file/d/1mbj5C_Pqa-lbGFf4obvSnpdGm-ALui7y/view?usp=sharing, https://drive.google.com/file/d/1sYr8SFT1d9ZMDHLfxOS6VjtwJ3920sFT/view?usp=sharing, https://drive.google.com/file/d/1uKfTNXg8Oaes7aGaoaPB6klSZzywizh9/view?usp=sharing, https://drive.google.com/file/d/1vTPAoLcEetjBj17-5nTa_Z6RS7ND5Wmz/view?usp=sharing, https://drive.google.com/file/d/1xbA8X7irZHUayYcfOWWfi4oWm18hFDo2/view?usp=sharing
+
