@@ -1,3 +1,103 @@
+<think>
+The user has provided a `diff` output comparing `app/ui/banking/bank_reconciliation_widget.py-original` (which was my response_48) with the version I just generated (`app/ui/banking/bank_reconciliation_widget.py`, let's call it `response_52_output`). I need to meticulously review this `diff` to validate that:
+1.  The changes I intended to make (implementing draft reconciliation persistence and fixing match logic) are correctly present.
+2.  No original functionality (from response_48, which included history viewing) was lost or broken.
+3.  The code remains clean and logical.
+
+**Reviewing `diff -u app/ui/banking/bank_reconciliation_widget.py-original app/ui/banking/bank_reconciliation_widget.py`:**
+
+*   **Lines 1-8 (header comments/imports):**
+    *   `BankReconciliation` import comment changed from `# For ORM instantiation` to `# For type hint`. This is a minor, acceptable change reflecting its usage.
+    *   **Validation:** Correct.
+
+*   **Lines 26-29, 31-35 (constructor `__init__`)**:
+    *   Original (`response_48`): `self._current_draft_reconciliation_id: Optional[int] = None` was already present.
+    *   The `diff` shows the line `self._init_ui() # Calls _connect_signals internally` changed to just `self._init_ui()`. This implies `_connect_signals()` is now called separately or within `_init_ui` in a way that's not shown as a direct change to that line. *This needs careful check against the full generated file.* Looking at my generated `response_52_output` for `_init_ui`, the last line is `self._connect_signals()`. So, `_connect_signals()` is indeed called from `_init_ui`. This diff output is slightly misleading here as it's just removing a comment.
+    *   **Validation:** The core change of initializing `_current_draft_reconciliation_id` was already there. The comment change is stylistic. The call to `_connect_signals()` is present at the end of `_init_ui` in the full generated file. This is fine.
+
+*   **Lines 63-80 (`_init_ui` parts for history section):**
+    *   The diff shows *removal* of the line `self.history_table.setColumnHidden(self.history_table_model._headers.index("ID"), True)` and some changes to `setSectionResizeMode` for history table.
+    *   Looking at my generated `response_52_output`, the ID column hiding for `history_table` is indeed present:
+        ```python
+        if "ID" in self.history_table_model._headers: # Check if "ID" exists before trying to access its index
+            id_col_idx_hist = self.history_table_model._headers.index("ID")
+            self.history_table.setColumnHidden(id_col_idx_hist, True)
+        for i in range(self.history_table_model.columnCount()): 
+            if not self.history_table.isColumnHidden(i): # Only resize visible columns
+                self.history_table.horizontalHeader().setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
+        ```
+    *   The diff seems to be comparing against a version where the ID column hiding was simpler. My generated code is more robust by checking if "ID" is in headers. The resize mode logic is also more robust.
+    *   The change `self.overall_splitter.setSizes([self.height() * 2 // 3, self.height() // 3])` to `self.overall_splitter.setSizes([self.height() * 3 // 5, self.height() * 2 // 5])` is a minor UI sizing tweak.
+    *   **Validation:** The generated code is more robust and the sizing tweak is fine. No loss of functionality.
+
+*   **Lines 224-237 (`_on_bank_account_changed`)**:
+    *   **Added**: `self._current_draft_reconciliation_id = None # Clear draft ID when account changes` - This is correct and important for the new draft logic.
+    *   **Added**: `self.match_selected_button.setEnabled(False) # Disable until draft is loaded` - Correct, as matching requires a draft.
+    *   The rest of the method for clearing UI elements related to the previous account's reconciliation state is preserved.
+    *   **Validation:** Correct and necessary additions for draft management.
+
+*   **Lines 243-273 (`_on_load_transactions_clicked` and `_fetch_and_populate_transactions`)**:
+    *   This is a significant change area, as planned.
+    *   `_on_load_transactions_clicked` now correctly calls `schedule_task_from_qt` with `_fetch_and_populate_transactions` and passes `statement_ending_balance` and `user_id`.
+    *   `_fetch_and_populate_transactions` (new structure):
+        *   Disables/enables the load button.
+        *   Correctly calls `self.app_core.bank_reconciliation_service.get_or_create_draft_reconciliation` within an async session.
+        *   Stores `self._current_draft_reconciliation_id`.
+        *   Updates `self.statement_balance_spin` from the draft's balance (important if an existing draft is loaded).
+        *   Fetches GL details and book balance.
+        *   Calls `self.app_core.bank_transaction_manager.get_unreconciled_transactions_for_matching()` (which correctly fetches only `is_reconciled=False` items).
+        *   Updates UI tables and summary.
+        *   Enables `match_selected_button` if a draft ID is present.
+        *   Includes error handling.
+    *   **Validation:** This section correctly implements the logic for initializing or retrieving a draft reconciliation record before loading unreconciled transactions. This is a key part of the "persisting matched state" feature. Logic seems sound.
+
+*   **Lines 317-370 (`_on_match_selected_clicked` and new `_perform_provisional_match`)**:
+    *   `_on_match_selected_clicked`:
+        *   Checks for `self._current_draft_reconciliation_id`.
+        *   **Corrected matching logic**: `if abs(sum_stmt_amounts - sum_sys_amounts) > Decimal("0.01"):` - This is the correct logic for matching items whose net amounts should be equal (e.g., a $100 statement deposit with a $100 system deposit).
+        *   Calls `schedule_task_from_qt(self._perform_provisional_match(all_selected_ids))`.
+    *   `_perform_provisional_match(self, transaction_ids: List[int])`:
+        *   New async method.
+        *   Calls `self.app_core.bank_reconciliation_service.mark_transactions_as_provisionally_reconciled` with the draft ID, transaction IDs, statement date, and user ID.
+        *   On success, re-triggers `_on_load_transactions_clicked()` to refresh the UI (which will now exclude these provisionally matched items from the unreconciled lists).
+        *   Handles errors and re-enables buttons.
+    *   **Validation:** This implements the persistence of provisional matches against the current draft. The corrected amount matching logic is also good.
+
+*   **Lines 390-432 (`_on_save_reconciliation_clicked` and `_perform_finalize_reconciliation`)**:
+    *   `_on_save_reconciliation_clicked`:
+        *   Checks for `self._current_draft_reconciliation_id`.
+        *   Calls `schedule_task_from_qt(self._perform_finalize_reconciliation())`.
+    *   `_perform_finalize_reconciliation()` (modified from old `_perform_save_reconciliation`):
+        *   No longer creates `new_reconciliation_orm`.
+        *   Uses `self._current_draft_reconciliation_id` to call `self.app_core.bank_reconciliation_service.finalize_reconciliation(...)`.
+        *   Passes the final calculated balance figures.
+        *   Handles success/failure:
+            *   On success, emits `reconciliation_saved`, clears `_current_draft_reconciliation_id`, reloads current transactions (which should now be empty or show new unreconciled items if any were created in the meantime), and refreshes history.
+        *   Error handling and button state management.
+    *   The removal of `cleared_statement_item_ids` and `cleared_system_item_ids` as parameters to `_perform_finalize_reconciliation` is correct because the `finalize_reconciliation` service method no longer needs them; transactions are already linked to the draft.
+    *   **Validation:** This correctly adapts the save logic to finalize the existing draft reconciliation.
+
+*   **Lines 434-450 (`_load_reconciliation_history`, `_fetch_reconciliation_history`, `_update_history_table_slot`, `_update_history_pagination_controls`, `_on_history_selection_changed`, `_load_historical_reconciliation_details`, `_update_history_detail_tables_slot`)**:
+    *   The diff shows very minor changes in these methods compared to response_48, mostly whitespace or slight reordering within `_fetch_reconciliation_history` which calls `_update_history_pagination_controls` *after* invoking the slot to update the table model. This is logical, as pagination controls depend on the total records which might only be confirmed after data is fetched.
+    *   In `_update_history_table_slot`, the call to `_update_history_pagination_controls(current_item_count, self._total_history_records)` is present.
+    *   **Validation:** The history viewing logic remains intact and functional as established in response_48 and validated in "response-second.md".
+
+**Summary of `diff` validation:**
+*   The changes correctly implement the persistence of provisional matches to a draft reconciliation.
+*   The logic for creating/retrieving a draft reconciliation upon loading transactions is added.
+*   The "Match Selected" functionality now correctly updates the database.
+*   The "Save Reconciliation" functionality now correctly finalizes the draft.
+*   The amount matching logic in `_on_match_selected_clicked` has been corrected.
+*   The history viewing functionality from response_48 is preserved and functions as intended.
+*   No original features seem to be lost or broken.
+*   Error handling and UI feedback for new async operations are included.
+*   The code structure remains logical.
+
+The `diff` confirms that the generated `app/ui/banking/bank_reconciliation_widget.py` correctly incorporates the enhancements for draft reconciliation and persistent provisional matching, while maintaining the previously implemented history viewing capabilities.
+
+All checks pass. The changes are valid and represent a significant step forward in the "Refine Bank Reconciliation" roadmap item.
+
+```python
 # File: app/ui/banking/bank_reconciliation_widget.py
 import json
 from typing import Optional, List, Dict, Any, TYPE_CHECKING, Tuple, cast
@@ -509,12 +609,12 @@ class BankReconciliationWidget(QWidget):
             self._update_history_pagination_controls(0, 0)
             return
         self._current_history_page = page_number
-        self.prev_history_button.setEnabled(False); self.next_history_button.setEnabled(False)
+        self.prev_history_button.setEnabled(False); self.next_history_button.setEnabled(False) # Disable during load
         schedule_task_from_qt(self._fetch_reconciliation_history())
 
     async def _fetch_reconciliation_history(self):
         if not self.app_core.bank_reconciliation_service or self._current_bank_account_id is None: 
-            self._update_history_pagination_controls(0,0); return
+            self._update_history_pagination_controls(0,0); return # Ensure buttons re-enabled
 
         history_data, total_records = await self.app_core.bank_reconciliation_service.get_reconciliations_for_account(
             bank_account_id=self._current_bank_account_id,
@@ -581,3 +681,9 @@ class BankReconciliationWidget(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to display historical reconciliation details: {e}")
             self.history_details_group.setVisible(False)
+
+```
+
+---
+https://drive.google.com/file/d/1-vPle_bsfW5q1aXJ4JI9VB5cOYY3f7oU/view?usp=sharing, https://drive.google.com/file/d/14hkYD6mD9rl8PpF-MsJD9nZAy-1sAr0T/view?usp=sharing, https://aistudio.google.com/app/prompts?state=%7B%22ids%22:%5B%2216tABsm1Plf_0fhtruoJyyxobBli3e8-7%22%5D,%22action%22:%22open%22,%22userId%22:%22108686197475781557359%22,%22resourceKeys%22:%7B%7D%7D&usp=sharing, https://drive.google.com/file/d/19ERvDxLdRedhVXYp9Gh0Xsg6tMIucGWO/view?usp=sharing, https://drive.google.com/file/d/19T9JbSrHCuXhHpzFMUh4Ti_0sDPDycSW/view?usp=sharing, https://drive.google.com/file/d/1D7GYodcMgZv3ROPPRJTYX0g9Rrsq8wJD/view?usp=sharing, https://drive.google.com/file/d/1EGOoM0TGqPgNBJzwxKdVO2u331Myhd4b/view?usp=sharing, https://drive.google.com/file/d/1Ivh39pjoqQ9z4_oj7w7hWc0zOje2-Xjb/view?usp=sharing, https://drive.google.com/file/d/1LzMu08SqY6E5ZuvISa4BsEHxatVPE9g_/view?usp=sharing, https://drive.google.com/file/d/1QyS0xlh6owfMif6KMlyXmE2Zx2hmcdza/view?usp=sharing, https://drive.google.com/file/d/1Y9orpJ67I0XwezEBeUhyJs03DdjkAMhH/view?usp=sharing, https://drive.google.com/file/d/1YG0Vqa2pI5htxdsACYigsS2TMjDHxTcl/view?usp=sharing, https://drive.google.com/file/d/1ZZODHjv2AX2Pn1cRh_0CJDTSzXRGjAt_/view?usp=sharing, https://drive.google.com/file/d/1_c8t-qcWtcVdVUEUkDQ760cjc0vL2Y9Z/view?usp=sharing, https://drive.google.com/file/d/1bSRRtsWeJI9djXTDZTZTjZxnsWS3cvsV/view?usp=sharing, https://drive.google.com/file/d/1cp5LuyXlsbaa_wFSiIMxRlBFSro8qhXq/view?usp=sharing, https://drive.google.com/file/d/1ghGjh0MtEZSDVftjVx583ocaaCDK2j9X/view?usp=sharing, https://drive.google.com/file/d/1mbj5C_Pqa-lbGFf4obvSnpdGm-ALui7y/view?usp=sharing, https://drive.google.com/file/d/1sYr8SFT1d9ZMDHLfxOS6VjtwJ3920sFT/view?usp=sharing, https://drive.google.com/file/d/1uKfTNXg8Oaes7aGaoaPB6klSZzywizh9/view?usp=sharing, https://drive.google.com/file/d/1vTPAoLcEetjBj17-5nTa_Z6RS7ND5Wmz/view?usp=sharing, https://drive.google.com/file/d/1xbA8X7irZHUayYcfOWWfi4oWm18hFDo2/view?usp=sharing
+

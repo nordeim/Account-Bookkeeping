@@ -1,3 +1,94 @@
+Okay, I have thoroughly reviewed the three provided "recent_code_change_response" files (first, second, third).
+
+*   **`recent_code_change_response-first.md`**: This details my thought process and implementation for **Phase 1: Backend for Reconciliation History Viewing**. It involved:
+    *   Adding `BankReconciliationSummaryData` DTO.
+    *   Updating `IBankReconciliationRepository` interface.
+    *   Implementing `get_reconciliations_for_account` (with 'Finalized' filter) and `get_transactions_for_reconciliation` in `BankReconciliationService`.
+    The validation section at the end confirmed these changes were correctly implemented.
+
+*   **`recent_code_change_response-second.md`**: This details my thought process and the presentation of the **Phase 2: UI Enhancements for Reconciliation History** which was the full `BankReconciliationWidget` code.
+    *   It confirms that the `BankReconciliationWidget` (largely from response_48) was already well-structured to consume the history viewing services.
+    *   The validation section at the end confirmed the UI wiring for history display was complete and correct based on the provided file (`app/ui/banking/bank_reconciliation_widget.py` from response_48 being the complete one).
+
+*   **`recent_code_change_response-third.md`**: This details my thought process and implementation for **Phase 1 (Backend) of Persisting "Matched" State within a Reconciliation Session (Draft Reconciliations)**. This involved:
+    *   Updating `IBankReconciliationRepository` with `get_or_create_draft_reconciliation`, `mark_transactions_as_provisionally_reconciled`, `finalize_reconciliation`, and `unreconcile_transactions`.
+    *   Implementing these methods in `BankReconciliationService`.
+    *   The validation at the end confirmed these service-level changes were correct.
+
+**Current State after reviewing these responses:**
+
+1.  The backend service layer (`BankReconciliationService`) is now equipped to:
+    *   Create or retrieve "Draft" `BankReconciliation` records.
+    *   Mark transactions as provisionally reconciled against a draft reconciliation.
+    *   Finalize a draft reconciliation (changing its status to "Finalized" and updating bank account last reconciled details).
+    *   Fetch finalized reconciliation history.
+    *   Fetch transactions associated with a specific (historical) reconciliation.
+2.  The `BankReconciliationWidget` has the UI elements for history viewing and the logic to populate them.
+3.  The crucial **missing piece** is the UI logic in `BankReconciliationWidget` to utilize the new service methods for managing *draft reconciliations* and *persisting provisional matches*.
+
+**Next Step: Enhance `BankReconciliationWidget` to support Draft Reconciliations and Persistent Provisional Matching (UI Layer Changes for response-third's backend work).**
+
+This directly addresses the roadmap item: **"Refine Bank Reconciliation"** -> sub-item **(d) Persisting "matched" state within a reconciliation session before final save.**
+
+**1. Deeply Understand Requirements:**
+*   When a bank account and statement date are selected and "Load / Refresh Transactions" is clicked:
+    *   The widget must call `BankReconciliationService.get_or_create_draft_reconciliation`.
+    *   The ID of this draft reconciliation (`self._current_draft_reconciliation_id`) must be stored.
+    *   The statement ending balance from the UI should be used when creating/retrieving the draft.
+*   When the user clicks "Match Selected" in `BankReconciliationWidget`:
+    *   The current matching logic (sum of statement items vs. sum of system items) needs to be re-verified. Based on previous analysis, it should check if `abs(sum_stmt_items_amounts - sum_sys_items_amounts) < tolerance`.
+    *   If a valid match is found, the widget must call `BankReconciliationService.mark_transactions_as_provisionally_reconciled` with `self._current_draft_reconciliation_id` and the IDs of the selected transactions.
+    *   After a successful provisional match, the unreconciled transaction lists in the UI should be reloaded (they will naturally exclude the now-reconciled items).
+*   When the user clicks "Save Reconciliation":
+    *   The widget must call `BankReconciliationService.finalize_reconciliation` with `self._current_draft_reconciliation_id` and the final reconciliation figures.
+*   The "Add Journal Entry" flow for unmatched statement items remains largely the same, but after the JE and its corresponding system `BankTransaction` are created, that new system `BankTransaction` should then be immediately available for provisional matching against the original statement item within the current draft session.
+
+**2. Systematic Diagnosis & Design Considerations for `BankReconciliationWidget`:**
+
+*   **State Management**:
+    *   `self._current_draft_reconciliation_id: Optional[int]` needs to be consistently managed.
+*   **Loading Transactions (`_fetch_and_populate_transactions`)**:
+    *   This method will now first call `get_or_create_draft_reconciliation`.
+    *   The logic for fetching *unreconciled* transactions (`BankTransactionManager.get_unreconciled_transactions_for_matching`) should remain focused on fetching `is_reconciled = False` items. Items provisionally matched to the *current draft* will have `is_reconciled = True` and `reconciled_bank_reconciliation_id = self._current_draft_reconciliation_id`, so they will correctly not appear in the "unreconciled" lists.
+*   **Matching Logic (`_on_match_selected_clicked`)**:
+    *   **Crucial Correction**: The current logic `abs(sum_stmt + sum_sys) < Decimal("0.01")` is likely incorrect for matching a statement deposit to a system deposit (or withdrawal to withdrawal). It implies one is positive and one is negative. For like-for-like matching (e.g., a $100 deposit on statement matches a $100 deposit in system), the check should be `abs(sum_stmt_amounts - sum_sys_amounts) < Decimal("0.01")`. I will proceed with this corrected logic.
+    *   After local validation, this method will call a new async method `_perform_provisional_match`.
+*   **Saving Logic (`_perform_save_reconciliation`)**:
+    *   This method already exists. It will now take `self._current_draft_reconciliation_id` and call `finalize_reconciliation` instead of building a new ORM object from scratch and calling the old `save_reconciliation_details`.
+
+**3. Detailed Execution Plan:**
+
+1.  **Modify `BankReconciliationWidget` (`app/ui/banking/bank_reconciliation_widget.py`)**:
+    *   **`_on_load_transactions_clicked()` / `_fetch_and_populate_transactions()`**:
+        *   Before fetching unreconciled transactions, call `self.app_core.bank_reconciliation_service.get_or_create_draft_reconciliation(...)`.
+            *   Pass `bank_account_id`, `statement_date`, `statement_ending_balance` (from UI), and `user_id`.
+            *   Store the returned `reconciliation.id` in `self._current_draft_reconciliation_id`.
+            *   Handle potential errors from this service call.
+        *   The subsequent call to `self.app_core.bank_transaction_manager.get_unreconciled_transactions_for_matching()` remains to fetch items where `is_reconciled = False`.
+    *   **`_on_match_selected_clicked()`**:
+        *   **Correct the sum comparison**: Change `if abs(sum_stmt + sum_sys) < Decimal("0.01"):` to `if abs(sum_stmt_amounts - sum_sys_amounts) < Decimal("0.01"):`.
+        *   If amounts match, instead of just `uncheck_items_by_id`, collect the IDs of all selected statement items and system items.
+        *   Call `schedule_task_from_qt(self._perform_provisional_match(all_selected_ids))`.
+    *   **New async method `_perform_provisional_match(self, transaction_ids: List[int])`**:
+        *   Check if `self._current_draft_reconciliation_id` is set. If not, show error.
+        *   Call `self.app_core.bank_reconciliation_service.mark_transactions_as_provisionally_reconciled(draft_reconciliation_id=self._current_draft_reconciliation_id, transaction_ids=transaction_ids, statement_date=self.statement_date_edit.date().toPython(), user_id=self.app_core.current_user.id)`.
+        *   On success: Log, optionally show a transient message, and trigger `self._on_load_transactions_clicked()` to refresh the unreconciled lists.
+        *   On failure: Show error message.
+    *   **Modify `_on_save_reconciliation_clicked()` / `_perform_save_reconciliation()`**:
+        *   Instead of creating a new `BankReconciliation` ORM object, this method will now use `self._current_draft_reconciliation_id`.
+        *   It will call `self.app_core.bank_reconciliation_service.finalize_reconciliation()` passing the `draft_reconciliation_id`, and the final calculated figures (`statement_ending_balance`, `calculated_book_balance`, `reconciled_difference`), and `user_id`.
+        *   The service method will handle updating the draft reconciliation's status to "Finalized" and updating the bank account.
+        *   Remove the manual creation of `new_reconciliation_orm` and the call to the old `save_reconciliation_details`.
+    *   **Initialization**: `self._current_draft_reconciliation_id` should be initialized to `None`.
+    *   **`_on_bank_account_changed()`**: When the bank account or statement date changes significantly, any existing `_current_draft_reconciliation_id` should probably be cleared, forcing a new `get_or_create_draft_reconciliation` call when "Load Transactions" is next clicked.
+    *   **Ensure error handling** for all new service calls.
+    *   **Disable "Match Selected" button** if `_current_draft_reconciliation_id` is not set (i.e., initial load failed).
+
+This set of changes will make the matching process persistent within a draft session.
+
+I will now generate the updated `app/ui/banking/bank_reconciliation_widget.py` file incorporating these changes. All other files from the previous responses remain valid for this step.
+
+```python
 # File: app/ui/banking/bank_reconciliation_widget.py
 import json
 from typing import Optional, List, Dict, Any, TYPE_CHECKING, Tuple, cast
@@ -581,3 +672,6 @@ class BankReconciliationWidget(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to display historical reconciliation details: {e}")
             self.history_details_group.setVisible(False)
+
+```
+
