@@ -50,3 +50,14 @@ Attached `TDS (final draft version).md` is incomplete with missing sections. Ple
 
 Make sure your final version is a complete one that is self-contained without reference to any other documents. Meaning you are to incorporate relevant missing sections from the older versions shared. I want you to do that because I am going to keep one final version which is the one you are going to create for me.
 
+---
+excellent understanding! now help me to carefully review my codebase line by line to gain a complete and deep understanding of the project's goals and current state and structure. then help me to create a detailed `Project Architecture Document.md` in markdown format. make sure the document accurately describes the codebase accurately and in detail, use a clear diagram to show the codebase relationship.
+
+---
+Attached `README (final draft to be updated using details from the earlier versions).md` is incomplete with missing sections. Please create a *complete* updated *replacement* version for it by filling in relevant details from older versions, `README (original version).md` and `README (update version).md`. Also include additional details to describe recent code changes in the codebase shared earlier since the final version was drafted. There are also recent addition of tests code files which are enclosed in the `project_codebase_tests_files.md` file attached here. Carefully review the included tests files and update your *complete* updated *replacement* version of `README.md`.
+
+Make sure your final version is a complete one that is self-contained without reference to any other documents. Meaning you are to incorporate relevant missing sections from the older versions shared. I want you to do that because I am going to keep one final version which is the one you are going to create for me.
+
+---
+Attached are the output responses of recent code generation requests. please carefully review and validate these responses, then use similar thought process, and the same rigor and methodology to plan and execute the remaining steps for enhancing the "Bank Reconciliations" feature. 
+

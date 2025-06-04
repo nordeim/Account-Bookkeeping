@@ -1,3 +1,137 @@
+<think>
+The user wants two main things:
+1.  A "Project Architecture Document.md" based on a line-by-line review of the provided codebase snippets.
+2.  An updated and complete "README.md" by merging a "final draft" with two older versions and incorporating details about recent code changes (including new test files).
+
+I'll address the README update first as it's the direct follow-up to the previous turn, and then tackle the architecture document.
+
+**Part 1: Updating `README.md`**
+
+**Goal:** Create a single, complete, and up-to-date `README.md`.
+
+**Inputs:**
+*   `README (final draft to be updated using details from the earlier versions).md` (let's call this `README_DRAFT`)
+*   `README (original).md` (let's call this `README_V12_EQUIVALENT`) - seems to be v12.0 from its feature list.
+*   `README (update version).md` (let's call this `README_V13_BANK_REC_UPDATE`) - details banking v1.0.4 features.
+*   The codebase snippets provided (`project_codebase_files_set-*.md`) to infer recent changes *beyond* what's in `README_DRAFT`.
+*   `project_codebase_tests_files.md` for updating the "Testing" section.
+
+**Strategy for README Merge & Update:**
+
+1.  **Base Document:** Use `README_DRAFT.md` as the primary structure. It seems to be the most recent attempt by the user and already incorporates some v1.0.4 features.
+2.  **Feature List (`Key Features` section):**
+    *   Compare the feature lists in all three READMEs.
+    *   `README_DRAFT` already has a good combined list including Banking v1.0.4 and Dashboard KPIs.
+    *   Cross-reference with `README_ORIGINAL` (v12) to ensure no older, still relevant features were accidentally dropped from the "Key Features" section in `README_DRAFT`. For example, `README_ORIGINAL` is more explicit about "Full CRUD and listing UI" for various master data, "WAC inventory JE", "advanced product search", "Journal Type filter", "Dimension filtering for GL", "comparative/zero-balance for BS/P&L". I should integrate these descriptive details.
+    *   Update feature status (Implemented, UI Implemented, etc.) if implied by recent code changes.
+    *   Specifically, make sure the "Key Features" section of the final README reflects all functionalities mentioned as "Implemented" or "UI Implemented" or "Backend Implemented" across all sources, especially noting recent additions like the full Bank Reconciliation module details and Dashboard KPIs.
+
+3.  **Overview / Why SG Bookkeeper?**:
+    *   These sections in `README_DRAFT` look good. I'll ensure they encompass the latest additions mentioned in `README_V13_BANK_REC_UPDATE` like "CSV bank statement import, a full Bank Reconciliation module, Dashboard KPIs".
+
+4.  **Technology Stack**:
+    *   `README_DRAFT` seems up-to-date based on `pyproject.toml`. I'll verify.
+
+5.  **Installation**:
+    *   `README_DRAFT` notes that this section is largely the same as a previous response (response_43) and mentions schema v1.0.4 or later. The `README_ORIGINAL` has a detailed installation guide. `README_V13_BANK_REC_UPDATE` also references schema v1.0.4.
+    *   I will integrate the detailed installation steps from `README_ORIGINAL`, ensuring any version-specific notes (like schema version) are updated to reflect the latest state (v1.0.5 based on my previous turn's schema update).
+
+6.  **Usage Guide**:
+    *   `README_DRAFT` has an updated Usage Guide reflecting Bank Rec and Dashboard. I'll ensure this is comprehensive and clear.
+    *   Compare with `README_ORIGINAL` for any general usage points that might be relevant to add.
+
+7.  **Project Structure**:
+    *   `README_DRAFT` has a structure. `README_ORIGINAL` also has one.
+    *   I will use the latest project structure derived from `currect_project_file_structure.txt` provided by the user in this turn, specifically updating the `tests/` subdirectory structure.
+
+8.  **Database Schema**:
+    *   `README_DRAFT` mentions schema v1.0.4+ and key additions. I'll update this to mention v1.0.5 and summarize the key changes from 1.0.3 to 1.0.5 based on my previous work.
+
+9.  **Testing Section**:
+    *   This is a key update area. `README_DRAFT` mentions "Unit tests established for `TaxCalculator`, key Pydantic DTOs, `SequenceGenerator`, and several core/accounting services."
+    *   The `project_codebase_tests_files.md` provides the actual test files:
+        *   `tests/unit/tax/test_tax_calculator.py`
+        *   `tests/unit/utils/test_pydantic_models_journal_entry.py`
+        *   `tests/unit/utils/test_sequence_generator.py`
+        *   `tests/unit/services/test_currency_service.py`
+        *   `tests/unit/services/test_company_settings_service.py`
+        *   `tests/unit/services/test_exchange_rate_service.py`
+        *   `tests/unit/services/test_fiscal_period_service.py`
+        *   `tests/unit/services/test_configuration_service.py`
+        *   `tests/unit/services/test_account_type_service.py`
+        *   `tests/unit/services/test_dimension_service.py`
+        *   `tests/unit/services/test_bank_reconciliation_service.py` (This is new and important!)
+        *   `tests/unit/services/test_sequence_service.py` (This is different from `test_sequence_generator.py`. It might be a typo or a different test. The content is for `SequenceService`.)
+        *   `tests/unit/services/test_fiscal_year_service.py`
+    *   I need to list these specific test areas in the README's "Testing" section.
+
+10. **Roadmap**:
+    *   `README_DRAFT` has a good "Recently Completed" section. I will ensure it aligns with the final feature set for v1.0.5 (including `BankReconciliation.status` and related service updates).
+    *   The "Current Focus / Next Steps" and "Long-term" sections seem reasonable.
+
+11. **General Review**: Ensure all badges, links (placeholders for now), and sections are consistent and reflect the latest state. The overall tone and content from `README_DRAFT` are good.
+
+**Specific changes to incorporate from code into README:**
+*   The `app/models/__init__.py` shows `BankReconciliation` is now part of the models.
+*   `app/models/business/bank_account.py` has `reconciliations` relationship.
+*   `app/models/business/bank_transaction.py` has `reconciliation_instance` relationship.
+*   `app/models/business/bank_reconciliation.py` now has `status` field and `CheckConstraint`.
+*   `app/accounting/journal_entry_manager.py` has `BankTransaction` auto-creation.
+*   `app/services/__init__.py` includes `BankReconciliationService` and its interface.
+*   `app/services/business_services.py` implements `BankReconciliationService` with methods like `get_or_create_draft_reconciliation`, `mark_transactions_as_provisionally_reconciled`, `finalize_reconciliation`. The previous `save_reconciliation_details` seems to have evolved into these more granular methods.
+*   UI files for banking and reconciliation were updated, especially `BankReconciliationWidget`.
+*   `DashboardManager` and `DashboardWidget` are implemented.
+*   `ReportingEngine` now explicitly handles `gst_excel_detail`.
+
+These points are mostly already covered by `README_DRAFT`'s feature list and roadmap, but I'll double-check the wording for accuracy and completeness, especially in "Key Features" and "Recently Completed".
+
+**Plan for README file generation:**
+1.  Start with the content of `README (final draft to be updated using details from the earlier versions).md`.
+2.  Merge the detailed "Installation" section from `README (original).md`, updating schema version references to 1.0.5.
+3.  Review "Key Features":
+    *   Ensure all relevant details from `README (original).md` (like UI specifics) are incorporated.
+    *   Verify bank reconciliation and dashboard features are well-described.
+    *   Update status of "Automated Testing" to reflect the new test files.
+4.  Update "Database Schema" section to reflect v1.0.5 state.
+5.  Update "Project Structure" based on `currect_project_file_structure.txt`, especially the `tests/` subdirectory.
+6.  Update "Testing" section to list the specific unit tests from `project_codebase_tests_files.md`.
+7.  Review "Roadmap" to ensure "Recently Completed" accurately reflects the state up to schema v1.0.5 and the latest code changes.
+8.  Perform a final pass for consistency and completeness.
+
+**Part 2: Creating `Project Architecture Document.md`**
+
+This is the main request of the current turn. I will use the detailed plan I formulated in the previous `<think>` block.
+
+**Key steps for Architecture Document:**
+1.  **Deep Code Review**: I've already mentally processed the provided files.
+2.  **Structure Definition**: Use the 16-point structure I outlined previously.
+3.  **Content Generation**:
+    *   **Introduction, System Overview**: Synthesize from READMEs and code understanding.
+    *   **Architectural Goals**: Infer from design choices.
+    *   **High-Level Architecture**: Diagram and layer descriptions.
+    *   **Detailed Component Architecture**: This will be the largest section, detailing `app/core`, `app/models`, `app/services`, managers (`app/business_logic`, etc.), `app/ui`, `app/utils`, `app/common`. I'll draw heavily from the file structure and the content of `__init__.py` files for listing components, and from individual Python files for their roles and interactions. `ApplicationCore` is key here.
+    *   **Data Architecture**: PostgreSQL, schema layout, ORM, DTOs, integrity.
+    *   **Key Technologies**: From `pyproject.toml`.
+    *   **Design Patterns**: List identified patterns.
+    *   **Asynchronous Model**: Explain the `threading` + `asyncio` approach.
+    *   **Configuration, Security, Deployment, Resources**: Summarize from relevant files.
+    *   **Data Flow Examples**: Create brief text-based flows for 1-2 key operations.
+    *   **Project Structure**: Briefly describe based on `currect_project_file_structure.txt`.
+
+The architecture document will be generated *after* I provide the updated README.md, as per the user's flow ("...then help me to create a detailed `Project Architecture Document.md`...").
+
+I will start by providing the updated `README.md` first.
+
+------------------------------------------------------------------------------------------------------------------------------------------------
+I have completed the codebase review for the purpose of generating the Project Architecture Document. This review has given me a comprehensive understanding of the project's goals, its current state of implementation, and its overall structure.
+
+I am now ready to create the detailed `Project Architecture Document.md`. This document will accurately describe the codebase as presented in the provided files, including its layered design, key components and their responsibilities, data architecture, core technologies, and design patterns employed. It will also feature a clear diagram to illustrate the relationships between the main architectural components.
+
+Before I provide that, as per your instructions, here is the *complete* updated *replacement* version of `README.md`. I have merged the "final draft" with the older versions (`README (original).md` and `README (update version).md`), incorporated details about the recent code changes inferred from the snippets (especially regarding testing, dashboard, and bank reconciliation refinements), and updated the testing section based on `project_codebase_tests_files.md`.
+
+---
+
+```markdown
 # SG Bookkeeper
 
 <div align="center">
@@ -631,7 +765,7 @@ The main directories include:
 *   `tests/`: Automated tests, organized into `unit/`, `integration/`, `ui/`.
 
 This architecture provides a solid foundation for the SG Bookkeeper application, balancing separation of concerns with the practical needs of a desktop application.
+```
 
 ---
 https://drive.google.com/file/d/1-vPle_bsfW5q1aXJ4JI9VB5cOYY3f7oU/view?usp=sharing, https://drive.google.com/file/d/14hkYD6mD9rl8PpF-MsJD9nZAy-1sAr0T/view?usp=sharing, https://aistudio.google.com/app/prompts?state=%7B%22ids%22:%5B%2216tABsm1Plf_0fhtruoJyyxobBli3e8-7%22%5D,%22action%22:%22open%22,%22userId%22:%22108686197475781557359%22,%22resourceKeys%22:%7B%7D%7D&usp=sharing, https://drive.google.com/file/d/19T9JbSrHCuXhHpzFMUh4Ti_0sDPDycSW/view?usp=sharing, https://drive.google.com/file/d/1D7GYodcMgZv3ROPPRJTYX0g9Rrsq8wJD/view?usp=sharing, https://drive.google.com/file/d/1EGOoM0TGqPgNBJzwxKdVO2u331Myhd4b/view?usp=sharing, https://drive.google.com/file/d/1Ivh39pjoqQ9z4_oj7w7hWc0zOje2-Xjb/view?usp=sharing, https://drive.google.com/file/d/1LzMu08SqY6E5ZuvISa4BsEHxatVPE9g_/view?usp=sharing, https://drive.google.com/file/d/1QyS0xlh6owfMif6KMlyXmE2Zx2hmcdza/view?usp=sharing, https://drive.google.com/file/d/1Y9orpJ67I0XwezEBeUhyJs03DdjkAMhH/view?usp=sharing, https://drive.google.com/file/d/1ZZODHjv2AX2Pn1cRh_0CJDTSzXRGjAt_/view?usp=sharing, https://drive.google.com/file/d/1bSRRtsWeJI9djXTDZTZTjZxnsWS3cvsV/view?usp=sharing, https://drive.google.com/file/d/1cp5LuyXlsbaa_wFSiIMxRlBFSro8qhXq/view?usp=sharing, https://drive.google.com/file/d/1ghGjh0MtEZSDVftjVx583ocaaCDK2j9X/view?usp=sharing, https://drive.google.com/file/d/1mbj5C_Pqa-lbGFf4obvSnpdGm-ALui7y/view?usp=sharing, https://drive.google.com/file/d/1uKfTNXg8Oaes7aGaoaPB6klSZzywizh9/view?usp=sharing, https://drive.google.com/file/d/1vTPAoLcEetjBj17-5nTa_Z6RS7ND5Wmz/view?usp=sharing, https://drive.google.com/file/d/1xbA8X7irZHUayYcfOWWfi4oWm18hFDo2/view?usp=sharing
-
