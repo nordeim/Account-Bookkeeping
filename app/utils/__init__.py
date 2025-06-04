@@ -6,7 +6,7 @@ from .pydantic_models import (
     AppBaseModel, UserAuditData, 
     AccountBaseData, AccountCreateData, AccountUpdateData,
     JournalEntryLineData, JournalEntryData,
-    GSTReturnData, TaxCalculationResultData, GSTTransactionLineDetail, # Added GSTTransactionLineDetail
+    GSTReturnData, TaxCalculationResultData, GSTTransactionLineDetail,
     TransactionLineTaxData, TransactionTaxData,
     AccountValidationResult, AccountValidator, CompanySettingData,
     FiscalYearCreateData, FiscalYearData, FiscalPeriodData,
@@ -22,7 +22,8 @@ from .pydantic_models import (
     PaymentAllocationBaseData, PaymentBaseData, PaymentCreateData, PaymentSummaryData,
     AuditLogEntryData, DataChangeHistoryEntryData,
     BankReconciliationBaseData, BankReconciliationCreateData, BankReconciliationData,
-    DashboardKPIData # New DTO
+    BankReconciliationSummaryData, # New DTO export
+    DashboardKPIData
 )
 from .result import Result
 from .sequence_generator import SequenceGenerator
@@ -50,6 +51,7 @@ __all__ = [
     "PaymentAllocationBaseData", "PaymentBaseData", "PaymentCreateData", "PaymentSummaryData",
     "AuditLogEntryData", "DataChangeHistoryEntryData",
     "BankReconciliationBaseData", "BankReconciliationCreateData", "BankReconciliationData",
-    "DashboardKPIData", # New DTO Export
+    "BankReconciliationSummaryData", # New DTO export
+    "DashboardKPIData",
     "Result", "SequenceGenerator", "is_valid_uen"
 ]

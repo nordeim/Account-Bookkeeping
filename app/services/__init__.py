@@ -55,6 +55,7 @@ from app.utils.pydantic_models import (
     BankAccountSummaryData, BankTransactionSummaryData,
     PaymentSummaryData,
     AuditLogEntryData, DataChangeHistoryEntryData, BankReconciliationData,
+    BankReconciliationSummaryData, # New DTO Import
     DashboardKPIData
 )
 from app.common.enums import ( 
@@ -179,7 +180,7 @@ class ICustomerRepository(IRepository[Customer, int]):
                              ) -> List[CustomerSummaryData]: pass
     @abstractmethod
     async def get_total_outstanding_balance(self) -> Decimal: pass
-    @abstractmethod # New method for Dashboard KPI
+    @abstractmethod 
     async def get_total_overdue_balance(self) -> Decimal: pass
 
 
@@ -193,7 +194,7 @@ class IVendorRepository(IRepository[Vendor, int]):
                              ) -> List[VendorSummaryData]: pass
     @abstractmethod
     async def get_total_outstanding_balance(self) -> Decimal: pass
-    @abstractmethod # New method for Dashboard KPI
+    @abstractmethod 
     async def get_total_overdue_balance(self) -> Decimal: pass
 
 class IProductRepository(IRepository[Product, int]): 
@@ -315,6 +316,19 @@ class IBankReconciliationRepository(IRepository[BankReconciliation, int]):
         statement_ending_balance: Decimal,
         session: AsyncSession 
     ) -> BankReconciliation: pass
+    @abstractmethod # New method for history
+    async def get_reconciliations_for_account(
+        self, 
+        bank_account_id: int, 
+        page: int = 1, 
+        page_size: int = 20
+    ) -> Tuple[List[BankReconciliationSummaryData], int]: pass
+    @abstractmethod # New method for history details
+    async def get_transactions_for_reconciliation(
+        self, 
+        reconciliation_id: int
+    ) -> Tuple[List[BankTransactionSummaryData], List[BankTransactionSummaryData]]: pass
+
 
 from .account_service import AccountService
 from .journal_service import JournalService
