@@ -6,7 +6,7 @@ from PySide6.QtCore import Qt, Slot, QTimer, QMetaObject, Q_ARG
 from PySide6.QtGui import QFont, QIcon
 from typing import Optional, TYPE_CHECKING
 from decimal import Decimal
-import json # For loading string back to dict if model_validate_json isn't used for string directly
+import json 
 
 from app.utils.pydantic_models import DashboardKPIData
 from app.main import schedule_task_from_qt
@@ -86,7 +86,11 @@ class DashboardWidget(QWidget):
         current_row += 1
         self.ar_value_label = add_kpi_row(kpi_layout, current_row, "Total Outstanding Accounts Receivable:")
         current_row += 1
+        self.ar_overdue_value_label = add_kpi_row(kpi_layout, current_row, "Total AR Overdue:") # New KPI Label
+        current_row += 1
         self.ap_value_label = add_kpi_row(kpi_layout, current_row, "Total Outstanding Accounts Payable:")
+        current_row += 1
+        self.ap_overdue_value_label = add_kpi_row(kpi_layout, current_row, "Total AP Overdue:") # New KPI Label
         current_row += 1
         
         kpi_layout.setColumnStretch(1, 1) 
@@ -106,7 +110,8 @@ class DashboardWidget(QWidget):
         self.refresh_button.setEnabled(False)
         labels_to_reset = [
             self.revenue_value_label, self.expenses_value_label, self.net_profit_value_label,
-            self.cash_balance_value_label, self.ar_value_label, self.ap_value_label
+            self.cash_balance_value_label, self.ar_value_label, self.ap_value_label,
+            self.ar_overdue_value_label, self.ap_overdue_value_label # New labels
         ]
         for label in labels_to_reset:
             if hasattr(self, 'app_core') and self.app_core and hasattr(self.app_core, 'logger'):
@@ -144,51 +149,35 @@ class DashboardWidget(QWidget):
         self.app_core.logger.info(f"DashboardWidget: Queuing _update_kpi_display_slot with payload: {'JSON string' if json_payload else 'None'}")
         QMetaObject.invokeMethod(self, "_update_kpi_display_slot", 
                                  Qt.ConnectionType.QueuedConnection, 
-                                 Q_ARG(str, json_payload if json_payload is not None else "")) # Pass empty string for None
+                                 Q_ARG(str, json_payload if json_payload is not None else ""))
 
-    @Slot(str) # Slot now expects a string
+    @Slot(str)
     def _update_kpi_display_slot(self, kpi_data_json_str: str):
         self.app_core.logger.info(f"DashboardWidget: _update_kpi_display_slot called. Received JSON string length: {len(kpi_data_json_str)}")
         self.refresh_button.setEnabled(True)
         
         kpi_data_dto: Optional[DashboardKPIData] = None
-        if kpi_data_json_str: # If not an empty string
+        if kpi_data_json_str:
             try:
-                # Pydantic's model_validate_json can directly parse the JSON string
                 kpi_data_dto = DashboardKPIData.model_validate_json(kpi_data_json_str)
                 self.app_core.logger.info(f"DashboardWidget: Successfully deserialized KPI JSON to DTO.")
-            except Exception as e: # Catches Pydantic validation errors and json.JSONDecodeError
+            except Exception as e:
                 self.app_core.logger.error(f"DashboardWidget: Error deserializing/validating KPI JSON: '{kpi_data_json_str[:100]}...' - Error: {e}", exc_info=True)
-                # kpi_data_dto remains None
-
+        
         if kpi_data_dto:
             self.app_core.logger.info(f"DashboardWidget: Updating UI with KPI Data: Period='{kpi_data_dto.kpi_period_description}'")
-            
             self.period_label.setText(f"Period: {kpi_data_dto.kpi_period_description}")
-            self.app_core.logger.debug(f"DashboardWidget: period_label set to '{self.period_label.text()}'")
-
             self.base_currency_label.setText(f"Currency: {kpi_data_dto.base_currency}")
-            self.app_core.logger.debug(f"DashboardWidget: base_currency_label set to '{self.base_currency_label.text()}'")
-            
             bc_symbol = kpi_data_dto.base_currency 
             
             self.revenue_value_label.setText(self._format_decimal_for_display(kpi_data_dto.total_revenue_ytd, bc_symbol))
-            self.app_core.logger.debug(f"DashboardWidget: revenue_value_label set to '{self.revenue_value_label.text()}'")
-            
             self.expenses_value_label.setText(self._format_decimal_for_display(kpi_data_dto.total_expenses_ytd, bc_symbol))
-            self.app_core.logger.debug(f"DashboardWidget: expenses_value_label set to '{self.expenses_value_label.text()}'")
-            
             self.net_profit_value_label.setText(self._format_decimal_for_display(kpi_data_dto.net_profit_ytd, bc_symbol))
-            self.app_core.logger.debug(f"DashboardWidget: net_profit_value_label set to '{self.net_profit_value_label.text()}'")
-            
             self.cash_balance_value_label.setText(self._format_decimal_for_display(kpi_data_dto.current_cash_balance, bc_symbol))
-            self.app_core.logger.debug(f"DashboardWidget: cash_balance_value_label set to '{self.cash_balance_value_label.text()}'")
-            
             self.ar_value_label.setText(self._format_decimal_for_display(kpi_data_dto.total_outstanding_ar, bc_symbol))
-            self.app_core.logger.debug(f"DashboardWidget: ar_value_label set to '{self.ar_value_label.text()}'")
-            
             self.ap_value_label.setText(self._format_decimal_for_display(kpi_data_dto.total_outstanding_ap, bc_symbol))
-            self.app_core.logger.debug(f"DashboardWidget: ap_value_label set to '{self.ap_value_label.text()}'")
+            self.ar_overdue_value_label.setText(self._format_decimal_for_display(kpi_data_dto.total_ar_overdue, bc_symbol)) # New KPI
+            self.ap_overdue_value_label.setText(self._format_decimal_for_display(kpi_data_dto.total_ap_overdue, bc_symbol)) # New KPI
             
             self.app_core.logger.info("DashboardWidget: UI labels updated with KPI data.")
         else:
@@ -196,16 +185,9 @@ class DashboardWidget(QWidget):
             error_text = "N/A - Data unavailable"
             self.period_label.setText("Period: N/A")
             self.base_currency_label.setText("Currency: N/A")
-            self.revenue_value_label.setText(error_text)
-            self.expenses_value_label.setText(error_text)
-            self.net_profit_value_label.setText(error_text)
-            self.cash_balance_value_label.setText(error_text)
-            self.ar_value_label.setText(error_text)
-            self.ap_value_label.setText(error_text)
-            # Only show message box if it's not just an initial "no fiscal year" state without other errors.
-            # The manager already logs "No fiscal year found", which is a valid state.
-            # The user will see "N/A" which is informative enough.
-            # If kpi_data_json_str was non-empty and deserialization FAILED, then a warning might be more appropriate.
-            if kpi_data_json_str: # Implies an error during deserialization of *some* data
+            for label in [self.revenue_value_label, self.expenses_value_label, self.net_profit_value_label,
+                          self.cash_balance_value_label, self.ar_value_label, self.ap_value_label,
+                          self.ar_overdue_value_label, self.ap_overdue_value_label]: # Include new labels
+                label.setText(error_text)
+            if kpi_data_json_str: 
                  QMessageBox.warning(self, "Dashboard Data Error", "Could not process Key Performance Indicators data.")
-

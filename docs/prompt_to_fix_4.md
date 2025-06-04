@@ -20,3 +20,11 @@ Below is "diff" command output comparing the previous version with your latest g
 
 Did you accidentally omitted other lines from the previous version? Remember, we need to give benefit of doubt to harmless lines or sections.
 
+---
+Please carefully review and validate the recently added tests files to the codebase, enclosed in the `recently_created_tests_code_files_for_your_review_and_validation.md` file shared earlier. The create a detailed step-by-step guide, `project_test_guide.md` (markdown format), on how to run the tests given the newly added tests code files.
+
+Then create a *complete* updated replacement file for `README.md` that includes all the recent changes, including the added tests code files. Make sure you create a *complete* and fully self-contained `README.md` that incorporates all the relevant sections from the previous versions. I don't want to keep referring to previous versions for missing details in your latest `README.md` Instead of simply saying "this section remained unchanged from previous version",  just copy and adapt the relevant sections from the previous versions. I will delete all older versions of `README.md` and will only keep your latest `README.md` to be created.
+
+---
+Please use the same rigorous and meticulous approach to think deeply and systematically to explore carefully and thoroughly for the various implementation options to fix the following issues, then choose the best implementation option to create a detailed execution plan with integrated checklist to make the code changes to fix the issues. always plan before you execute step by step, and always create *complete* updated *replacement* files for the files that need updating. always use line-by-line "diff" to carefully review and validate the code changes made for each file as it is being updated or created. complete all the line-by-line diff comparison and validation before giving a task completion review and conclusion at the end of your response.
+

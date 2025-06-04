@@ -353,7 +353,7 @@ class BankReconciliationData(BankReconciliationBaseData):
     created_at: datetime
     updated_at: datetime
     created_by_user_id: int
-
+    
 # --- Dashboard DTOs ---
 class DashboardKPIData(AppBaseModel):
     kpi_period_description: str
@@ -364,4 +364,5 @@ class DashboardKPIData(AppBaseModel):
     current_cash_balance: Decimal = Field(Decimal(0))
     total_outstanding_ar: Decimal = Field(Decimal(0))
     total_outstanding_ap: Decimal = Field(Decimal(0))
-    
+    total_ar_overdue: Decimal = Field(Decimal(0)) # New field
+    total_ap_overdue: Decimal = Field(Decimal(0)) # New field

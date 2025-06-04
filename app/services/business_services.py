@@ -1,7 +1,7 @@
 # File: app/services/business_services.py
 from typing import List, Optional, Any, TYPE_CHECKING, Dict, Tuple
 from sqlalchemy import select, func, and_, or_, literal_column, case, update as sqlalchemy_update, table, column
-from sqlalchemy.types import DECIMAL # Explicit import for column type
+from sqlalchemy.types import DECIMAL 
 from sqlalchemy.ext.asyncio import AsyncSession 
 from sqlalchemy.orm import selectinload, joinedload 
 from decimal import Decimal
@@ -39,18 +39,17 @@ from app.common.enums import ProductTypeEnum, InvoiceStatusEnum, BankTransaction
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore
 
-# Define view structures for SQLAlchemy Core usage (if not ORM mapped)
-# These definitions can be at the module level if they are stable and reused.
 customer_balances_view_table = table(
     "customer_balances",
     column("outstanding_balance", DECIMAL(15, 2)), 
-    # Add other columns if needed for more complex queries on this view
+    column("overdue_amount", DECIMAL(15, 2)), # Added for new KPI
     schema="business"
 )
 
 vendor_balances_view_table = table(
     "vendor_balances",
     column("outstanding_balance", DECIMAL(15, 2)),
+    column("overdue_amount", DECIMAL(15, 2)), # Added for new KPI
     schema="business"
 )
 
@@ -87,16 +86,18 @@ class CustomerService(ICustomerRepository):
     async def delete(self, customer_id: int) -> bool:
         raise NotImplementedError("Hard delete of customers is not supported. Use deactivation.")
     async def get_total_outstanding_balance(self) -> Decimal:
-        """
-        Calculates the sum of `outstanding_balance` from the `business.customer_balances` view.
-        Note: The underlying view currently sums all outstanding balances regardless of currency.
-        This KPI will reflect a mixed-currency total if multi-currency customers/invoices exist.
-        """
         async with self.db_manager.session() as session:
             stmt = select(func.sum(customer_balances_view_table.c.outstanding_balance))
             result = await session.execute(stmt)
             total_outstanding = result.scalar_one_or_none()
             return total_outstanding if total_outstanding is not None else Decimal(0)
+    async def get_total_overdue_balance(self) -> Decimal:
+        """Calculates the sum of `overdue_amount` from the `business.customer_balances` view."""
+        async with self.db_manager.session() as session:
+            stmt = select(func.sum(customer_balances_view_table.c.overdue_amount))
+            result = await session.execute(stmt)
+            total_overdue = result.scalar_one_or_none()
+            return total_overdue if total_overdue is not None else Decimal(0)
 
 
 class VendorService(IVendorRepository):
@@ -131,16 +132,18 @@ class VendorService(IVendorRepository):
     async def delete(self, vendor_id: int) -> bool:
         raise NotImplementedError("Hard delete of vendors is not supported. Use deactivation.")
     async def get_total_outstanding_balance(self) -> Decimal:
-        """
-        Calculates the sum of `outstanding_balance` from the `business.vendor_balances` view.
-        Note: The underlying view currently sums all outstanding balances regardless of currency.
-        This KPI will reflect a mixed-currency total if multi-currency vendors/invoices exist.
-        """
         async with self.db_manager.session() as session:
             stmt = select(func.sum(vendor_balances_view_table.c.outstanding_balance))
             result = await session.execute(stmt)
             total_outstanding = result.scalar_one_or_none()
             return total_outstanding if total_outstanding is not None else Decimal(0)
+    async def get_total_overdue_balance(self) -> Decimal:
+        """Calculates the sum of `overdue_amount` from the `business.vendor_balances` view."""
+        async with self.db_manager.session() as session:
+            stmt = select(func.sum(vendor_balances_view_table.c.overdue_amount))
+            result = await session.execute(stmt)
+            total_overdue = result.scalar_one_or_none()
+            return total_overdue if total_overdue is not None else Decimal(0)
 
 class ProductService(IProductRepository):
     def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
@@ -430,10 +433,10 @@ class BankReconciliationService(IBankReconciliationRepository):
             result = await session.execute(stmt)
             return list(result.scalars().all())
 
-    async def add(self, entity: BankReconciliation, session: Optional[AsyncSession] = None) -> BankReconciliation: # Added session param
+    async def add(self, entity: BankReconciliation, session: Optional[AsyncSession] = None) -> BankReconciliation:
         return await self.save(entity, session)
 
-    async def update(self, entity: BankReconciliation, session: Optional[AsyncSession] = None) -> BankReconciliation: # Added session param
+    async def update(self, entity: BankReconciliation, session: Optional[AsyncSession] = None) -> BankReconciliation:
         return await self.save(entity, session)
 
     async def delete(self, id_val: int) -> bool:
@@ -471,7 +474,7 @@ class BankReconciliationService(IBankReconciliationRepository):
         statement_end_date: date,
         bank_account_id: int,
         statement_ending_balance: Decimal, 
-        session: AsyncSession # This method expects an active session to be passed in
+        session: AsyncSession 
     ) -> BankReconciliation:
         session.add(reconciliation_orm)
         await session.flush() 
@@ -503,4 +506,3 @@ class BankReconciliationService(IBankReconciliationRepository):
         await session.flush() 
         await session.refresh(reconciliation_orm) 
         return reconciliation_orm
-

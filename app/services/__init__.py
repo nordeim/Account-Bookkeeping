@@ -55,7 +55,7 @@ from app.utils.pydantic_models import (
     BankAccountSummaryData, BankTransactionSummaryData,
     PaymentSummaryData,
     AuditLogEntryData, DataChangeHistoryEntryData, BankReconciliationData,
-    DashboardKPIData # New DTO
+    DashboardKPIData
 )
 from app.common.enums import ( 
     ProductTypeEnum, InvoiceStatusEnum, BankTransactionTypeEnum,
@@ -177,8 +177,11 @@ class ICustomerRepository(IRepository[Customer, int]):
                               search_term: Optional[str] = None,
                               page: int = 1, page_size: int = 50
                              ) -> List[CustomerSummaryData]: pass
-    @abstractmethod # New method for Dashboard KPI
+    @abstractmethod
     async def get_total_outstanding_balance(self) -> Decimal: pass
+    @abstractmethod # New method for Dashboard KPI
+    async def get_total_overdue_balance(self) -> Decimal: pass
+
 
 class IVendorRepository(IRepository[Vendor, int]): 
     @abstractmethod
@@ -188,8 +191,10 @@ class IVendorRepository(IRepository[Vendor, int]):
                               search_term: Optional[str] = None,
                               page: int = 1, page_size: int = 50
                              ) -> List[VendorSummaryData]: pass
-    @abstractmethod # New method for Dashboard KPI
+    @abstractmethod
     async def get_total_outstanding_balance(self) -> Decimal: pass
+    @abstractmethod # New method for Dashboard KPI
+    async def get_total_overdue_balance(self) -> Decimal: pass
 
 class IProductRepository(IRepository[Product, int]): 
     @abstractmethod
