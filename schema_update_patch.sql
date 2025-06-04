@@ -69,3 +69,49 @@ ALTER TABLE business.bank_transactions
 
 COMMIT;
 
+-- File: schema_update_patch.sql
+-- Purpose: Updates SG Bookkeeper database schema from v1.0.4 to v1.0.5
+-- Key Changes:
+--   - Adds 'status' column to 'business.bank_reconciliations' table.
+--   - Adds CHECK constraint for the 'status' column.
+--
+-- IMPORTANT:
+--   - Backup your database before applying this patch.
+--   - This patch is intended to be run ONCE on a database at schema v1.0.4.
+--   - Do NOT append this to the main schema.sql file (v1.0.5) which already includes these changes.
+
+BEGIN;
+
+-- 1. Add 'status' column to 'business.bank_reconciliations'
+-- Using IF NOT EXISTS for idempotency in case the column was manually added partially.
+ALTER TABLE business.bank_reconciliations
+ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'Draft';
+
+COMMENT ON COLUMN business.bank_reconciliations.status IS 'The status of the reconciliation, e.g., Draft, Finalized. Default is Draft.';
+
+-- 2. Add CHECK constraint for the 'status' column
+-- This DO block makes adding the constraint idempotent.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'ck_bank_reconciliations_status'
+          AND conrelid = 'business.bank_reconciliations'::regclass
+    ) THEN
+        ALTER TABLE business.bank_reconciliations
+        ADD CONSTRAINT ck_bank_reconciliations_status CHECK (status IN ('Draft', 'Finalized'));
+    END IF;
+END
+$$;
+
+-- Conceptually, update any internal schema version tracking if you have one.
+-- For example (this is illustrative, not executable without a version table):
+-- UPDATE core.schema_versions SET version = '1.0.5', applied_on = CURRENT_TIMESTAMP WHERE component = 'database';
+
+DO $$
+BEGIN
+    RAISE NOTICE 'Database schema patch to v1.0.5 (BankReconciliation status) applied successfully.';
+END $$;
+
+COMMIT;
+

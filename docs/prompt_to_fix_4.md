@@ -34,4 +34,7 @@ excellent result so far! please proceed with the next step in your plan to cover
 The important point is to proceed very carefully so as not to introduce any regression error or accidentally omit the original features or functions. use the same tested rigorous and meticulous approach. thank you and good luck!
 
 ---
+please create a SQL patch script to apply the schema and initial data updates necessary to bring the current running database up to the expected level. create as `schema_update_patch.sql` withing ```sql opening and ``` closing tags.
+
+also can I append the content of this schema update patch sql to the existing `scripts/schema.sql` file?
 
