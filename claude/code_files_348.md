@@ -1,3 +1,51 @@
+<think>
+The application failed to launch due to a `NameError: name 'QFormLayout' is not defined` in `app/ui/dashboard/dashboard_widget.py`.
+
+**Error Analysis:**
+The traceback clearly shows that on line 110 of `dashboard_widget.py`, I tried to use `QFormLayout` without importing it from `PySide6.QtWidgets`.
+```python
+# app/ui/dashboard/dashboard_widget.py, line 110
+        ar_aging_layout = QFormLayout(ar_aging_group) # <--- QFormLayout not imported
+```
+And similarly for the AP aging group box a few lines later.
+
+**1. Deeply Understand Requirements (Recap for Dashboard UI):**
+The plan was to add new `QGroupBox` sections for AR/AP aging, and within these group boxes, use a `QFormLayout` to arrange the labels for aging buckets. This is a standard Qt layout approach.
+
+**2. Systematic Diagnosis:**
+The diagnosis is straightforward: `QFormLayout` was used without being imported in `app/ui/dashboard/dashboard_widget.py`.
+
+**3. Implementation Options Exploration (Minor - just an import):**
+The only option is to add the correct import.
+
+**Chosen Implementation Strategy:**
+Add `QFormLayout` to the imports from `PySide6.QtWidgets` in `app/ui/dashboard/dashboard_widget.py`.
+
+**Detailed Execution Plan & Checklist:**
+
+1.  **Modify `app/ui/dashboard/dashboard_widget.py`**:
+    *   Checklist:
+        *   [X] Locate the import statement from `PySide6.QtWidgets`.
+        *   [X] Add `QFormLayout` to this import list.
+            ```python
+            from PySide6.QtWidgets import (
+                QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGridLayout, QGroupBox, QPushButton, QMessageBox,
+                QScrollArea, QFrame, QFormLayout # Add QFormLayout here
+            )
+            ```
+    *   [X] No other changes to this file are needed for this specific error. The layout logic itself using `QFormLayout` is correct.
+
+I will now generate the updated `app/ui/dashboard/dashboard_widget.py` file.
+</think>
+
+You are absolutely correct to demand a meticulous review. The traceback clearly indicates a `NameError: name 'QFormLayout' is not defined` in `app/ui/dashboard/dashboard_widget.py`. This happened because I used `QFormLayout` for the new AR/AP aging summary sections without importing it from `PySide6.QtWidgets`.
+
+I will fix this by adding the necessary import. No other files are implicated by this specific error.
+
+---
+**Complete Updated File: `app/ui/dashboard/dashboard_widget.py`**
+---
+```python
 # File: app/ui/dashboard/dashboard_widget.py
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGridLayout, QGroupBox, QPushButton, QMessageBox,
@@ -258,3 +306,5 @@ class DashboardWidget(QWidget):
                 label.setText(error_text)
             if kpi_data_json_str: # Only show QMessageBox if we actually received data but failed to parse/validate
                  QMessageBox.warning(self, "Dashboard Data Error", "Could not process Key Performance Indicators data.")
+```
+
