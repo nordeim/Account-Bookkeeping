@@ -81,7 +81,7 @@ class IAccountRepository(IRepository[Account, int]):
     @abstractmethod
     async def get_accounts_by_tax_treatment(self, tax_treatment_code: str) -> List[Account]: pass
     @abstractmethod
-    async def get_total_balance_by_account_category_and_type_pattern(self, account_category: str, account_type_name_like: str, as_of_date: date) -> Decimal: pass # New
+    async def get_total_balance_by_account_category_and_type_pattern(self, account_category: str, account_type_name_like: str, as_of_date: date) -> Decimal: pass
 
 class IJournalEntryRepository(IRepository[JournalEntry, int]): 
     @abstractmethod
@@ -186,7 +186,7 @@ class ICustomerRepository(IRepository[Customer, int]):
     @abstractmethod 
     async def get_total_overdue_balance(self) -> Decimal: pass
     @abstractmethod
-    async def get_ar_aging_summary(self, as_of_date: date) -> Dict[str, Decimal]: pass # New
+    async def get_ar_aging_summary(self, as_of_date: date) -> Dict[str, Decimal]: pass
 
 class IVendorRepository(IRepository[Vendor, int]): 
     @abstractmethod
@@ -201,7 +201,7 @@ class IVendorRepository(IRepository[Vendor, int]):
     @abstractmethod 
     async def get_total_overdue_balance(self) -> Decimal: pass
     @abstractmethod
-    async def get_ap_aging_summary(self, as_of_date: date) -> Dict[str, Decimal]: pass # New
+    async def get_ap_aging_summary(self, as_of_date: date) -> Dict[str, Decimal]: pass
 
 class IProductRepository(IRepository[Product, int]): 
     @abstractmethod
@@ -227,7 +227,7 @@ class ISalesInvoiceRepository(IRepository[SalesInvoice, int]):
                               page: int = 1, 
                               page_size: int = 50
                              ) -> List[SalesInvoiceSummaryData]: pass
-    @abstractmethod # New for aging
+    @abstractmethod 
     async def get_outstanding_invoices_for_customer(self, customer_id: Optional[int], as_of_date: date) -> List[SalesInvoice]: pass
 
 
@@ -245,7 +245,7 @@ class IPurchaseInvoiceRepository(IRepository[PurchaseInvoice, int]):
                               page: int = 1, 
                               page_size: int = 50
                              ) -> List[PurchaseInvoiceSummaryData]: pass
-    @abstractmethod # New for aging
+    @abstractmethod 
     async def get_outstanding_invoices_for_vendor(self, vendor_id: Optional[int], as_of_date: date) -> List[PurchaseInvoice]: pass
 
 
@@ -271,6 +271,9 @@ class IBankAccountRepository(IRepository[BankAccount, int]):
                              ) -> List[BankAccountSummaryData]: pass
     @abstractmethod
     async def save(self, entity: BankAccount) -> BankAccount: pass
+    @abstractmethod # New method for DashboardManager
+    async def get_by_gl_account_id(self, gl_account_id: int) -> Optional[BankAccount]: pass
+
 
 class IBankTransactionRepository(IRepository[BankTransaction, int]):
     @abstractmethod

@@ -1,6 +1,6 @@
 # File: app/services/account_service.py
 from typing import List, Optional, Dict, Any, TYPE_CHECKING
-from sqlalchemy import select, func, text, and_ # Added and_
+from sqlalchemy import select, func, text, and_ 
 from app.models.accounting.account import Account 
 from app.models.accounting.journal_entry import JournalEntryLine, JournalEntry 
 from app.core.database_manager import DatabaseManager
@@ -10,7 +10,7 @@ from datetime import date
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore
-    from app.services.journal_service import JournalService # For type hint
+    from app.services.journal_service import JournalService 
 
 class AccountService(IAccountRepository):
     def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
@@ -148,18 +148,17 @@ class AccountService(IAccountRepository):
 
     async def get_total_balance_by_account_category_and_type_pattern(
         self, 
-        account_category: str, # e.g., "Asset", "Liability" (maps to Account.account_type)
-        account_type_name_like: str, # e.g., "Current%" or "Current Asset" (maps to Account.sub_type)
+        account_category: str, 
+        account_type_name_like: str, 
         as_of_date: date
     ) -> Decimal:
         total_balance = Decimal(0)
         if not self.app_core:
-            # Log or raise an error: app_core is needed for journal_service
-            if hasattr(self, 'logger') and self.logger: # Check if AccountService has its own logger
+            if hasattr(self, 'logger') and self.logger:
                  self.logger.error("ApplicationCore not available in AccountService for JournalService access.")
             raise RuntimeError("ApplicationCore context not available in AccountService.")
 
-        journal_service = self.app_core.journal_service # type: ignore
+        journal_service: "JournalService" = self.app_core.journal_service
         if not journal_service:
             if hasattr(self, 'logger') and self.logger:
                  self.logger.error("JournalService not available via ApplicationCore in AccountService.")
@@ -168,20 +167,14 @@ class AccountService(IAccountRepository):
         async with self.db_manager.session() as session:
             stmt = select(Account).where(
                 Account.is_active == True,
-                Account.account_type == account_category, # This is Account.category effectively
-                Account.sub_type.ilike(account_type_name_like) # Account.sub_type stores the specific name
+                Account.account_type == account_category, 
+                Account.sub_type.ilike(account_type_name_like) 
             )
             result = await session.execute(stmt)
             accounts_to_sum: List[Account] = list(result.scalars().all())
 
             for acc in accounts_to_sum:
                 balance = await journal_service.get_account_balance(acc.id, as_of_date)
-                # For Current Ratio, Assets are positive, Liabilities are positive contribution.
-                # get_account_balance inherently handles the sign for Asset/Liability accounts correctly
-                # when summing them for their respective totals.
-                # Asset: positive balance is debit (good)
-                # Liability: positive balance is credit (good for sum of liabilities)
-                # So, direct sum is fine.
                 total_balance += balance
         
         return total_balance.quantize(Decimal("0.01"))
