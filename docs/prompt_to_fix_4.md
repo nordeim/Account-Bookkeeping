@@ -80,3 +80,6 @@ Make sure your updated documents are *self-contained* with *no* reference to the
 ---
 excellent job! now help me to carefully review all the documents and screenshots shared so far, including the older version of `README.md` attached here, then create a complete updated replacement file for `README.md` by removing repeating details and by adding missing details from the other documents.
 
+---
+excellent job so far! please use the same rigorous and meticulous approach to systematically create the rest of the tests files.
+

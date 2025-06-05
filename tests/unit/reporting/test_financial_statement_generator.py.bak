@@ -1,0 +1,166 @@
+# File: tests/unit/reporting/test_financial_statement_generator.py
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+from typing import List, Dict, Any, Optional
+from decimal import Decimal
+from datetime import date
+
+from app.reporting.financial_statement_generator import FinancialStatementGenerator
+from app.models.accounting.account import Account as AccountModel
+from app.models.accounting.account_type import AccountType as AccountTypeModel
+from app.models.accounting.fiscal_year import FiscalYear as FiscalYearModel
+from app.models.core.company_setting import CompanySetting as CompanySettingModel
+# Services to mock
+from app.services.account_service import AccountService
+from app.services.journal_service import JournalService
+from app.services.fiscal_period_service import FiscalPeriodService
+from app.services.accounting_services import AccountTypeService, DimensionService
+from app.services.tax_service import TaxCodeService
+from app.services.core_services import CompanySettingsService
+
+pytestmark = pytest.mark.asyncio
+
+@pytest.fixture
+def mock_account_service() -> AsyncMock: return AsyncMock(spec=AccountService)
+@pytest.fixture
+def mock_journal_service() -> AsyncMock: return AsyncMock(spec=JournalService)
+@pytest.fixture
+def mock_fiscal_period_service() -> AsyncMock: return AsyncMock(spec=FiscalPeriodService)
+@pytest.fixture
+def mock_account_type_service() -> AsyncMock: return AsyncMock(spec=AccountTypeService)
+@pytest.fixture
+def mock_tax_code_service() -> AsyncMock: return AsyncMock(spec=TaxCodeService)
+@pytest.fixture
+def mock_company_settings_service() -> AsyncMock: return AsyncMock(spec=CompanySettingsService)
+@pytest.fixture
+def mock_dimension_service() -> AsyncMock: return AsyncMock(spec=DimensionService)
+
+
+@pytest.fixture
+def fs_generator(
+    mock_account_service: AsyncMock, mock_journal_service: AsyncMock,
+    mock_fiscal_period_service: AsyncMock, mock_account_type_service: AsyncMock,
+    mock_tax_code_service: AsyncMock, mock_company_settings_service: AsyncMock,
+    mock_dimension_service: AsyncMock
+) -> FinancialStatementGenerator:
+    return FinancialStatementGenerator(
+        account_service=mock_account_service, journal_service=mock_journal_service,
+        fiscal_period_service=mock_fiscal_period_service, account_type_service=mock_account_type_service,
+        tax_code_service=mock_tax_code_service, company_settings_service=mock_company_settings_service,
+        dimension_service=mock_dimension_service
+    )
+
+# Sample ORM objects
+@pytest.fixture
+def asset_account_type() -> AccountTypeModel:
+    return AccountTypeModel(id=1, name="Current Asset", category="Asset", is_debit_balance=True, report_type="BS", display_order=1)
+@pytest.fixture
+def liability_account_type() -> AccountTypeModel:
+    return AccountTypeModel(id=2, name="Current Liability", category="Liability", is_debit_balance=False, report_type="BS", display_order=2)
+@pytest.fixture
+def equity_account_type() -> AccountTypeModel:
+    return AccountTypeModel(id=3, name="Share Capital", category="Equity", is_debit_balance=False, report_type="BS", display_order=3)
+@pytest.fixture
+def revenue_account_type() -> AccountTypeModel:
+    return AccountTypeModel(id=4, name="Sales Revenue", category="Revenue", is_debit_balance=False, report_type="PL", display_order=4)
+@pytest.fixture
+def expense_account_type() -> AccountTypeModel:
+    return AccountTypeModel(id=5, name="Rent Expense", category="Expense", is_debit_balance=True, report_type="PL", display_order=5)
+
+@pytest.fixture
+def sample_accounts(asset_account_type, liability_account_type, equity_account_type, revenue_account_type, expense_account_type) -> List[AccountModel]:
+    # Account.account_type stores the category, Account.sub_type stores the AccountType.name
+    return [
+        AccountModel(id=1, code="1010", name="Cash", account_type="Asset", sub_type="Current Asset", is_active=True, created_by_user_id=1,updated_by_user_id=1),
+        AccountModel(id=2, code="2010", name="AP", account_type="Liability", sub_type="Current Liability", is_active=True, created_by_user_id=1,updated_by_user_id=1),
+        AccountModel(id=3, code="3010", name="Capital", account_type="Equity", sub_type="Share Capital", is_active=True, created_by_user_id=1,updated_by_user_id=1),
+        AccountModel(id=4, code="4010", name="Sales", account_type="Revenue", sub_type="Sales Revenue", is_active=True, created_by_user_id=1,updated_by_user_id=1),
+        AccountModel(id=5, code="5010", name="Rent", account_type="Expense", sub_type="Rent Expense", is_active=True, created_by_user_id=1,updated_by_user_id=1),
+    ]
+
+async def test_generate_trial_balance(fs_generator: FinancialStatementGenerator, mock_account_service: AsyncMock, mock_journal_service: AsyncMock, sample_accounts: List[AccountModel]):
+    as_of = date(2023,12,31)
+    mock_account_service.get_all_active.return_value = sample_accounts
+    
+    def get_balance_side_effect(acc_id, dt):
+        if acc_id == 1: return Decimal("1000") # Cash - Debit
+        if acc_id == 2: return Decimal("-1500") # AP - Credit (JournalService returns signed, FSG flips for display)
+        if acc_id == 3: return Decimal("-500")  # Capital - Credit
+        if acc_id == 4: return Decimal("-2000") # Sales - Credit
+        if acc_id == 5: return Decimal("1000")  # Rent - Debit
+        return Decimal(0)
+    mock_journal_service.get_account_balance.side_effect = get_balance_side_effect
+    
+    # Mock AccountTypeService for _get_account_type_map
+    mock_account_type_service = fs_generator.account_type_service
+    mock_account_type_service.get_all.return_value = [ # type: ignore
+        AccountTypeModel(category="Asset", is_debit_balance=True, name="N/A", id=0, display_order=0, report_type="N/A"), 
+        AccountTypeModel(category="Liability", is_debit_balance=False, name="N/A", id=0, display_order=0, report_type="N/A"),
+        AccountTypeModel(category="Equity", is_debit_balance=False, name="N/A", id=0, display_order=0, report_type="N/A"),
+        AccountTypeModel(category="Revenue", is_debit_balance=False, name="N/A", id=0, display_order=0, report_type="N/A"),
+        AccountTypeModel(category="Expense", is_debit_balance=True, name="N/A", id=0, display_order=0, report_type="N/A")
+    ]
+
+
+    tb_data = await fs_generator.generate_trial_balance(as_of)
+
+    assert tb_data['title'] == "Trial Balance"
+    assert tb_data['total_debits'] == Decimal("2000.00") # 1000 Cash + 1000 Rent
+    assert tb_data['total_credits'] == Decimal("4000.00") # 1500 AP + 500 Capital + 2000 Sales
+    assert tb_data['is_balanced'] is False # Based on these numbers
+
+    # Check if accounts are in correct columns
+    debit_codes = [acc['code'] for acc in tb_data['debit_accounts']]
+    credit_codes = [acc['code'] for acc in tb_data['credit_accounts']]
+    assert "1010" in debit_codes
+    assert "5010" in debit_codes
+    assert "2010" in credit_codes
+    assert "3010" in credit_codes
+    assert "4010" in credit_codes
+
+
+async def test_generate_balance_sheet(fs_generator: FinancialStatementGenerator, mock_account_service: AsyncMock, mock_journal_service: AsyncMock, sample_accounts: List[AccountModel]):
+    as_of = date(2023,12,31)
+    mock_account_service.get_all_active.return_value = sample_accounts
+    
+    def get_balance_side_effect(acc_id, dt): # Balances for BS
+        if acc_id == 1: return Decimal("1000") # Cash
+        if acc_id == 2: return Decimal("-1500")# AP
+        if acc_id == 3: return Decimal("-500") # Capital
+        return Decimal(0) # Revenue/Expense not on BS directly
+    mock_journal_service.get_account_balance.side_effect = get_balance_side_effect
+    mock_account_type_service = fs_generator.account_type_service
+    mock_account_type_service.get_all.return_value = [ # type: ignore
+        AccountTypeModel(category="Asset", is_debit_balance=True, name="N/A", id=0, display_order=0, report_type="N/A"), 
+        AccountTypeModel(category="Liability", is_debit_balance=False, name="N/A", id=0, display_order=0, report_type="N/A"),
+        AccountTypeModel(category="Equity", is_debit_balance=False, name="N/A", id=0, display_order=0, report_type="N/A")
+    ]
+
+    bs_data = await fs_generator.generate_balance_sheet(as_of)
+
+    assert bs_data['assets']['total'] == Decimal("1000.00")
+    assert bs_data['liabilities']['total'] == Decimal("1500.00") # Note: -1500 becomes 1500 due to !is_debit_nature
+    assert bs_data['equity']['total'] == Decimal("500.00")
+    assert bs_data['total_liabilities_equity'] == Decimal("2000.00")
+    assert bs_data['is_balanced'] is False # 1000 != 2000
+
+async def test_generate_profit_loss(fs_generator: FinancialStatementGenerator, mock_account_service: AsyncMock, mock_journal_service: AsyncMock, sample_accounts: List[AccountModel]):
+    start_date, end_date = date(2023,1,1), date(2023,12,31)
+    mock_account_service.get_all_active.return_value = sample_accounts
+
+    def get_period_activity_side_effect(acc_id, sd, ed): # Balances for P&L (period activity)
+        if acc_id == 4: return Decimal("-2000") # Sales (credit balance shown as positive revenue)
+        if acc_id == 5: return Decimal("1000")  # Rent (debit balance shown as positive expense)
+        return Decimal(0) # Assets/Liab/Equity not on P&L directly
+    mock_journal_service.get_account_balance_for_period.side_effect = get_period_activity_side_effect
+    mock_account_type_service = fs_generator.account_type_service
+    mock_account_type_service.get_all.return_value = [ # type: ignore
+        AccountTypeModel(category="Revenue", is_debit_balance=False, name="N/A", id=0, display_order=0, report_type="N/A"),
+        AccountTypeModel(category="Expense", is_debit_balance=True, name="N/A", id=0, display_order=0, report_type="N/A")
+    ]
+
+    pl_data = await fs_generator.generate_profit_loss(start_date, end_date)
+    
+    assert pl_data['revenue']['total'] == Decimal("2000.00") # Note: -2000 becomes 2000
+    assert pl_data['expenses']['total'] == Decimal("1000.00")
+    assert pl_data['net_profit'] == Decimal("1000.00") # 2000 - 1000
