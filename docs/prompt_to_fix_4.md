@@ -64,3 +64,19 @@ Attached are the output responses of recent code generation requests. please car
 ---
 you stopped half way through the "diff" validation after code file generation. please restart your diff comparison and validation before giving your conclusion and task completion.
 
+---
+excellent understanding! now help me to carefully review my codebase line by line to gain a complete and deep understanding of the project's goals and current state and structure. then help me to create a detailed `Project Architecture Document.md` in markdown format. make sure the document accurately describes the codebase accurately and in detail, use a clear diagram to show the codebase relationship.
+
+---
+Attached `README (final draft to be updated using details from the earlier versions).md` is incomplete with missing sections. Please create a *complete* updated *replacement* version for it by filling in relevant details from older versions, `README (original version).md` and `README (update version).md`. Also include additional details to describe recent code changes in the codebase shared earlier since the final version was drafted. There are also recent addition of tests code files which are enclosed in the `project_codebase_tests_files.md` file attached here. Carefully review the included tests files and update your *complete* updated *replacement* version of `README.md`.
+
+Make sure your final version is a complete one that is self-contained without reference to any other documents. Meaning you are to incorporate relevant missing sections from the older versions shared. I want you to do that because I am going to keep one final version which is the one you are going to create for me.
+
+---
+you did another awesome job again! now use the same rigorous and meticulous approach to systematically review all your changes made to the original codebase shared, then think deeply and thoroughly to explore the best implementation option to create a *complete* updated *replacement* files for the `README.md` and TDS you created earlier. You will create a complete and detailed *replacement* files for them, incorporating changes made so far, so that the updated documents  accuractely reflect the current state of the codebase. remember to always create a detailed execution plan with integrated checklist, then execute step by step according to the plan. always do a line by line "diff" of each generated file before proceeding to the generation of the next file. only after careful review and validation of the generated files, then give your findings and conclusion as a successful completion of task.
+
+Make sure your updated documents are *self-contained* with *no* reference to the prior versions. I should not need to refer to the earlier versions to fill in the gap in your updated documents.
+
+---
+excellent job! now help me to carefully review all the documents and screenshots shared so far, including the older version of `README.md` attached here, then create a complete updated replacement file for `README.md` by removing repeating details and by adding missing details from the other documents.
+

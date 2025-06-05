@@ -114,24 +114,15 @@ This guide is for developers setting up the application from source.
 -   Git
 
 ### Developer Installation Steps
-1.  **Clone Repository**: `git clone https://github.com/yourusername/sg_bookkeeper.git && cd sg_bookkeeper` (Replace `yourusername` with the actual path if forked).
-2.  **Install Dependencies**: `poetry install --with dev` (The `--with dev` flag includes development dependencies like `pytest`).
-3.  **Prepare PostgreSQL**:
-    *   Ensure your PostgreSQL server is running.
-    *   Create a dedicated database user (e.g., `sgbookkeeper_user`) and a database (e.g., `sg_bookkeeper`).
-    *   Example (using `psql` as a PostgreSQL superuser like `postgres`):
-        ```sql
-        CREATE USER sgbookkeeper_user WITH PASSWORD 'YourSecurePassword123!';
-        CREATE DATABASE sg_bookkeeper OWNER sgbookkeeper_user;
-        ```
-    *   The user specified in `config.ini` will need appropriate permissions on this database.
+1.  **Clone Repository**: `git clone https://github.com/yourusername/sg_bookkeeper.git && cd sg_bookkeeper`
+2.  **Install Dependencies**: `poetry install --with dev`
+3.  **Prepare PostgreSQL**: Ensure a user (e.g., `sgbookkeeper_user`) and a database (e.g., `sg_bookkeeper`) are created. The user specified in `config.ini` needs appropriate permissions.
 4.  **Configure `config.ini`**:
-    *   The application expects `config.ini` in a platform-specific user configuration directory:
+    *   Locate/create at:
         *   Linux: `~/.config/SGBookkeeper/config.ini`
         *   macOS: `~/Library/Application Support/SGBookkeeper/config.ini`
-        *   Windows: `%APPDATA%\SGBookkeeper\config.ini` (e.g., `C:\Users\<YourUser>\AppData\Roaming\SGBookkeeper\config.ini`)
-    *   Create the `SGBookkeeper` directory if it doesn't exist.
-    *   Copy `config.example.ini` (if provided in the repository) to this location as `config.ini`, or create `config.ini` with the following structure, adjusting values as necessary:
+        *   Windows: `%APPDATA%\SGBookkeeper\config.ini`
+    *   Set database credentials (username, password, host, port, database name). Example:
         ```ini
         [Database]
         username = sgbookkeeper_user
@@ -139,58 +130,20 @@ This guide is for developers setting up the application from source.
         host = localhost
         port = 5432
         database = sg_bookkeeper
-        echo_sql = False
-        pool_min_size = 2
-        pool_max_size = 10
-        pool_recycle_seconds = 3600
-
+        ; ... other DB settings ...
         [Application]
-        theme = light
-        language = en
-        last_opened_company_id = 1
+        ; ... app settings ...
         ```
-    *   Ensure `username`, `password`, `host`, `port`, and `database` match your PostgreSQL setup.
-5.  **Initialize Database**:
-    *   This step typically requires PostgreSQL administrative privileges for the user running the script (e.g., `postgres`) to create extensions or if the database itself needs to be created by the script.
-    *   Run the database initialization script using Poetry. This script uses `scripts/schema.sql` (which defines schema version 1.0.5) and `scripts/initial_data.sql`.
-    ```bash
-    poetry run sg_bookkeeper_db_init --user YOUR_POSTGRES_ADMIN_USER --password YOUR_POSTGRES_ADMIN_PASSWORD --dbname sg_bookkeeper --dbhost localhost --dbport 5432
-    ```
-    *   Replace placeholders like `YOUR_POSTGRES_ADMIN_USER` and `YOUR_POSTGRES_ADMIN_PASSWORD` with your PostgreSQL admin credentials.
-    *   Add the `--drop-existing` flag *with caution* if you want to delete and recreate the `sg_bookkeeper` database for a clean setup.
-6.  **Compile Qt Resources** (Recommended for consistent icon loading):
-    ```bash
-    poetry run pyside6-rcc resources/resources.qrc -o app/resources_rc.py
-    ```
-7.  **Run Application**:
-    Ensure your `config.ini` points to the application database user (e.g., `sgbookkeeper_user`).
-    ```bash
-    poetry run sg_bookkeeper
-    ```
-    Default admin login: `admin`/`password`. You should be prompted to change this password on first login.
+5.  **Initialize Database**: Run `poetry run sg_bookkeeper_db_init --user YOUR_POSTGRES_ADMIN_USER ...`. This uses `scripts/schema.sql` (ensure it's v1.0.5) and `scripts/initial_data.sql`. Use `--drop-existing` with caution.
+6.  **Compile Qt Resources**: `poetry run pyside6-rcc resources/resources.qrc -o app/resources_rc.py`
+7.  **Run Application**: `poetry run sg_bookkeeper` (Default admin: `admin`/`password` - change on first login)
 
 ## Usage Guide
-*(Updated to reflect Bank Reconciliation draft persistence, provisional matching/unmatching, and new Dashboard KPIs)*
-
--   **Dashboard Tab**: View key financial indicators including YTD Revenue, Expenses, Net Profit; Current Cash Balance; Total Outstanding & Overdue AR/AP; AR & AP Aging summaries (Current, 1-30, 31-60, 61-90, 91+ days); and Current Ratio. Use the "Refresh KPIs" button to update the displayed data.
--   **Banking C.R.U.D Tab**: Manage Bank Accounts (add, edit, toggle active status). View transaction lists for selected accounts. Manually add bank transactions (deposits, withdrawals, fees). Import bank statements using the "Import Statement (CSV)" action, which opens a dialog to configure column mappings specific to your CSV file format.
--   **Bank Reconciliation Tab**: Perform bank reconciliations.
-    1.  Select a Bank Account.
-    2.  Enter the Statement End Date and Statement Ending Balance from your bank statement.
-    3.  Click "Load / Refresh Transactions". A "Draft" reconciliation is automatically created or loaded if one exists for the selected account and date.
-    4.  The UI will display unreconciled statement items (from imports/manual entry) and unreconciled system-generated bank transactions in separate tables. Transactions already provisionally matched to the current draft will appear in "Provisionally Matched (This Session)" tables.
-    5.  Select items from the "Unreconciled" tables and click "Match Selected". If amounts match, these items are provisionally reconciled against the current draft and moved to the "Provisionally Matched" tables (this is persisted in the database).
-    6.  To undo a provisional match, select items from the "Provisionally Matched" tables and click "Unmatch Selected Items".
-    7.  For statement items not yet in your books (e.g., bank charges, interest), use the "Add Journal Entry" button. This opens a pre-filled `JournalEntryDialog`. Posting this JE will also auto-create a corresponding system `BankTransaction`, which will then appear in the unreconciled list for matching.
-    8.  The "Reconciliation Summary" section dynamically updates to show the difference.
-    9.  Once the "Difference" is zero (or within an acceptable tolerance), click "Save Final Reconciliation". This changes the draft's status to "Finalized", updates the bank account's last reconciled date/balance, and permanently marks the reconciled transactions.
-    10. View a paginated history of finalized reconciliations and their cleared transaction details in the "Reconciliation History" section.
--   **Accounting Tab**: Manage Chart of Accounts (CRUD) and Journal Entries (CRUD, post, reverse, filter by type).
--   **Sales/Purchases Tabs**: Full lifecycle management for Sales and Purchase Invoices, including draft creation, editing, posting (which generates financial and inventory JEs), list views with filtering, and dialogs with advanced product search.
--   **Payments Tab**: Record Customer Receipts and Vendor Payments, allocate them to specific invoices. List and filter payments.
--   **Customers/Vendors/Products & Services Tabs**: Full CRUD and list views with filtering for master data.
--   **Reports Tab**: Generate GST F5 Returns (with detailed Excel export) and standard Financial Statements (Balance Sheet, P&L, Trial Balance, General Ledger) with PDF/Excel export options. GL reports support filtering by up to two dimensions.
--   **Settings Tab**: Configure Company Information, manage Fiscal Years/Periods, Users (CRUD, password changes, role assignment), Roles & Permissions (CRUD, assign permissions to roles), and view Audit Logs (Action Log, Data Change History with filtering).
+*(Updated to reflect Bank Reconciliation draft persistence and new Dashboard KPIs)*
+-   **Dashboard Tab**: View key financial indicators including YTD Revenue, Expenses, Net Profit; Current Cash Balance; Total Outstanding & Overdue AR/AP; AR & AP Aging summaries (Current, 1-30, 31-60, 61-90, 91+ days); and Current Ratio.
+-   **Banking C.R.U.D Tab**: Manage Bank Accounts. View/add manual transactions. Import bank statements via CSV.
+-   **Bank Reconciliation Tab**: Perform bank reconciliations. Select an account, set statement details. A "Draft" reconciliation is created/loaded. Load unreconciled statement items and system transactions. "Match Selected" items to provisionally reconcile them against the current draft (these are persisted). "Unmatch Selected" to revert provisional matches. Create adjustment JEs for statement-only items. When balanced, "Save Final Reconciliation" to finalize. View history of finalized reconciliations and their details.
+-   Other modules function as previously detailed, providing comprehensive tools for accounting, sales, purchases, payments, master data management, reporting, and system settings.
 
 ## Project Structure
 ```
@@ -198,39 +151,31 @@ sg_bookkeeper/
 ├── app/                          # Main application source code
 │   ├── __init__.py
 │   ├── main.py                     # Main application entry point
-│   ├── core/                       # Core components (ApplicationCore, DBManager, Config, Security)
-│   ├── common/                     # Common enums, constants, etc.
-│   ├── models/                     # SQLAlchemy ORM models (organized by schema: core, accounting, business, audit)
-│   ├── services/                   # Data access layer services (repositories)
-│   ├── accounting/                 # Business logic managers for accounting module
-│   ├── business_logic/             # Managers for Customers, Vendors, Products, Invoices, Payments, Banking
-│   ├── reporting/                  # Logic managers for generating reports & dashboard data
-│   ├── tax/                        # Business logic managers for tax module
-│   ├── ui/                         # PySide6 UI components (organized by module)
-│   │   ├── shared/                 # Shared UI components (e.g., ProductSearchDialog)
-│   │   └── ... (other ui modules: accounting, audit, banking, customers, dashboard, etc.)
-│   ├── utils/                      # General utility functions, Pydantic DTOs, helpers
-│   └── resources_rc.py             # Compiled Qt resources (generated if pyside6-rcc is run)
-├── data/                         # Default data templates (CoA, report templates, tax codes)
-├── docs/                         # Project documentation (like this README, TDS, Architecture)
-├── resources/                    # UI assets (icons, images, .qrc file)
-├── scripts/                      # Database initialization scripts (db_init.py, schema.sql, initial_data.sql)
+│   ├── core/                       # Core components
+│   ├── common/                     # Common enums, etc.
+│   ├── models/                     # SQLAlchemy ORM models (by schema)
+│   ├── services/                   # Data access layer services
+│   ├── accounting/                 # Business logic for accounting
+│   ├── business_logic/             # Business logic for ops (customers, vendors, etc.)
+│   ├── reporting/                  # Business logic for reports & dashboard
+│   ├── tax/                        # Business logic for tax
+│   ├── ui/                         # PySide6 UI components (by module)
+│   └── utils/                      # Utilities (DTOs, helpers)
+├── data/                         # Default data templates (CoA, report templates)
+├── docs/                         # Project documentation
+├── resources/                    # UI assets (icons, images, .qrc)
+├── scripts/                      # Database scripts (schema, initial_data, db_init.py)
 ├── tests/                        # Automated tests
 │   ├── conftest.py
 │   ├── __init__.py
-│   ├── unit/                     # Unit tests (organized by module)
+│   ├── unit/                     # Unit tests
 │   │   ├── __init__.py
-│   │   ├── accounting/           # Unit tests for accounting logic
-│   │   ├── business_logic/       # Unit tests for business operations logic
-│   │   ├── core/                 # Unit tests for core components
 │   │   ├── reporting/            # Tests for reporting logic (e.g., DashboardManager)
 │   │   ├── services/             # Tests for service layer components
 │   │   ├── tax/                  # Tests for tax logic
 │   │   └── utils/                # Tests for utilities
 │   ├── integration/              # Integration tests (planned)
-│   │   └── __init__.py
 │   └── ui/                       # UI tests (planned)
-│       └── __init__.py
 ├── .gitignore
 ├── pyproject.toml                # Poetry configuration
 ├── poetry.lock
@@ -239,7 +184,7 @@ sg_bookkeeper/
 ```
 
 ## Database Schema
-The PostgreSQL database schema is at version **1.0.5**. It includes tables for core system functions, detailed accounting, business operations, and comprehensive audit trails. Key recent additions include the `business.bank_reconciliations` table with a `status` column ('Draft', 'Finalized') and related fields in `bank_accounts` and `bank_transactions` to support the full bank reconciliation workflow, including draft persistence. A trigger `update_bank_account_balance_trigger_func` ensures `bank_accounts.current_balance` is automatically updated based on its transactions. Refer to `scripts/schema.sql` for full details.
+The PostgreSQL database schema is at version **1.0.5**. It includes tables for core system functions, detailed accounting, business operations, and comprehensive audit trails. Key recent additions include the `business.bank_reconciliations` table with a `status` column ('Draft', 'Finalized') and related fields in `bank_accounts` and `bank_transactions` to support the full bank reconciliation workflow, including draft persistence. A trigger `update_bank_account_balance_trigger_func` ensures `bank_accounts.current_balance` is automatically updated. See `scripts/schema.sql` for full details.
 
 ## Testing
 Automated tests are implemented using Pytest to ensure code quality and prevent regressions.
@@ -249,23 +194,12 @@ Automated tests are implemented using Pytest to ensure code quality and prevent 
     *   `SequenceGenerator` (`tests/unit/utils/test_sequence_generator.py`)
     *   Core Services: `AccountTypeService`, `CompanySettingsService`, `ConfigurationService`, `CurrencyService`, `DimensionService`, `ExchangeRateService`, `FiscalPeriodService`, `FiscalYearService`, `SequenceService` (various files in `tests/unit/services/`).
     *   Business Service: `BankReconciliationService` (`tests/unit/services/test_bank_reconciliation_service.py`).
-    *   Reporting Logic: `DashboardManager` including methods like `_get_total_cash_balance` and `get_dashboard_kpis` (in `tests/unit/reporting/test_dashboard_manager.py`).
-    *   Service methods supporting Dashboard KPIs: AR/AP Aging summary methods in `CustomerService`/`VendorService`, and `AccountService.get_total_balance_by_account_category_and_type_pattern`.
--   **Running Tests**:
-    *   To run all tests: `poetry run pytest`
-    *   To generate a coverage report: `poetry run pytest --cov=app` (requires `pytest-cov` plugin)
+    *   Reporting Logic: `DashboardManager` including `_get_total_cash_balance` and `get_dashboard_kpis` (in `tests/unit/reporting/test_dashboard_manager.py`).
+    *   Service methods used by Dashboard: AR/AP Aging in `CustomerService`/`VendorService`, and `AccountService.get_total_balance_by_account_category_and_type_pattern`.
+-   **Running Tests**: Use `poetry run pytest`. For coverage: `poetry run pytest --cov=app`.
 
 ## Contributing
-Contributions are welcome! Please follow standard open-source contribution practices:
-1.  Fork the repository.
-2.  Create a new branch for your feature or bug fix (`git checkout -b feature/your-feature-name`).
-3.  Make your changes, ensuring to add relevant tests where applicable.
-4.  Run linters (e.g., `flake8`), formatters (e.g., `black`), and type checkers (e.g., `mypy`), and ensure all tests pass.
-5.  Commit your changes with descriptive messages (Conventional Commits style preferred if possible).
-6.  Push to your branch (`git push origin feature/your-feature-name`).
-7.  Submit a Pull Request against the `main` (or `develop`) branch of the original repository.
-
-Please adhere to coding standards and ensure your contributions align with the project's goals and architectural patterns.
+Contributions are welcome! Please fork the repository, create a feature branch, make your changes (including tests), ensure all checks pass, and then submit a Pull Request.
 
 ## Roadmap
 
@@ -282,7 +216,7 @@ Please adhere to coding standards and ensure your contributions align with the p
     *   Added Current Ratio calculation and display.
     *   Backend services and manager logic for these new KPIs.
 -   **Circular Import Resolution**: Systematically fixed import cycles across managers, services, and `ApplicationCore`.
--   **Automated Testing (Phase 1 - Dashboard Logic & Core Bank Rec)**: Unit tests for `DashboardManager` methods, dependent service logic for new KPIs, and key `BankReconciliationService` methods.
+-   **Automated Testing (Phase 1 - Dashboard Logic)**: Unit tests for `DashboardManager` methods and dependent service logic for new KPIs.
 
 ### Current Focus / Next Steps
 -   **Automated Testing (Continued - CRITICAL)**:
@@ -291,20 +225,17 @@ Please adhere to coding standards and ensure your contributions align with the p
 -   **Refine Bank Reconciliation**:
     *   Implement UI and logic for handling complex matches (e.g., one-to-many, many-to-one statement lines to system transactions).
     *   UI improvements for visually linking matched items within the "Provisionally Matched" tables or a dedicated view.
-    *   More robust error handling and user feedback during CSV import (e.g., detailed row-level error reporting for parsing issues).
+    *   More robust error handling and user feedback during CSV import (e.g., detailed row-level error reporting).
 -   **Enhance Dashboard KPIs (Phase 2)**:
     *   Add more financial ratios (e.g., Quick Ratio, Debt-to-Equity).
-    *   Investigate and implement simple graphical representations for key KPIs (e.g., bar charts for aging summaries).
+    *   Investigate and implement simple graphical representations for key KPIs.
     *   Allow user customization or period selection for dashboard information.
 
 ### Long-term
--   Advanced reporting and analytics (e.g., customizable report builder).
--   Inventory Control enhancements (e.g., stocktakes, multiple locations, FIFO/LIFO costing methods).
--   Multi-company support within a single installation.
--   Cloud synchronization options (optional data backup/sync to a user-provided cloud storage).
--   Enhanced Tax Compliance features (e.g., more detailed Income Tax aids, preparation of IRAS Audit File (IAF)).
--   Full UI test suite using a suitable framework.
+-   Advanced reporting and analytics.
+-   Inventory Control enhancements (stocktakes, multiple locations).
+-   Multi-company support.
+-   Enhanced Tax Compliance features.
 
 ## License
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
