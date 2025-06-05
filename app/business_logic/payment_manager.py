@@ -6,17 +6,17 @@ from datetime import date
 from app.models.business.payment import Payment, PaymentAllocation
 from app.models.business.sales_invoice import SalesInvoice
 from app.models.business.purchase_invoice import PurchaseInvoice
-from app.models.accounting.account import Account
+# REMOVED: from app.models.accounting.account import Account # Not directly used by PaymentManager
 from app.models.accounting.journal_entry import JournalEntry 
-from app.models.business.bank_account import BankAccount
+# REMOVED: from app.models.business.bank_account import BankAccount # Not directly used by PaymentManager
 
-from app.services.business_services import (
-    PaymentService, BankAccountService, CustomerService, VendorService,
-    SalesInvoiceService, PurchaseInvoiceService
-)
-from app.services.core_services import SequenceService, ConfigurationService
-from app.services.account_service import AccountService
-from app.accounting.journal_entry_manager import JournalEntryManager 
+# REMOVED: from app.services.business_services import (
+#     PaymentService, BankAccountService, CustomerService, VendorService,
+#     SalesInvoiceService, PurchaseInvoiceService
+# )
+# REMOVED: from app.services.core_services import SequenceService, ConfigurationService
+# REMOVED: from app.services.account_service import AccountService
+# REMOVED: from app.accounting.journal_entry_manager import JournalEntryManager 
 
 from app.utils.result import Result
 from app.utils.pydantic_models import (
@@ -25,25 +25,32 @@ from app.utils.pydantic_models import (
 )
 from app.common.enums import (
     PaymentEntityTypeEnum, PaymentTypeEnum, PaymentStatusEnum,
-    InvoiceStatusEnum, JournalTypeEnum, PaymentAllocationDocTypeEnum # Added PaymentAllocationDocTypeEnum
+    InvoiceStatusEnum, JournalTypeEnum, PaymentAllocationDocTypeEnum 
 )
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore
-    from sqlalchemy.ext.asyncio import AsyncSession # For type hinting session
+    from sqlalchemy.ext.asyncio import AsyncSession 
+    from app.services.business_services import (
+        PaymentService, BankAccountService, CustomerService, VendorService,
+        SalesInvoiceService, PurchaseInvoiceService
+    )
+    from app.services.core_services import SequenceService, ConfigurationService
+    from app.services.account_service import AccountService
+    from app.accounting.journal_entry_manager import JournalEntryManager 
 
 class PaymentManager:
     def __init__(self,
-                 payment_service: PaymentService,
-                 sequence_service: SequenceService,
-                 bank_account_service: BankAccountService,
-                 customer_service: CustomerService,
-                 vendor_service: VendorService,
-                 sales_invoice_service: SalesInvoiceService,
-                 purchase_invoice_service: PurchaseInvoiceService,
-                 journal_entry_manager: JournalEntryManager,
-                 account_service: AccountService,
-                 configuration_service: ConfigurationService,
+                 payment_service: "PaymentService",
+                 sequence_service: "SequenceService",
+                 bank_account_service: "BankAccountService",
+                 customer_service: "CustomerService",
+                 vendor_service: "VendorService",
+                 sales_invoice_service: "SalesInvoiceService",
+                 purchase_invoice_service: "PurchaseInvoiceService",
+                 journal_entry_manager: "JournalEntryManager",
+                 account_service: "AccountService",
+                 configuration_service: "ConfigurationService",
                  app_core: "ApplicationCore"):
         self.payment_service = payment_service
         self.sequence_service = sequence_service
@@ -61,45 +68,41 @@ class PaymentManager:
     async def _validate_payment_data(self, dto: PaymentCreateData, session: "AsyncSession") -> List[str]:
         errors: List[str] = []
         
-        # Validate Entity
         entity_name_for_desc: str = "Entity"
         if dto.entity_type == PaymentEntityTypeEnum.CUSTOMER:
-            entity = await self.customer_service.get_by_id(dto.entity_id) # Use service, not direct session get
+            entity = await self.customer_service.get_by_id(dto.entity_id) 
             if not entity or not entity.is_active: errors.append(f"Active Customer ID {dto.entity_id} not found.")
             else: entity_name_for_desc = entity.name
         elif dto.entity_type == PaymentEntityTypeEnum.VENDOR:
-            entity = await self.vendor_service.get_by_id(dto.entity_id) # Use service
+            entity = await self.vendor_service.get_by_id(dto.entity_id) 
             if not entity or not entity.is_active: errors.append(f"Active Vendor ID {dto.entity_id} not found.")
             else: entity_name_for_desc = entity.name
         
-        # Validate Bank Account if not cash
-        if dto.payment_method != PaymentMethodEnum.CASH: # Use enum member for comparison
+        if dto.payment_method != PaymentMethodEnum.CASH: 
             if not dto.bank_account_id: errors.append("Bank Account is required for non-cash payments.")
             else:
-                bank_acc = await self.bank_account_service.get_by_id(dto.bank_account_id) # Use service
+                bank_acc = await self.bank_account_service.get_by_id(dto.bank_account_id) 
                 if not bank_acc or not bank_acc.is_active: errors.append(f"Active Bank Account ID {dto.bank_account_id} not found.")
                 elif bank_acc.currency_code != dto.currency_code: errors.append(f"Payment currency ({dto.currency_code}) does not match bank account currency ({bank_acc.currency_code}).")
         
-        # Validate Currency
         currency = await self.app_core.currency_manager.get_currency_by_code(dto.currency_code)
         if not currency or not currency.is_active: errors.append(f"Currency '{dto.currency_code}' is invalid or inactive.")
 
-        # Validate Allocations
         total_allocated = Decimal(0)
         for i, alloc_dto in enumerate(dto.allocations):
             total_allocated += alloc_dto.amount_allocated
             invoice_orm: Union[SalesInvoice, PurchaseInvoice, None] = None
             doc_type_str = ""
             if alloc_dto.document_type == PaymentAllocationDocTypeEnum.SALES_INVOICE:
-                invoice_orm = await self.sales_invoice_service.get_by_id(alloc_dto.document_id) # Use service
+                invoice_orm = await self.sales_invoice_service.get_by_id(alloc_dto.document_id) 
                 doc_type_str = "Sales Invoice"
             elif alloc_dto.document_type == PaymentAllocationDocTypeEnum.PURCHASE_INVOICE:
-                invoice_orm = await self.purchase_invoice_service.get_by_id(alloc_dto.document_id) # Use service
+                invoice_orm = await self.purchase_invoice_service.get_by_id(alloc_dto.document_id) 
                 doc_type_str = "Purchase Invoice"
             
             if not invoice_orm: errors.append(f"Allocation {i+1}: {doc_type_str} ID {alloc_dto.document_id} not found.")
             elif invoice_orm.status not in [InvoiceStatusEnum.APPROVED, InvoiceStatusEnum.PARTIALLY_PAID, InvoiceStatusEnum.OVERDUE]:
-                errors.append(f"Allocation {i+1}: {doc_type_str} {invoice_orm.invoice_no} is not in an allocatable status ({invoice_orm.status.value}).") # Use .value for enum
+                errors.append(f"Allocation {i+1}: {doc_type_str} {invoice_orm.invoice_no} is not in an allocatable status ({invoice_orm.status.value}).") 
             elif isinstance(invoice_orm, SalesInvoice) and invoice_orm.customer_id != dto.entity_id:
                  errors.append(f"Allocation {i+1}: Sales Invoice {invoice_orm.invoice_no} does not belong to selected customer.")
             elif isinstance(invoice_orm, PurchaseInvoice) and invoice_orm.vendor_id != dto.entity_id:
@@ -166,7 +169,7 @@ class PaymentManager:
                         document_type=alloc_dto.document_type.value,
                         document_id=alloc_dto.document_id,
                         amount=alloc_dto.amount_allocated,
-                        created_by_user_id=dto.user_id # Audit for allocation line
+                        created_by_user_id=dto.user_id 
                     ))
                 
                 je_lines_data: List[JournalEntryLineData] = []
@@ -216,7 +219,7 @@ class PaymentManager:
                             session.add(inv)
 
                 await session.flush()
-                await session.refresh(saved_payment, attribute_names=['allocations', 'journal_entry']) # Refresh all relevant attributes
+                await session.refresh(saved_payment, attribute_names=['allocations', 'journal_entry']) 
                 
                 self.logger.info(f"Payment '{saved_payment.payment_no}' created and posted successfully. JE ID: {created_je.id}")
                 return Result.success(saved_payment)

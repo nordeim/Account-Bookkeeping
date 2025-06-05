@@ -3,9 +3,9 @@ from typing import List, Optional, Dict, Any, TYPE_CHECKING, Union
 from decimal import Decimal
 
 from app.models.business.bank_account import BankAccount
-from app.services.business_services import BankAccountService
-from app.services.account_service import AccountService
-from app.services.accounting_services import CurrencyService
+# REMOVED: from app.services.business_services import BankAccountService
+# REMOVED: from app.services.account_service import AccountService
+# REMOVED: from app.services.accounting_services import CurrencyService
 from app.utils.result import Result
 from app.utils.pydantic_models import (
     BankAccountCreateData, BankAccountUpdateData, BankAccountSummaryData
@@ -13,12 +13,16 @@ from app.utils.pydantic_models import (
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore
+    from app.services.business_services import BankAccountService # ADDED
+    from app.services.account_service import AccountService # ADDED
+    from app.services.accounting_services import CurrencyService # ADDED
+
 
 class BankAccountManager:
     def __init__(self,
-                 bank_account_service: BankAccountService,
-                 account_service: AccountService,
-                 currency_service: CurrencyService,
+                 bank_account_service: "BankAccountService",
+                 account_service: "AccountService",
+                 currency_service: "CurrencyService",
                  app_core: "ApplicationCore"):
         self.bank_account_service = bank_account_service
         self.account_service = account_service
@@ -58,10 +62,7 @@ class BankAccountManager:
         existing_bank_account_id: Optional[int] = None
     ) -> List[str]:
         errors: List[str] = []
-
-        # Pydantic handles basic field presence/type. This is for business rules.
         
-        # Validate GL Account
         gl_account = await self.account_service.get_by_id(dto.gl_account_id)
         if not gl_account:
             errors.append(f"GL Account ID '{dto.gl_account_id}' not found.")
@@ -70,18 +71,15 @@ class BankAccountManager:
                 errors.append(f"GL Account '{gl_account.code} - {gl_account.name}' is not active.")
             if gl_account.account_type != 'Asset':
                 errors.append(f"GL Account '{gl_account.code}' must be an Asset type account.")
-            if not gl_account.is_bank_account: # Check the flag on Account model
+            if not gl_account.is_bank_account: 
                 errors.append(f"GL Account '{gl_account.code}' is not flagged as a bank account. Please update the Chart of Accounts.")
 
-        # Validate Currency
         currency = await self.currency_service.get_by_id(dto.currency_code)
         if not currency:
             errors.append(f"Currency Code '{dto.currency_code}' not found.")
         elif not currency.is_active:
             errors.append(f"Currency '{dto.currency_code}' is not active.")
             
-        # Check for duplicate account number (globally, not just per bank)
-        # In a real system, account_number + bank_name might be unique. For now, just account_number.
         existing_by_acc_no = await self.bank_account_service.get_by_account_number(dto.account_number)
         if existing_by_acc_no and \
            (existing_bank_account_id is None or existing_by_acc_no.id != existing_bank_account_id):
@@ -107,7 +105,6 @@ class BankAccountManager:
                 gl_account_id=dto.gl_account_id,
                 is_active=dto.is_active,
                 description=dto.description,
-                # current_balance will be opening_balance initially for new accounts
                 current_balance=dto.opening_balance, 
                 created_by_user_id=dto.user_id,
                 updated_by_user_id=dto.user_id
@@ -136,10 +133,6 @@ class BankAccountManager:
             
             existing_bank_account.updated_by_user_id = dto.user_id
             
-            # Note: current_balance update logic is typically handled by transactions, not direct edit here.
-            # If opening_balance is changed, current_balance might need re-evaluation if it's simply OB + transactions.
-            # For now, assume current_balance is not directly editable here.
-
             updated_bank_account = await self.bank_account_service.save(existing_bank_account)
             self.logger.info(f"Bank account '{updated_bank_account.account_name}' (ID: {bank_account_id}) updated.")
             return Result.success(updated_bank_account)
@@ -152,11 +145,8 @@ class BankAccountManager:
         if not bank_account:
             return Result.failure([f"Bank Account with ID {bank_account_id} not found."])
         
-        # Future check: if current_balance is non-zero, or has unreconciled transactions, warn or prevent deactivation.
-        # For now, simple toggle.
         if bank_account.current_balance != Decimal(0) and bank_account.is_active:
             self.logger.warning(f"Deactivating bank account ID {bank_account_id} ('{bank_account.account_name}') which has a non-zero balance of {bank_account.current_balance}.")
-            # Not returning failure, just logging. UI might want to confirm.
 
         bank_account.is_active = not bank_account.is_active
         bank_account.updated_by_user_id = user_id

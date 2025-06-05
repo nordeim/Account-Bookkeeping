@@ -1,3 +1,552 @@
+<think>
+The application is launching successfully, and the DTO update for `DashboardKPIData` (Phase 1 of "Enhance Dashboard KPIs") is complete. The logs are clean.
+
+We are proceeding with the roadmap item: **"Enhance Dashboard KPIs"**, specifically focusing on **"Add more metrics (e.g., AR/AP Aging details, financial ratios)"**.
+The current step is **Phase 2: Service Layer Enhancements**.
+
+This involves:
+1.  Updating `IAccountRepository`, `ICustomerRepository`, `IVendorRepository` interfaces in `app/services/__init__.py`.
+2.  Implementing the new methods in their respective service classes:
+    *   `get_ar_aging_summary` in `CustomerService` (`app/services/business_services.py`).
+    *   `get_ap_aging_summary` in `VendorService` (`app/services/business_services.py`).
+    *   `get_total_balance_by_account_category_and_type_pattern` in `AccountService` (`app/services/account_service.py`).
+
+**Detailed Execution Plan & Checklist for Phase 2:**
+
+**Item 1: Modify `app/services/__init__.py` (Interfaces)**
+*   Checklist:
+    *   [ ] In `ICustomerRepository`: Add `async def get_ar_aging_summary(self, as_of_date: date) -> Dict[str, Decimal]: pass`.
+    *   [ ] In `IVendorRepository`: Add `async def get_ap_aging_summary(self, as_of_date: date) -> Dict[str, Decimal]: pass`.
+    *   [ ] In `IAccountRepository`: Add `async def get_total_balance_by_account_category_and_type_pattern(self, account_category: str, account_type_name_like: str, as_of_date: date) -> Decimal: pass`.
+    *   [ ] Ensure all type hints (`date`, `Dict`, `Decimal`) are correctly imported/available.
+
+**Item 2: Implement `get_ar_aging_summary` in `CustomerService` (`app/services/business_services.py`)**
+*   Checklist:
+    *   [ ] Method signature: `async def get_ar_aging_summary(self, as_of_date: date) -> Dict[str, Decimal]:`.
+    *   [ ] Fetch all `SalesInvoice` records where `status` is NOT 'Paid' or 'Voided' and `total_amount > amount_paid`.
+        *   This requires `SalesInvoice` model to be accessible. `SalesInvoiceService` might be a dependency or we query `SalesInvoice` directly here using the session. Given this is `CustomerService`, it might be cleaner for it to call a method on `SalesInvoiceService` like `get_outstanding_invoices_for_aging(customer_id: Optional[int], as_of_date: date)`. For now, let's assume direct query within `CustomerService` for simplicity.
+    *   [ ] For each outstanding invoice:
+        *   `outstanding_balance = invoice.total_amount - invoice.amount_paid`.
+        *   `days_overdue = (as_of_date - invoice.due_date).days`.
+    *   [ ] Initialize aging buckets: `{"0-30": Decimal(0), "31-60": Decimal(0), "61-90": Decimal(0), "91+": Decimal(0), "Current": Decimal(0)}`.
+        *   "Current" bucket logic: If `days_overdue <= 0`.
+        *   "0-30" (often means 1-30 days overdue): If `0 < days_overdue <= 30`.
+        *   The buckets definition needs clarity: "0-30" could mean "not yet due or up to 30 days overdue". Let's define:
+            *   `Current`: `days_overdue <= 0`
+            *   `1-30 Days`: `1 <= days_overdue <= 30`
+            *   `31-60 Days`: `31 <= days_overdue <= 60`
+            *   `61-90 Days`: `61 <= days_overdue <= 90`
+            *   `91+ Days`: `days_overdue >= 91`
+    *   [ ] Sum `outstanding_balance` into the appropriate bucket.
+    *   [ ] Return the dictionary of aging buckets.
+    *   [ ] Import `SalesInvoice` model, `InvoiceStatusEnum`.
+
+**Item 3: Implement `get_ap_aging_summary` in `VendorService` (`app/services/business_services.py`)**
+*   Checklist:
+    *   [ ] Method signature: `async def get_ap_aging_summary(self, as_of_date: date) -> Dict[str, Decimal]:`.
+    *   [ ] Similar logic to `get_ar_aging_summary`, but using `PurchaseInvoice` and `PurchaseInvoiceService` (or direct query).
+    *   [ ] Import `PurchaseInvoice` model.
+
+**Item 4: Implement `get_total_balance_by_account_category_and_type_pattern` in `AccountService` (`app/services/account_service.py`)**
+*   Checklist:
+    *   [ ] Method signature: `async def get_total_balance_by_account_category_and_type_pattern(self, account_category: str, account_type_name_like: str, as_of_date: date) -> Decimal:`.
+    *   [ ] Fetch all `Account` records where:
+        *   `is_active = True`.
+        *   `account_type == account_category` (this refers to `Account.account_type` which stores the category like 'Asset', 'Liability').
+        *   `sub_type` ILIKE `account_type_name_like` (e.g., 'Current%' or 'Current Asset'). The `Account.sub_type` field stores the more specific type name.
+    *   [ ] For each matching account, fetch its balance as of `as_of_date` using `self.journal_service.get_account_balance(account.id, as_of_date)`.
+        *   *Dependency*: `AccountService` will need access to `JournalService`. This implies `ApplicationCore` needs to provide `JournalService` to `AccountService`, or `AccountService` needs to be refactored to not depend on other services directly for such calculations if it's meant to be a pure repository.
+        *   *Alternative for AccountService*: The method could return a list of account IDs, and `DashboardManager` could fetch balances. However, the request implies this logic is in `AccountService`. So, `AccountService` will need `JournalService`. The `FinancialStatementGenerator` already takes `JournalService`, so this pattern exists.
+        *   Let's assume `AccountService` gets `JournalService` injected or retrieves it from `self.app_core`. For now, I'll add `journal_service: JournalService` to its `__init__`.
+    *   [ ] Sum these balances. Remember that for Liability/Equity accounts, a positive balance in `get_account_balance` (which is typically net debits - net credits + OB) might need its sign flipped if we expect the "natural" balance. However, for Current Ratio (Assets/Liabilities), we need the absolute values or correctly signed values that lead to positive totals for Assets and Liabilities.
+        *   `get_account_balance` returns the *actual GL balance* (debits are positive, credits are negative for the balance calculation if account is Asset/Expense by nature; for Liability/Equity/Revenue, the function effectively provides credit balance as positive).
+        *   For Current Assets (debit nature), a positive balance is an asset. Sum these.
+        *   For Current Liabilities (credit nature), a positive balance (meaning net credit balance) is a liability. Sum these positive values. If `get_account_balance` returns a negative value for a liability account (meaning it has a debit balance, unusual), it would reduce the total liability. This is correct.
+    *   [ ] Return the total sum.
+
+Let's start by updating `app/services/__init__.py`.
+Then `app/services/business_services.py` for `CustomerService` and `VendorService`.
+Finally, `app/services/account_service.py`. This one will require adding `JournalService` to its constructor.
+
+Consideration for `AccountService` needing `JournalService`:
+This creates a potential inter-service dependency. `ApplicationCore` already initializes both `AccountService` and `JournalService`.
+If `AccountService.__init__` takes `journal_service: JournalService`, then in `ApplicationCore.startup`, `self.journal_service` must be initialized before `self.account_service`.
+
+Current `ApplicationCore.startup` order:
+```python
+        # ...
+        self._account_service_instance = AccountService(self.db_manager, self) # Current init
+        # ...
+        from app.services.journal_service import JournalService 
+        self._journal_service_instance = JournalService(self.db_manager, self)
+        # ...
+```
+This order needs to be swapped, or `AccountService` needs to get `JournalService` via `self.app_core` reference if `app_core` is passed to its constructor and `app_core` guarantees `journal_service` is available when needed.
+The current `AccountService` init is `AccountService(self.db_manager, self)`. `self` here is `app_core`.
+So `AccountService` can access `self.app_core.journal_service`. This is cleaner than direct injection of one service into another if it creates ordering issues.
+
+Yes, `AccountService` already takes `app_core` in its `__init__`. So it can access `self.app_core.journal_service`.
+
+```python
+# In AccountService
+class AccountService(IAccountRepository):
+    def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
+        self.db_manager = db_manager
+        self.app_core = app_core # app_core is available
+        # self.journal_service will be self.app_core.journal_service
+
+    async def get_total_balance_by_account_category_and_type_pattern(self, ...):
+        # ...
+        #   journal_service = self.app_core.journal_service if self.app_core else None
+        #   if not journal_service: raise Exception("JournalService not available")
+        #   balance = await journal_service.get_account_balance(account.id, as_of_date)
+        # ...
+```
+This approach avoids changing the constructor signature of `AccountService` and relies on `ApplicationCore` to have `JournalService` ready.
+The `ApplicationCore.startup()` method ensures that `self._journal_service_instance` is initialized. The property `self.app_core.journal_service` will then provide it.
+
+This seems like a robust plan.
+</think>
+
+Excellent! The Dashboard KPIs are displaying, and the Bank Reconciliation UI is fully functional for current sessions and history viewing.
+
+We will now proceed with **Phase 2: Service Layer Enhancements** for the "Enhance Dashboard KPIs" roadmap item. This involves adding new methods to our services to fetch data required for AR/AP Aging summaries and Current Ratio calculation.
+
+**Summary of Plan:**
+1.  **Update Interfaces (`app/services/__init__.py`)**:
+    *   Add `get_ar_aging_summary` to `ICustomerRepository`.
+    *   Add `get_ap_aging_summary` to `IVendorRepository`.
+    *   Add `get_total_balance_by_account_category_and_type_pattern` to `IAccountRepository`.
+2.  **Implement Service Methods**:
+    *   `CustomerService.get_ar_aging_summary` in `app/services/business_services.py`.
+    *   `VendorService.get_ap_aging_summary` in `app/services/business_services.py`.
+    *   `AccountService.get_total_balance_by_account_category_and_type_pattern` in `app/services/account_service.py`.
+
+---
+**1. Updated File: `app/services/__init__.py`**
+---
+```python
+# File: app/services/__init__.py
+from abc import ABC, abstractmethod
+from typing import List, Optional, Any, Generic, TypeVar, Dict, Tuple 
+from datetime import date, datetime 
+from decimal import Decimal 
+from sqlalchemy.ext.asyncio import AsyncSession
+
+T = TypeVar('T') 
+ID = TypeVar('ID') 
+
+class IRepository(ABC, Generic[T, ID]):
+    @abstractmethod
+    async def get_by_id(self, id_val: ID) -> Optional[T]: pass
+    @abstractmethod
+    async def get_all(self) -> List[T]: pass
+    @abstractmethod
+    async def add(self, entity: T) -> T: pass
+    @abstractmethod
+    async def update(self, entity: T) -> T: pass
+    @abstractmethod
+    async def delete(self, id_val: ID) -> bool: pass
+
+# --- ORM Model Imports ---
+from app.models.accounting.account import Account
+from app.models.accounting.journal_entry import JournalEntry, JournalEntryLine 
+from app.models.accounting.fiscal_period import FiscalPeriod
+from app.models.accounting.tax_code import TaxCode
+from app.models.core.company_setting import CompanySetting 
+from app.models.accounting.gst_return import GSTReturn
+from app.models.accounting.recurring_pattern import RecurringPattern
+from app.models.accounting.fiscal_year import FiscalYear 
+from app.models.accounting.account_type import AccountType 
+from app.models.accounting.currency import Currency 
+from app.models.accounting.exchange_rate import ExchangeRate 
+from app.models.core.sequence import Sequence 
+from app.models.core.configuration import Configuration 
+from app.models.business.customer import Customer
+from app.models.business.vendor import Vendor
+from app.models.business.product import Product
+from app.models.business.sales_invoice import SalesInvoice
+from app.models.business.purchase_invoice import PurchaseInvoice
+from app.models.business.inventory_movement import InventoryMovement
+from app.models.accounting.dimension import Dimension 
+from app.models.business.bank_account import BankAccount 
+from app.models.business.bank_transaction import BankTransaction 
+from app.models.business.payment import Payment, PaymentAllocation 
+from app.models.audit.audit_log import AuditLog 
+from app.models.audit.data_change_history import DataChangeHistory 
+from app.models.business.bank_reconciliation import BankReconciliation
+
+# --- DTO Imports (for return types in interfaces) ---
+from app.utils.pydantic_models import (
+    CustomerSummaryData, VendorSummaryData, ProductSummaryData, 
+    SalesInvoiceSummaryData, PurchaseInvoiceSummaryData,
+    BankAccountSummaryData, BankTransactionSummaryData,
+    PaymentSummaryData,
+    AuditLogEntryData, DataChangeHistoryEntryData, BankReconciliationData,
+    BankReconciliationSummaryData, 
+    DashboardKPIData
+)
+from app.utils.result import Result 
+from app.common.enums import ( 
+    ProductTypeEnum, InvoiceStatusEnum, BankTransactionTypeEnum,
+    PaymentTypeEnum, PaymentEntityTypeEnum, PaymentStatusEnum, DataChangeTypeEnum 
+)
+
+# --- Interfaces ---
+class IAccountRepository(IRepository[Account, int]): 
+    @abstractmethod
+    async def get_by_code(self, code: str) -> Optional[Account]: pass
+    @abstractmethod
+    async def get_all_active(self) -> List[Account]: pass
+    @abstractmethod
+    async def get_by_type(self, account_type: str, active_only: bool = True) -> List[Account]: pass
+    @abstractmethod
+    async def save(self, account: Account) -> Account: pass 
+    @abstractmethod
+    async def get_account_tree(self, active_only: bool = True) -> List[Dict[str, Any]]: pass 
+    @abstractmethod
+    async def has_transactions(self, account_id: int) -> bool: pass
+    @abstractmethod
+    async def get_accounts_by_tax_treatment(self, tax_treatment_code: str) -> List[Account]: pass
+    @abstractmethod
+    async def get_total_balance_by_account_category_and_type_pattern(self, account_category: str, account_type_name_like: str, as_of_date: date) -> Decimal: pass # New
+
+class IJournalEntryRepository(IRepository[JournalEntry, int]): 
+    @abstractmethod
+    async def get_by_entry_no(self, entry_no: str) -> Optional[JournalEntry]: pass
+    @abstractmethod
+    async def get_by_date_range(self, start_date: date, end_date: date) -> List[JournalEntry]: pass
+    @abstractmethod
+    async def get_posted_entries_by_date_range(self, start_date: date, end_date: date) -> List[JournalEntry]: pass
+    @abstractmethod
+    async def save(self, journal_entry: JournalEntry) -> JournalEntry: pass
+    @abstractmethod
+    async def get_account_balance(self, account_id: int, as_of_date: date) -> Decimal: pass
+    @abstractmethod
+    async def get_account_balance_for_period(self, account_id: int, start_date: date, end_date: date) -> Decimal: pass
+    @abstractmethod
+    async def get_recurring_patterns_due(self, as_of_date: date) -> List[RecurringPattern]: pass
+    @abstractmethod
+    async def save_recurring_pattern(self, pattern: RecurringPattern) -> RecurringPattern: pass
+    @abstractmethod
+    async def get_all_summary(self, start_date_filter: Optional[date] = None, 
+                              end_date_filter: Optional[date] = None, 
+                              status_filter: Optional[str] = None,
+                              entry_no_filter: Optional[str] = None,
+                              description_filter: Optional[str] = None,
+                              journal_type_filter: Optional[str] = None
+                             ) -> List[Dict[str, Any]]: pass
+    @abstractmethod
+    async def get_posted_lines_for_account_in_range(self, account_id: int, start_date: date, end_date: date, 
+                                                    dimension1_id: Optional[int] = None, dimension2_id: Optional[int] = None
+                                                    ) -> List[JournalEntryLine]: pass 
+
+class IFiscalPeriodRepository(IRepository[FiscalPeriod, int]): 
+    @abstractmethod
+    async def get_by_date(self, target_date: date) -> Optional[FiscalPeriod]: pass
+    @abstractmethod
+    async def get_fiscal_periods_for_year(self, fiscal_year_id: int, period_type: Optional[str] = None) -> List[FiscalPeriod]: pass
+
+class IFiscalYearRepository(IRepository[FiscalYear, int]): 
+    @abstractmethod
+    async def get_by_name(self, year_name: str) -> Optional[FiscalYear]: pass
+    @abstractmethod
+    async def get_by_date_overlap(self, start_date: date, end_date: date, exclude_id: Optional[int] = None) -> Optional[FiscalYear]: pass
+    @abstractmethod
+    async def save(self, entity: FiscalYear) -> FiscalYear: pass
+
+class ITaxCodeRepository(IRepository[TaxCode, int]): 
+    @abstractmethod
+    async def get_tax_code(self, code: str) -> Optional[TaxCode]: pass
+    @abstractmethod
+    async def save(self, entity: TaxCode) -> TaxCode: pass 
+
+class ICompanySettingsRepository(IRepository[CompanySetting, int]): 
+    @abstractmethod
+    async def get_company_settings(self, settings_id: int = 1) -> Optional[CompanySetting]: pass
+    @abstractmethod
+    async def save_company_settings(self, settings_obj: CompanySetting) -> CompanySetting: pass
+
+class IGSTReturnRepository(IRepository[GSTReturn, int]): 
+    @abstractmethod
+    async def get_gst_return(self, return_id: int) -> Optional[GSTReturn]: pass 
+    @abstractmethod
+    async def save_gst_return(self, gst_return_data: GSTReturn) -> GSTReturn: pass
+
+class IAccountTypeRepository(IRepository[AccountType, int]): 
+    @abstractmethod
+    async def get_by_name(self, name: str) -> Optional[AccountType]: pass
+    @abstractmethod
+    async def get_by_category(self, category: str) -> List[AccountType]: pass
+
+class ICurrencyRepository(IRepository[Currency, str]): 
+    @abstractmethod
+    async def get_all_active(self) -> List[Currency]: pass
+
+class IExchangeRateRepository(IRepository[ExchangeRate, int]): 
+    @abstractmethod
+    async def get_rate_for_date(self, from_code: str, to_code: str, r_date: date) -> Optional[ExchangeRate]: pass
+    @abstractmethod
+    async def save(self, entity: ExchangeRate) -> ExchangeRate: pass
+
+class ISequenceRepository(IRepository[Sequence, int]): 
+    @abstractmethod
+    async def get_sequence_by_name(self, name: str) -> Optional[Sequence]: pass
+    @abstractmethod
+    async def save_sequence(self, sequence_obj: Sequence) -> Sequence: pass
+
+class IConfigurationRepository(IRepository[Configuration, int]): 
+    @abstractmethod
+    async def get_config_by_key(self, key: str) -> Optional[Configuration]: pass
+    @abstractmethod
+    async def save_config(self, config_obj: Configuration) -> Configuration: pass
+
+class ICustomerRepository(IRepository[Customer, int]): 
+    @abstractmethod
+    async def get_by_code(self, code: str) -> Optional[Customer]: pass
+    @abstractmethod
+    async def get_all_summary(self, active_only: bool = True,
+                              search_term: Optional[str] = None,
+                              page: int = 1, page_size: int = 50
+                             ) -> List[CustomerSummaryData]: pass
+    @abstractmethod
+    async def get_total_outstanding_balance(self) -> Decimal: pass
+    @abstractmethod 
+    async def get_total_overdue_balance(self) -> Decimal: pass
+    @abstractmethod
+    async def get_ar_aging_summary(self, as_of_date: date) -> Dict[str, Decimal]: pass # New
+
+class IVendorRepository(IRepository[Vendor, int]): 
+    @abstractmethod
+    async def get_by_code(self, code: str) -> Optional[Vendor]: pass
+    @abstractmethod
+    async def get_all_summary(self, active_only: bool = True,
+                              search_term: Optional[str] = None,
+                              page: int = 1, page_size: int = 50
+                             ) -> List[VendorSummaryData]: pass
+    @abstractmethod
+    async def get_total_outstanding_balance(self) -> Decimal: pass
+    @abstractmethod 
+    async def get_total_overdue_balance(self) -> Decimal: pass
+    @abstractmethod
+    async def get_ap_aging_summary(self, as_of_date: date) -> Dict[str, Decimal]: pass # New
+
+class IProductRepository(IRepository[Product, int]): 
+    @abstractmethod
+    async def get_by_code(self, code: str) -> Optional[Product]: pass
+    @abstractmethod
+    async def get_all_summary(self, 
+                              active_only: bool = True,
+                              product_type_filter: Optional[ProductTypeEnum] = None,
+                              search_term: Optional[str] = None,
+                              page: int = 1, 
+                              page_size: int = 50
+                             ) -> List[ProductSummaryData]: pass
+
+class ISalesInvoiceRepository(IRepository[SalesInvoice, int]):
+    @abstractmethod
+    async def get_by_invoice_no(self, invoice_no: str) -> Optional[SalesInvoice]: pass
+    @abstractmethod
+    async def get_all_summary(self, 
+                              customer_id: Optional[int] = None,
+                              status: Optional[InvoiceStatusEnum] = None, 
+                              start_date: Optional[date] = None, 
+                              end_date: Optional[date] = None,
+                              page: int = 1, 
+                              page_size: int = 50
+                             ) -> List[SalesInvoiceSummaryData]: pass
+    @abstractmethod # New for aging
+    async def get_outstanding_invoices_for_customer(self, customer_id: Optional[int], as_of_date: date) -> List[SalesInvoice]: pass
+
+
+class IPurchaseInvoiceRepository(IRepository[PurchaseInvoice, int]):
+    @abstractmethod
+    async def get_by_internal_ref_no(self, internal_ref_no: str) -> Optional[PurchaseInvoice]: pass 
+    @abstractmethod
+    async def get_by_vendor_and_vendor_invoice_no(self, vendor_id: int, vendor_invoice_no: str) -> Optional[PurchaseInvoice]: pass
+    @abstractmethod
+    async def get_all_summary(self, 
+                              vendor_id: Optional[int] = None,
+                              status: Optional[InvoiceStatusEnum] = None, 
+                              start_date: Optional[date] = None, 
+                              end_date: Optional[date] = None,
+                              page: int = 1, 
+                              page_size: int = 50
+                             ) -> List[PurchaseInvoiceSummaryData]: pass
+    @abstractmethod # New for aging
+    async def get_outstanding_invoices_for_vendor(self, vendor_id: Optional[int], as_of_date: date) -> List[PurchaseInvoice]: pass
+
+
+class IInventoryMovementRepository(IRepository[InventoryMovement, int]):
+    @abstractmethod
+    async def save(self, entity: InventoryMovement, session: Optional[AsyncSession]=None) -> InventoryMovement: pass
+
+class IDimensionRepository(IRepository[Dimension, int]):
+    @abstractmethod
+    async def get_distinct_dimension_types(self) -> List[str]: pass
+    @abstractmethod
+    async def get_dimensions_by_type(self, dim_type: str, active_only: bool = True) -> List[Dimension]: pass
+    @abstractmethod
+    async def get_by_type_and_code(self, dim_type: str, code: str) -> Optional[Dimension]: pass
+
+class IBankAccountRepository(IRepository[BankAccount, int]):
+    @abstractmethod
+    async def get_by_account_number(self, account_number: str) -> Optional[BankAccount]: pass
+    @abstractmethod
+    async def get_all_summary(self, active_only: bool = True, 
+                              currency_code: Optional[str] = None,
+                              page: int = 1, page_size: int = 50
+                             ) -> List[BankAccountSummaryData]: pass
+    @abstractmethod
+    async def save(self, entity: BankAccount) -> BankAccount: pass
+
+class IBankTransactionRepository(IRepository[BankTransaction, int]):
+    @abstractmethod
+    async def get_all_for_bank_account(self, bank_account_id: int,
+                                       start_date: Optional[date] = None,
+                                       end_date: Optional[date] = None,
+                                       transaction_type: Optional[BankTransactionTypeEnum] = None,
+                                       is_reconciled: Optional[bool] = None,
+                                       is_from_statement_filter: Optional[bool] = None, 
+                                       page: int = 1, page_size: int = 50
+                                      ) -> List[BankTransactionSummaryData]: pass 
+    @abstractmethod
+    async def save(self, entity: BankTransaction, session: Optional[AsyncSession] = None) -> BankTransaction: pass
+
+class IPaymentRepository(IRepository[Payment, int]):
+    @abstractmethod
+    async def get_by_payment_no(self, payment_no: str) -> Optional[Payment]: pass
+    @abstractmethod
+    async def get_all_summary(self, 
+                              entity_type: Optional[PaymentEntityTypeEnum] = None,
+                              entity_id: Optional[int] = None,
+                              status: Optional[PaymentStatusEnum] = None,
+                              start_date: Optional[date] = None,
+                              end_date: Optional[date] = None,
+                              page: int = 1, page_size: int = 50
+                             ) -> List[PaymentSummaryData]: pass
+    @abstractmethod
+    async def save(self, entity: Payment, session: Optional[AsyncSession] = None) -> Payment: pass
+
+class IAuditLogRepository(IRepository[AuditLog, int]):
+    @abstractmethod
+    async def get_audit_logs_paginated(
+        self, user_id_filter: Optional[int] = None, action_filter: Optional[str] = None, entity_type_filter: Optional[str] = None,
+        entity_id_filter: Optional[int] = None, start_date_filter: Optional[datetime] = None, end_date_filter: Optional[datetime] = None,   
+        page: int = 1, page_size: int = 50
+    ) -> Tuple[List[AuditLogEntryData], int]: pass 
+
+class IDataChangeHistoryRepository(IRepository[DataChangeHistory, int]):
+    @abstractmethod
+    async def get_data_change_history_paginated(
+        self, table_name_filter: Optional[str] = None, record_id_filter: Optional[int] = None, changed_by_user_id_filter: Optional[int] = None,
+        start_date_filter: Optional[datetime] = None, end_date_filter: Optional[datetime] = None,   
+        page: int = 1, page_size: int = 50
+    ) -> Tuple[List[DataChangeHistoryEntryData], int]: pass 
+
+class IBankReconciliationRepository(IRepository[BankReconciliation, int]):
+    @abstractmethod
+    async def get_or_create_draft_reconciliation(
+        self, 
+        bank_account_id: int, 
+        statement_date: date, 
+        statement_ending_balance: Decimal, 
+        user_id: int, 
+        session: AsyncSession
+    ) -> BankReconciliation: pass
+
+    @abstractmethod
+    async def mark_transactions_as_provisionally_reconciled(
+        self, 
+        draft_reconciliation_id: int, 
+        transaction_ids: List[int], 
+        statement_date: date, 
+        user_id: int, 
+        session: AsyncSession
+    ) -> bool: pass
+
+    @abstractmethod
+    async def finalize_reconciliation(
+        self, 
+        draft_reconciliation_id: int, 
+        statement_ending_balance: Decimal, 
+        calculated_book_balance: Decimal, 
+        reconciled_difference: Decimal,
+        user_id: int,
+        session: AsyncSession
+    ) -> Result[BankReconciliation]: pass 
+
+    @abstractmethod
+    async def unreconcile_transactions( 
+        self, 
+        transaction_ids: List[int], 
+        user_id: int, 
+        session: AsyncSession
+    ) -> bool: pass
+    
+    @abstractmethod 
+    async def get_reconciliations_for_account(
+        self, 
+        bank_account_id: int, 
+        page: int = 1, 
+        page_size: int = 20
+    ) -> Tuple[List[BankReconciliationSummaryData], int]: pass
+    
+    @abstractmethod 
+    async def get_transactions_for_reconciliation(
+        self, 
+        reconciliation_id: int
+    ) -> Tuple[List[BankTransactionSummaryData], List[BankTransactionSummaryData]]: pass
+
+
+from .account_service import AccountService
+from .journal_service import JournalService
+from .fiscal_period_service import FiscalPeriodService
+from .tax_service import TaxCodeService, GSTReturnService 
+from .core_services import SequenceService, ConfigurationService, CompanySettingsService 
+from .accounting_services import AccountTypeService, CurrencyService, ExchangeRateService, FiscalYearService, DimensionService
+from .business_services import (
+    CustomerService, VendorService, ProductService, 
+    SalesInvoiceService, PurchaseInvoiceService, InventoryMovementService,
+    BankAccountService, BankTransactionService, PaymentService, 
+    BankReconciliationService
+)
+from .audit_services import AuditLogService 
+
+__all__ = [
+    "IRepository",
+    "IAccountRepository", "IJournalEntryRepository", "IFiscalPeriodRepository", "IFiscalYearRepository",
+    "ITaxCodeRepository", "ICompanySettingsRepository", "IGSTReturnRepository",
+    "IAccountTypeRepository", "ICurrencyRepository", "IExchangeRateRepository",
+    "ISequenceRepository", "IConfigurationRepository", 
+    "ICustomerRepository", "IVendorRepository", "IProductRepository",
+    "ISalesInvoiceRepository", "IPurchaseInvoiceRepository", 
+    "IInventoryMovementRepository", 
+    "IDimensionRepository", 
+    "IBankAccountRepository", 
+    "IBankTransactionRepository", 
+    "IPaymentRepository", 
+    "IAuditLogRepository", "IDataChangeHistoryRepository", 
+    "IBankReconciliationRepository", 
+    "AccountService", "JournalService", "FiscalPeriodService", "FiscalYearService",
+    "TaxCodeService", "GSTReturnService",
+    "SequenceService", "ConfigurationService", "CompanySettingsService",
+    "AccountTypeService", "CurrencyService", "ExchangeRateService", "DimensionService", 
+    "CustomerService", "VendorService", "ProductService", 
+    "SalesInvoiceService", "PurchaseInvoiceService", 
+    "InventoryMovementService", 
+    "BankAccountService", 
+    "BankTransactionService",
+    "PaymentService", 
+    "AuditLogService", 
+    "BankReconciliationService", 
+]
+```
+
+---
+**File 2: `app/services/business_services.py` (Updated `CustomerService` and `VendorService`)**
+---
+```python
 # File: app/services/business_services.py
 from typing import List, Optional, Any, TYPE_CHECKING, Dict, Tuple
 from sqlalchemy import select, func, and_, or_, literal_column, case, update as sqlalchemy_update, table, column
@@ -766,3 +1315,199 @@ class BankReconciliationService(IBankReconciliationRepository):
                     system_items.append(summary_dto)
             
             return statement_items, system_items
+```
+
+---
+**3. Updated File: `app/services/account_service.py`**
+---
+```python
+# File: app/services/account_service.py
+from typing import List, Optional, Dict, Any, TYPE_CHECKING
+from sqlalchemy import select, func, text, and_ # Added and_
+from app.models.accounting.account import Account 
+from app.models.accounting.journal_entry import JournalEntryLine, JournalEntry 
+from app.core.database_manager import DatabaseManager
+from app.services import IAccountRepository 
+from decimal import Decimal
+from datetime import date 
+
+if TYPE_CHECKING:
+    from app.core.application_core import ApplicationCore
+    from app.services.journal_service import JournalService # For type hint
+
+class AccountService(IAccountRepository):
+    def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
+        self.db_manager = db_manager
+        self.app_core = app_core 
+
+    async def get_by_id(self, account_id: int) -> Optional[Account]:
+        async with self.db_manager.session() as session:
+            return await session.get(Account, account_id)
+    
+    async def get_by_code(self, code: str) -> Optional[Account]:
+        async with self.db_manager.session() as session:
+            stmt = select(Account).where(Account.code == code)
+            result = await session.execute(stmt)
+            return result.scalars().first()
+    
+    async def get_all(self) -> List[Account]: 
+        async with self.db_manager.session() as session:
+            stmt = select(Account).order_by(Account.code)
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+
+    async def get_all_active(self) -> List[Account]:
+        async with self.db_manager.session() as session:
+            stmt = select(Account).where(Account.is_active == True).order_by(Account.code)
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+    
+    async def get_by_type(self, account_type: str, active_only: bool = True) -> List[Account]:
+        async with self.db_manager.session() as session:
+            conditions = [Account.account_type == account_type]
+            if active_only:
+                conditions.append(Account.is_active == True)
+            
+            stmt = select(Account).where(*conditions).order_by(Account.code)
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+    
+    async def has_transactions(self, account_id: int) -> bool:
+        async with self.db_manager.session() as session:
+            stmt_je = select(func.count(JournalEntryLine.id)).join(
+                JournalEntry, JournalEntryLine.journal_entry_id == JournalEntry.id
+            ).where(
+                JournalEntryLine.account_id == account_id,
+                JournalEntry.is_posted == True
+            )
+            count_je = (await session.execute(stmt_je)).scalar_one()
+
+            acc = await session.get(Account, account_id)
+            has_opening_balance_activity = False
+            if acc and acc.opening_balance_date and acc.opening_balance != Decimal(0):
+                has_opening_balance_activity = True
+            
+            return (count_je > 0) or has_opening_balance_activity
+
+    async def save(self, account: Account) -> Account:
+        async with self.db_manager.session() as session:
+            session.add(account)
+            await session.flush() 
+            await session.refresh(account)
+            return account
+
+    async def add(self, entity: Account) -> Account: 
+        return await self.save(entity)
+
+    async def update(self, entity: Account) -> Account: 
+        return await self.save(entity)
+
+    async def delete(self, account_id: int) -> bool: 
+        raise NotImplementedError("Hard delete of accounts not typically supported. Use deactivation via manager.")
+    
+    async def get_account_tree(self, active_only: bool = True) -> List[Dict[str, Any]]:
+        active_filter_main = "WHERE a.parent_id IS NULL"
+        if active_only:
+            active_filter_main += " AND a.is_active = TRUE"
+        
+        active_filter_recursive = ""
+        if active_only:
+            active_filter_recursive = "AND a.is_active = TRUE"
+
+        query = f"""
+            WITH RECURSIVE account_tree_cte AS (
+                SELECT 
+                    a.id, a.code, a.name, a.account_type, a.sub_type, 
+                    a.parent_id, a.is_active, a.description, 
+                    a.report_group, a.is_control_account, a.is_bank_account,
+                    a.opening_balance, a.opening_balance_date,
+                    0 AS level
+                FROM accounting.accounts a
+                {active_filter_main}
+                
+                UNION ALL
+                
+                SELECT 
+                    a.id, a.code, a.name, a.account_type, a.sub_type, 
+                    a.parent_id, a.is_active, a.description, 
+                    a.report_group, a.is_control_account, a.is_bank_account,
+                    a.opening_balance, a.opening_balance_date,
+                    t.level + 1
+                FROM accounting.accounts a
+                JOIN account_tree_cte t ON a.parent_id = t.id
+                WHERE 1=1 {active_filter_recursive} 
+            )
+            SELECT * FROM account_tree_cte
+            ORDER BY account_type, code;
+        """
+        raw_accounts: List[Any] = await self.db_manager.execute_query(query)
+        accounts_data = [dict(row) for row in raw_accounts]
+        
+        account_map: Dict[int, Dict[str, Any]] = {account['id']: account for account in accounts_data}
+        for account_dict in accounts_data: 
+            account_dict['children'] = [] 
+
+        tree_roots: List[Dict[str, Any]] = []
+        for account_dict in accounts_data:
+            if account_dict['parent_id'] and account_dict['parent_id'] in account_map:
+                parent = account_map[account_dict['parent_id']]
+                parent['children'].append(account_dict)
+            elif not account_dict['parent_id']:
+                tree_roots.append(account_dict)
+        
+        return tree_roots
+
+    async def get_accounts_by_codes(self, codes: List[str]) -> List[Account]:
+        async with self.db_manager.session() as session:
+            stmt = select(Account).where(Account.code.in_(codes)) # type: ignore
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+
+    async def get_accounts_by_tax_treatment(self, tax_treatment_code: str) -> List[Account]:
+        async with self.db_manager.session() as session:
+            stmt = select(Account).where(Account.tax_treatment == tax_treatment_code, Account.is_active == True)
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+
+    async def get_total_balance_by_account_category_and_type_pattern(
+        self, 
+        account_category: str, # e.g., "Asset", "Liability" (maps to Account.account_type)
+        account_type_name_like: str, # e.g., "Current%" or "Current Asset" (maps to Account.sub_type)
+        as_of_date: date
+    ) -> Decimal:
+        total_balance = Decimal(0)
+        if not self.app_core:
+            # Log or raise an error: app_core is needed for journal_service
+            if hasattr(self, 'logger') and self.logger: # Check if AccountService has its own logger
+                 self.logger.error("ApplicationCore not available in AccountService for JournalService access.")
+            raise RuntimeError("ApplicationCore context not available in AccountService.")
+
+        journal_service = self.app_core.journal_service # type: ignore
+        if not journal_service:
+            if hasattr(self, 'logger') and self.logger:
+                 self.logger.error("JournalService not available via ApplicationCore in AccountService.")
+            raise RuntimeError("JournalService not available.")
+
+        async with self.db_manager.session() as session:
+            stmt = select(Account).where(
+                Account.is_active == True,
+                Account.account_type == account_category, # This is Account.category effectively
+                Account.sub_type.ilike(account_type_name_like) # Account.sub_type stores the specific name
+            )
+            result = await session.execute(stmt)
+            accounts_to_sum: List[Account] = list(result.scalars().all())
+
+            for acc in accounts_to_sum:
+                balance = await journal_service.get_account_balance(acc.id, as_of_date)
+                # For Current Ratio, Assets are positive, Liabilities are positive contribution.
+                # get_account_balance inherently handles the sign for Asset/Liability accounts correctly
+                # when summing them for their respective totals.
+                # Asset: positive balance is debit (good)
+                # Liability: positive balance is credit (good for sum of liabilities)
+                # So, direct sum is fine.
+                total_balance += balance
+        
+        return total_balance.quantize(Decimal("0.01"))
+
+```
+

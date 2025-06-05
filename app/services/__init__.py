@@ -58,14 +58,13 @@ from app.utils.pydantic_models import (
     BankReconciliationSummaryData, 
     DashboardKPIData
 )
-from app.utils.result import Result # For finalize_reconciliation return type
+from app.utils.result import Result 
 from app.common.enums import ( 
     ProductTypeEnum, InvoiceStatusEnum, BankTransactionTypeEnum,
     PaymentTypeEnum, PaymentEntityTypeEnum, PaymentStatusEnum, DataChangeTypeEnum 
 )
 
-# --- Existing Interfaces ---
-# ... (IAccountRepository to IDataChangeHistoryRepository interfaces remain unchanged from response_48) ...
+# --- Interfaces ---
 class IAccountRepository(IRepository[Account, int]): 
     @abstractmethod
     async def get_by_code(self, code: str) -> Optional[Account]: pass
@@ -81,6 +80,8 @@ class IAccountRepository(IRepository[Account, int]):
     async def has_transactions(self, account_id: int) -> bool: pass
     @abstractmethod
     async def get_accounts_by_tax_treatment(self, tax_treatment_code: str) -> List[Account]: pass
+    @abstractmethod
+    async def get_total_balance_by_account_category_and_type_pattern(self, account_category: str, account_type_name_like: str, as_of_date: date) -> Decimal: pass # New
 
 class IJournalEntryRepository(IRepository[JournalEntry, int]): 
     @abstractmethod
@@ -184,7 +185,8 @@ class ICustomerRepository(IRepository[Customer, int]):
     async def get_total_outstanding_balance(self) -> Decimal: pass
     @abstractmethod 
     async def get_total_overdue_balance(self) -> Decimal: pass
-
+    @abstractmethod
+    async def get_ar_aging_summary(self, as_of_date: date) -> Dict[str, Decimal]: pass # New
 
 class IVendorRepository(IRepository[Vendor, int]): 
     @abstractmethod
@@ -198,6 +200,8 @@ class IVendorRepository(IRepository[Vendor, int]):
     async def get_total_outstanding_balance(self) -> Decimal: pass
     @abstractmethod 
     async def get_total_overdue_balance(self) -> Decimal: pass
+    @abstractmethod
+    async def get_ap_aging_summary(self, as_of_date: date) -> Dict[str, Decimal]: pass # New
 
 class IProductRepository(IRepository[Product, int]): 
     @abstractmethod
@@ -223,6 +227,9 @@ class ISalesInvoiceRepository(IRepository[SalesInvoice, int]):
                               page: int = 1, 
                               page_size: int = 50
                              ) -> List[SalesInvoiceSummaryData]: pass
+    @abstractmethod # New for aging
+    async def get_outstanding_invoices_for_customer(self, customer_id: Optional[int], as_of_date: date) -> List[SalesInvoice]: pass
+
 
 class IPurchaseInvoiceRepository(IRepository[PurchaseInvoice, int]):
     @abstractmethod
@@ -238,6 +245,9 @@ class IPurchaseInvoiceRepository(IRepository[PurchaseInvoice, int]):
                               page: int = 1, 
                               page_size: int = 50
                              ) -> List[PurchaseInvoiceSummaryData]: pass
+    @abstractmethod # New for aging
+    async def get_outstanding_invoices_for_vendor(self, vendor_id: Optional[int], as_of_date: date) -> List[PurchaseInvoice]: pass
+
 
 class IInventoryMovementRepository(IRepository[InventoryMovement, int]):
     @abstractmethod
@@ -312,18 +322,18 @@ class IBankReconciliationRepository(IRepository[BankReconciliation, int]):
         self, 
         bank_account_id: int, 
         statement_date: date, 
-        statement_ending_balance: Decimal, # Added statement_ending_balance
+        statement_ending_balance: Decimal, 
         user_id: int, 
         session: AsyncSession
-    ) -> BankReconciliation: pass # Return type changed to ORM
+    ) -> BankReconciliation: pass
 
     @abstractmethod
     async def mark_transactions_as_provisionally_reconciled(
         self, 
         draft_reconciliation_id: int, 
         transaction_ids: List[int], 
-        statement_date: date, # Reconciled_date will be statement_date
-        user_id: int, # For audit trail on BankTransaction if updated_by is tracked
+        statement_date: date, 
+        user_id: int, 
         session: AsyncSession
     ) -> bool: pass
 
@@ -336,17 +346,17 @@ class IBankReconciliationRepository(IRepository[BankReconciliation, int]):
         reconciled_difference: Decimal,
         user_id: int,
         session: AsyncSession
-    ) -> Result[BankReconciliation]: pass # Return Result with ORM
+    ) -> Result[BankReconciliation]: pass 
 
     @abstractmethod
-    async def unreconcile_transactions( # For future "Unmatch" feature
+    async def unreconcile_transactions( 
         self, 
         transaction_ids: List[int], 
         user_id: int, 
         session: AsyncSession
     ) -> bool: pass
     
-    @abstractmethod # From previous step, ensure it's present
+    @abstractmethod 
     async def get_reconciliations_for_account(
         self, 
         bank_account_id: int, 
@@ -354,14 +364,11 @@ class IBankReconciliationRepository(IRepository[BankReconciliation, int]):
         page_size: int = 20
     ) -> Tuple[List[BankReconciliationSummaryData], int]: pass
     
-    @abstractmethod # From previous step, ensure it's present
+    @abstractmethod 
     async def get_transactions_for_reconciliation(
         self, 
         reconciliation_id: int
     ) -> Tuple[List[BankTransactionSummaryData], List[BankTransactionSummaryData]]: pass
-
-    # Removed save_reconciliation_details, its functionality is split/refined
-    # async def save_reconciliation_details(...) -> BankReconciliation: pass
 
 
 from .account_service import AccountService

@@ -1,22 +1,25 @@
-# app/business_logic/vendor_manager.py
+# File: app/business_logic/vendor_manager.py
 from typing import List, Optional, Dict, Any, TYPE_CHECKING
 from decimal import Decimal
 
 from app.models.business.vendor import Vendor
-from app.services.business_services import VendorService
-from app.services.account_service import AccountService # Corrected import
-from app.services.accounting_services import CurrencyService # Correct import
+# REMOVED: from app.services.business_services import VendorService
+# REMOVED: from app.services.account_service import AccountService
+# REMOVED: from app.services.accounting_services import CurrencyService
 from app.utils.result import Result
 from app.utils.pydantic_models import VendorCreateData, VendorUpdateData, VendorSummaryData
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore
+    from app.services.business_services import VendorService # ADDED
+    from app.services.account_service import AccountService # ADDED
+    from app.services.accounting_services import CurrencyService # ADDED
 
 class VendorManager:
     def __init__(self, 
-                 vendor_service: VendorService, 
-                 account_service: AccountService, 
-                 currency_service: CurrencyService, 
+                 vendor_service: "VendorService", 
+                 account_service: "AccountService", 
+                 currency_service: "CurrencyService", 
                  app_core: "ApplicationCore"):
         self.vendor_service = vendor_service
         self.account_service = account_service
@@ -156,4 +159,3 @@ class VendorManager:
         except Exception as e:
             self.logger.error(f"Error toggling active status for vendor ID {vendor_id}: {e}", exc_info=True)
             return Result.failure([f"Failed to toggle active status for vendor: {str(e)}"])
-

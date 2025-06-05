@@ -1,3 +1,99 @@
+<think>
+Alright, we've cleared the `ImportError` related to `VendorManager`, and now the traceback points to `app/business_logic/sales_invoice_manager.py` as the next module causing a circular import with `AccountService`. This is consistent with the proactive list I identified.
+
+**Error Analysis (New Traceback):**
+The import chain follows the same pattern:
+1.  App starts -> ... -> `app.utils.sequence_generator` imports `app.services.core_services.SequenceService`.
+2.  This triggers `app.services.__init__.py`, which attempts to import `AccountService`.
+3.  `app.services.account_service.py` starts loading.
+4.  ... (chain through core) ... -> `app.core.application_core.py` starts loading.
+5.  `ApplicationCore` (likely via `app.business_logic.__init__.py`) imports `SalesInvoiceManager`.
+6.  `app/business_logic/sales_invoice_manager.py` (line 19) attempts a direct module-level import: `from app.services.account_service import AccountService`.
+
+This again creates the cycle where `AccountService` is being imported while it's already in the middle of its own import process.
+
+**Solution Strategy (Consistent with previous fixes):**
+Modify `SalesInvoiceManager` to use conditional imports (`if TYPE_CHECKING:`) or string literals for type hinting its numerous service dependencies that are injected via its constructor by `ApplicationCore`.
+
+**Files to Modify:**
+For this specific traceback, only `app/business_logic/sales_invoice_manager.py`.
+However, given the instruction "systematically fix each file affected" and the previous agreement to proactively fix, I will address all remaining managers from my identified list that are present in the user's provided codebase files.
+
+The list from before was:
+*   `app/business_logic/sales_invoice_manager.py` (current error)
+*   `app/business_logic/purchase_invoice_manager.py`
+*   `app/tax/tax_calculator.py`
+*   `app/tax/gst_manager.py`
+*   `app/tax/income_tax_manager.py`
+*   `app.tax/withholding_tax_manager.py`
+*   `app/reporting/financial_statement_generator.py`
+
+I will provide the updated `sales_invoice_manager.py` first, and then the others that were part of the provided file sets.
+
+**Detailed Plan for Fixing `SalesInvoiceManager`:**
+1.  **Modify `app/business_logic/sales_invoice_manager.py`**:
+    *   Identify all direct service imports at the top of the file that are used as type hints for constructor arguments. These include:
+        *   `SalesInvoiceService`, `CustomerService`, `ProductService`, `InventoryMovementService` (from `app.services.business_services`)
+        *   `SequenceService`, `ConfigurationService` (from `app.services.core_services`)
+        *   `TaxCodeService` (from `app.services.tax_service`)
+        *   `AccountService` (from `app.services.account_service`)
+        *   `TaxCalculator` (from `app.tax.tax_calculator`) - Note: `TaxCalculator` is not a service but a utility class. If `TaxCalculator` itself has dependencies that could lead to cycles when imported by `ApplicationCore`, it might also need similar treatment. For now, focusing on services.
+    *   Move these imports into the `if TYPE_CHECKING:` block.
+    *   Update the constructor's type hints for these services to be string literals or ensure they refer to the conditionally imported types.
+
+Looking at `app/business_logic/sales_invoice_manager.py` from `project_codebase_files_set-1.md`:
+```python
+# Imports are extensive
+from app.services.business_services import SalesInvoiceService, CustomerService, ProductService, InventoryMovementService
+from app.services.core_services import SequenceService, ConfigurationService 
+from app.services.tax_service import TaxCodeService 
+from app.services.account_service import AccountService 
+from app.tax.tax_calculator import TaxCalculator # This is a utility, not a service injected by AppCore typically, but passed in.
+
+if TYPE_CHECKING:
+    from app.core.application_core import ApplicationCore
+    # JournalEntryManager is also used, but for method calls, not constructor.
+    # Its import seems to be handled via app_core.journal_entry_manager.
+
+class SalesInvoiceManager:
+    def __init__(self, 
+                 sales_invoice_service: SalesInvoiceService,
+                 customer_service: CustomerService,
+                 product_service: ProductService,
+                 tax_code_service: TaxCodeService, 
+                 tax_calculator: TaxCalculator, 
+                 sequence_service: SequenceService,
+                 account_service: AccountService, 
+                 configuration_service: ConfigurationService, 
+                 app_core: "ApplicationCore",
+                 inventory_movement_service: InventoryMovementService):
+        # ...
+```
+All these constructor-injected dependencies that are imported directly at the module level are candidates for conditional import. `TaxCalculator` is passed in, so its type hint also needs to be handled.
+
+I will apply the fixes systematically.
+</think>
+
+You're absolutely right to continue with the systematic approach. We have another circular import error, this time pinpointing `app/business_logic/sales_invoice_manager.py` attempting to import `AccountService` prematurely.
+
+The pattern is consistent: `ApplicationCore` imports various managers. These managers, in turn, directly import services. If the initialization of these services (or their dependencies like `DatabaseManager`) requires parts of `ApplicationCore` that are not yet fully defined because `ApplicationCore` is still processing its own imports (like the current manager), a cycle occurs.
+
+We will apply the same fix strategy: move direct module-level imports of service dependencies (that are injected via constructor) into an `if TYPE_CHECKING:` block and use string literals or the conditionally imported names for type hints in the `__init__` signature.
+
+I will fix `app/business_logic/sales_invoice_manager.py` first, as it's the cause of the current traceback. Then, as per your instruction for thoroughness, I will proceed to fix the remaining managers and utilities from my previously identified list that were included in the codebase snippets you've shared.
+
+**Files to be proactively fixed in this response (following `SalesInvoiceManager`):**
+*   `app/business_logic/purchase_invoice_manager.py`
+*   `app/tax/tax_calculator.py`
+*   `app/tax/gst_manager.py`
+*   `app/tax/income_tax_manager.py`
+*   `app/tax/withholding_tax_manager.py`
+*   `app/reporting/financial_statement_generator.py`
+
+---
+**1. Updated File: `app/business_logic/sales_invoice_manager.py`**
+---
+```python
 # File: app/business_logic/sales_invoice_manager.py
 from typing import List, Optional, Dict, Any, TYPE_CHECKING, Union, cast
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
@@ -266,3 +362,9 @@ class SalesInvoiceManager:
             summaries = await self.sales_invoice_service.get_all_summary(customer_id=customer_id, status=status, start_date=start_date, end_date=end_date, page=page, page_size=page_size)
             return Result.success(summaries)
         except Exception as e: self.logger.error(f"Error fetching SI listing: {e}", exc_info=True); return Result.failure([f"Failed to retrieve SI list: {str(e)}"])
+```
+
+---
+**Continuation of Proactive Fixes for Other Managers and Utilities:**
+I will continue applying the same fix pattern to the remaining identified files. Due to response length, I will provide them in batches or confirm once all are done.
+The principle remains: replace direct module-level imports of constructor-injected services with conditional imports under `if TYPE_CHECKING:` and use string literals or the conditional type hints in `__init__` signatures.

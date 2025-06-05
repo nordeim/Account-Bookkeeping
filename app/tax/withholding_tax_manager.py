@@ -1,21 +1,17 @@
 # File: app/tax/withholding_tax_manager.py
 from typing import TYPE_CHECKING
-# from app.core.application_core import ApplicationCore # Direct import removed, now under TYPE_CHECKING
-from app.services.tax_service import TaxCodeService
-# Removed: from app.services.journal_service import JournalService # Removed direct top-level import
-# from app.services.vendor_service import VendorService # This was already commented out
-# from app.models.accounting.withholding_tax_certificate import WithholdingTaxCertificate # This was already commented out
+# REMOVED: from app.services.tax_service import TaxCodeService
 
 if TYPE_CHECKING:
-    from app.core.application_core import ApplicationCore # For type hinting
-    from app.services.journal_service import JournalService # Added for type hinting
+    from app.core.application_core import ApplicationCore 
+    from app.services.journal_service import JournalService 
+    from app.services.tax_service import TaxCodeService # ADDED
 
 class WithholdingTaxManager:
-    def __init__(self, app_core: "ApplicationCore"): # String literal for app_core is fine
+    def __init__(self, app_core: "ApplicationCore"): 
         self.app_core = app_core
-        self.tax_code_service: TaxCodeService = app_core.tax_code_service # type: ignore
-        self.journal_service: "JournalService" = app_core.journal_service # type: ignore # Type hint uses the conditional import
-        # self.vendor_service = app_core.vendor_service 
+        self.tax_code_service: "TaxCodeService" = app_core.tax_code_service # type: ignore
+        self.journal_service: "JournalService" = app_core.journal_service # type: ignore 
         print("WithholdingTaxManager initialized (stub).")
 
     async def generate_s45_form_data(self, wht_certificate_id: int):

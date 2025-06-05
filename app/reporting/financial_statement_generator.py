@@ -3,12 +3,12 @@ from typing import List, Dict, Any, Optional, TYPE_CHECKING
 from datetime import date, timedelta 
 from decimal import Decimal
 
-from app.services.account_service import AccountService
-from app.services.journal_service import JournalService
-from app.services.fiscal_period_service import FiscalPeriodService
-from app.services.tax_service import TaxCodeService 
-from app.services.core_services import CompanySettingsService 
-from app.services.accounting_services import AccountTypeService, DimensionService # Added DimensionService
+# REMOVED: from app.services.account_service import AccountService
+# REMOVED: from app.services.journal_service import JournalService
+# REMOVED: from app.services.fiscal_period_service import FiscalPeriodService
+# REMOVED: from app.services.tax_service import TaxCodeService 
+# REMOVED: from app.services.core_services import CompanySettingsService 
+# REMOVED: from app.services.accounting_services import AccountTypeService, DimensionService 
 from app.models.accounting.account import Account 
 from app.models.accounting.fiscal_year import FiscalYear
 from app.models.accounting.account_type import AccountType 
@@ -16,16 +16,23 @@ from app.models.accounting.journal_entry import JournalEntryLine
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore 
+    from app.services.account_service import AccountService # ADDED
+    from app.services.journal_service import JournalService # ADDED
+    from app.services.fiscal_period_service import FiscalPeriodService # ADDED
+    from app.services.tax_service import TaxCodeService # ADDED
+    from app.services.core_services import CompanySettingsService # ADDED
+    from app.services.accounting_services import AccountTypeService, DimensionService # ADDED
+
 
 class FinancialStatementGenerator:
     def __init__(self, 
-                 account_service: AccountService, 
-                 journal_service: JournalService, 
-                 fiscal_period_service: FiscalPeriodService, 
-                 account_type_service: AccountTypeService, 
-                 tax_code_service: Optional[TaxCodeService] = None, 
-                 company_settings_service: Optional[CompanySettingsService] = None,
-                 dimension_service: Optional[DimensionService] = None # New dependency
+                 account_service: "AccountService", 
+                 journal_service: "JournalService", 
+                 fiscal_period_service: "FiscalPeriodService", 
+                 account_type_service: "AccountTypeService", 
+                 tax_code_service: Optional["TaxCodeService"] = None, 
+                 company_settings_service: Optional["CompanySettingsService"] = None,
+                 dimension_service: Optional["DimensionService"] = None 
                  ):
         self.account_service = account_service
         self.journal_service = journal_service
@@ -33,18 +40,16 @@ class FinancialStatementGenerator:
         self.account_type_service = account_type_service
         self.tax_code_service = tax_code_service
         self.company_settings_service = company_settings_service
-        self.dimension_service = dimension_service # New
+        self.dimension_service = dimension_service 
         self._account_type_map_cache: Optional[Dict[str, AccountType]] = None
 
 
-    # ... (_get_account_type_map, _calculate_account_balances_for_report, _calculate_account_period_activity_for_report,
-    #      generate_balance_sheet, generate_profit_loss, generate_trial_balance, generate_income_tax_computation,
-    #      generate_gst_f5 - unchanged from file set 7)
     async def _get_account_type_map(self) -> Dict[str, AccountType]:
         if self._account_type_map_cache is None:
              ats = await self.account_type_service.get_all()
              self._account_type_map_cache = {at.category: at for at in ats} 
         return self._account_type_map_cache
+
     async def _calculate_account_balances_for_report(self, accounts: List[Account], as_of_date: date) -> List[Dict[str, Any]]:
         result_list = []; acc_type_map = await self._get_account_type_map()
         for account in accounts:
@@ -53,6 +58,7 @@ class FinancialStatementGenerator:
             if not is_debit_nature: display_balance = -balance_value 
             result_list.append({'id': account.id, 'code': account.code, 'name': account.name, 'balance': display_balance})
         return result_list
+
     async def _calculate_account_period_activity_for_report(self, accounts: List[Account], start_date: date, end_date: date) -> List[Dict[str, Any]]:
         result_list = []; acc_type_map = await self._get_account_type_map()
         for account in accounts:
@@ -61,6 +67,7 @@ class FinancialStatementGenerator:
             if not is_debit_nature: display_activity = -activity_value 
             result_list.append({'id': account.id, 'code': account.code, 'name': account.name, 'balance': display_activity})
         return result_list
+
     async def generate_balance_sheet(self, as_of_date: date, comparative_date: Optional[date] = None, include_zero_balances: bool = False) -> Dict[str, Any]:
         accounts = await self.account_service.get_all_active(); assets_orm = [a for a in accounts if a.account_type == 'Asset']; liabilities_orm = [a for a in accounts if a.account_type == 'Liability']; equity_orm = [a for a in accounts if a.account_type == 'Equity']
         asset_accounts = await self._calculate_account_balances_for_report(assets_orm, as_of_date); liability_accounts = await self._calculate_account_balances_for_report(liabilities_orm, as_of_date); equity_accounts = await self._calculate_account_balances_for_report(equity_orm, as_of_date)
@@ -72,6 +79,7 @@ class FinancialStatementGenerator:
         total_assets = sum(a['balance'] for a in asset_accounts); total_liabilities = sum(a['balance'] for a in liability_accounts); total_equity = sum(a['balance'] for a in equity_accounts)
         comp_total_assets = sum(a['balance'] for a in comp_asset_accs) if comp_asset_accs else None; comp_total_liabilities = sum(a['balance'] for a in comp_liab_accs) if comp_liab_accs else None; comp_total_equity = sum(a['balance'] for a in comp_equity_accs) if comp_equity_accs else None
         return {'title': 'Balance Sheet', 'report_date_description': f"As of {as_of_date.strftime('%d %b %Y')}",'as_of_date': as_of_date, 'comparative_date': comparative_date,'assets': {'accounts': asset_accounts, 'total': total_assets, 'comparative_accounts': comp_asset_accs, 'comparative_total': comp_total_assets},'liabilities': {'accounts': liability_accounts, 'total': total_liabilities, 'comparative_accounts': comp_liab_accs, 'comparative_total': comp_total_liabilities},'equity': {'accounts': equity_accounts, 'total': total_equity, 'comparative_accounts': comp_equity_accs, 'comparative_total': comp_total_equity},'total_liabilities_equity': total_liabilities + total_equity,'comparative_total_liabilities_equity': (comp_total_liabilities + comp_total_equity) if comparative_date and comp_total_liabilities is not None and comp_total_equity is not None else None,'is_balanced': abs(total_assets - (total_liabilities + total_equity)) < Decimal("0.01")}
+
     async def generate_profit_loss(self, start_date: date, end_date: date, comparative_start: Optional[date] = None, comparative_end: Optional[date] = None) -> Dict[str, Any]:
         accounts = await self.account_service.get_all_active(); revenues_orm = [a for a in accounts if a.account_type == 'Revenue']; expenses_orm = [a for a in accounts if a.account_type == 'Expense'] 
         revenue_accounts = await self._calculate_account_period_activity_for_report(revenues_orm, start_date, end_date); expense_accounts = await self._calculate_account_period_activity_for_report(expenses_orm, start_date, end_date)
@@ -82,6 +90,7 @@ class FinancialStatementGenerator:
         comp_total_revenue = sum(a['balance'] for a in comp_rev_accs) if comp_rev_accs else None; comp_total_expenses = sum(a['balance'] for a in comp_exp_accs) if comp_exp_accs else None
         comp_net_profit = (comp_total_revenue - comp_total_expenses) if comp_total_revenue is not None and comp_total_expenses is not None else None
         return {'title': 'Profit & Loss Statement', 'report_date_description': f"For the period {start_date.strftime('%d %b %Y')} to {end_date.strftime('%d %b %Y')}",'start_date': start_date, 'end_date': end_date, 'comparative_start': comparative_start, 'comparative_end': comparative_end,'revenue': {'accounts': revenue_accounts, 'total': total_revenue, 'comparative_accounts': comp_rev_accs, 'comparative_total': comp_total_revenue},'expenses': {'accounts': expense_accounts, 'total': total_expenses, 'comparative_accounts': comp_exp_accs, 'comparative_total': comp_total_expenses},'net_profit': net_profit, 'comparative_net_profit': comp_net_profit}
+
     async def generate_trial_balance(self, as_of_date: date) -> Dict[str, Any]:
         accounts = await self.account_service.get_all_active(); debit_accounts_list, credit_accounts_list = [], []; total_debits_val, total_credits_val = Decimal(0), Decimal(0) 
         acc_type_map = await self._get_account_type_map()
@@ -98,6 +107,7 @@ class FinancialStatementGenerator:
                 else: account_data['balance'] = raw_balance; debit_accounts_list.append(account_data); total_debits_val += raw_balance
         debit_accounts_list.sort(key=lambda a: a['code']); credit_accounts_list.sort(key=lambda a: a['code'])
         return {'title': 'Trial Balance', 'report_date_description': f"As of {as_of_date.strftime('%d %b %Y')}",'as_of_date': as_of_date,'debit_accounts': debit_accounts_list, 'credit_accounts': credit_accounts_list,'total_debits': total_debits_val, 'total_credits': total_credits_val,'is_balanced': abs(total_debits_val - total_credits_val) < Decimal("0.01")}
+
     async def generate_income_tax_computation(self, year_int_value: int) -> Dict[str, Any]: 
         fiscal_year_obj: Optional[FiscalYear] = await self.fiscal_period_service.get_fiscal_year(year_int_value) 
         if not fiscal_year_obj: raise ValueError(f"Fiscal year definition for {year_int_value} not found.")
@@ -113,6 +123,7 @@ class FinancialStatementGenerator:
             tax_effect += activity 
         taxable_income = net_profit + tax_effect
         return {'title': f'Income Tax Computation for Year of Assessment {year_int_value + 1}', 'report_date_description': f"For Financial Year Ended {fiscal_year_obj.end_date.strftime('%d %b %Y')}",'year': year_int_value, 'fiscal_year_start': start_date, 'fiscal_year_end': end_date,'net_profit': net_profit, 'adjustments': adjustments, 'tax_effect': tax_effect, 'taxable_income': taxable_income}
+
     async def generate_gst_f5(self, start_date: date, end_date: date) -> Dict[str, Any]:
         if not self.company_settings_service or not self.tax_code_service: raise RuntimeError("TaxCodeService and CompanySettingsService are required for GST F5.")
         company = await self.company_settings_service.get_company_settings();
@@ -145,13 +156,10 @@ class FinancialStatementGenerator:
             raise ValueError(f"Account with ID {account_id} not found.")
 
         ob_date = start_date - timedelta(days=1)
-        # Note: Opening balance calculation for GL should also consider dimensions if they apply to OB.
-        # For now, assume OB is not dimension-specific for simplicity. A more advanced system
-        # might require passing dimension filters to get_account_balance if OB JEs have dimensions.
         opening_balance = await self.journal_service.get_account_balance(account_id, ob_date)
 
         lines: List[JournalEntryLine] = await self.journal_service.get_posted_lines_for_account_in_range(
-            account_id, start_date, end_date, dimension1_id, dimension2_id # Pass dimensions here
+            account_id, start_date, end_date, dimension1_id, dimension2_id 
         )
 
         transactions_data = []
@@ -164,7 +172,7 @@ class FinancialStatementGenerator:
                 "date": line.journal_entry.entry_date, "entry_no": line.journal_entry.entry_no,
                 "je_description": line.journal_entry.description or "", "line_description": line.description or "",
                 "debit": line.debit_amount, "credit": line.credit_amount, "balance": current_balance,
-                "dim1_id": line.dimension1_id, "dim2_id": line.dimension2_id # Include dim IDs in output
+                "dim1_id": line.dimension1_id, "dim2_id": line.dimension2_id 
             })
         closing_balance = current_balance
         

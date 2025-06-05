@@ -1,18 +1,16 @@
 # File: app/services/account_service.py
-# (Content previously updated, ensure imports and UserAuditMixin FKs are handled)
 from typing import List, Optional, Dict, Any, TYPE_CHECKING
-from sqlalchemy import select, func, text
+from sqlalchemy import select, func, text, and_ # Added and_
 from app.models.accounting.account import Account 
 from app.models.accounting.journal_entry import JournalEntryLine, JournalEntry 
-# from app.core.database_manager import DatabaseManager # Already imported by IAccountRepository context
+from app.core.database_manager import DatabaseManager
 from app.services import IAccountRepository 
 from decimal import Decimal
-from datetime import date # Added for type hint in has_transactions
+from datetime import date 
 
 if TYPE_CHECKING:
-    from app.core.database_manager import DatabaseManager
     from app.core.application_core import ApplicationCore
-
+    from app.services.journal_service import JournalService # For type hint
 
 class AccountService(IAccountRepository):
     def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
@@ -119,7 +117,6 @@ class AccountService(IAccountRepository):
             SELECT * FROM account_tree_cte
             ORDER BY account_type, code;
         """
-        # Type casting for raw_accounts if execute_query returns list of asyncpg.Record
         raw_accounts: List[Any] = await self.db_manager.execute_query(query)
         accounts_data = [dict(row) for row in raw_accounts]
         
@@ -148,3 +145,43 @@ class AccountService(IAccountRepository):
             stmt = select(Account).where(Account.tax_treatment == tax_treatment_code, Account.is_active == True)
             result = await session.execute(stmt)
             return list(result.scalars().all())
+
+    async def get_total_balance_by_account_category_and_type_pattern(
+        self, 
+        account_category: str, # e.g., "Asset", "Liability" (maps to Account.account_type)
+        account_type_name_like: str, # e.g., "Current%" or "Current Asset" (maps to Account.sub_type)
+        as_of_date: date
+    ) -> Decimal:
+        total_balance = Decimal(0)
+        if not self.app_core:
+            # Log or raise an error: app_core is needed for journal_service
+            if hasattr(self, 'logger') and self.logger: # Check if AccountService has its own logger
+                 self.logger.error("ApplicationCore not available in AccountService for JournalService access.")
+            raise RuntimeError("ApplicationCore context not available in AccountService.")
+
+        journal_service = self.app_core.journal_service # type: ignore
+        if not journal_service:
+            if hasattr(self, 'logger') and self.logger:
+                 self.logger.error("JournalService not available via ApplicationCore in AccountService.")
+            raise RuntimeError("JournalService not available.")
+
+        async with self.db_manager.session() as session:
+            stmt = select(Account).where(
+                Account.is_active == True,
+                Account.account_type == account_category, # This is Account.category effectively
+                Account.sub_type.ilike(account_type_name_like) # Account.sub_type stores the specific name
+            )
+            result = await session.execute(stmt)
+            accounts_to_sum: List[Account] = list(result.scalars().all())
+
+            for acc in accounts_to_sum:
+                balance = await journal_service.get_account_balance(acc.id, as_of_date)
+                # For Current Ratio, Assets are positive, Liabilities are positive contribution.
+                # get_account_balance inherently handles the sign for Asset/Liability accounts correctly
+                # when summing them for their respective totals.
+                # Asset: positive balance is debit (good)
+                # Liability: positive balance is credit (good for sum of liabilities)
+                # So, direct sum is fine.
+                total_balance += balance
+        
+        return total_balance.quantize(Decimal("0.01"))

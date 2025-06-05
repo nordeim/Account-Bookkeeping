@@ -1,3 +1,219 @@
+<think>
+The application is running well, and the recent enhancements to the Bank Reconciliation feature (draft persistence, provisional matching, unmatching, history viewing) are in place and validated. The logs are clean.
+
+The user wants to proceed with the next roadmap item. Let's review the relevant roadmap items from the README:
+
+*   **Refine Bank Reconciliation**:
+    *   **"Implement logic and UI for handling complex matches (one-to-many, many-to-one)."** This is a substantial task.
+    *   **"Improve UI for displaying already matched items..."** This is somewhat addressed by the "Provisionally Matched Items (This Session)" tables, but could be enhanced further (e.g., visually linking the matched pairs).
+    *   **"More robust error handling and user feedback during CSV import and reconciliation."** This is a good candidate for polish.
+*   **Enhance Dashboard KPIs**:
+    *   "Add more metrics (e.g., AR/AP Aging details, financial ratios)."
+    *   "Investigate options for simple graphical representations."
+    *   "Allow user customization or period selection for dashboard KPIs."
+*   **Complete Purchase Invoice Posting Logic**:
+    *   The README note suggests this might be outdated. The codebase for `PurchaseInvoiceManager.post_purchase_invoice` appears to implement financial and inventory JEs, similar to Sales. This likely refers to ensuring full parity or further refinements. For now, I'll assume it's mostly complete unless a specific gap is identified.
+*   **Automated Testing (CRITICAL)**: This is always a high-priority background task.
+
+Given the complexity of "complex matches" for bank reconciliation, and the fairly complete state of the current reconciliation workflow for simple matches, let's consider **"Enhance Dashboard KPIs"**. This offers visible improvements to the user and builds on existing data structures.
+
+Let's pick the first sub-item: **"Add more metrics (e.g., AR/AP Aging details, financial ratios)."**
+AR/AP Aging is a common and very useful KPI. Financial ratios like Current Ratio or Quick Ratio are also standard.
+
+**Chosen Roadmap Item**: Enhance Dashboard KPIs
+**Specific Task**: Add AR/AP Aging summary and Current Ratio to the Dashboard.
+
+**1. Deeply Understand Requirements:**
+
+*   **AR/AP Aging Summary**:
+    *   The dashboard should display a summary of Accounts Receivable and Accounts Payable aging. For example:
+        *   Current (0-30 days)
+        *   31-60 days overdue
+        *   61-90 days overdue
+        *   91+ days overdue
+    *   This requires fetching outstanding invoices and categorizing them based on their due dates relative to the current date.
+*   **Current Ratio**:
+    *   Formula: Current Assets / Current Liabilities.
+    *   This requires fetching the total balances of all accounts classified as "Current Asset" and "Current Liability".
+*   **Display**: These new KPIs should be added to the `DashboardWidget`.
+
+**2. Systematic Diagnosis & Design Considerations:**
+
+*   **Data Sources for AR/AP Aging**:
+    *   `business.sales_invoices` (for AR) and `business.purchase_invoices` (for AP).
+    *   Need to filter for invoices that are not fully paid (`total_amount > amount_paid`) and are not voided.
+    *   Calculate `days_overdue = current_date - due_date`.
+    *   Sum `outstanding_balance = total_amount - amount_paid` into aging buckets.
+    *   This logic could reside in `CustomerService` / `VendorService` (e.g., `get_ar_aging_summary()`) or be a new method in `DashboardManager` that uses these services.
+    *   The existing `customer_balances` and `vendor_balances` views in `schema.sql` already calculate `outstanding_balance` and `overdue_amount`. We could potentially extend these views or create new ones for full aging buckets.
+    *   For now, let's plan to implement the logic in the respective services (`CustomerService` and `VendorService`) to return an aging dictionary.
+
+*   **Data Sources for Current Ratio**:
+    *   `accounting.accounts` table (for account type and category).
+    *   `accounting.account_balances` view (or `JournalService.get_account_balance`) to get the current balance of each account.
+    *   Logic in `FinancialStatementGenerator` or `AccountService` could be adapted/used to sum balances for "Current Asset" and "Current Liability" account types/categories.
+    *   `AccountType` model has `category` ('Asset', 'Liability') and `name` (e.g., 'Current Asset', 'Current Liability').
+
+*   **`DashboardManager` (`app/reporting/dashboard_manager.py`)**:
+    *   This manager will be responsible for orchestrating the fetching of this new data.
+    *   Its `get_dashboard_kpis()` method will be extended.
+    *   It will call the new service methods for AR/AP aging and for current assets/liabilities totals.
+
+*   **`DashboardKPIData` DTO (`app/utils/pydantic_models.py`)**:
+    *   Needs to be extended to include fields for:
+        *   `ar_aging_summary: Dict[str, Decimal]` (e.g., `{"0-30": X, "31-60": Y, ...}`)
+        *   `ap_aging_summary: Dict[str, Decimal]`
+        *   `total_current_assets: Decimal`
+        *   `total_current_liabilities: Decimal`
+        *   `current_ratio: Optional[Decimal]` (Optional because it can be undefined if current liabilities are zero).
+
+*   **`DashboardWidget` (`app/ui/dashboard/dashboard_widget.py`)**:
+    *   Needs new `QLabel`s to display these KPIs.
+    *   The `_update_kpi_display_slot` method will be updated to populate these new labels.
+
+**3. Implementation Options Exploration:**
+
+*   **AR/AP Aging Calculation**:
+    *   **Option 1 (Python Logic)**: Fetch all unpaid/partially paid relevant invoices from `SalesInvoiceService` / `PurchaseInvoiceService` and calculate aging buckets in Python within `CustomerService`/`VendorService` or `DashboardManager`.
+    *   **Option 2 (Database View/Function)**: Create a more complex SQL view or function that directly outputs aging buckets. This might be more performant for large datasets but adds DB complexity.
+    *   **Chosen for this iteration**: Option 1. Python logic is more flexible for initial implementation and easier to test with mocks.
+
+*   **Current Assets/Liabilities Calculation**:
+    *   **Option 1 (Iterate Accounts)**: Fetch all "Current Asset" and "Current Liability" accounts, then get the balance for each using `JournalService.get_account_balance`. Sum them up.
+    *   **Option 2 (Leverage `FinancialStatementGenerator`)**: The `FinancialStatementGenerator` already has logic to categorize accounts for Balance Sheet. We could adapt parts of its `_calculate_account_balances_for_report` or add a new method to it that specifically sums current assets/liabilities.
+    *   **Chosen for this iteration**: Option 2 seems more efficient as it leverages existing account classification logic. `FinancialStatementGenerator` can expose a helper or `DashboardManager` can call its existing methods and extract the sums. Or, `DashboardManager` can directly use `AccountService` and `JournalService` similar to `FinancialStatementGenerator` but focused only on these totals. Let's try the direct use of `AccountService` and `JournalService` within `DashboardManager` for these specific totals, to keep `FinancialStatementGenerator` focused on full reports.
+
+**Chosen Implementation Strategy for Dashboard KPIs:**
+
+1.  **DTO Update (`DashboardKPIData`)**: Add new fields.
+2.  **Service Layer Enhancements**:
+    *   `CustomerService`: Add `async def get_ar_aging_summary(self, as_of_date: date) -> Dict[str, Decimal]:`
+    *   `VendorService`: Add `async def get_ap_aging_summary(self, as_of_date: date) -> Dict[str, Decimal]:`
+    *   `AccountService`: (Potentially) Add `async def get_total_balance_by_account_type_category(self, account_category: str, account_type_name_pattern: str, as_of_date: date) -> Decimal:` for fetching sums of "Current Assets" and "Current Liabilities". This seems more direct than modifying `FinancialStatementGenerator`.
+3.  **Manager Update (`DashboardManager`)**:
+    *   Modify `get_dashboard_kpis()` to call the new service methods and calculate the Current Ratio.
+    *   Populate the extended `DashboardKPIData` DTO.
+4.  **UI Update (`DashboardWidget`)**:
+    *   Add new `QLabel`s for AR/AP aging buckets and Current Ratio.
+    *   Update `_update_kpi_display_slot` to display the new data.
+
+**Detailed Execution Plan & Checklist:**
+
+**Phase 1: DTO Update**
+
+1.  **Modify `DashboardKPIData` in `app/utils/pydantic_models.py`**:
+    *   Checklist:
+        *   [ ] Add `ar_aging_current: Decimal = Field(Decimal(0))`
+        *   [ ] Add `ar_aging_31_60: Decimal = Field(Decimal(0))`
+        *   [ ] Add `ar_aging_61_90: Decimal = Field(Decimal(0))`
+        *   [ ] Add `ar_aging_91_plus: Decimal = Field(Decimal(0))`
+        *   [ ] Add `ap_aging_current: Decimal = Field(Decimal(0))`
+        *   [ ] Add `ap_aging_31_60: Decimal = Field(Decimal(0))`
+        *   [ ] Add `ap_aging_61_90: Decimal = Field(Decimal(0))`
+        *   [ ] Add `ap_aging_91_plus: Decimal = Field(Decimal(0))`
+        *   [ ] Add `total_current_assets: Decimal = Field(Decimal(0))`
+        *   [ ] Add `total_current_liabilities: Decimal = Field(Decimal(0))`
+        *   [ ] Add `current_ratio: Optional[Decimal] = None`
+
+**Phase 2: Service Layer Enhancements**
+
+1.  **Modify `ICustomerRepository` and `IVendorRepository` in `app/services/__init__.py`**:
+    *   Checklist:
+        *   [ ] Add `async def get_ar_aging_summary(self, as_of_date: date) -> Dict[str, Decimal]: pass` to `ICustomerRepository`.
+        *   [ ] Add `async def get_ap_aging_summary(self, as_of_date: date) -> Dict[str, Decimal]: pass` to `IVendorRepository`.
+
+2.  **Implement `get_ar_aging_summary` in `CustomerService` (`app/services/business_services.py`)**:
+    *   Checklist:
+        *   [ ] Fetch all non-voided, partially or fully unpaid SalesInvoices.
+        *   [ ] For each invoice, calculate `days_overdue = as_of_date - due_date`.
+        *   [ ] Calculate `outstanding_balance = total_amount - amount_paid`.
+        *   [ ] Sum `outstanding_balance` into buckets: "0-30" (not overdue or overdue <= 30 days), "31-60", "61-90", "91+".
+        *   [ ] Return dictionary: `{"0-30": Dec, "31-60": Dec, ...}`.
+
+3.  **Implement `get_ap_aging_summary` in `VendorService` (`app/services/business_services.py`)**:
+    *   Checklist:
+        *   [ ] Similar logic as AR aging, but for PurchaseInvoices.
+
+4.  **Modify `IAccountRepository` in `app/services/__init__.py`**:
+    *   Checklist:
+        *   [ ] Add `async def get_total_balance_by_account_category_and_type_pattern(self, account_category: str, account_type_name_like: str, as_of_date: date) -> Decimal: pass`. (Pattern for 'Current%Asset').
+
+5.  **Implement `get_total_balance_by_account_category_and_type_pattern` in `AccountService` (`app/services/account_service.py`)**:
+    *   Checklist:
+        *   [ ] Fetch active accounts matching `account_category` (e.g., 'Asset') AND `account_type.name` LIKE `account_type_name_like` (e.g., 'Current%'). This requires joining with `AccountType` or assuming a convention in `Account.sub_type` or `Account.report_group` if `AccountType` is not directly on `Account` model (it is not, Account has `account_type: str` which refers to `AccountType.category` and `sub_type: str` which refers to `AccountType.name`).
+        *   *Correction:* `Account` model has `account_type: Mapped[str]` which aligns with `AccountType.category`, and `sub_type: Mapped[Optional[str]]` which can align with `AccountType.name`.
+        *   The service should iterate through accounts, filter by `account.account_type == category` (e.g., "Asset") and `account.sub_type` matching a pattern like "Current Asset" (or a list of known current asset subtypes).
+        *   For each matching account, get its balance using `JournalService.get_account_balance(account.id, as_of_date)`.
+        *   Sum these balances.
+        *   Return total `Decimal`.
+
+**Phase 3: Manager Layer Update**
+
+1.  **Modify `DashboardManager.get_dashboard_kpis()` (`app/reporting/dashboard_manager.py`)**:
+    *   Checklist:
+        *   [ ] Call `self.app_core.customer_service.get_ar_aging_summary(today)`.
+        *   [ ] Call `self.app_core.vendor_service.get_ap_aging_summary(today)`.
+        *   [ ] Call new `AccountService` method (or implement logic here) to get `total_current_assets` (Category: 'Asset', SubType like 'Current%').
+        *   [ ] Call new `AccountService` method to get `total_current_liabilities` (Category: 'Liability', SubType like 'Current%').
+        *   [ ] Calculate `current_ratio = total_current_assets / total_current_liabilities` (handle division by zero).
+        *   [ ] Populate the new fields in `DashboardKPIData`.
+
+**Phase 4: UI Layer Update**
+
+1.  **Modify `DashboardWidget._init_ui()` (`app/ui/dashboard/dashboard_widget.py`)**:
+    *   Checklist:
+        *   [ ] Add new `QGroupBox` for "AR Aging Summary" with `QLabel`s for "0-30", "31-60", "61-90", "91+".
+        *   [ ] Add new `QGroupBox` for "AP Aging Summary" with similar `QLabel`s.
+        *   [ ] Add `QLabel` for "Current Ratio".
+        *   Store these labels as instance attributes (e.g., `self.ar_aging_0_30_label`, `self.current_ratio_label`).
+2.  **Modify `DashboardWidget._update_kpi_display_slot()`**:
+    *   Checklist:
+        *   [ ] Populate the new AR/AP aging labels using data from the updated DTO.
+        *   [ ] Format Current Ratio (e.g., "1.50 : 1" or "N/A").
+        *   [ ] Ensure all labels are reset to "Loading..." in `_request_kpi_load`.
+
+This plan covers the addition of AR/AP aging and Current Ratio. Financial ratios can be extended similarly. Graphical representations are a larger, separate task.
+
+I will start by implementing the DTO changes.
+</think>
+
+Excellent, the bank reconciliation feature is now more robust with persistent draft matching and unmatching capabilities.
+
+Let's proceed with the roadmap item: **"Enhance Dashboard KPIs"**.
+As planned, we'll start by adding:
+1.  **AR/AP Aging Summary**: Displaying amounts for buckets like Current (0-30 days), 31-60 days, 61-90 days, and 91+ days overdue.
+2.  **Current Ratio**: Calculated as Total Current Assets / Total Current Liabilities.
+
+This will involve changes in DTOs, services, the dashboard manager, and the dashboard UI widget.
+
+**Detailed Execution Steps:**
+
+**Phase 1: DTO Update**
+1.  Modify `DashboardKPIData` in `app/utils/pydantic_models.py` to include new fields for AR/AP aging buckets, total current assets, total current liabilities, and the current ratio.
+2.  Update `app/utils/__init__.py` if any new DTOs were created (not the case here, just extending an existing one).
+
+**Phase 2: Service Layer Enhancements**
+1.  Update `IAccountRepository`, `ICustomerRepository`, `IVendorRepository` interfaces in `app/services/__init__.py` with new method signatures for fetching aging summaries and total balances by account type category.
+2.  Implement `get_ar_aging_summary` in `CustomerService` (`app/services/business_services.py`).
+3.  Implement `get_ap_aging_summary` in `VendorService` (`app/services/business_services.py`).
+4.  Implement `get_total_balance_by_account_category_and_type_pattern` in `AccountService` (`app/services/account_service.py`).
+
+**Phase 3: Manager Layer Update**
+1.  Modify `DashboardManager.get_dashboard_kpis()` in `app/reporting/dashboard_manager.py` to call the new service methods, calculate the Current Ratio, and populate the extended `DashboardKPIData` DTO.
+
+**Phase 4: UI Layer Update**
+1.  Modify `DashboardWidget` in `app/ui/dashboard/dashboard_widget.py`:
+    *   Update `_init_ui()` to add new `QLabel`s for the AR/AP aging buckets and the Current Ratio.
+    *   Update `_update_kpi_display_slot()` to populate these new labels from the DTO.
+    *   Ensure these labels are also reset in `_request_kpi_load()`.
+
+I will now provide the complete updated files for each step, followed by a diff for validation.
+
+---
+**Phase 1: DTO Update**
+---
+**1. Updated File: `app/utils/pydantic_models.py`**
+```python
 # File: app/utils/pydantic_models.py
 from pydantic import BaseModel, Field, validator, root_validator, EmailStr # type: ignore
 from typing import List, Optional, Union, Any, Dict 
@@ -388,3 +604,8 @@ class DashboardKPIData(AppBaseModel):
     total_current_assets: Decimal = Field(Decimal(0))
     total_current_liabilities: Decimal = Field(Decimal(0))
     current_ratio: Optional[Decimal] = None
+```
+
+---
+https://drive.google.com/file/d/1-vPle_bsfW5q1aXJ4JI9VB5cOYY3f7oU/view?usp=sharing, https://drive.google.com/file/d/13M2zztt62TD_vYJ_XLKtW4t2E53jIHl4/view?usp=sharing, https://drive.google.com/file/d/14hkYD6mD9rl8PpF-MsJD9nZAy-1sAr0T/view?usp=sharing, https://aistudio.google.com/app/prompts?state=%7B%22ids%22:%5B%2216tABsm1Plf_0fhtruoJyyxobBli3e8-7%22%5D,%22action%22:%22open%22,%22userId%22:%22108686197475781557359%22,%22resourceKeys%22:%7B%7D%7D&usp=sharing, https://drive.google.com/file/d/19ERvDxLdRedhVXYp9Gh0Xsg6tMIucGWO/view?usp=sharing, https://drive.google.com/file/d/19T9JbSrHCuXhHpzFMUh4Ti_0sDPDycSW/view?usp=sharing, https://drive.google.com/file/d/1D7GYodcMgZv3ROPPRJTYX0g9Rrsq8wJD/view?usp=sharing, https://drive.google.com/file/d/1EGOoM0TGqPgNBJzwxKdVO2u331Myhd4b/view?usp=sharing, https://drive.google.com/file/d/1Ivh39pjoqQ9z4_oj7w7hWc0zOje2-Xjb/view?usp=sharing, https://drive.google.com/file/d/1JsX5NYICgfKkbhMVeQ7ZONrbNZFb0ms3/view?usp=sharing, https://drive.google.com/file/d/1LzMu08SqY6E5ZuvISa4BsEHxatVPE9g_/view?usp=sharing, https://drive.google.com/file/d/1QyS0xlh6owfMif6KMlyXmE2Zx2hmcdza/view?usp=sharing, https://drive.google.com/file/d/1Y9orpJ67I0XwezEBeUhyJs03DdjkAMhH/view?usp=sharing, https://drive.google.com/file/d/1YG0Vqa2pI5htxdsACYigsS2TMjDHxTcl/view?usp=sharing, https://drive.google.com/file/d/1ZZODHjv2AX2Pn1cRh_0CJDTSzXRGjAt_/view?usp=sharing, https://drive.google.com/file/d/1_c8t-qcWtcVdVUEUkDQ760cjc0vL2Y9Z/view?usp=sharing, https://drive.google.com/file/d/1bSRRtsWeJI9djXTDZTZTjZxnsWS3cvsV/view?usp=sharing, https://drive.google.com/file/d/1cp5LuyXlsbaa_wFSiIMxRlBFSro8qhXq/view?usp=sharing, https://drive.google.com/file/d/1ghGjh0MtEZSDVftjVx583ocaaCDK2j9X/view?usp=sharing, https://drive.google.com/file/d/1mbj5C_Pqa-lbGFf4obvSnpdGm-ALui7y/view?usp=sharing, https://drive.google.com/file/d/1sYr8SFT1d9ZMDHLfxOS6VjtwJ3920sFT/view?usp=sharing, https://drive.google.com/file/d/1uKfTNXg8Oaes7aGaoaPB6klSZzywizh9/view?usp=sharing, https://drive.google.com/file/d/1vTPAoLcEetjBj17-5nTa_Z6RS7ND5Wmz/view?usp=sharing, https://drive.google.com/file/d/1xbA8X7irZHUayYcfOWWfi4oWm18hFDo2/view?usp=sharing
+

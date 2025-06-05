@@ -7,7 +7,7 @@ from typing import List, Optional, Dict, Any, TYPE_CHECKING, Union, cast, Tuple
 from sqlalchemy import select 
 
 from app.models.business.bank_transaction import BankTransaction
-from app.services.business_services import BankTransactionService, BankAccountService
+# REMOVED: from app.services.business_services import BankTransactionService, BankAccountService
 from app.utils.result import Result
 from app.utils.pydantic_models import (
     BankTransactionCreateData, BankTransactionSummaryData
@@ -17,11 +17,12 @@ from app.common.enums import BankTransactionTypeEnum
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore
     from sqlalchemy.ext.asyncio import AsyncSession
+    from app.services.business_services import BankTransactionService, BankAccountService # ADDED
 
 class BankTransactionManager:
     def __init__(self,
-                 bank_transaction_service: BankTransactionService,
-                 bank_account_service: BankAccountService, 
+                 bank_transaction_service: "BankTransactionService",
+                 bank_account_service: "BankAccountService", 
                  app_core: "ApplicationCore"):
         self.bank_transaction_service = bank_transaction_service
         self.bank_account_service = bank_account_service

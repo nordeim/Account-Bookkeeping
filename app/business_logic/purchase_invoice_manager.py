@@ -4,42 +4,53 @@ from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from datetime import date
 
 from sqlalchemy.orm import selectinload 
+from sqlalchemy import text # Added text
 
 from app.models.business.purchase_invoice import PurchaseInvoice, PurchaseInvoiceLine
-from app.models.business.vendor import Vendor
-from app.models.business.product import Product
-from app.models.accounting.tax_code import TaxCode
-from app.models.accounting.journal_entry import JournalEntry 
-from app.models.business.inventory_movement import InventoryMovement # New import
+# REMOVED: from app.models.business.vendor import Vendor # Not directly used, VendorService is
+# REMOVED: from app.models.business.product import Product # Not directly used, ProductService is
+# REMOVED: from app.models.accounting.tax_code import TaxCode # Not directly used, TaxCodeService is
+# REMOVED: from app.models.accounting.journal_entry import JournalEntry # Not directly used, JournalEntryManager is
+from app.models.business.inventory_movement import InventoryMovement 
 
-from app.services.business_services import PurchaseInvoiceService, VendorService, ProductService, InventoryMovementService # Added InventoryMovementService
-from app.services.core_services import SequenceService, ConfigurationService
-from app.services.tax_service import TaxCodeService
-from app.services.account_service import AccountService
+# REMOVED: from app.services.business_services import PurchaseInvoiceService, VendorService, ProductService, InventoryMovementService
+# REMOVED: from app.services.core_services import SequenceService, ConfigurationService
+# REMOVED: from app.services.tax_service import TaxCodeService
+# REMOVED: from app.services.account_service import AccountService
+# REMOVED: from app.tax.tax_calculator import TaxCalculator
+
 from app.utils.result import Result
 from app.utils.pydantic_models import (
     PurchaseInvoiceCreateData, PurchaseInvoiceUpdateData, PurchaseInvoiceSummaryData,
     PurchaseInvoiceLineBaseData, TaxCalculationResultData,
     JournalEntryData, JournalEntryLineData 
 )
-from app.tax.tax_calculator import TaxCalculator
-from app.common.enums import InvoiceStatusEnum, ProductTypeEnum, JournalTypeEnum, InventoryMovementTypeEnum # Added InventoryMovementTypeEnum
+from app.common.enums import InvoiceStatusEnum, ProductTypeEnum, JournalTypeEnum, InventoryMovementTypeEnum 
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore
+    from app.services.business_services import PurchaseInvoiceService, VendorService, ProductService, InventoryMovementService
+    from app.services.core_services import SequenceService, ConfigurationService
+    from app.services.tax_service import TaxCodeService
+    from app.services.account_service import AccountService
+    from app.tax.tax_calculator import TaxCalculator
+    from app.models.business.vendor import Vendor # For type hint
+    from app.models.business.product import Product # For type hint
+    from app.models.accounting.tax_code import TaxCode # For type hint
+
 
 class PurchaseInvoiceManager:
     def __init__(self,
-                 purchase_invoice_service: PurchaseInvoiceService,
-                 vendor_service: VendorService,
-                 product_service: ProductService,
-                 tax_code_service: TaxCodeService,
-                 tax_calculator: TaxCalculator,
-                 sequence_service: SequenceService, 
-                 account_service: AccountService,
-                 configuration_service: ConfigurationService,
+                 purchase_invoice_service: "PurchaseInvoiceService",
+                 vendor_service: "VendorService",
+                 product_service: "ProductService",
+                 tax_code_service: "TaxCodeService",
+                 tax_calculator: "TaxCalculator",
+                 sequence_service: "SequenceService", 
+                 account_service: "AccountService",
+                 configuration_service: "ConfigurationService",
                  app_core: "ApplicationCore",
-                 inventory_movement_service: InventoryMovementService): # New dependency
+                 inventory_movement_service: "InventoryMovementService"): 
         self.purchase_invoice_service = purchase_invoice_service
         self.vendor_service = vendor_service
         self.product_service = product_service
@@ -50,9 +61,8 @@ class PurchaseInvoiceManager:
         self.configuration_service = configuration_service
         self.app_core = app_core
         self.logger = app_core.logger
-        self.inventory_movement_service = inventory_movement_service # New dependency
+        self.inventory_movement_service = inventory_movement_service
         
-    # ... (_validate_and_prepare_pi_data, create_draft_purchase_invoice, update_draft_purchase_invoice - unchanged from file set 7)
     async def _validate_and_prepare_pi_data(
         self, 
         dto: Union[PurchaseInvoiceCreateData, PurchaseInvoiceUpdateData],
@@ -92,7 +102,7 @@ class PurchaseInvoiceManager:
         
         for i, line_dto in enumerate(dto.lines):
             line_errors_current_line: List[str] = []
-            product: Optional[Product] = None
+            product: Optional["Product"] = None # Use TYPE_CHECKING import
             line_description = line_dto.description
             unit_price = line_dto.unit_price
             line_purchase_account_id: Optional[int] = None 
@@ -127,8 +137,8 @@ class PurchaseInvoiceManager:
                 tax_calc_result: TaxCalculationResultData = await self.tax_calculator.calculate_line_tax(amount=line_subtotal_before_tax, tax_code_str=line_dto.tax_code, transaction_type="PurchaseInvoiceLine")
                 line_tax_amount_calc = tax_calc_result.tax_amount; line_tax_account_id = tax_calc_result.tax_account_id
                 if tax_calc_result.tax_account_id is None and line_tax_amount_calc > Decimal(0):
-                    tc_check = await self.tax_code_service.get_tax_code(line_dto.tax_code)
-                    if not tc_check or not tc_check.is_active: line_errors_current_line.append(f"Tax code '{line_dto.tax_code}' used on line {i+1} is invalid or inactive.")
+                    tc_check_orm = await self.tax_code_service.get_tax_code(line_dto.tax_code) # Use TYPE_CHECKING import
+                    if not tc_check_orm or not tc_check_orm.is_active: line_errors_current_line.append(f"Tax code '{line_dto.tax_code}' used on line {i+1} is invalid or inactive.")
             
             invoice_subtotal_calc += line_subtotal_before_tax; invoice_total_tax_calc += line_tax_amount_calc
             if line_errors_current_line: errors.extend(line_errors_current_line)
@@ -258,7 +268,7 @@ class PurchaseInvoiceManager:
                     if product_type_for_line == ProductTypeEnum.INVENTORY and line.product and line.product.inventory_account:
                         if line.product.inventory_account.is_active: debit_account_id_for_line = line.product.inventory_account.id
                         else: self.logger.warning(f"Product '{line.product.name}' inventory account '{line.product.inventory_account.code}' is inactive for PI {invoice_to_post.invoice_no}.")
-                    elif line.product and line.product.purchase_account: # For Service, Non-Inventory, or Inventory if inventory_acc not set
+                    elif line.product and line.product.purchase_account: 
                          if line.product.purchase_account.is_active: debit_account_id_for_line = line.product.purchase_account.id
                          else: self.logger.warning(f"Product '{line.product.name}' purchase account '{line.product.purchase_account.code}' is inactive for PI {invoice_to_post.invoice_no}.")
                     
@@ -277,10 +287,10 @@ class PurchaseInvoiceManager:
 
                     if line.tax_amount and line.tax_amount != Decimal(0) and line.tax_code:
                         gst_gl_id_for_line: Optional[int] = None
-                        line_tax_code_obj = line.tax_code_obj 
-                        if line_tax_code_obj and line_tax_code_obj.affects_account:
-                            if line_tax_code_obj.affects_account.is_active: gst_gl_id_for_line = line_tax_code_obj.affects_account.id
-                            else: self.logger.warning(f"Tax code '{line.tax_code}' affects account '{line_tax_code_obj.affects_account.code}' is inactive. Falling back.")
+                        line_tax_code_obj_orm = line.tax_code_obj 
+                        if line_tax_code_obj_orm and line_tax_code_obj_orm.affects_account:
+                            if line_tax_code_obj_orm.affects_account.is_active: gst_gl_id_for_line = line_tax_code_obj_orm.affects_account.id
+                            else: self.logger.warning(f"Tax code '{line.tax_code}' affects account '{line_tax_code_obj_orm.affects_account.code}' is inactive. Falling back.")
                         
                         if not gst_gl_id_for_line and default_gst_input_acc_code: 
                             def_gst_input_acc = await self.account_service.get_by_code(default_gst_input_acc_code)
@@ -307,7 +317,6 @@ class PurchaseInvoiceManager:
                 post_je_result = await self.app_core.journal_entry_manager.post_journal_entry(created_je.id, user_id, session=session)
                 if not post_je_result.is_success: return Result.failure([f"JE (ID: {created_je.id}) created but failed to post."] + post_je_result.errors)
 
-                # Create InventoryMovements
                 for line in invoice_to_post.lines:
                     if line.product and ProductTypeEnum(line.product.product_type) == ProductTypeEnum.INVENTORY:
                         inv_movement = InventoryMovement(

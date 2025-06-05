@@ -1,14 +1,16 @@
 # File: app/tax/tax_calculator.py
-# (Content as previously generated, verified)
 from decimal import Decimal
-from typing import List, Optional, Any
+from typing import List, Optional, Any, TYPE_CHECKING
 
-from app.services.tax_service import TaxCodeService 
+# REMOVED: from app.services.tax_service import TaxCodeService 
 from app.utils.pydantic_models import TaxCalculationResultData, TransactionTaxData, TransactionLineTaxData
-from app.models.accounting.tax_code import TaxCode 
+from app.models.accounting.tax_code import TaxCode as TaxCodeModel
+
+if TYPE_CHECKING:
+    from app.services.tax_service import TaxCodeService # ADDED
 
 class TaxCalculator:
-    def __init__(self, tax_code_service: TaxCodeService):
+    def __init__(self, tax_code_service: "TaxCodeService"):
         self.tax_code_service = tax_code_service
     
     async def calculate_transaction_taxes(self, transaction_data: TransactionTaxData) -> List[dict]:
@@ -39,7 +41,7 @@ class TaxCalculator:
         if not tax_code_str or abs(amount) < Decimal("0.01"):
             return result
         
-        tax_code_info: Optional[TaxCode] = await self.tax_code_service.get_tax_code(tax_code_str)
+        tax_code_info: Optional[TaxCodeModel] = await self.tax_code_service.get_tax_code(tax_code_str) # Use TYPE_CHECKING for TaxCodeModel
         if not tax_code_info:
             return result 
         
@@ -49,7 +51,7 @@ class TaxCalculator:
             return await self._calculate_withholding_tax(amount, tax_code_info, transaction_type)
         return result
     
-    async def _calculate_gst(self, amount: Decimal, tax_code_info: TaxCode, transaction_type: str) -> TaxCalculationResultData:
+    async def _calculate_gst(self, amount: Decimal, tax_code_info: TaxCodeModel, transaction_type: str) -> TaxCalculationResultData:
         tax_rate = Decimal(str(tax_code_info.rate))
         net_amount = amount 
         tax_amount = net_amount * tax_rate / Decimal(100)
@@ -61,7 +63,7 @@ class TaxCalculator:
             taxable_amount=net_amount
         )
     
-    async def _calculate_withholding_tax(self, amount: Decimal, tax_code_info: TaxCode, transaction_type: str) -> TaxCalculationResultData:
+    async def _calculate_withholding_tax(self, amount: Decimal, tax_code_info: TaxCodeModel, transaction_type: str) -> TaxCalculationResultData:
         applicable_transaction_types = ['Purchase Payment', 'Expense Payment'] 
         if transaction_type not in applicable_transaction_types:
             return TaxCalculationResultData(

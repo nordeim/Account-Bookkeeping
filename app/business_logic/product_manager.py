@@ -1,23 +1,26 @@
-# app/business_logic/product_manager.py
+# File: app/business_logic/product_manager.py
 from typing import List, Optional, Dict, Any, TYPE_CHECKING
 from decimal import Decimal
 
 from app.models.business.product import Product
-from app.services.business_services import ProductService
-from app.services.account_service import AccountService
-from app.services.tax_service import TaxCodeService # For validating tax_code
+# REMOVED: from app.services.business_services import ProductService
+# REMOVED: from app.services.account_service import AccountService
+# REMOVED: from app.services.tax_service import TaxCodeService 
 from app.utils.result import Result
 from app.utils.pydantic_models import ProductCreateData, ProductUpdateData, ProductSummaryData
-from app.common.enums import ProductTypeEnum # For product_type comparison
+from app.common.enums import ProductTypeEnum 
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore
+    from app.services.business_services import ProductService # ADDED
+    from app.services.account_service import AccountService # ADDED
+    from app.services.tax_service import TaxCodeService # ADDED
 
 class ProductManager:
     def __init__(self, 
-                 product_service: ProductService, 
-                 account_service: AccountService, 
-                 tax_code_service: TaxCodeService,
+                 product_service: "ProductService", 
+                 account_service: "AccountService", 
+                 tax_code_service: "TaxCodeService",
                  app_core: "ApplicationCore"):
         self.product_service = product_service
         self.account_service = account_service
@@ -58,21 +61,19 @@ class ProductManager:
         """ Common validation logic for creating and updating products/services. """
         errors: List[str] = []
 
-        # Validate product_code uniqueness
         if dto.product_code:
             existing_by_code = await self.product_service.get_by_code(dto.product_code)
             if existing_by_code and (existing_product_id is None or existing_by_code.id != existing_product_id):
                 errors.append(f"Product code '{dto.product_code}' already exists.")
         else:
-             errors.append("Product code is required.") # Pydantic should catch this with min_length
+             errors.append("Product code is required.") 
 
         if not dto.name or not dto.name.strip():
-            errors.append("Product name is required.") # Pydantic should catch this
+            errors.append("Product name is required.") 
 
-        # Validate GL Accounts
         account_ids_to_check = {
             "Sales Account": (dto.sales_account_id, ['Revenue']),
-            "Purchase Account": (dto.purchase_account_id, ['Expense', 'Asset']), # COGS or Asset for purchases
+            "Purchase Account": (dto.purchase_account_id, ['Expense', 'Asset']), 
         }
         if dto.product_type == ProductTypeEnum.INVENTORY:
             account_ids_to_check["Inventory Account"] = (dto.inventory_account_id, ['Asset'])
@@ -87,15 +88,12 @@ class ProductManager:
                 elif acc.account_type not in valid_types:
                     errors.append(f"{acc_label} '{acc.code} - {acc.name}' is not a valid type (Expected: {', '.join(valid_types)}).")
 
-        # Validate Tax Code (string code)
         if dto.tax_code is not None:
             tax_code_obj = await self.tax_code_service.get_tax_code(dto.tax_code)
             if not tax_code_obj:
                 errors.append(f"Tax code '{dto.tax_code}' not found.")
             elif not tax_code_obj.is_active:
                 errors.append(f"Tax code '{dto.tax_code}' is not active.")
-
-        # Pydantic DTO root_validator already checks inventory_account_id and stock levels based on product_type
         return errors
 
     async def create_product(self, dto: ProductCreateData) -> Result[Product]:
@@ -106,7 +104,7 @@ class ProductManager:
         try:
             product_orm = Product(
                 product_code=dto.product_code, name=dto.name, description=dto.description,
-                product_type=dto.product_type.value, # Store enum value
+                product_type=dto.product_type.value, 
                 category=dto.category, unit_of_measure=dto.unit_of_measure, barcode=dto.barcode,
                 sales_price=dto.sales_price, purchase_price=dto.purchase_price,
                 sales_account_id=dto.sales_account_id, purchase_account_id=dto.purchase_account_id,
@@ -132,11 +130,10 @@ class ProductManager:
             return Result.failure(validation_errors)
 
         try:
-            # Use model_dump to get only provided fields for update
             update_data_dict = dto.model_dump(exclude={'id', 'user_id'}, exclude_unset=True)
             for key, value in update_data_dict.items():
                 if hasattr(existing_product, key):
-                    if key == "product_type" and isinstance(value, ProductTypeEnum): # Handle enum
+                    if key == "product_type" and isinstance(value, ProductTypeEnum): 
                         setattr(existing_product, key, value.value)
                     else:
                         setattr(existing_product, key, value)
@@ -154,10 +151,7 @@ class ProductManager:
         if not product:
             return Result.failure([f"Product/Service with ID {product_id} not found."])
         
-        # Future validation: check if product is used in open sales/purchase orders, or has stock.
-        # For now, simple toggle.
-        
-        product_name_for_log = product.name # Capture before potential changes for logging
+        product_name_for_log = product.name 
         
         product.is_active = not product.is_active
         product.updated_by_user_id = user_id
@@ -170,4 +164,3 @@ class ProductManager:
         except Exception as e:
             self.logger.error(f"Error toggling active status for product ID {product_id}: {e}", exc_info=True)
             return Result.failure([f"Failed to toggle active status for product/service: {str(e)}"])
-

@@ -8,9 +8,9 @@ egrep '^```|^# File:|^# app\/' oo1
 
 egrep '^```|^# File:|^# app\/' ttt4/oo1
 
-python3 ../extract_code_files.py
+python3 ../extract_code_files.py oo1
 
-python3 extract_code_files.py 
+python3 extract_code_files.py  oo1
 
 find app -type f
 
@@ -50,4 +50,4 @@ Remember you are a deep-thinking AI agent recognized for and exemplary in modern
 You really need to be thorough in your analysis to avoid going into endless loop of the same errors. Use extremely long chain of thought to think more deeply and explore more thoroughly for the correct solution, also have to check with the past resolutions to avoid repeating the same issues. 
 
 ---
-
+please use the same rigor and meticulous approach to systematically fix each file affected. 
