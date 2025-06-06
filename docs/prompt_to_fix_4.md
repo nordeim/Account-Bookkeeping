@@ -83,3 +83,11 @@ excellent job! now help me to carefully review all the documents and screenshots
 ---
 excellent job so far! please use the same rigorous and meticulous approach to systematically create the rest of the tests files.
 
+---
+Awesome job! Now, help me to carefully and systematically recall all the changes that you have made to the original codebase, then create a detailed document to carefully describe the changes made in a logical and well organized format, using as many code snippets with explanation as possible. Name this code review document as `project status update document.md`. This document is meant for the QA team to review and approve the code changes committed.
+
+Next, help me create a *complete* updated replacement file for "Project Architecture Document" in markdown format. The updated `Project Architecture Document.md` must be complete and self-contained in itself, with all the necessary details incorporated. Do not use placeholders or reference to any of the older or other documents.
+
+---
+Please carefully review the attached documents containing or describing the latest changes to the codebase. Then re-generate a *complete* updated *replacement* file version for `README.md` and `Technical Design Specification Document.md` incorporating the latest changes to the codebase. *IMPORTANT*, the updated replacment `README.md` and `Technical Design Specification Document.md` must be complete in itself, without containing any references to older versions or other documents.
+

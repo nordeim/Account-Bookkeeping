@@ -1,3 +1,85 @@
+<think>
+The user wants me to update the `project_test_guide (draft).md`.
+My sources for this update are:
+1.  `project_test_guide (draft).md` (the input file).
+2.  `project_codebase_tests_files.md` (this is crucial as it contains the actual test file structure and some content, including `conftest.py`).
+3.  `README.md` (the version I just generated, which has an up-to-date "Testing" section).
+4.  Other documents for general project context (like Python versions, Poetry usage).
+
+The goal is a *complete* updated *replacement* file for the test guide. It needs to be self-contained and reflect the current state.
+
+**Plan of Action:**
+
+I will go through the `project_test_guide (draft).md` section by section and compare/update it based on the provided sources.
+
+*   **Section 1: Prerequisites**:
+    *   Confirm Python version and Poetry mention.
+    *   Verify the list of testing libraries (`pytest`, `pytest-asyncio`, `pytest-cov`, `unittest.mock`). `project_codebase_tests_files.md` doesn't list dependencies directly, but their usage in test files implies they are needed. The `README.md`'s "Technology Stack" section listed these.
+
+*   **Section 2: Test Structure**:
+    *   This is a key area to update based on `project_codebase_tests_files.md`.
+    *   **`tests/`**: Root directory.
+    *   **`conftest.py`**: The draft says it "can remain empty or have basic configurations". The provided `project_codebase_tests_files.md` shows `conftest.py` with an example fixture. I should reflect this.
+    *   **`unit/`**:
+        *   The draft lists: `tax/`, `utils/`, `services/`, and `*(Other subdirectories will be added...)*`.
+        *   `project_codebase_tests_files.md` shows a more extensive structure under `tests/unit/`:
+            *   `accounting/` (currently empty according to my README generation's project structure, but should be listed if the test files imply its existence as a directory) - *Correction*: the README structure for tests indicates `accounting/`, `business_logic/`, `core/` are currently empty *as directories for tests*. The test file structure from `project_codebase_tests_files.md` *does not explicitly show* these directories, but shows tests directly in `services/`, `tax/`, `utils/`, and `reporting/`.
+            *   `reporting/`: (e.g., `test_dashboard_manager.py`, `test_financial_statement_generator.py`) - This is a new one to add to the test guide structure.
+            *   The list of files in `services/` is very long. I don't need to list every file, but I should mention that it's well-populated.
+    *   **`integration/`**: Draft says "(Planned)". `project_codebase_tests_files.md` shows `tests/integration/__init__.py` and `tests/integration/test_example_integration.py` (empty). So, "basic structure exists, more tests planned" is more accurate.
+    *   **`ui_tests/`**: Draft says "(Planned)". `project_codebase_tests_files.md` shows `tests/ui/__init__.py` and `tests/ui/test_example_ui.py` (empty). Similar to integration tests, "basic structure exists, more tests planned". The draft guide calls it `ui_tests/`, while the actual files show `ui/`. I should use `ui/`.
+
+*   **Section 3: Running Tests**:
+    *   **3.1 Running All Tests**: Commands `poetry run pytest` and `pytest` are standard.
+    *   **3.2 Running Specific Test Files or Directories**: Examples are good. I'll verify the paths match the actual structure (e.g., `tests/unit/tax/test_tax_calculator.py`).
+    *   **3.3 Test Verbosity**: `-v` and `-vv` are standard.
+    *   **3.4 Test Coverage**:
+        *   Command `poetry run pytest --cov=app tests/` is standard.
+        *   Command for HTML report `poetry run pytest --cov=app --cov-report=html tests/` and mention of `htmlcov/` directory are correct.
+    *   **3.5 Running Asynchronous Tests**: The draft correctly states `pytest-asyncio` handles this automatically. The `pyproject.toml` or `pytest.ini` would ideally contain `asyncio_mode = auto`. I can add a note that this is the typical setup.
+
+*   **Section 4: Viewing Test Results**: Description of `.`, `F`, `E`, `s`, `x` is standard.
+
+*   **Section 5: Writing New Tests**:
+    *   Placement of unit tests: Should reflect the updated structure (`tax/`, `utils/`, `services/`, `reporting/`).
+    *   Naming conventions are standard.
+    *   Mention of `pytest` fixtures, `assert`, `pytest.raises`, `async def`, and `unittest.mock` is good.
+
+**Self-contained and No References:**
+I will ensure the final document stands alone and doesn't refer to "this draft" or previous versions.
+
+**Specific changes based on `project_codebase_tests_files.md`:**
+
+*   Update `conftest.py` description to mention it can contain project-wide fixtures, and give an example as shown in the provided file content.
+*   Update the `unit/` subdirectory list in Section 2 to include `reporting/` and specify the kinds of tests within each.
+*   Update `integration/` and `ui/` descriptions to "Basic structure exists; more tests planned." and use `ui/` instead of `ui_tests/`.
+*   The `pytest-asyncio` configuration note: I'll add a small sentence like "Ensure `pytest-asyncio` is installed (it's a dev dependency) and pytest is configured for asyncio mode (e.g., `asyncio_mode = auto` in `pytest.ini` or `pyproject.toml`), which is typically the default for `pytest-asyncio`."
+
+The overall structure of the draft guide is good. The main work is to align Section 2 (Test Structure) with the reality of the `project_codebase_tests_files.md` and make minor enhancements for clarity and completeness.
+
+Let's prepare the updated document.
+The name of the file should be `project_test_guide.md`.
+The draft is already quite good. The provided `project_codebase_tests_files.md` mostly confirms and slightly expands on the structure.
+The `conftest.py` from the source files:
+```python
+# File: tests/conftest.py
+# This file can be used for project-wide pytest fixtures.
+# For now, it can remain empty or have basic configurations if needed later.
+
+import pytest
+
+# Example of a fixture if needed later:
+# @pytest.fixture(scope="session")
+# def db_url():
+#     return "postgresql+asyncpg://testuser:testpass@localhost/test_db"
+```
+This is good, I can directly use this description.
+
+Okay, proceeding with the generation.Okay, I have reviewed the `project_test_guide (draft).md` and the other relevant documents, especially `project_codebase_tests_files.md` which shows the current test structure and content.
+
+Here is the complete updated replacement file for `project_test_guide.md`:
+
+```markdown
 # Project Test Guide: SG Bookkeeper
 
 This guide provides instructions on how to set up the testing environment and run the automated tests for the SG Bookkeeper application.
@@ -138,7 +220,5 @@ When adding new tests, adhere to the following conventions:
 *   **Mocking**: For unit tests, isolate the component under test by mocking its external dependencies. The `unittest.mock` library (providing `Mock`, `MagicMock`, `AsyncMock`, `patch`) is commonly used for this.
 
 By following these guidelines, we aim to build and maintain a comprehensive and robust suite of automated tests, ensuring the quality and stability of the SG Bookkeeper application.
-
----
-https://drive.google.com/file/d/160xDsKvPVAoauLYynWiBe9NHBnZdTL8J/view?usp=sharing, https://drive.google.com/file/d/18TtNiuwMgTDNao0zAFm09n-jytG2YUGz/view?usp=sharing, https://aistudio.google.com/app/prompts?state=%7B%22ids%22:%5B%221C3YLnRKPRGzPZnYLR1QTk7UWEwAsh3Nz%22%5D,%22action%22:%22open%22,%22userId%22:%22103961307342447084491%22,%22resourceKeys%22:%7B%7D%7D&usp=sharing, https://drive.google.com/file/d/1Ca9966PXKMDnjAxCsyT8OmVM2CPRlb-7/view?usp=sharing, https://drive.google.com/file/d/1JQqsPW16CEQ_KOYug004UPmNUP8BkdJ-/view?usp=sharing, https://drive.google.com/file/d/1Uej9gO7t12EkmldGnw5jk_V_fDjhTJMw/view?usp=sharing, https://drive.google.com/file/d/1ZsmOW6huYvGv9eyPviU1VZzh2YZqtxgW/view?usp=sharing, https://drive.google.com/file/d/1azUf7bWoZO_Niu3T7P81Vg8osVNEAvdG/view?usp=sharing, https://drive.google.com/file/d/1bI33CCtQPwhzoEUl854m3V002dxflsWg/view?usp=sharing, https://drive.google.com/file/d/1eFLuD4rI0YIctcHcXtE_aGXdEI19KS7A/view?usp=sharing, https://drive.google.com/file/d/1i0d3rPoQdMDESiN3d1xl0HwlhxsW8IKA/view?usp=sharing, https://drive.google.com/file/d/1peEbFNwTqJse_rI4-Cr6AHJC5VkdMEyJ/view?usp=sharing, https://drive.google.com/file/d/1wiAxnIzKK89xeuNXnUIwze7jX3IRpmh0/view?usp=sharing, https://drive.google.com/file/d/1y5m17YgZHBbDTW-m13LysnRiD55hfuaG/view?usp=sharing, https://drive.google.com/file/d/1z8Ad5AKfM2zETmgHi_8lWviUGZCQl1bF/view?usp=sharing
+```
 

@@ -110,7 +110,7 @@ This guide is for developers setting up the application from source.
 ### Prerequisites
 -   Python 3.9 or higher
 -   PostgreSQL Server 14 or higher
--   Poetry (Python packaging and dependency management tool)
+-   Poetry
 -   Git
 
 ### Developer Installation Steps
@@ -124,7 +124,7 @@ This guide is for developers setting up the application from source.
         CREATE USER sgbookkeeper_user WITH PASSWORD 'YourSecurePassword123!';
         CREATE DATABASE sg_bookkeeper OWNER sgbookkeeper_user;
         ```
-    *   The user specified in `config.ini` will need appropriate permissions on this database (grants are included in `scripts/initial_data.sql`).
+    *   The user specified in `config.ini` will need appropriate permissions on this database.
 4.  **Configure `config.ini`**:
     *   The application expects `config.ini` in a platform-specific user configuration directory:
         *   Linux: `~/.config/SGBookkeeper/config.ini`
@@ -151,12 +151,12 @@ This guide is for developers setting up the application from source.
         ```
     *   Ensure `username`, `password`, `host`, `port`, and `database` match your PostgreSQL setup.
 5.  **Initialize Database**:
-    *   This step requires PostgreSQL administrative privileges for the user running the script (e.g., `postgres`) to create extensions or if the database itself needs to be created by the script.
+    *   This step typically requires PostgreSQL administrative privileges for the user running the script (e.g., `postgres`) to create extensions or if the database itself needs to be created by the script.
     *   Run the database initialization script using Poetry. This script uses `scripts/schema.sql` (which defines schema version 1.0.5) and `scripts/initial_data.sql`.
     ```bash
     poetry run sg_bookkeeper_db_init --user YOUR_POSTGRES_ADMIN_USER --password YOUR_POSTGRES_ADMIN_PASSWORD --dbname sg_bookkeeper --dbhost localhost --dbport 5432
     ```
-    *   Replace placeholders like `YOUR_POSTGRES_ADMIN_USER` and `YOUR_POSTGRES_ADMIN_PASSWORD` with your PostgreSQL admin credentials. The `--dbhost` and `--dbport` arguments can be omitted if PostgreSQL is running on `localhost:5432`.
+    *   Replace placeholders like `YOUR_POSTGRES_ADMIN_USER` and `YOUR_POSTGRES_ADMIN_PASSWORD` with your PostgreSQL admin credentials.
     *   Add the `--drop-existing` flag *with caution* if you want to delete and recreate the `sg_bookkeeper` database for a clean setup.
 6.  **Compile Qt Resources** (Recommended for consistent icon loading):
     ```bash
@@ -220,16 +220,16 @@ sg_bookkeeper/
 │   ├── __init__.py
 │   ├── unit/                     # Unit tests (organized by module)
 │   │   ├── __init__.py
-│   │   ├── accounting/           # Unit tests for accounting logic (currently empty)
-│   │   ├── business_logic/       # Unit tests for business operations logic (currently empty)
-│   │   ├── core/                 # Unit tests for core components (currently empty)
-│   │   ├── reporting/            # Tests for reporting logic (e.g., DashboardManager, FinancialStatementGenerator)
+│   │   ├── accounting/           # Unit tests for accounting logic
+│   │   ├── business_logic/       # Unit tests for business operations logic
+│   │   ├── core/                 # Unit tests for core components
+│   │   ├── reporting/            # Tests for reporting logic (e.g., DashboardManager)
 │   │   ├── services/             # Tests for service layer components
-│   │   ├── tax/                  # Tests for tax logic (e.g., TaxCalculator, GSTManager)
-│   │   └── utils/                # Tests for utilities (e.g., Pydantic models, SequenceGenerator)
-│   ├── integration/              # Integration tests (planned, currently basic structure)
+│   │   ├── tax/                  # Tests for tax logic
+│   │   └── utils/                # Tests for utilities
+│   ├── integration/              # Integration tests (planned)
 │   │   └── __init__.py
-│   └── ui/                       # UI tests (planned, currently basic structure)
+│   └── ui/                       # UI tests (planned)
 │       └── __init__.py
 ├── .gitignore
 ├── pyproject.toml                # Poetry configuration
@@ -243,11 +243,14 @@ The PostgreSQL database schema is at version **1.0.5**. It includes tables for c
 
 ## Testing
 Automated tests are implemented using Pytest to ensure code quality and prevent regressions.
--   **Unit Tests**: Located in `tests/unit/`, these verify individual components by mocking dependencies. Key areas covered include:
-    *   **Reporting Logic**: `DashboardManager` (KPI calculations), `FinancialStatementGenerator`.
-    *   **Service Layer**: A broad range of services including `AccountService` (esp. methods for dashboard KPIs), `AuditLogService`, `BankAccountService`, `BankReconciliationService` (drafts, matching, finalization), `CompanySettingsService`, `ConfigurationService`, `CurrencyService`, `CustomerService` (AR aging), `DimensionService`, `ExchangeRateService`, `FiscalPeriodService`, `FiscalYearService`, `GSTReturnService`, `InventoryMovementService`, `JournalService`, `PaymentService`, `PurchaseInvoiceService`, `SalesInvoiceService`, `SequenceService`, `TaxCodeService`, `VendorService` (AP aging).
-    *   **Tax Logic**: `TaxCalculator`, `GSTManager`.
-    *   **Utilities**: Pydantic DTO validators (e.g., for `JournalEntryData`), `SequenceGenerator`.
+-   **Unit Tests**: Located in `tests/unit/`, these verify individual components by mocking dependencies. Current unit tests cover:
+    *   `TaxCalculator` (`tests/unit/tax/test_tax_calculator.py`)
+    *   Pydantic DTO validators for `JournalEntryData` and `JournalEntryLineData` (`tests/unit/utils/test_pydantic_models_journal_entry.py`)
+    *   `SequenceGenerator` (`tests/unit/utils/test_sequence_generator.py`)
+    *   Core Services: `AccountTypeService`, `CompanySettingsService`, `ConfigurationService`, `CurrencyService`, `DimensionService`, `ExchangeRateService`, `FiscalPeriodService`, `FiscalYearService`, `SequenceService` (various files in `tests/unit/services/`).
+    *   Business Service: `BankReconciliationService` (`tests/unit/services/test_bank_reconciliation_service.py`).
+    *   Reporting Logic: `DashboardManager` including methods like `_get_total_cash_balance` and `get_dashboard_kpis` (in `tests/unit/reporting/test_dashboard_manager.py`).
+    *   Service methods supporting Dashboard KPIs: AR/AP Aging summary methods in `CustomerService`/`VendorService`, and `AccountService.get_total_balance_by_account_category_and_type_pattern`.
 -   **Running Tests**:
     *   To run all tests: `poetry run pytest`
     *   To generate a coverage report: `poetry run pytest --cov=app` (requires `pytest-cov` plugin)
@@ -279,28 +282,28 @@ Please adhere to coding standards and ensure your contributions align with the p
     *   Added Current Ratio calculation and display.
     *   Backend services and manager logic for these new KPIs.
 -   **Circular Import Resolution**: Systematically fixed import cycles across managers, services, and `ApplicationCore`.
--   **Automated Testing (Phase 1 - Dashboard Logic & Core Bank Rec)**: Unit tests for `DashboardManager` methods, dependent service logic for new KPIs, and key `BankReconciliationService` methods. Expanded unit test coverage across many other services.
+-   **Automated Testing (Phase 1 - Dashboard Logic & Core Bank Rec)**: Unit tests for `DashboardManager` methods, dependent service logic for new KPIs, and key `BankReconciliationService` methods.
 
 ### Current Focus / Next Steps
 -   **Automated Testing (Continued - CRITICAL)**:
-    *   Expand unit test coverage to achieve higher percentages for all managers and remaining service methods.
-    *   Begin setup and implementation of integration tests for core workflows (e.g., invoice posting and payment allocation cycle, full bank reconciliation save-and-finalize cycle).
+    *   Expand unit test coverage to all remaining services (especially business services like `SalesInvoiceService`, `PaymentService`, remaining `BankAccountService`/`BankTransactionService` methods) and all managers.
+    *   Begin setup and implementation of integration tests for core workflows (e.g., invoice posting, payment allocation, full bank reconciliation cycle).
 -   **Refine Bank Reconciliation**:
     *   Implement UI and logic for handling complex matches (e.g., one-to-many, many-to-one statement lines to system transactions).
     *   UI improvements for visually linking matched items within the "Provisionally Matched" tables or a dedicated view.
-    *   More robust error handling and user feedback during CSV import (e.g., detailed row-level error reporting for parsing issues, duplicate detection).
+    *   More robust error handling and user feedback during CSV import (e.g., detailed row-level error reporting for parsing issues).
 -   **Enhance Dashboard KPIs (Phase 2)**:
     *   Add more financial ratios (e.g., Quick Ratio, Debt-to-Equity).
     *   Investigate and implement simple graphical representations for key KPIs (e.g., bar charts for aging summaries).
     *   Allow user customization or period selection for dashboard information.
 
 ### Long-term
--   Advanced reporting and analytics (e.g., customizable report builder, trend analysis).
+-   Advanced reporting and analytics (e.g., customizable report builder).
 -   Inventory Control enhancements (e.g., stocktakes, multiple locations, FIFO/LIFO costing methods).
 -   Multi-company support within a single installation.
 -   Cloud synchronization options (optional data backup/sync to a user-provided cloud storage).
 -   Enhanced Tax Compliance features (e.g., more detailed Income Tax aids, preparation of IRAS Audit File (IAF)).
--   Full UI test suite using a suitable framework (e.g., `pytest-qt`).
+-   Full UI test suite using a suitable framework.
 
 ## License
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

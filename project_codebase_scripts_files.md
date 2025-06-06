@@ -2,7 +2,12 @@
 ```sql
 -- File: scripts/initial_data.sql
 -- ============================================================================
--- INITIAL DATA (Version 1.0.3 - Added sequence grants for audit schema)
+-- INITIAL DATA (Version 1.0.5)
+-- ============================================================================
+-- This version corresponds to schema version 1.0.5.
+-- No functional data changes were introduced by schema patches 1.0.4 or 1.0.5.
+-- Existing permissions for banking/reconciliation were already present in v1.0.3.
+-- Version 1.0.3 (base) added sequence grants for audit schema.
 -- ============================================================================
 
 -- Ensure this script is run by a superuser or the owner of the database/schemas
@@ -503,15 +508,23 @@ if __name__ == '__main__':
 ```sql
 -- File: scripts/schema.sql
 -- ============================================================================
--- SG Bookkeeper - Complete Database Schema - Version 1.0.3
--- (Schema version updated for bank_transactions fields & corrected trial_balance view)
+-- SG Bookkeeper - Complete Database Schema - Version 1.0.5
 -- ============================================================================
 -- This script creates the complete database schema for the SG Bookkeeper application.
--- Changes from 1.0.2:
---  - Corrected accounting.trial_balance view logic.
--- Changes from 1.0.1 (incorporated in 1.0.2):
---  - Added is_from_statement and raw_statement_data to business.bank_transactions
---  - Added trigger for automatic bank_account balance updates.
+-- Base version for this consolidated file was 1.0.3.
+--
+-- Changes from 1.0.3 to 1.0.4 (incorporated):
+--  - Added business.bank_reconciliations table (for saving reconciliation state).
+--  - Added last_reconciled_balance to business.bank_accounts.
+--  - Added reconciled_bank_reconciliation_id to business.bank_transactions.
+--  - Added relevant FK constraints for reconciliation features.
+--
+-- Changes from 1.0.4 to 1.0.5 (incorporated):
+--  - Added status VARCHAR(20) NOT NULL DEFAULT 'Draft' with CHECK constraint to business.bank_reconciliations.
+--
+-- Features from 1.0.3 (base for this file):
+--  - Schema version updated for bank_transactions fields (is_from_statement, raw_statement_data) & corrected trial_balance view logic.
+--  - Trigger for automatic bank_account balance updates.
 --  - Extended audit logging to bank_accounts and bank_transactions.
 -- ============================================================================
 
@@ -939,7 +952,26 @@ CREATE TABLE business.purchase_invoice_lines (
 CREATE INDEX idx_purchase_invoice_lines_invoice ON business.purchase_invoice_lines(invoice_id); CREATE INDEX idx_purchase_invoice_lines_product ON business.purchase_invoice_lines(product_id);
 
 CREATE TABLE business.bank_accounts (
-    id SERIAL PRIMARY KEY, account_name VARCHAR(100) NOT NULL, account_number VARCHAR(50) NOT NULL, bank_name VARCHAR(100) NOT NULL, bank_branch VARCHAR(100), bank_swift_code VARCHAR(20), currency_code CHAR(3) NOT NULL, opening_balance NUMERIC(15,2) DEFAULT 0, current_balance NUMERIC(15,2) DEFAULT 0, last_reconciled_date DATE, gl_account_id INTEGER NOT NULL, is_active BOOLEAN DEFAULT TRUE, description TEXT, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, created_by INTEGER NOT NULL, updated_by INTEGER NOT NULL);
+    id SERIAL PRIMARY KEY, 
+    account_name VARCHAR(100) NOT NULL, 
+    account_number VARCHAR(50) NOT NULL, 
+    bank_name VARCHAR(100) NOT NULL, 
+    bank_branch VARCHAR(100), 
+    bank_swift_code VARCHAR(20), 
+    currency_code CHAR(3) NOT NULL, 
+    opening_balance NUMERIC(15,2) DEFAULT 0, 
+    current_balance NUMERIC(15,2) DEFAULT 0, 
+    last_reconciled_date DATE, 
+    last_reconciled_balance NUMERIC(15,2) NULL, -- Added from 1.0.4 patch
+    gl_account_id INTEGER NOT NULL, 
+    is_active BOOLEAN DEFAULT TRUE, 
+    description TEXT, 
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
+    created_by INTEGER NOT NULL, 
+    updated_by INTEGER NOT NULL
+);
+COMMENT ON COLUMN business.bank_accounts.last_reconciled_balance IS 'The ending balance of the bank account as per the last successfully completed reconciliation.';
 
 CREATE TABLE business.bank_transactions (
     id SERIAL PRIMARY KEY, 
@@ -954,8 +986,9 @@ CREATE TABLE business.bank_transactions (
     reconciled_date DATE, 
     statement_date DATE, 
     statement_id VARCHAR(50), 
-    is_from_statement BOOLEAN NOT NULL DEFAULT FALSE, -- New column
-    raw_statement_data JSONB NULL, -- New column
+    is_from_statement BOOLEAN NOT NULL DEFAULT FALSE, -- From 1.0.2
+    raw_statement_data JSONB NULL, -- From 1.0.2
+    reconciled_bank_reconciliation_id INT NULL, -- Added from 1.0.4 patch
     journal_entry_id INTEGER, 
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
@@ -965,6 +998,29 @@ CREATE TABLE business.bank_transactions (
 CREATE INDEX idx_bank_transactions_account ON business.bank_transactions(bank_account_id); 
 CREATE INDEX idx_bank_transactions_date ON business.bank_transactions(transaction_date); 
 CREATE INDEX idx_bank_transactions_reconciled ON business.bank_transactions(is_reconciled);
+COMMENT ON COLUMN business.bank_transactions.reconciled_bank_reconciliation_id IS 'Foreign key to business.bank_reconciliations, linking a transaction to the specific reconciliation it was cleared in.';
+
+CREATE TABLE business.bank_reconciliations (
+    id SERIAL PRIMARY KEY,
+    bank_account_id INTEGER NOT NULL,
+    statement_date DATE NOT NULL, 
+    statement_ending_balance NUMERIC(15,2) NOT NULL,
+    calculated_book_balance NUMERIC(15,2) NOT NULL, 
+    reconciled_difference NUMERIC(15,2) NOT NULL, 
+    reconciliation_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, 
+    notes TEXT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'Draft', -- Added from 1.0.5 patch
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    created_by_user_id INTEGER NOT NULL,
+    CONSTRAINT uq_bank_reconciliation_account_statement_date UNIQUE (bank_account_id, statement_date),
+    CONSTRAINT ck_bank_reconciliations_status CHECK (status IN ('Draft', 'Finalized')) -- Added from 1.0.5 patch
+);
+COMMENT ON TABLE business.bank_reconciliations IS 'Stores summary records of completed bank reconciliations.';
+COMMENT ON COLUMN business.bank_reconciliations.statement_date IS 'The end date of the bank statement that was reconciled.';
+COMMENT ON COLUMN business.bank_reconciliations.calculated_book_balance IS 'The book balance of the bank account as of the statement_date, after all reconciling items for this reconciliation are accounted for.';
+COMMENT ON COLUMN business.bank_reconciliations.status IS 'The status of the reconciliation, e.g., Draft, Finalized. Default is Draft.';
+
 
 CREATE TABLE business.payments (
     id SERIAL PRIMARY KEY, payment_no VARCHAR(20) NOT NULL UNIQUE, payment_type VARCHAR(20) NOT NULL CHECK (payment_type IN ('Customer Payment', 'Vendor Payment', 'Refund', 'Credit Note', 'Other')), payment_method VARCHAR(20) NOT NULL CHECK (payment_method IN ('Cash', 'Check', 'Bank Transfer', 'Credit Card', 'GIRO', 'PayNow', 'Other')), payment_date DATE NOT NULL, entity_type VARCHAR(20) NOT NULL CHECK (entity_type IN ('Customer', 'Vendor', 'Other')), entity_id INTEGER NOT NULL, bank_account_id INTEGER, currency_code CHAR(3) NOT NULL, exchange_rate NUMERIC(15,6) DEFAULT 1, amount NUMERIC(15,2) NOT NULL, reference VARCHAR(100), description TEXT, cheque_no VARCHAR(50), status VARCHAR(20) NOT NULL DEFAULT 'Draft' CHECK (status IN ('Draft', 'Approved', 'Completed', 'Voided', 'Returned')), journal_entry_id INTEGER, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, created_by INTEGER NOT NULL, updated_by INTEGER NOT NULL);
@@ -1116,8 +1172,12 @@ ALTER TABLE business.bank_accounts ADD CONSTRAINT fk_ba_updated_by FOREIGN KEY (
 
 ALTER TABLE business.bank_transactions ADD CONSTRAINT fk_bt_bank_account FOREIGN KEY (bank_account_id) REFERENCES business.bank_accounts(id);
 ALTER TABLE business.bank_transactions ADD CONSTRAINT fk_bt_journal_entry FOREIGN KEY (journal_entry_id) REFERENCES accounting.journal_entries(id);
+ALTER TABLE business.bank_transactions ADD CONSTRAINT fk_bt_reconciliation FOREIGN KEY (reconciled_bank_reconciliation_id) REFERENCES business.bank_reconciliations(id) ON DELETE SET NULL; -- Added from 1.0.4 patch
 ALTER TABLE business.bank_transactions ADD CONSTRAINT fk_bt_created_by FOREIGN KEY (created_by) REFERENCES core.users(id);
 ALTER TABLE business.bank_transactions ADD CONSTRAINT fk_bt_updated_by FOREIGN KEY (updated_by) REFERENCES core.users(id);
+
+ALTER TABLE business.bank_reconciliations ADD CONSTRAINT fk_br_bank_account FOREIGN KEY (bank_account_id) REFERENCES business.bank_accounts(id) ON DELETE CASCADE; -- Added from 1.0.4 patch
+ALTER TABLE business.bank_reconciliations ADD CONSTRAINT fk_br_created_by FOREIGN KEY (created_by_user_id) REFERENCES core.users(id); -- Added from 1.0.4 patch
 
 ALTER TABLE business.payments ADD CONSTRAINT fk_pay_bank_account FOREIGN KEY (bank_account_id) REFERENCES business.bank_accounts(id);
 ALTER TABLE business.payments ADD CONSTRAINT fk_pay_currency FOREIGN KEY (currency_code) REFERENCES accounting.currencies(code);
@@ -1395,7 +1455,7 @@ DECLARE
         'business.sales_invoices', 'business.purchase_invoices', 'business.payments',
         'accounting.tax_codes', 'accounting.gst_returns',
         'core.users', 'core.roles', 'core.company_settings', 
-        'business.bank_accounts', 'business.bank_transactions' -- Added banking tables
+        'business.bank_accounts', 'business.bank_transactions', 'business.bank_reconciliations' -- Added bank_reconciliations
     ];
     table_fullname TEXT;
     schema_name TEXT;
@@ -1420,128 +1480,6 @@ AFTER INSERT OR UPDATE OR DELETE ON business.bank_transactions
 FOR EACH ROW EXECUTE FUNCTION business.update_bank_account_balance_trigger_func();
 
 -- End of script
-
-```
-
-# schema_update_patch.sql
-```sql
--- FILE: schema_patch_1.0.3_to_1.0.4.sql
--- PURPOSE: Updates SG Bookkeeper database schema from version 1.0.3 to 1.0.4
---          Adds tables and columns required for saving bank reconciliation state.
---
--- PREVIOUS VERSION: 1.0.3 (Includes bank statement import fields, bank balance trigger, corrected trial_balance view)
--- NEW VERSION: 1.0.4
---
--- Important: Ensure your database schema is at version 1.0.3 before applying this patch.
--- It is recommended to backup your database before applying any schema changes.
-
-BEGIN;
-
--- ----------------------------------------------------------------------------
--- 1. Add new table: business.bank_reconciliations
--- ----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS business.bank_reconciliations (
-    id SERIAL PRIMARY KEY,
-    bank_account_id INTEGER NOT NULL,
-    statement_date DATE NOT NULL, -- The end date of the bank statement being reconciled
-    statement_ending_balance NUMERIC(15,2) NOT NULL,
-    calculated_book_balance NUMERIC(15,2) NOT NULL, -- The book balance that reconciles to the statement
-    reconciled_difference NUMERIC(15,2) NOT NULL, -- Should be close to zero
-    reconciliation_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, -- When this reconciliation record was created
-    notes TEXT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by_user_id INTEGER NOT NULL,
-    CONSTRAINT uq_bank_reconciliation_account_statement_date UNIQUE (bank_account_id, statement_date)
-);
-
-COMMENT ON TABLE business.bank_reconciliations IS 'Stores summary records of completed bank reconciliations.';
-COMMENT ON COLUMN business.bank_reconciliations.statement_date IS 'The end date of the bank statement that was reconciled.';
-COMMENT ON COLUMN business.bank_reconciliations.calculated_book_balance IS 'The book balance of the bank account as of the statement_date, after all reconciling items for this reconciliation are accounted for.';
-
-
--- ----------------------------------------------------------------------------
--- 2. Add 'last_reconciled_balance' column to 'business.bank_accounts'
--- ----------------------------------------------------------------------------
-ALTER TABLE business.bank_accounts
-ADD COLUMN IF NOT EXISTS last_reconciled_balance NUMERIC(15,2) NULL;
-
-COMMENT ON COLUMN business.bank_accounts.last_reconciled_balance IS 'The ending balance of the bank account as per the last successfully completed reconciliation.';
-
-
--- ----------------------------------------------------------------------------
--- 3. Add 'reconciled_bank_reconciliation_id' column to 'business.bank_transactions'
--- ----------------------------------------------------------------------------
-ALTER TABLE business.bank_transactions
-ADD COLUMN IF NOT EXISTS reconciled_bank_reconciliation_id INT NULL;
-
-COMMENT ON COLUMN business.bank_transactions.reconciled_bank_reconciliation_id IS 'Foreign key to business.bank_reconciliations, linking a transaction to the specific reconciliation it was cleared in.';
-
-
--- ----------------------------------------------------------------------------
--- 4. Add Foreign Key Constraints for the new table and columns
--- ----------------------------------------------------------------------------
-
--- FK for business.bank_reconciliations table
-ALTER TABLE business.bank_reconciliations
-    ADD CONSTRAINT fk_br_bank_account FOREIGN KEY (bank_account_id) REFERENCES business.bank_accounts(id) ON DELETE CASCADE,
-    ADD CONSTRAINT fk_br_created_by FOREIGN KEY (created_by_user_id) REFERENCES core.users(id);
-
--- FK for the new column in business.bank_transactions
-ALTER TABLE business.bank_transactions
-    ADD CONSTRAINT fk_bt_reconciliation FOREIGN KEY (reconciled_bank_reconciliation_id) REFERENCES business.bank_reconciliations(id) ON DELETE SET NULL;
-
--- Update schema version comment in a conceptual way (actual file versioning would be manual)
--- For tracking, this patch moves the schema towards 1.0.4.
-
-COMMIT;
-
--- File: schema_update_patch.sql
--- Purpose: Updates SG Bookkeeper database schema from v1.0.4 to v1.0.5
--- Key Changes:
---   - Adds 'status' column to 'business.bank_reconciliations' table.
---   - Adds CHECK constraint for the 'status' column.
---
--- IMPORTANT:
---   - Backup your database before applying this patch.
---   - This patch is intended to be run ONCE on a database at schema v1.0.4.
---   - Do NOT append this to the main schema.sql file (v1.0.5) which already includes these changes.
-
-BEGIN;
-
--- 1. Add 'status' column to 'business.bank_reconciliations'
--- Using IF NOT EXISTS for idempotency in case the column was manually added partially.
-ALTER TABLE business.bank_reconciliations
-ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'Draft';
-
-COMMENT ON COLUMN business.bank_reconciliations.status IS 'The status of the reconciliation, e.g., Draft, Finalized. Default is Draft.';
-
--- 2. Add CHECK constraint for the 'status' column
--- This DO block makes adding the constraint idempotent.
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint
-        WHERE conname = 'ck_bank_reconciliations_status'
-          AND conrelid = 'business.bank_reconciliations'::regclass
-    ) THEN
-        ALTER TABLE business.bank_reconciliations
-        ADD CONSTRAINT ck_bank_reconciliations_status CHECK (status IN ('Draft', 'Finalized'));
-    END IF;
-END
-$$;
-
--- Conceptually, update any internal schema version tracking if you have one.
--- For example (this is illustrative, not executable without a version table):
--- UPDATE core.schema_versions SET version = '1.0.5', applied_on = CURRENT_TIMESTAMP WHERE component = 'database';
-
-DO $$
-BEGIN
-    RAISE NOTICE 'Database schema patch to v1.0.5 (BankReconciliation status) applied successfully.';
-END $$;
-
-COMMIT;
-
 
 ```
 

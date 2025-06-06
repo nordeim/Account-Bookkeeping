@@ -1,12 +1,96 @@
-# Technical Design Specification Document: SG Bookkeeper (v16)
+<think>
+The user wants me to regenerate two documents: `README.md` and `Technical_Design_Specification_Document.md`.
+I need to ensure these documents are:
+1.  **Complete**: They should stand alone without needing to refer to older versions or other documents to understand their content.
+2.  **Updated**: They must reflect the absolute latest state of the project based on *all* provided documents, including the newly provided `project_codebase_scripts_files.md` (which contains `schema.sql v1.0.5`, `initial_data.sql v1.0.5`, and `db_init.py`) and `project_codebase_tests_files.md` (which contains the content of the test suite).
+3.  **Replacement files**: Meaning I provide the full content for each.
 
-**Version:** 16.0
-**Date:** 2025-06-06
+My process will be:
+1.  **Consolidate knowledge**: I have already processed `Technical_Design_Specification_Document (draft).md`, `README_latest.md`, `README_previous.md`, `Project Architecture Document v5.md`, `diff_output_schema.sql.md`, and the screenshots. The new `project_codebase_scripts_files.md` and `project_codebase_tests_files.md` provide the *actual current source code* for these specific files. This is gold-standard information. The `project_codebase_scripts_files.md` confirms schema v1.0.5 and initial_data v1.0.5 details. The `project_codebase_tests_files.md` confirms the structure and content of the test suite, which is important for the "Testing" sections of the documents.
+
+2.  **For `Technical_Design_Specification_Document.md`**:
+    *   I will use the version I generated in the *previous turn* (response_59) as the base because it already incorporated a lot of updates.
+    *   I will then cross-verify its content against:
+        *   `project_codebase_scripts_files.md`: Specifically for Sections 3.1 (Database Schema Overview) and Section 8 (Deployment and Installation, regarding `db_init.py` behavior if it changed significantly from my prior understanding). The schema and initial data descriptions in my previous TDS output *should* align perfectly as they were based on the diff.
+        *   `project_codebase_tests_files.md`: This doesn't directly impact the TDS much, as TDS focuses on design, not test implementation details, but it confirms the project's testing maturity which can be reflected in the conclusion or introduction if relevant. The TDS I generated previously doesn't detail specific test files, which is appropriate.
+    *   Ensure all references to schema versions are 1.0.5.
+    *   Ensure component descriptions, data flows (especially Bank Rec), and module specifications are consistent with the finalized understanding of the codebase features (drafts, provisional matching, unmatching, dashboard KPIs, etc.).
+    *   My previous TDS output was quite thorough, so I anticipate minor refinements rather than major rewrites for this document, mostly ensuring consistency with the final provided script files if there are any nuances I missed.
+
+3.  **For `README.md`**:
+    *   I will use the version I outlined in my *previous thoughts* (based on `README_latest.md` from user's prompt_58, which was superior to `README_previous.md` from user's prompt_59) as the base. This version was already identified as being very up-to-date.
+    *   I will cross-verify its content against:
+        *   `project_codebase_scripts_files.md`: For the "Installation" (especially `db_init.py` command and details) and "Database Schema" sections. The README should mention schema v1.0.5.
+        *   `project_codebase_tests_files.md`: This is very important for the "Testing" section of the README. I need to ensure the description of tests, structure, and running commands are accurate based on the *actual test files provided*. My previous README outline for testing was good, but now I have the source.
+        *   The `Project Status Update Document.md` (the `codebase change review v15.md` that I was asked to *imagine* writing) I mentally constructed in the previous turn will be a good guide for what features are "Recently Completed" in the Roadmap section.
+    *   Ensure "Key Features", "Usage Guide", "Roadmap" sections are accurate and complete.
+
+4.  **Self-contained and no references to older versions**: This is a guiding principle for both documents. All information must be present within the document itself.
+
+Let's review the new inputs:
+*   `project_codebase_scripts_files.md`:
+    *   `initial_data.sql`: Confirms "Version 1.0.5". Includes permissions, default roles, system init user, currencies, company settings, sequences, config values, account types, key GL accounts, tax codes, admin user, and grants.
+    *   `db_init.py`: Provides the exact command-line arguments and logic for DB initialization. This will be useful for the "Installation" section of README.md. For example, arguments like `--user`, `--password`, `--dbname`, `--host`, `--port`, `--drop-existing`.
+    *   `schema.sql`: Confirms "Version 1.0.5" and all the table structures including `bank_reconciliations` with `status`.
+*   `project_codebase_tests_files.md`:
+    *   Gives the exact file paths and content for unit tests.
+    *   `tests/unit/tax/test_gst_manager.py` and `tests/unit/reporting/test_financial_statement_generator.py.bak` are present. `.bak` usually means backup, so `test_financial_statement_generator.py` is the active one.
+    *   The presence of `tests/unit/reporting/test_dashboard_manager.py`, `tests/unit/services/test_account_service_dashboard_ext.py`, `tests/unit/services/test_customer_service_dashboard_ext.py`, `tests/unit/services/test_vendor_service_dashboard_ext.py`, and `tests/unit/services/test_bank_reconciliation_service.py` confirms testing for the new features.
+    *   The directory structure under `tests/unit/` is `tax/`, `utils/`, `services/`, `reporting/`. The README structure should reflect this.
+
+**Refining the plan for README.md "Testing" section:**
+Based on `project_codebase_tests_files.md`:
+The `tests/unit/` directory contains:
+- `tax/test_tax_calculator.py`, `tax/test_gst_manager.py`
+- `utils/test_pydantic_models_journal_entry.py`, `utils/test_sequence_generator.py`
+- `services/test_payment_service.py`, `services/test_sales_invoice_service.py`, `services/test_journal_service.py`, `services/test_currency_service.py`, `services/test_tax_code_service.py`, `services/test_purchase_invoice_service.py`, `services/test_company_settings_service.py`, `services/test_vendor_service_dashboard_ext.py`, `services/test_exchange_rate_service.py`, `services/test_bank_transaction_service.py`, `services/test_customer_service_dashboard_ext.py`, `services/test_fiscal_period_service.py`, `services/test_account_service_dashboard_ext.py`, `services/test_bank_account_service.py`, `services/test_configuration_service.py`, `services/test_account_type_service.py`, `services/test_dimension_service.py`, `services/test_bank_reconciliation_service.py`, `services/test_inventory_movement_service.py`, `services/test_gst_return_service.py`, `services/test_sequence_service.py`, `services/test_fiscal_year_service.py`
+- `reporting/test_dashboard_manager.py`, `reporting/test_financial_statement_generator.py`
+
+This is a very comprehensive list. The README should summarize this structure and mention key tested components.
+
+**Refining `README.md` "Installation" section for `db_init.py`:**
+The `db_init.py` script has args: `--host`, `--port`, `--user`, `--password`, `--dbname`, `--drop-existing`.
+The example command in README should reflect this:
+`poetry run sg_bookkeeper_db_init --user YOUR_POSTGRES_ADMIN_USER --password YOUR_POSTGRES_ADMIN_PASSWORD --dbname sg_bookkeeper --host localhost --dbport 5432`
+And explain the `--drop-existing` flag.
+
+**For the Project Status Update Document / `codebase change review v15.md`:**
+The user has now provided the source for `scripts/` and `tests/` files. The request is to "re-generate a *complete* updated *replacement* file version for `README.md` and `Technical Design Specification Document.md`". The "Project Status Update Document" seems to have been a thinking step for *me* in the previous turn, not a document the user explicitly requested as a final output *in this current turn*. The current request focuses on README and TDS.
+
+Therefore, I will focus *only* on generating the updated README.md and Technical_Design_Specification_Document.md.
+
+I will start by producing the `Technical_Design_Specification_Document.md` first, then `README.md`.
+The TDS I generated in response_59 is a very good base. I will review it against the new definitive script files.
+The `schema.sql` provided in `project_codebase_scripts_files.md` is identical to the one I derived from the diff and used for the previous TDS. So, schema descriptions in the TDS should be correct.
+The `initial_data.sql` is also consistent.
+The `db_init.py` script's existence and functionality are primarily relevant to the README's installation section. The TDS Section 8 (Deployment and Installation) briefly mentions the script, which is fine.
+
+My previous TDS generation (response_59) was already quite thorough. I'll use that and just ensure these new definitive script files don't introduce any contradictions, which they don't seem to.
+
+For README.md, the most significant impact of the new files will be the precise listing of test files and the more accurate `db_init.py` command.
+
+Okay, I'm ready to generate the documents.Okay, I have carefully reviewed all the documents and information provided, including the latest `project_codebase_scripts_files.md` and `project_codebase_tests_files.md`.
+
+I will now provide the complete updated replacement files for:
+1.  `Technical_Design_Specification_Document.md`
+2.  `README.md`
+
+These documents are intended to be self-contained and reflect the latest state of the SG Bookkeeper project, incorporating schema version 1.0.5 and all associated features like the enhanced Bank Reconciliation module and Dashboard KPIs.
+
+---
+
+## Updated `Technical_Design_Specification_Document.md`
+
+```markdown
+# Technical Design Specification Document: SG Bookkeeper (v15)
+
+**Version:** 15.0
+**Date:** 2025-06-04
 
 ## 1. Introduction
 
 ### 1.1 Purpose
-This Technical Design Specification (TDS) document, version **16.0**, provides a detailed and up-to-date overview of the SG Bookkeeper application's technical design and implementation. It reflects the current state of the project, incorporating architectural decisions, component structures, and functionalities up to schema version **1.0.5**. This version specifically details refinements and enhancements to:
+This Technical Design Specification (TDS) document, version **15.0**, provides a detailed and up-to-date overview of the SG Bookkeeper application's technical design and implementation. It reflects the current state of the project, incorporating architectural decisions, component structures, and functionalities up to schema version **1.0.5**. This version specifically details refinements and enhancements to:
 *   **Bank Reconciliation Module**: Comprehensive UI and backend logic for reconciling bank statements, including CSV import, draft reconciliation persistence, provisional matching/unmatching of transactions, creating adjustment journal entries, finalizing reconciliations, and viewing history of finalized reconciliations.
 *   **Automated Bank Transaction Creation from Journal Entries**: Posting a journal entry that affects a bank-linked GL account now automatically generates a corresponding system bank transaction.
 *   **Dashboard KPIs (Enhanced)**: Display of key financial indicators including YTD P&L figures, cash balance, AR/AP totals (outstanding and overdue), detailed AR/AP Aging summaries, and Current Ratio.
@@ -34,7 +118,7 @@ This TDS covers the following aspects of the SG Bookkeeper application:
 SG Bookkeeper is a cross-platform desktop application engineered with Python, utilizing PySide6 for its graphical user interface and PostgreSQL for robust data storage. It is designed to provide comprehensive accounting solutions for Singaporean Small to Medium-sized Businesses (SMBs). Key features include a full double-entry bookkeeping system, Singapore-specific GST management (including F5 return preparation with detailed export), interactive financial reporting, modules for managing essential business operations (Customers, Vendors, Products/Services, full Sales & Purchase Invoicing lifecycle, Payments with allocations), Bank Account management with manual transaction entry, CSV bank statement import, a full bank reconciliation module with draft persistence, provisional matching/unmatching capabilities, and history viewing. It also features an enhanced dashboard displaying AR/AP aging summaries and current ratio KPIs, alongside comprehensive system administration for Users, Roles, Permissions, and Audit Log viewing. The application emphasizes data integrity, compliance with local accounting standards, user-friendliness, and robust auditability.
 
 ### 1.5 Current Implementation Status
-As of version 16.0 (reflecting schema v1.0.5):
+As of version 15.0 (reflecting schema v1.0.5):
 *   All features listed in the previous TDS iteration (covering initial bank rec, CSV import, auto bank txns from JEs, basic dashboard) are implemented.
 *   **Enhanced Banking Features (Bank Reconciliation Refinements)**:
     *   **Draft Reconciliation Persistence**: Reconciliations can be started and saved in a "Draft" state. When a user returns to a bank account/statement date combination with an existing draft, it's loaded.
@@ -381,6 +465,320 @@ Interface definitions for services are updated to reflect new functionalities:
 
 ## 10. Conclusion (Updated)
 Version 15 of SG Bookkeeper significantly refines the Bank Reconciliation module by introducing persistent draft sessions with provisional matching and unmatching capabilities, leading to a more robust and user-friendly reconciliation experience. The Dashboard has been enhanced with crucial AR/AP Aging summaries and the Current Ratio, providing deeper financial insights at a glance. Continuous architectural improvements, such as the resolution of circular import dependencies, strengthen the codebase's maintainability and stability. These features further solidify SG Bookkeeper as a comprehensive accounting tool for SMBs. Future work will focus on expanding automated test coverage, potentially handling more complex reconciliation matching scenarios (e.g., many-to-one), and further enriching dashboard and reporting functionalities based on user feedback and evolving business needs.
+```
+
+---
+
+## Updated `README.md`
+
+```markdown
+# SG Bookkeeper
+
+<div align="center">
+
+<!-- Replace with actual logo if available -->
+<img src="https://raw.githubusercontent.com/nordeim/SG-Bookkeeper/refs/heads/main/home_screen.png" alt="SG Bookkeeper Logo" width="600"/>
+
+**Singapore-Focused Small Business Accounting Software**
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![PySide6 6.9+](https://img.shields.io/badge/UI-PySide6_6.9-green.svg)](https://doc.qt.io/qtforpython/)
+[![PostgreSQL 14+](https://img.shields.io/badge/DB-PostgreSQL_14+-blue.svg)](https://www.postgresql.org/)
+[![SQLAlchemy 2.0+](https://img.shields.io/badge/ORM-SQLAlchemy_2.0-orange.svg)](https://www.sqlalchemy.org/)
+[![Asyncpg](https://img.shields.io/badge/Async-Asyncpg-purple.svg)](https://github.com/MagicStack/asyncpg)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![Tests: Pytest](https://img.shields.io/badge/tests-pytest-yellowgreen)](https://pytest.org)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
+
+[Key Features](#key-features) • [Technology Stack](#technology-stack) • [Installation](#installation) • [Usage](#usage-guide) • [Project Structure](#project-structure) • [Testing](#testing) • [Contributing](#contributing) • [Roadmap](#roadmap) • [License](#license)
+
+</div>
+
+## Overview
+
+SG Bookkeeper is a comprehensive, cross-platform desktop application designed to meet the accounting and bookkeeping needs of small to medium-sized businesses (SMBs) in Singapore. Built with Python and leveraging the power of PySide6 for a modern user interface and PostgreSQL for robust data management, it offers professional-grade financial tools tailored to Singapore's regulatory environment.
+
+The application features a double-entry accounting core, GST management (including 9% rate calculations), interactive financial reporting, modules for essential business operations (Customer, Vendor, Product/Service Management, Sales & Purchase Invoicing, Payments), Bank Account management with transaction entry, CSV bank statement import, a full Bank Reconciliation module (including draft persistence, provisional matching/unmatching, and history viewing), an enhanced Dashboard with Key Performance Indicators (KPIs like AR/AP Aging and Current Ratio), and comprehensive User/Role/Permission administration including Audit Logs. Its goal is to provide an intuitive, powerful, and compliant solution that empowers business owners and accountants.
+
+### Why SG Bookkeeper?
+
+-   **Singapore-Centric**: Designed with Singapore Financial Reporting Standards (SFRS), GST regulations (including the 9% rate), and IRAS compliance considerations at its core.
+-   **Professional Grade**: Implements a full double-entry system, detailed audit trails (via database triggers and viewable UI), and robust data validation using Pydantic DTOs.
+-   **User-Friendly Interface**: Aims for an intuitive experience for users who may not be accounting experts, while providing depth for professionals. Most core modules have functional UIs with features like advanced product search in invoices, and clear data entry forms.
+-   **Open Source & Local First**: Transparent development. Your financial data stays on your local machine or private server, ensuring privacy and control. No subscription fees.
+-   **Modern & Performant**: Utilizes asynchronous operations for a responsive UI and efficient database interactions, with a dedicated asyncio event loop.
+
+## Key Features
+
+*(Status: Implemented, UI Implemented, Backend Implemented, Foundational (DB/Models ready), Planned)*
+
+### Core Accounting
+-   **Comprehensive Double-Entry Bookkeeping** (Implemented)
+-   **Customizable Hierarchical Chart of Accounts** (Implemented - UI for CRUD)
+-   **General Ledger with detailed transaction history** (Implemented - Report generation, on-screen view, PDF/Excel export, with dimension filtering options)
+-   **Journal Entry System** (Implemented - UI for General Journal with Journal Type filter; transaction-specific JEs auto-generated on posting of source documents and from Bank Reconciliation; posting a JE affecting a bank-linked GL account now auto-creates a system `BankTransaction`.)
+-   **Multi-Currency Support** (Foundational - Models, CurrencyManager exist. UI integration in transactions uses it.)
+-   **Fiscal Year and Period Management** (Implemented - UI in Settings for FY creation and period auto-generation.)
+-   **Budgeting and Variance Analysis** (Foundational - Models exist. UI/Logic planned.)
+
+### Singapore Tax Compliance
+-   **GST Tracking and Calculation** (Backend Implemented - `TaxCode` setup, `TaxCalculator` for line items.)
+-   **GST F5 Return Data Preparation & Finalization** (Implemented - Backend for data prep & finalization with JE settlement. UI in Reports tab. Enhanced Excel export with transaction details per box.)
+-   **Income Tax Estimation Aids** (Planned - Stubs exist.)
+-   **Withholding Tax Management** (Foundational - Stubs exist.)
+
+### Business Operations
+-   **Customer Management** (Implemented - Full CRUD and listing UI.)
+-   **Vendor Management** (Implemented - Full CRUD and listing UI.)
+-   **Product and Service Management** (Implemented - Full CRUD and listing UI for Inventory, Non-Inventory, Service types.)
+-   **Sales Invoicing and Accounts Receivable** (Implemented - Full lifecycle: Draft CRUD, List View, Posting with financial JE & inventory (WAC) JE creation, "Save & Approve" in dialog, advanced product search.)
+-   **Purchase Invoicing and Accounts Payable** (Implemented - Full lifecycle: Draft CRUD, List View, Posting with financial JE & inventory (WAC based on purchase cost) JE creation, Dialog with advanced product search.)
+-   **Payment Processing and Allocation** (Implemented - UI for Customer Receipts & Vendor Payments, allocation to invoices, JE posting. List view with filters.)
+-   **Inventory Control (Weighted Average Cost)** (Implemented - `InventoryMovement` records created on posting Sales/Purchase invoices for 'Inventory' type products; COGS JEs for sales.)
+
+### Banking
+-   **Bank Account Management** (Implemented - Full CRUD and listing UI, linkage to GL.)
+-   **Manual Bank Transaction Entry** (Implemented - UI for manual entry, listed per account.)
+-   **CSV Bank Statement Import** (Implemented - UI dialog (`CSVImportConfigDialog`) for configuring column mappings and importing transactions.)
+-   **Bank Reconciliation Module** (Implemented - Comprehensive UI (`BankReconciliationWidget`) for:
+    *   Loading/refreshing unreconciled statement items and system transactions.
+    *   Persistent provisional matching of items to a "Draft" reconciliation.
+    *   Unmatching provisionally matched items within the current draft session.
+    *   Creating adjustment Journal Entries for statement-only items (e.g., bank charges, interest).
+    *   Finalizing and saving the reconciliation (status changes to "Finalized").
+    *   Viewing paginated history of finalized reconciliations and their cleared transaction details.
+    *   Automatic creation of system `BankTransaction` records from relevant Journal Entries.
+)
+
+### Reporting & Analytics
+-   **Standard Financial Statements**: Balance Sheet, P&L, Trial Balance, General Ledger (Implemented - UI in Reports tab, PDF/Excel export, enhanced GL with dimension filtering.)
+-   **Dashboard KPIs** (Implemented - Displays YTD Revenue, Expenses, Net Profit; Current Cash Balance, Total Outstanding AR/AP, Total Overdue AR/AP, AR/AP Aging Summaries (Current, 1-30, 31-60, 61-90, 91+ days), and Current Ratio.)
+-   **Cash Flow Statement** (Planned)
+-   **GST Reports** (Implemented - See GST F5.)
+-   **Customizable Reporting Engine** (Foundational)
+
+### System & Security
+-   **User Authentication & RBAC** (Implemented - UI for Users, Roles, Permissions.)
+-   **Comprehensive Audit Trails** (Implemented - DB triggers, UI for viewing Action Log and Data Change History in Settings.)
+-   **PostgreSQL Database Backend** (Implemented)
+-   **Data Backup and Restore Utilities** (Planned)
+
+## Technology Stack
+-   **Programming Language**: Python 3.9+ (up to 3.12)
+-   **UI Framework**: PySide6 6.9.0+
+-   **Database**: PostgreSQL 14+
+-   **ORM**: SQLAlchemy 2.0+ (Async ORM with `asyncpg`)
+-   **Async DB Driver**: `asyncpg`
+-   **Data Validation (DTOs)**: Pydantic V2 (with `email-validator`)
+-   **Password Hashing**: `bcrypt`
+-   **Reporting Libraries**: `reportlab` (PDF), `openpyxl` (Excel)
+-   **Dependency Management**: Poetry
+-   **Date/Time Utilities**: `python-dateutil`
+-   **Testing**: Pytest, pytest-asyncio, pytest-cov, unittest.mock
+
+## Installation
+
+This guide is for developers setting up the application from source.
+
+### Prerequisites
+-   Python 3.9 or higher
+-   PostgreSQL Server 14 or higher
+-   Poetry (Python packaging and dependency management tool)
+-   Git
+
+### Developer Installation Steps
+1.  **Clone Repository**: `git clone https://github.com/yourusername/sg_bookkeeper.git && cd sg_bookkeeper` (Replace `yourusername` with the actual path if forked).
+2.  **Install Dependencies**: `poetry install --with dev` (The `--with dev` flag includes development dependencies like `pytest`).
+3.  **Prepare PostgreSQL**:
+    *   Ensure your PostgreSQL server is running.
+    *   Create a dedicated database user (e.g., `sgbookkeeper_user`) and a database (e.g., `sg_bookkeeper`).
+    *   Example (using `psql` as a PostgreSQL superuser like `postgres`):
+        ```sql
+        CREATE USER sgbookkeeper_user WITH PASSWORD 'YourSecurePassword123!';
+        CREATE DATABASE sg_bookkeeper OWNER sgbookkeeper_user;
+        ```
+    *   The user specified in `config.ini` will need appropriate permissions on this database (grants are included in `scripts/initial_data.sql`).
+4.  **Configure `config.ini`**:
+    *   The application expects `config.ini` in a platform-specific user configuration directory:
+        *   Linux: `~/.config/SGBookkeeper/config.ini`
+        *   macOS: `~/Library/Application Support/SGBookkeeper/config.ini`
+        *   Windows: `%APPDATA%\SGBookkeeper\config.ini` (e.g., `C:\Users\<YourUser>\AppData\Roaming\SGBookkeeper\config.ini`)
+    *   Create the `SGBookkeeper` directory if it doesn't exist.
+    *   Copy `config.example.ini` (if provided in the repository) to this location as `config.ini`, or create `config.ini` with the following structure, adjusting values as necessary:
+        ```ini
+        [Database]
+        username = sgbookkeeper_user
+        password = YourSecurePassword123!
+        host = localhost
+        port = 5432
+        database = sg_bookkeeper
+        echo_sql = False
+        pool_min_size = 2
+        pool_max_size = 10
+        pool_recycle_seconds = 3600
+
+        [Application]
+        theme = light
+        language = en
+        last_opened_company_id = 1
+        ```
+    *   Ensure `username`, `password`, `host`, `port`, and `database` match your PostgreSQL setup.
+5.  **Initialize Database**:
+    *   This step requires PostgreSQL administrative privileges for the user running the script (e.g., `postgres`) to create extensions or if the database itself needs to be created by the script.
+    *   Run the database initialization script using Poetry. This script uses `scripts/schema.sql` (which defines schema version 1.0.5) and `scripts/initial_data.sql`.
+    ```bash
+    poetry run sg_bookkeeper_db_init --user YOUR_POSTGRES_ADMIN_USER --password YOUR_POSTGRES_ADMIN_PASSWORD --dbname sg_bookkeeper --dbhost localhost --dbport 5432
+    ```
+    *   Replace placeholders like `YOUR_POSTGRES_ADMIN_USER` and `YOUR_POSTGRES_ADMIN_PASSWORD` with your PostgreSQL admin credentials. The `--dbhost` and `--dbport` arguments can be omitted if PostgreSQL is running on `localhost:5432`.
+    *   Add the `--drop-existing` flag *with caution* if you want to delete and recreate the `sg_bookkeeper` database for a clean setup.
+6.  **Compile Qt Resources** (Recommended for consistent icon loading):
+    ```bash
+    poetry run pyside6-rcc resources/resources.qrc -o app/resources_rc.py
+    ```
+7.  **Run Application**:
+    Ensure your `config.ini` points to the application database user (e.g., `sgbookkeeper_user`).
+    ```bash
+    poetry run sg_bookkeeper
+    ```
+    Default admin login: `admin`/`password`. You should be prompted to change this password on first login.
+
+## Usage Guide
+*(Updated to reflect Bank Reconciliation draft persistence, provisional matching/unmatching, and new Dashboard KPIs)*
+
+-   **Dashboard Tab**: View key financial indicators including YTD Revenue, Expenses, Net Profit; Current Cash Balance; Total Outstanding & Overdue AR/AP; AR & AP Aging summaries (Current, 1-30, 31-60, 61-90, 91+ days); and Current Ratio. Use the "Refresh KPIs" button to update the displayed data.
+-   **Banking C.R.U.D Tab**: Manage Bank Accounts (add, edit, toggle active status). View transaction lists for selected accounts. Manually add bank transactions (deposits, withdrawals, fees). Import bank statements using the "Import Statement (CSV)" action, which opens a dialog to configure column mappings specific to your CSV file format.
+-   **Bank Reconciliation Tab**: Perform bank reconciliations.
+    1.  Select a Bank Account.
+    2.  Enter the Statement End Date and Statement Ending Balance from your bank statement.
+    3.  Click "Load / Refresh Transactions". A "Draft" reconciliation is automatically created or loaded if one exists for the selected account and date.
+    4.  The UI will display unreconciled statement items (from imports/manual entry) and unreconciled system-generated bank transactions in separate tables. Transactions already provisionally matched to the current draft will appear in "Provisionally Matched (This Session)" tables.
+    5.  Select items from the "Unreconciled" tables and click "Match Selected". If amounts match, these items are provisionally reconciled against the current draft and moved to the "Provisionally Matched" tables (this is persisted in the database).
+    6.  To undo a provisional match, select items from the "Provisionally Matched" tables and click "Unmatch Selected Items".
+    7.  For statement items not yet in your books (e.g., bank charges, interest), use the "Add Journal Entry" button. This opens a pre-filled `JournalEntryDialog`. Posting this JE will also auto-create a corresponding system `BankTransaction`, which will then appear in the unreconciled list for matching.
+    8.  The "Reconciliation Summary" section dynamically updates to show the difference.
+    9.  Once the "Difference" is zero (or within an acceptable tolerance), click "Save Final Reconciliation". This changes the draft's status to "Finalized", updates the bank account's last reconciled date/balance, and permanently marks the reconciled transactions.
+    10. View a paginated history of finalized reconciliations and their cleared transaction details in the "Reconciliation History" section.
+-   **Accounting Tab**: Manage Chart of Accounts (CRUD) and Journal Entries (CRUD, post, reverse, filter by type).
+-   **Sales/Purchases Tabs**: Full lifecycle management for Sales and Purchase Invoices, including draft creation, editing, posting (which generates financial and inventory JEs), list views with filtering, and dialogs with advanced product search.
+-   **Payments Tab**: Record Customer Receipts and Vendor Payments, allocate them to specific invoices. List and filter payments.
+-   **Customers/Vendors/Products & Services Tabs**: Full CRUD and list views with filtering for master data.
+-   **Reports Tab**: Generate GST F5 Returns (with detailed Excel export) and standard Financial Statements (Balance Sheet, P&L, Trial Balance, General Ledger) with PDF/Excel export options. GL reports support filtering by up to two dimensions.
+-   **Settings Tab**: Configure Company Information, manage Fiscal Years/Periods, Users (CRUD, password changes, role assignment), Roles & Permissions (CRUD, assign permissions to roles), and view Audit Logs (Action Log, Data Change History with filtering).
+
+## Project Structure
+```
+sg_bookkeeper/
+├── app/                          # Main application source code
+│   ├── __init__.py
+│   ├── main.py                     # Main application entry point
+│   ├── core/                       # Core components (ApplicationCore, DBManager, Config, Security)
+│   ├── common/                     # Common enums, constants, etc.
+│   ├── models/                     # SQLAlchemy ORM models (organized by schema: core, accounting, business, audit)
+│   ├── services/                   # Data access layer services (repositories)
+│   ├── accounting/                 # Business logic managers for accounting module
+│   ├── business_logic/             # Managers for Customers, Vendors, Products, Invoices, Payments, Banking
+│   ├── reporting/                  # Logic managers for generating reports & dashboard data
+│   ├── tax/                        # Business logic managers for tax module
+│   ├── ui/                         # PySide6 UI components (organized by module)
+│   │   ├── shared/                 # Shared UI components (e.g., ProductSearchDialog)
+│   │   └── ... (other ui modules: accounting, audit, banking, customers, dashboard, etc.)
+│   ├── utils/                      # General utility functions, Pydantic DTOs, helpers
+│   └── resources_rc.py             # Compiled Qt resources (generated if pyside6-rcc is run)
+├── data/                         # Default data templates (CoA, report templates, tax codes)
+├── docs/                         # Project documentation (like this README, TDS, Architecture)
+├── resources/                    # UI assets (icons, images, .qrc file)
+├── scripts/                      # Database initialization scripts (db_init.py, schema.sql, initial_data.sql)
+├── tests/                        # Automated tests
+│   ├── conftest.py
+│   ├── __init__.py
+│   ├── unit/                     # Unit tests (organized by module)
+│   │   ├── __init__.py
+│   │   ├── accounting/           # Unit tests for accounting logic (currently empty)
+│   │   ├── business_logic/       # Unit tests for business operations logic (currently empty)
+│   │   ├── core/                 # Unit tests for core components (currently empty)
+│   │   ├── reporting/            # Tests for reporting logic (e.g., DashboardManager, FinancialStatementGenerator)
+│   │   ├── services/             # Tests for service layer components
+│   │   ├── tax/                  # Tests for tax logic (e.g., TaxCalculator, GSTManager)
+│   │   └── utils/                # Tests for utilities (e.g., Pydantic models, SequenceGenerator)
+│   ├── integration/              # Integration tests (planned, currently basic structure)
+│   │   └── __init__.py
+│   └── ui/                       # UI tests (planned, currently basic structure)
+│       └── __init__.py
+├── .gitignore
+├── pyproject.toml                # Poetry configuration
+├── poetry.lock
+├── README.md                     # This file
+└── LICENSE
+```
+
+## Database Schema
+The PostgreSQL database schema is at version **1.0.5**. It includes tables for core system functions, detailed accounting, business operations, and comprehensive audit trails. Key recent additions include the `business.bank_reconciliations` table with a `status` column ('Draft', 'Finalized') and related fields in `bank_accounts` and `bank_transactions` to support the full bank reconciliation workflow, including draft persistence. A trigger `update_bank_account_balance_trigger_func` ensures `bank_accounts.current_balance` is automatically updated based on its transactions. Refer to `scripts/schema.sql` for full details.
+
+## Testing
+Automated tests are implemented using Pytest to ensure code quality and prevent regressions.
+-   **Unit Tests**: Located in `tests/unit/`, these verify individual components by mocking dependencies. Key areas covered include:
+    *   **Reporting Logic**: `DashboardManager` (KPI calculations), `FinancialStatementGenerator`.
+    *   **Service Layer**: A broad range of services including `AccountService` (esp. methods for dashboard KPIs), `AuditLogService`, `BankAccountService`, `BankReconciliationService` (drafts, matching, finalization), `CompanySettingsService`, `ConfigurationService`, `CurrencyService`, `CustomerService` (AR aging), `DimensionService`, `ExchangeRateService`, `FiscalPeriodService`, `FiscalYearService`, `GSTReturnService`, `InventoryMovementService`, `JournalService`, `PaymentService`, `PurchaseInvoiceService`, `SalesInvoiceService`, `SequenceService`, `TaxCodeService`, `VendorService` (AP aging).
+    *   **Tax Logic**: `TaxCalculator`, `GSTManager`.
+    *   **Utilities**: Pydantic DTO validators (e.g., for `JournalEntryData`), `SequenceGenerator`.
+-   **Running Tests**:
+    *   To run all tests: `poetry run pytest`
+    *   To generate a coverage report: `poetry run pytest --cov=app` (requires `pytest-cov` plugin)
+
+## Contributing
+Contributions are welcome! Please follow standard open-source contribution practices:
+1.  Fork the repository.
+2.  Create a new branch for your feature or bug fix (`git checkout -b feature/your-feature-name`).
+3.  Make your changes, ensuring to add relevant tests where applicable.
+4.  Run linters (e.g., `flake8`), formatters (e.g., `black`), and type checkers (e.g., `mypy`), and ensure all tests pass.
+5.  Commit your changes with descriptive messages (Conventional Commits style preferred if possible).
+6.  Push to your branch (`git push origin feature/your-feature-name`).
+7.  Submit a Pull Request against the `main` (or `develop`) branch of the original repository.
+
+Please adhere to coding standards and ensure your contributions align with the project's goals and architectural patterns.
+
+## Roadmap
+
+### Recently Completed
+-   **Bank Reconciliation Enhancements (Schema v1.0.5)**:
+    *   Full workflow including Draft persistence for reconciliations.
+    *   Persistent Provisional Matching of statement and system transactions to the draft.
+    *   "Unmatch" functionality for provisionally matched items within a draft session.
+    *   Finalization of draft reconciliations.
+    *   UI for viewing paginated history of finalized reconciliations and their details.
+    *   CSV Bank Statement Import and automatic `BankTransaction` creation from relevant JEs.
+-   **Dashboard KPI Enhancements**:
+    *   Added AR/AP Aging Summaries (Current, 1-30, 31-60, 61-90, 91+ days).
+    *   Added Current Ratio calculation and display.
+    *   Backend services and manager logic for these new KPIs.
+-   **Circular Import Resolution**: Systematically fixed import cycles across managers, services, and `ApplicationCore`.
+-   **Automated Testing (Phase 1 - Dashboard Logic & Core Bank Rec)**: Unit tests for `DashboardManager` methods, dependent service logic for new KPIs, and key `BankReconciliationService` methods. Expanded unit test coverage across many other services.
+
+### Current Focus / Next Steps
+-   **Automated Testing (Continued - CRITICAL)**:
+    *   Expand unit test coverage to achieve higher percentages for all managers and remaining service methods.
+    *   Begin setup and implementation of integration tests for core workflows (e.g., invoice posting and payment allocation cycle, full bank reconciliation save-and-finalize cycle).
+-   **Refine Bank Reconciliation**:
+    *   Implement UI and logic for handling complex matches (e.g., one-to-many, many-to-one statement lines to system transactions).
+    *   UI improvements for visually linking matched items within the "Provisionally Matched" tables or a dedicated view.
+    *   More robust error handling and user feedback during CSV import (e.g., detailed row-level error reporting for parsing issues, duplicate detection).
+-   **Enhance Dashboard KPIs (Phase 2)**:
+    *   Add more financial ratios (e.g., Quick Ratio, Debt-to-Equity).
+    *   Investigate and implement simple graphical representations for key KPIs (e.g., bar charts for aging summaries).
+    *   Allow user customization or period selection for dashboard information.
+
+### Long-term
+-   Advanced reporting and analytics (e.g., customizable report builder, trend analysis).
+-   Inventory Control enhancements (e.g., stocktakes, multiple locations, FIFO/LIFO costing methods).
+-   Multi-company support within a single installation.
+-   Cloud synchronization options (optional data backup/sync to a user-provided cloud storage).
+-   Enhanced Tax Compliance features (e.g., more detailed Income Tax aids, preparation of IRAS Audit File (IAF)).
+-   Full UI test suite using a suitable framework (e.g., `pytest-qt`).
+
+## License
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+```
 
 ---
 https://drive.google.com/file/d/160xDsKvPVAoauLYynWiBe9NHBnZdTL8J/view?usp=sharing, https://drive.google.com/file/d/18TtNiuwMgTDNao0zAFm09n-jytG2YUGz/view?usp=sharing, https://aistudio.google.com/app/prompts?state=%7B%22ids%22:%5B%221C3YLnRKPRGzPZnYLR1QTk7UWEwAsh3Nz%22%5D,%22action%22:%22open%22,%22userId%22:%22103961307342447084491%22,%22resourceKeys%22:%7B%7D%7D&usp=sharing, https://drive.google.com/file/d/1Ca9966PXKMDnjAxCsyT8OmVM2CPRlb-7/view?usp=sharing, https://drive.google.com/file/d/1JQqsPW16CEQ_KOYug004UPmNUP8BkdJ-/view?usp=sharing, https://drive.google.com/file/d/1Uej9gO7t12EkmldGnw5jk_V_fDjhTJMw/view?usp=sharing, https://drive.google.com/file/d/1ZsmOW6huYvGv9eyPviU1VZzh2YZqtxgW/view?usp=sharing, https://drive.google.com/file/d/1azUf7bWoZO_Niu3T7P81Vg8osVNEAvdG/view?usp=sharing, https://drive.google.com/file/d/1bI33CCtQPwhzoEUl854m3V002dxflsWg/view?usp=sharing, https://drive.google.com/file/d/1eFLuD4rI0YIctcHcXtE_aGXdEI19KS7A/view?usp=sharing, https://drive.google.com/file/d/1i0d3rPoQdMDESiN3d1xl0HwlhxsW8IKA/view?usp=sharing, https://drive.google.com/file/d/1peEbFNwTqJse_rI4-Cr6AHJC5VkdMEyJ/view?usp=sharing, https://drive.google.com/file/d/1wiAxnIzKK89xeuNXnUIwze7jX3IRpmh0/view?usp=sharing, https://drive.google.com/file/d/1z8Ad5AKfM2zETmgHi_8lWviUGZCQl1bF/view?usp=sharing

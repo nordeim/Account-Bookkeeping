@@ -1,50 +1,56 @@
-# Project Architecture Document: SG Bookkeeper (v5)
+# Project Architecture Document: SG Bookkeeper (v6)
 
 ## 1. Introduction
 
 ### 1.1 Purpose
-This document outlines the software architecture of the SG Bookkeeper application. It details the system's structure, components, their interactions, data management strategies, and the design principles guiding its development. This document is intended to provide a comprehensive understanding of the application's technical foundation for development, maintenance, and future evolution.
+This document provides a comprehensive overview of the SG Bookkeeper application's architecture. It details the system's design, components, their interactions, data flow, and key architectural patterns employed. The goal is to serve as a guide for developers, architects, and technical stakeholders for understanding, maintaining, and evolving the application. This version reflects the codebase state including the enhanced Bank Reconciliation module (with draft persistence and history) and expanded Dashboard KPIs.
 
 ### 1.2 Scope
 This document covers the following architectural aspects:
-*   High-level system architecture and its constituent layers.
-*   Detailed breakdown of components within each layer, including UI, business logic, data access, and core services.
-*   Data architecture, encompassing database schema, ORM models, and data transfer objects (DTOs).
-*   Key technologies and frameworks utilized.
-*   Core architectural patterns and design choices.
-*   Specific architectural considerations like asynchronous processing, configuration, security, and error handling.
+*   High-level system architecture and its layers.
+*   Detailed component architecture, including core components, data models (ORM), data access layer (services), business logic layer (managers), and presentation layer (UI).
+*   Data architecture, including database schema organization (up to v1.0.5) and data transfer objects (DTOs).
+*   Key technologies, frameworks, and design patterns used.
+*   Specialized architectural aspects such as asynchronous processing, configuration management, security, and error handling, including refinements for circular dependency resolution.
 *   An overview of the project's directory structure.
 
 ### 1.3 Intended Audience
-*   **Software Developers**: To understand the system design, component responsibilities, inter-component communication, and coding conventions.
-*   **Software Architects**: For architectural review, decision-making, and planning future system enhancements.
-*   **Technical Leads & Project Managers**: For project oversight, understanding technical constraints, and resource allocation.
-*   **QA Engineers**: To comprehend system behavior, identify test boundaries, and design effective testing strategies.
+*   **Software Developers**: For understanding system design, component responsibilities, and inter-component communication.
+*   **Software Architects**: For reviewing and evolving the architecture.
+*   **QA Engineers**: For understanding system behavior and designing effective test strategies.
+*   **Technical Project Managers**: For project oversight and technical decision-making.
 
 ## 2. System Overview
-SG Bookkeeper is a desktop accounting application tailored for Small to Medium-sized Businesses (SMBs) in Singapore. It is developed in Python, utilizing PySide6 for the graphical user interface and PostgreSQL for persistent data storage. The application aims to provide a comprehensive suite of accounting tools, including:
-*   Double-entry bookkeeping core.
-*   Management of Chart of Accounts, Journal Entries, Fiscal Periods.
-*   Modules for Sales, Purchases, Payments, Banking (including CSV Import and Reconciliation), Customers, Vendors, and Products/Services.
-*   GST F5 tax reporting and other financial statement generation.
-*   User and role management with RBAC for security.
-*   Dashboard for Key Performance Indicators (KPIs).
-*   Comprehensive audit logging.
+SG Bookkeeper is a cross-platform desktop application designed to provide comprehensive accounting solutions for Small to Medium-sized Businesses (SMBs), particularly those operating in Singapore. It is built using Python, with PySide6 for the Graphical User Interface (GUI) and PostgreSQL as the backend database.
 
-The system is designed to be responsive, maintainable, and robust, with a clear separation of concerns.
+Key functionalities include:
+*   Full double-entry bookkeeping.
+*   Chart of Accounts management.
+*   General Journal entries and postings.
+*   Sales and Purchase invoicing lifecycles.
+*   Customer and Vendor relationship management (CRM/SRM).
+*   Product and Service management, including basic inventory tracking (Weighted Average Cost).
+*   Bank Account management: manual transaction entry, CSV bank statement import, and a comprehensive Bank Reconciliation module (supporting draft reconciliations, provisional matching, unmatching, finalization, and history viewing).
+*   Payment processing (customer receipts, vendor payments) with invoice allocation.
+*   Singapore-specific GST F5 tax return preparation (9% rate) and detailed reporting.
+*   Financial reporting (Balance Sheet, Profit & Loss, Trial Balance, General Ledger).
+*   A Dashboard displaying Key Performance Indicators (KPIs) including YTD P&L figures, cash balance, AR/AP totals & overdue amounts, AR/AP aging summaries, and Current Ratio.
+*   System administration: User and Role management with Role-Based Access Control (RBAC), system configuration, and audit logging with UI viewers.
+
+The application emphasizes data integrity, compliance with local accounting standards, user-friendliness, and robust auditability. It employs an asynchronous processing model to ensure UI responsiveness and has undergone refactoring to resolve circular import dependencies.
 
 ## 3. Architectural Goals & Principles
-The architecture is designed to achieve:
-*   **Modularity**: Components are organized into logical modules with well-defined responsibilities and interfaces.
-*   **Maintainability**: A clear, layered architecture and consistent coding patterns facilitate easier understanding, debugging, and modification.
-*   **Testability**: Separation of concerns allows for unit testing of individual components and facilitates integration testing.
-*   **Responsiveness**: Asynchronous processing for backend operations ensures the UI remains fluid and does not freeze during long tasks.
-*   **Data Integrity**: Robust validation at multiple levels (DTOs, business logic, database constraints) and transactional data operations.
-*   **Scalability (Conceptual)**: While a desktop application, the backend structure aims to handle growing data and complexity efficiently.
-*   **Extensibility**: The architecture should accommodate new features and modules with minimal disruption to existing functionality.
+The architecture of SG Bookkeeper is guided by the following goals and principles:
+*   **Maintainability**: Clear separation of concerns and modular design to simplify understanding, debugging, and updates.
+*   **Scalability**: Ability to handle increasing data volumes and feature complexity.
+*   **Responsiveness**: Asynchronous operations for long-running tasks to keep the UI fluid.
+*   **Data Integrity**: Ensuring accuracy and consistency of financial data through database constraints, DTO validations, and business rule enforcement.
+*   **Testability**: Designing components in a way that facilitates unit and integration testing.
+*   **Modularity**: Organizing the application into distinct modules.
+*   **Robustness**: Systematic error handling and clear feedback to the user.
 
 ## 4. High-Level Architecture
-SG Bookkeeper employs a multi-layered architecture, separating concerns into distinct functional areas. This promotes decoupling, testability, and maintainability.
+The application follows a layered architecture:
 
 ```
 +-----------------------------------------------------------------+
@@ -58,8 +64,9 @@ SG Bookkeeper employs a multi-layered architecture, separating concerns into dis
       v                         v
 +-----------------------------------------------------------------+
 |                  Business Logic Layer (Managers)                |
-| (ApplicationCore, *Manager classes like SalesInvoiceManager,   |
-|  JournalEntryManager, BankTransactionManager, PaymentManager)   |
+| (ApplicationCore, *Manager classes e.g., SalesInvoiceManager,  |
+|  JournalEntryManager, BankTransactionManager, PaymentManager,   |
+|  DashboardManager, BankReconciliationService acting as manager)|
 | Encapsulates Business Rules, Complex Workflows, Validation.     |
 | Orchestrates Services. Returns `Result` objects.                |
 +-----------------------------------------------------------------+
@@ -68,7 +75,7 @@ SG Bookkeeper employs a multi-layered architecture, separating concerns into dis
       v                         v
 +-----------------------------------------------------------------+
 |                       Data Access Layer (Services)              |
-| (DatabaseManager, *Service classes like AccountService,        |
+| (DatabaseManager, *Service classes e.g., AccountService,        |
 |  SalesInvoiceService, BankReconciliationService), SQLAlchemy Models|
 | Implements Repository Pattern. Abstracts Database Interactions. |
 | Manages ORM query logic.                                        |
@@ -78,241 +85,132 @@ SG Bookkeeper employs a multi-layered architecture, separating concerns into dis
 +-----------------------------------------------------------------+
 |                          Database Layer                         |
 | (PostgreSQL: Schemas [core, accounting, business, audit],      |
-|  Tables, Views, Functions, Triggers, Constraints)               |
+|  Tables, Views, Functions, Triggers, Constraints - v1.0.5)      |
 +-----------------------------------------------------------------+
 ```
 
 ### 4.1 Layers Description
-
-*   **Presentation Layer (UI)**:
-    *   Built with PySide6, responsible for all user interaction and data display.
-    *   Key components include `MainWindow`, various module-specific `QWidget` subclasses (e.g., `SalesInvoicesWidget`, `BankingWidget`, `DashboardWidget`), data entry dialogs (`QDialog` subclasses like `SalesInvoiceDialog`, `PaymentDialog`), and custom table models (`QAbstractTableModel` subclasses).
-    *   Communicates with the Business Logic Layer primarily by invoking methods on Manager classes. User input is often packaged into Pydantic DTOs before being sent to managers.
-    *   Handles asynchronous calls to the backend via `schedule_task_from_qt` and receives results/updates via `QMetaObject.invokeMethod` to update UI elements safely from the Qt main thread.
-
-*   **Business Logic Layer (Managers)**:
-    *   This layer contains the application's core business rules, validation logic, and orchestrates complex operations.
-    *   Managers (e.g., `SalesInvoiceManager`, `JournalEntryManager`, `PaymentManager`, `BankTransactionManager`, `DashboardManager`) are the primary components. They coordinate actions between multiple services, enforce business rules, and prepare data for the UI or for persistence.
-    *   `ApplicationCore` acts as a central access point and initializer for these managers and their service dependencies.
-    *   Managers typically operate on DTOs received from the UI and interact with services using ORM objects or DTOs.
-    *   They return `Result` objects (from `app/utils/result.py`) to indicate the outcome of operations.
-
-*   **Data Access Layer (Services & ORM)**:
-    *   Provides an abstraction over direct database interactions.
-    *   **Services** (e.g., `AccountService`, `SalesInvoiceService`, `BankReconciliationService` located in `app/services/`) implement the Repository pattern. They encapsulate the logic for querying and persisting data for specific ORM models or groups of related models.
-    *   **SQLAlchemy ORM Models** (in `app/models/`) define the object-oriented mapping to database tables. They include relationships, data types, and sometimes model-level validation or behavior.
-    *   The `DatabaseManager` (from `app/core/`) provides asynchronous database sessions used by the services.
-
-*   **Database Layer**:
-    *   **PostgreSQL** is the RDBMS.
-    *   The database schema (defined in `scripts/schema.sql`) is organized into four main schemas: `core`, `accounting`, `business`, and `audit`.
-    *   It includes tables, views, functions (e.g., `core.get_next_sequence_value`), and triggers (e.g., for audit logging and automatic bank balance updates).
-    *   Data integrity is enforced through primary keys, foreign keys, `CHECK` constraints, `UNIQUE` constraints, and `NOT NULL` constraints.
+*   **Presentation Layer (UI)**: Built with PySide6. Responsible for user interaction, data rendering. Components include `MainWindow`, module-specific widgets (e.g., `BankReconciliationWidget`), dialogs, and custom table models. Communicates asynchronously with the Business Logic Layer using DTOs and `Result` objects.
+*   **Business Logic Layer (Managers)**: Contains business rules, workflows, and validation. Managers (e.g., `SalesInvoiceManager`, `DashboardManager`) orchestrate operations. `ApplicationCore` serves as a central access point. For Bank Reconciliation, `BankReconciliationWidget` currently holds some manager-like orchestration logic calling `BankReconciliationService` directly.
+*   **Data Access Layer (Services & ORM)**: Abstracts database interactions. Services (e.g., `AccountService`, `BankReconciliationService`) implement the Repository pattern using SQLAlchemy's asynchronous ORM. `DatabaseManager` handles connections and sessions.
+*   **Database Layer**: PostgreSQL (schema v1.0.5). Organized into `core`, `accounting`, `business`, and `audit` schemas. Includes tables, views, functions, and triggers for data integrity and automation.
 
 ## 5. Detailed Component Architecture
 
 ### 5.1 Core Components (`app/core/`)
-
 *   **`ApplicationCore` (`application_core.py`)**:
-    *   The central hub of the application's backend.
-    *   Instantiated once by `app.main.Application`.
-    *   Initializes and provides access to all Manager and Service instances, effectively acting as a service locator and facilitating dependency injection.
-    *   Holds a reference to the global `ConfigManager` and `DatabaseManager`.
-    *   Manages critical application lifecycle events like startup (initializing DB connections, loading services/managers) and shutdown.
-    *   Provides properties (e.g., `app_core.customer_manager`, `app_core.journal_service`) for easy access to shared components.
-
-*   **`ConfigManager` (`config_manager.py`)**:
-    *   Responsible for loading and providing access to application settings stored in `config.ini`.
-    *   Handles platform-specific configuration directory paths.
-    *   Creates a default `config.ini` if one doesn't exist.
-
-*   **`DatabaseManager` (`database_manager.py`)**:
-    *   Manages the asynchronous database engine (SQLAlchemy `create_async_engine`) and connection pool (using `asyncpg`).
-    *   Provides an `asynccontextmanager` (`session()`) for obtaining `AsyncSession` instances, which ensures proper transaction management (commit/rollback).
-    *   Critically, within the `session()` context, it sets a session-local variable `app.current_user_id` in the database, which is used by database triggers for auditing purposes.
-    *   Can also provide raw `asyncpg` connections if needed.
-
-*   **`SecurityManager` (`security_manager.py`)**:
-    *   Handles user authentication using `bcrypt` for password hashing and verification. Includes logic for tracking failed login attempts and account locking.
-    *   Implements Role-Based Access Control (RBAC) for authorization. The `has_permission(required_permission_code)` method checks if the `current_user` has the necessary rights.
-    *   Provides backend methods for managing `User`, `Role`, and `Permission` entities.
-    *   Stores the currently authenticated `User` ORM object in its `current_user` attribute.
-
-*   **`ModuleManager` (`module_manager.py`)**:
-    *   A conceptual component intended for potential future dynamic loading of larger application modules. Currently, modules are statically imported and initialized via `ApplicationCore`.
-
-*   **Asynchronous Task Management (Implemented in `app/main.py`)**:
-    *   A dedicated Python `threading.Thread` (`_ASYNC_LOOP_THREAD`) hosts a persistent `asyncio` event loop (`_ASYNC_LOOP`), kept separate from the Qt GUI thread.
-    *   `schedule_task_from_qt(coroutine)`: A utility function that safely submits coroutines (typically manager methods) from the Qt thread to the asyncio loop thread using `asyncio.run_coroutine_threadsafe`.
-    *   `QMetaObject.invokeMethod(target, slot_name, Qt.ConnectionType.QueuedConnection, Q_ARG(type, data))`: Used to marshal results or UI update requests from the asyncio thread back to slots in Qt widgets on the main GUI thread.
+    *   Central orchestrator, initializes and provides access to managers and services.
+    *   **Refactor Note**: Service classes are now imported locally within the `startup()` method (and type-hinted using `TYPE_CHECKING`) to prevent circular import dependencies. Manager classes are still imported at the module level but have been refactored to use conditional imports for their service dependencies.
+*   **`DatabaseManager` (`database_manager.py`)**: Manages async PostgreSQL connections (SQLAlchemy, `asyncpg`), provides sessions, and sets `app.current_user_id` for audit triggers.
+*   **`ConfigManager` (`config_manager.py`)**: Manages `config.ini`.
+*   **`SecurityManager` (`security_manager.py`)**: Handles authentication (`bcrypt`), RBAC, and User/Role/Permission CRUD backend.
+*   **Asynchronous Task Management (`app/main.py`)**: Dedicated `asyncio` event loop in a separate thread, with `schedule_task_from_qt` and `QMetaObject.invokeMethod` for UI-backend communication.
 
 ### 5.2 Data Models (`app/models/`)
-SQLAlchemy ORM models define the application's data structures and their mapping to database tables.
-
-*   **Base (`base.py`)**:
-    *   `Base = declarative_base()`: The foundation for all ORM models.
-    *   `TimestampMixin`: Adds `created_at` and `updated_at` (with `server_default=func.now()` and `onupdate=func.now()`).
-    *   `UserAuditMixin`: Adds `created_by: Mapped[int] = mapped_column(Integer, ForeignKey('core.users.id'))` and `updated_by: Mapped[int] = mapped_column(Integer, ForeignKey('core.users.id'))`.
-
-*   **Organization**: Models are structured in subdirectories (`core`, `accounting`, `business`, `audit`) mirroring the database schemas. `app/models/__init__.py` aggregates all model imports.
-
-*   **Key Models Examples**:
-    *   `core.User`, `core.Role`, `core.Permission`: Define the RBAC structure. Junction tables (`user_roles_table`, `role_permissions_table`) are defined in `user.py`.
-    *   `core.CompanySetting`, `core.Configuration`, `core.Sequence`: System-level settings.
-    *   `accounting.Account`, `accounting.JournalEntry`, `accounting.JournalEntryLine`, `accounting.FiscalYear`, `accounting.FiscalPeriod`, `accounting.TaxCode`, `accounting.GSTReturn`: Core accounting entities.
-    *   `business.Customer`, `business.Vendor`, `business.Product`: Master data for business operations.
-    *   `business.SalesInvoice`, `business.PurchaseInvoice`, `business.Payment`: Transactional documents.
-    *   `business.BankAccount`, `business.BankTransaction`, `business.BankReconciliation`: Banking module entities.
-    *   `audit.AuditLog`, `audit.DataChangeHistory`: For logging.
-
-*   **Style**: Uses SQLAlchemy 2.0 `Mapped` and `mapped_column` syntax with type annotations. Relationships are defined with `relationship()` and `back_populates`.
+SQLAlchemy ORM models.
+*   **Base Classes (`base.py`)**: `Base`, `TimestampMixin`, `UserAuditMixin`.
+*   **Organization**: Subdirectories (`core`, `accounting`, `business`, `audit`) mirror DB schemas. `app/models/__init__.py` aggregates all models.
+*   **Key New/Updated Models**:
+    *   `business.BankReconciliation`: Includes `id`, `bank_account_id`, `statement_date`, `statement_ending_balance`, `calculated_book_balance`, `reconciled_difference`, `reconciliation_date`, `notes`, `status` ('Draft', 'Finalized'), and audit user/timestamps.
+    *   `business.BankAccount`: Added `last_reconciled_balance` and `reconciliations` relationship.
+    *   `business.BankTransaction`: Added `reconciled_bank_reconciliation_id` and `reconciliation_instance` relationship.
 
 ### 5.3 Data Access Layer (Services - `app/services/`)
-Services abstract database interactions, implementing the Repository pattern.
-
-*   **Interfaces (`app/services/__init__.py`)**: Defines generic `IRepository[T, ID]` and specific interfaces (e.g., `IAccountRepository`, `ISalesInvoiceRepository`, `IBankReconciliationRepository`, `IAuditLogRepository`).
-*   **Implementations (e.g., `core_services.py`, `account_service.py`, `journal_service.py`, `business_services.py`, `tax_service.py`, `audit_services.py`)**:
-    *   Provide concrete implementations for these interfaces.
-    *   Encapsulate SQLAlchemy `select`, `insert`, `update`, `delete` logic.
-    *   Utilize `DatabaseManager.session()` to perform operations within a transactional context.
-    *   Methods often include `get_by_id`, `get_all`, `save` (for add/update), `delete`, and more specific query methods (e.g., `get_all_summary`, `get_by_code`).
-    *   `AuditLogService` includes logic to format change summaries for display.
+*   **Interfaces (`app/services/__init__.py`)**: Defines `IRepository` and specific service interfaces.
+    *   `IBankAccountRepository`: Added `get_by_gl_account_id`.
+    *   `IBankReconciliationRepository`: Updated with methods for draft management (`get_or_create_draft_reconciliation`), provisional matching (`mark_transactions_as_provisionally_reconciled`), finalization (`finalize_reconciliation`), unmatching (`unreconcile_transactions`), and history/detail fetching.
+    *   `ICustomerRepository` & `IVendorRepository`: Added methods for AR/AP aging summaries.
+    *   `IAccountRepository`: Added `get_total_balance_by_account_category_and_type_pattern`.
+*   **Implementations**:
+    *   `BankReconciliationService`: Implements new methods for draft lifecycle, transaction linking, and finalization.
+    *   `CustomerService` & `VendorService`: Implement aging summary logic.
+    *   `AccountService`: Implements new balance aggregation logic.
+    *   `BankAccountService`: Implements `get_by_gl_account_id`.
 
 ### 5.4 Business Logic Layer (Managers)
-Located across `app/accounting/`, `app/business_logic/`, `app/tax/`, `app/reporting/`.
-
-*   **Responsibilities**:
-    *   Enforce business rules and validation logic beyond simple DTO constraints.
-    *   Orchestrate calls to multiple services to fulfill a use case.
-    *   Manage units of work/transactions when multiple database operations are involved (though the session context from `DatabaseManager` often handles the transaction boundary).
-    *   Transform data between DTOs (from UI) and ORM objects (for services).
-    *   Handle complex calculations (e.g., `TaxCalculator`, invoice totals).
-*   **Key Managers**:
-    *   `ApplicationCore` initializes instances of these managers and makes them available.
-    *   **Accounting**: `ChartOfAccountsManager`, `JournalEntryManager` (handles JE creation, posting, reversal, auto-creation of `BankTransaction` from JEs), `FiscalPeriodManager`, `CurrencyManager`.
-    *   **Business Logic**: `CustomerManager`, `VendorManager`, `ProductManager`, `SalesInvoiceManager` (full lifecycle, JE creation, inventory updates), `PurchaseInvoiceManager` (similar to sales), `BankAccountManager`, `BankTransactionManager` (manual entry, CSV import, fetching data for reconciliation), `PaymentManager` (payment recording, allocation, JE posting).
-    *   **Tax**: `GSTManager` (F5 preparation, finalization, settlement JE), `TaxCalculator` (line item tax computation).
-    *   **Reporting**: `FinancialStatementGenerator`, `ReportEngine` (PDF/Excel generation), `DashboardManager` (aggregates data for KPIs).
+*   **Refactor Note**: All manager classes that are initialized by `ApplicationCore` and receive service instances in their constructors have been modified to import these services conditionally (using `if TYPE_CHECKING:`) and use string literals for type hints in their `__init__` signatures to resolve circular import issues.
+*   **Key Managers & Updates**:
+    *   `BankTransactionManager`: Handles manual transaction entry, CSV import, and fetching unreconciled transactions for reconciliation display.
+    *   `DashboardManager`: Orchestrates fetching data for all KPIs, including new AR/AP aging and Current Ratio. Uses various services (`CustomerService`, `VendorService`, `AccountService`, `JournalService`, `FinancialStatementGenerator`, etc.).
+    *   Other managers (`SalesInvoiceManager`, `JournalEntryManager`, etc.) function as previously, but with refined import patterns.
 
 ### 5.5 Presentation Layer (UI - `app/ui/`)
-Built with PySide6 (Qt).
-
-*   **`MainWindow` (`main_window.py`)**: Main application window (`QMainWindow`) using `QTabWidget` for modules. Initializes menus, toolbar, status bar.
-*   **Module Widgets (e.g., `DashboardWidget`, `AccountingWidget`, `SalesInvoicesWidget`, `BankingWidget`, `BankReconciliationWidget`, `SettingsWidget`)**: Each primary tab hosts a dedicated widget for a major functional area.
-*   **Detail Dialogs (e.g., `AccountDialog`, `SalesInvoiceDialog`, `PaymentDialog`, `CSVImportConfigDialog`)**: `QDialog` subclasses for creating/editing records.
-*   **Table Models (e.g., `CustomerTableModel`, `SalesInvoiceTableModel`, `ReconciliationTableModel`, `AuditLogTableModel`)**: Subclasses of `QAbstractTableModel` that interface between backend data (usually lists of DTOs or dictionaries) and `QTableView`s.
-*   **Asynchronous Interaction**: UI actions trigger manager methods via `schedule_task_from_qt`. Callbacks (often slots connected via `QMetaObject.invokeMethod`) update the UI upon completion of async tasks.
-*   **Shared UI Components (`app/ui/shared/`)**: E.g., `ProductSearchDialog`.
-*   **Resources**: Icons and images are loaded from `resources/` either directly or via compiled Qt resources (`resources_rc.py`). `resources.qrc` defines these resources.
+*   **`BankReconciliationWidget`**:
+    *   Manages the full reconciliation workflow:
+        *   Gets or creates a "Draft" `BankReconciliation` session.
+        *   Loads unreconciled statement and system transactions.
+        *   Displays provisionally matched transactions for the current draft session in new tables.
+        *   Handles "Match Selected" by calling services to link transactions to the draft and mark them provisionally reconciled. Logic for amount comparison corrected to `abs(sum_stmt_amounts - sum_sys_amounts)`.
+        *   Handles "Unmatch Selected Items" by calling services to unlink transactions from the draft.
+        *   Handles "Save Final Reconciliation" by calling services to update the draft to "Finalized".
+    *   Displays paginated history of "Finalized" reconciliations and details of selected historical reconciliations.
+*   **`DashboardWidget`**:
+    *   UI updated with new `QGroupBox` sections for AR/AP Aging Summaries and a field for Current Ratio.
+    *   Uses `QFormLayout` for better alignment within aging summary groups.
+    *   Populates these new fields from the extended `DashboardKPIData` DTO.
+    *   Layout improved with `QScrollArea` and two-column KPI display.
 
 ### 5.6 Utilities (`app/utils/`)
+*   **`pydantic_models.py`**:
+    *   `DashboardKPIData`: Extended with fields for AR/AP aging buckets (`ar_aging_current`, `ar_aging_1_30`, etc.), `total_current_assets`, `total_current_liabilities`, `current_ratio`.
+    *   `BankReconciliationSummaryData`: Added for displaying history.
+*   Other utilities (`json_helpers.py`, `result.py`, etc.) remain crucial.
 
-*   **`pydantic_models.py`**: Defines a comprehensive set of Pydantic DTOs for:
-    *   Data validation at API boundaries (UI to Manager).
-    *   Clear data contracts between layers.
-    *   Common patterns: `BaseData`, `CreateData`, `UpdateData`, `Data` (full representation), `SummaryData`.
-    *   Includes `UserAuditData` mixin for DTOs requiring `user_id`.
-*   **`json_helpers.py`**: `json_converter` (for `Decimal`, `date`, `datetime` serialization) and `json_date_hook` (for deserialization).
-*   **`result.py`**: `Result` class for standardized success/failure reporting from managers/services.
-*   **`sequence_generator.py`**: `SequenceGenerator` for creating formatted, sequential document numbers.
-*   **`formatting.py`, `converters.py`, `validation.py`**: General-purpose utility functions.
+## 6. Data Architecture (Schema v1.0.5)
+*   **Database**: PostgreSQL.
+*   **Schemas**: `core`, `accounting`, `business`, `audit`.
+*   **Key Table Changes for v1.0.5**:
+    *   `business.bank_reconciliations`: Now includes a `status` column ('Draft', 'Finalized') and related check constraint.
+    *   Other tables (`bank_accounts`, `bank_transactions`) have fields linking to reconciliations.
+*   **Triggers**: Audit triggers and `update_bank_account_balance_trigger_func` are active.
 
-### 5.7 Common (`app/common/`)
+*(Sections 7-13: Key Technologies, Design Patterns, Async Processing, Configuration, Security, Deployment, Resource Management remain largely the same as detailed in the previous version of this document (from response_50), with the understanding that schema versions and specific initialization scripts have been updated.)*
 
-*   **`enums.py`**: Defines various Python `Enum` classes (e.g., `ProductTypeEnum`, `InvoiceStatusEnum`, `PaymentTypeEnum`, `JournalTypeEnum`, `BankTransactionTypeEnum`) used for predefined choices and type safety throughout the application.
+## 14. Data Flow Examples
 
-## 6. Data Architecture
+### 14.1 Bank Reconciliation (Updated Flow)
+1.  **Initiate/Load (UI: `BankReconciliationWidget`)**:
+    *   User selects Bank Account, Statement Date, enters Statement Ending Balance.
+    *   Clicks "Load / Refresh Transactions".
+2.  **Get/Create Draft (Service: `BankReconciliationService`, orchestrated by Widget)**:
+    *   `_fetch_and_populate_transactions` calls `get_or_create_draft_reconciliation(bank_account_id, statement_date, statement_ending_balance, user_id)`.
+    *   This returns a "Draft" `BankReconciliation` ORM object; its ID is stored as `_current_draft_reconciliation_id`. UI `statement_balance_spin` might update.
+3.  **Fetch Transactions (Manager: `BankTransactionManager`, Service: `BankTransactionService`)**:
+    *   `_fetch_and_populate_transactions` calls `BankTransactionManager.get_unreconciled_transactions_for_matching()` (fetches `is_reconciled=False` items).
+    *   It also calls `BankReconciliationService.get_transactions_for_reconciliation(self._current_draft_reconciliation_id)` to fetch items already provisionally matched to this draft.
+4.  **Display (UI)**: Unreconciled items populate their tables; provisionally matched items populate their new tables. Summary calculates.
+5.  **User Interaction - Provisional Match (UI -> Service)**:
+    *   User selects items in Unreconciled tables, clicks "Match Selected".
+    *   Widget validates sums (`abs(sum_stmt - sum_sys) < tolerance`).
+    *   Calls `BankReconciliationService.mark_transactions_as_provisionally_reconciled(draft_id, selected_txn_ids, statement_date, user_id)`.
+    *   UI reloads all transaction lists (matched items move from unreconciled to provisionally matched tables).
+6.  **User Interaction - Unmatch (UI -> Service)**:
+    *   User selects items in Provisionally Matched tables, clicks "Unmatch Selected".
+    *   Widget calls `BankReconciliationService.unreconcile_transactions(selected_txn_ids_to_unmatch, user_id)`.
+    *   UI reloads all transaction lists (unmatched items move back to unreconciled tables).
+7.  **User Interaction - Create JE for Statement Item (UI -> Manager -> Service)**:
+    *   User selects statement item, clicks "Add JE". `JournalEntryDialog` pre-fills.
+    *   Posting (via `JournalEntryManager`) auto-creates system `BankTransaction`. UI reloads.
+8.  **Finalizing (UI -> Service)**:
+    *   When Difference is zero, user clicks "Save Final Reconciliation".
+    *   Widget calls `BankReconciliationService.finalize_reconciliation(draft_id, final_stmt_bal, final_book_bal, final_diff, user_id)`.
+    *   Service updates `BankReconciliation.status` to 'Finalized', updates balances, updates `BankAccount` last reconciled info.
+9.  **UI Feedback**: Success/error. History list refreshes. Current recon area clears/resets.
 
-### 6.1 Database System
-*   **PostgreSQL (version 14+)**: Provides robust transactional capabilities, data integrity features, and support for advanced SQL constructs.
+*(Sales Invoice Posting data flow remains similar to the previous document version.)*
 
-### 6.2 Schema Organization
-Defined in `scripts/schema.sql`. The database is structured into four main schemas:
-*   **`core`**: System-wide tables (users, roles, permissions, company settings, app configuration, sequences).
-*   **`accounting`**: Core accounting data (chart of accounts, fiscal periods/years, journal entries, currencies, tax codes, GST returns).
-*   **`business`**: Operational data (customers, vendors, products, sales/purchase invoices, payments, bank accounts, bank transactions, bank reconciliations).
-*   **`audit`**: Audit trails (`audit_log` for actions, `data_change_history` for field-level changes).
+## 15. Project Structure Overview
+The project structure (detailed in `README.md`) organizes code into `app` (with sub-packages for `core`, `models`, `services`, `business_logic`/`accounting`/etc. for managers, `ui`, `utils`, `common`), `scripts`, `data`, `resources`, and `tests`. This promotes modularity and separation of concerns.
 
-Key tables like `business.bank_reconciliations` and updated fields in `business.bank_accounts` and `business.bank_transactions` support the bank reconciliation feature.
+## 16. Future Considerations / Areas for Improvement
+*   **Comprehensive Automated Testing**: Continue expanding unit and integration test coverage, especially for complex workflows like reconciliation and financial statement generation.
+*   **Bank Reconciliation UI**: Enhance display of provisionally matched items (e.g., visually linking matched pairs). Implement more complex matching scenarios (one-to-many).
+*   **Dashboard**: Add graphical representations and user customization for KPIs.
+*   **Refactoring**: Consider introducing a dedicated `BankReconciliationManager` to encapsulate orchestration logic currently in `BankReconciliationWidget`.
+*   **Error Handling**: Further standardize and improve user-facing error messages and backend logging.
 
-### 6.3 Data Integrity
-*   Enforced via PostgreSQL constraints (PK, FK, CHECK, UNIQUE, NOT NULL).
-*   Database triggers automate audit logging and `bank_accounts.current_balance` updates.
-*   Pydantic DTOs provide validation at the application layer before data reaches business logic.
-*   Business logic managers perform further contextual validation.
-
-### 6.4 ORM and DTOs
-*   **SQLAlchemy 2.0+ (Async)**: Used for ORM, with models defined in `app/models/`.
-*   **Pydantic DTOs (`app/utils/pydantic_models.py`)**: Used for data transfer between UI and managers, providing validation and clear data contracts.
-
-## 7. Key Technologies & Frameworks
-*   **Python**: Core programming language (version >=3.9).
-*   **PySide6**: For the desktop GUI (Qt 6 bindings).
-*   **PostgreSQL**: Relational database.
-*   **SQLAlchemy (Async ORM)**: Database interaction.
-*   **asyncpg**: Asynchronous PostgreSQL driver.
-*   **Pydantic V2**: Data validation and settings management.
-*   **bcrypt**: Password hashing.
-*   **reportlab, openpyxl**: PDF and Excel report generation.
-*   **Poetry**: Dependency management and packaging.
-*   **pytest, pytest-asyncio, pytest-cov**: For testing.
-*   **Black, Flake8, MyPy**: Code formatting, linting, and type checking.
-
-## 8. Design Patterns Used
-*   Layered Architecture
-*   Model-View-Controller (MVC) / Model-View-Presenter (MVP) - loosely followed
-*   Repository Pattern (Services)
-*   Data Transfer Object (DTO)
-*   Result Object (`app/utils/result.py`)
-*   Observer Pattern (Qt Signals/Slots)
-*   Dependency Injection (via `ApplicationCore`)
-*   Singleton (conceptually for `ApplicationCore` and global managers/services accessed through it)
-*   Mixin (for ORM models: `TimestampMixin`, `UserAuditMixin`)
-
-## 9. Asynchronous Processing Model
-The application uses a hybrid threading and asyncio model to keep the UI responsive:
-1.  A global `asyncio` event loop runs in a dedicated background thread (`_ASYNC_LOOP_THREAD` in `app/main.py`).
-2.  Qt UI events trigger actions that may involve I/O-bound or CPU-intensive backend work.
-3.  These tasks are defined as `async` coroutines (usually manager methods).
-4.  The UI thread calls `schedule_task_from_qt(coroutine)` to submit the coroutine to the dedicated asyncio loop.
-5.  Results or UI update instructions are passed back to the Qt main thread using `QMetaObject.invokeMethod`, ensuring thread-safe UI updates.
-This prevents the GUI from freezing during database operations or complex calculations.
-
-## 10. Configuration Management
-*   Application settings (database connection, UI preferences) are managed by `ConfigManager`.
-*   Configuration is read from `config.ini` in a platform-specific user directory.
-*   A default `config.ini` is created if one is not found.
-
-## 11. Security Architecture
-*   **Authentication**: `SecurityManager` handles user login with `bcrypt` hashed passwords.
-*   **Authorization (RBAC)**: `SecurityManager` uses a system of `User`, `Role`, and `Permission` ORM models to enforce access control. `has_permission()` checks are used to guard sensitive operations.
-*   **Audit Logging**: Database triggers on key tables automatically log changes to `audit.audit_log` and `audit.data_change_history`. The `DatabaseManager` sets the `app.current_user_id` PostgreSQL session variable, which is captured by these triggers. A UI for viewing audit logs is provided in the Settings module.
-
-## 12. Deployment & Initialization
-*   The application is intended to be run from source using Poetry.
-*   Database initialization is handled by `scripts/db_init.py`, which:
-    *   Creates the database (if it doesn't exist).
-    *   Applies the schema from `scripts/schema.sql` (current version: 1.0.5).
-    *   Seeds initial data from `scripts/initial_data.sql` (roles, permissions, default user, system accounts, etc.).
-*   The main application is launched via `poetry run sg_bookkeeper` which calls `app.main:main`.
-
-## 13. Resource Management
-*   Static assets like icons (`.svg`) and images (`.png`) are stored in the `resources/` directory.
-*   A Qt resource file (`resources.qrc`) compiles these assets into `app/resources_rc.py`.
-*   The application attempts to load resources from the compiled module first (e.g., `:/icons/add.svg`), falling back to direct file paths if `resources_rc.py` is not available.
-
-## 14. Project Structure Overview
-(Refer to the Project Structure section in the README.md for a visual layout)
-The main directories include:
-*   `app/`: Contains all application source code, further divided into:
-    *   `core/`, `models/`, `services/`, `accounting/` (managers), `business_logic/` (managers), `tax/` (managers), `reporting/` (managers), `ui/` (by module), `utils/`, `common/`.
-*   `scripts/`: Database setup and utility scripts.
-*   `data/`: Seed data files (CSV, JSON templates).
-*   `resources/`: Static assets like icons and images.
-*   `tests/`: Automated tests, organized into `unit/`, `integration/`, `ui/`.
-
-This architecture provides a solid foundation for the SG Bookkeeper application, balancing separation of concerns with the practical needs of a desktop application.
+This document will be updated as the SG Bookkeeper application architecture evolves.
 
 ---
-https://drive.google.com/file/d/1-vPle_bsfW5q1aXJ4JI9VB5cOYY3f7oU/view?usp=sharing, https://drive.google.com/file/d/14hkYD6mD9rl8PpF-MsJD9nZAy-1sAr0T/view?usp=sharing, https://aistudio.google.com/app/prompts?state=%7B%22ids%22:%5B%2216tABsm1Plf_0fhtruoJyyxobBli3e8-7%22%5D,%22action%22:%22open%22,%22userId%22:%22108686197475781557359%22,%22resourceKeys%22:%7B%7D%7D&usp=sharing, https://drive.google.com/file/d/19T9JbSrHCuXhHpzFMUh4Ti_0sDPDycSW/view?usp=sharing, https://drive.google.com/file/d/1D7GYodcMgZv3ROPPRJTYX0g9Rrsq8wJD/view?usp=sharing, https://drive.google.com/file/d/1EGOoM0TGqPgNBJzwxKdVO2u331Myhd4b/view?usp=sharing, https://drive.google.com/file/d/1Ivh39pjoqQ9z4_oj7w7hWc0zOje2-Xjb/view?usp=sharing, https://drive.google.com/file/d/1LzMu08SqY6E5ZuvISa4BsEHxatVPE9g_/view?usp=sharing, https://drive.google.com/file/d/1QyS0xlh6owfMif6KMlyXmE2Zx2hmcdza/view?usp=sharing, https://drive.google.com/file/d/1Y9orpJ67I0XwezEBeUhyJs03DdjkAMhH/view?usp=sharing, https://drive.google.com/file/d/1ZZODHjv2AX2Pn1cRh_0CJDTSzXRGjAt_/view?usp=sharing, https://drive.google.com/file/d/1bSRRtsWeJI9djXTDZTZTjZxnsWS3cvsV/view?usp=sharing, https://drive.google.com/file/d/1cp5LuyXlsbaa_wFSiIMxRlBFSro8qhXq/view?usp=sharing, https://drive.google.com/file/d/1ghGjh0MtEZSDVftjVx583ocaaCDK2j9X/view?usp=sharing, https://drive.google.com/file/d/1mbj5C_Pqa-lbGFf4obvSnpdGm-ALui7y/view?usp=sharing, https://drive.google.com/file/d/1uKfTNXg8Oaes7aGaoaPB6klSZzywizh9/view?usp=sharing, https://drive.google.com/file/d/1vTPAoLcEetjBj17-5nTa_Z6RS7ND5Wmz/view?usp=sharing, https://drive.google.com/file/d/1xbA8X7irZHUayYcfOWWfi4oWm18hFDo2/view?usp=sharing
+https://drive.google.com/file/d/1-vPle_bsfW5q1aXJ4JI9VB5cOYY3f7oU/view?usp=sharing, https://drive.google.com/file/d/13M2zztt62TD_vYJ_XLKtW4t2E53jIHl4/view?usp=sharing, https://drive.google.com/file/d/14hkYD6mD9rl8PpF-MsJD9nZAy-1sAr0T/view?usp=sharing, https://aistudio.google.com/app/prompts?state=%7B%22ids%22:%5B%2216tABsm1Plf_0fhtruoJyyxobBli3e8-7%22%5D,%22action%22:%22open%22,%22userId%22:%22108686197475781557359%22,%22resourceKeys%22:%7B%7D%7D&usp=sharing, https://drive.google.com/file/d/17uYGbfjBJ4WXQvK3l3utPF3ivE6qlIzZ/view?usp=sharing, https://drive.google.com/file/d/18WGWMhYAOK7uwQ6JIahz-5MoVuK4BmWe/view?usp=sharing, https://drive.google.com/file/d/19ERvDxLdRedhVXYp9Gh0Xsg6tMIucGWO/view?usp=sharing, https://drive.google.com/file/d/19T9JbSrHCuXhHpzFMUh4Ti_0sDPDycSW/view?usp=sharing, https://drive.google.com/file/d/1D7GYodcMgZv3ROPPRJTYX0g9Rrsq8wJD/view?usp=sharing, https://drive.google.com/file/d/1EGOoM0TGqPgNBJzwxKdVO2u331Myhd4b/view?usp=sharing, https://drive.google.com/file/d/1Ivh39pjoqQ9z4_oj7w7hWc0zOje2-Xjb/view?usp=sharing, https://drive.google.com/file/d/1JsX5NYICgfKkbhMVeQ7ZONrbNZFb0ms3/view?usp=sharing, https://drive.google.com/file/d/1LzMu08SqY6E5ZuvISa4BsEHxatVPE9g_/view?usp=sharing, https://drive.google.com/file/d/1QyS0xlh6owfMif6KMlyXmE2Zx2hmcdza/view?usp=sharing, https://drive.google.com/file/d/1XeBi9hSp0z0vgqVVSFxhKP_ZwSv_s5B-/view?usp=sharing, https://drive.google.com/file/d/1Y9orpJ67I0XwezEBeUhyJs03DdjkAMhH/view?usp=sharing, https://drive.google.com/file/d/1YG0Vqa2pI5htxdsACYigsS2TMjDHxTcl/view?usp=sharing, https://drive.google.com/file/d/1YT2dDZirM9wxwWzYP0p9SDXSYOcG0Js4/view?usp=sharing, https://drive.google.com/file/d/1ZZODHjv2AX2Pn1cRh_0CJDTSzXRGjAt_/view?usp=sharing, https://drive.google.com/file/d/1_c8t-qcWtcVdVUEUkDQ760cjc0vL2Y9Z/view?usp=sharing, https://drive.google.com/file/d/1_qYJXTG-2GtEtmjV0Js5Hn_m_8ts9X0d/view?usp=sharing, https://drive.google.com/file/d/1bSRRtsWeJI9djXTDZTZTjZxnsWS3cvsV/view?usp=sharing, https://drive.google.com/file/d/1co7XAzm8TWDpKWSqUCAAZmvtqroIbUdn/view?usp=sharing, https://drive.google.com/file/d/1cp5LuyXlsbaa_wFSiIMxRlBFSro8qhXq/view?usp=sharing, https://drive.google.com/file/d/1ghGjh0MtEZSDVftjVx583ocaaCDK2j9X/view?usp=sharing, https://drive.google.com/file/d/1mbj5C_Pqa-lbGFf4obvSnpdGm-ALui7y/view?usp=sharing, https://drive.google.com/file/d/1pLih0cWs3ZiqnDKd9f2GEaR1GXCmD8KA/view?usp=sharing, https://drive.google.com/file/d/1sYr8SFT1d9ZMDHLfxOS6VjtwJ3920sFT/view?usp=sharing, https://drive.google.com/file/d/1uKfTNXg8Oaes7aGaoaPB6klSZzywizh9/view?usp=sharing, https://drive.google.com/file/d/1vTPAoLcEetjBj17-5nTa_Z6RS7ND5Wmz/view?usp=sharing, https://drive.google.com/file/d/1xbA8X7irZHUayYcfOWWfi4oWm18hFDo2/view?usp=sharing
 

@@ -237,6 +237,214 @@ async def test_calculate_transaction_taxes_gst(tax_calculator: TaxCalculator, mo
 
 ```
 
+# tests/unit/tax/test_gst_manager.py
+```py
+# File: tests/unit/tax/test_gst_manager.py
+import pytest
+from unittest.mock import AsyncMock, MagicMock, call
+from typing import List, Optional, Dict, Any
+from decimal import Decimal
+from datetime import date
+
+from app.tax.gst_manager import GSTManager
+from app.services.tax_service import TaxCodeService, GSTReturnService
+from app.services.journal_service import JournalService
+from app.services.core_services import CompanySettingsService, SequenceService 
+from app.services.account_service import AccountService
+from app.services.fiscal_period_service import FiscalPeriodService
+from app.accounting.journal_entry_manager import JournalEntryManager
+from app.core.application_core import ApplicationCore 
+from app.models.core.company_setting import CompanySetting as CompanySettingModel
+from app.models.accounting.journal_entry import JournalEntry, JournalEntryLine
+from app.models.accounting.account import Account as AccountModel
+from app.models.accounting.tax_code import TaxCode as TaxCodeModel
+from app.models.accounting.gst_return import GSTReturn as GSTReturnModel
+from app.utils.pydantic_models import GSTReturnData, JournalEntryData, GSTTransactionLineDetail
+from app.utils.result import Result
+from app.common.enums import GSTReturnStatusEnum
+import logging
+
+pytestmark = pytest.mark.asyncio
+
+@pytest.fixture
+def mock_tax_code_service() -> AsyncMock: return AsyncMock(spec=TaxCodeService)
+@pytest.fixture
+def mock_journal_service() -> AsyncMock: return AsyncMock(spec=JournalService)
+@pytest.fixture
+def mock_company_settings_service() -> AsyncMock: return AsyncMock(spec=CompanySettingsService)
+@pytest.fixture
+def mock_gst_return_service() -> AsyncMock: return AsyncMock(spec=GSTReturnService)
+@pytest.fixture
+def mock_account_service() -> AsyncMock: return AsyncMock(spec=AccountService)
+@pytest.fixture
+def mock_fiscal_period_service() -> AsyncMock: return AsyncMock(spec=FiscalPeriodService)
+@pytest.fixture
+def mock_sequence_generator() -> AsyncMock: return AsyncMock() 
+@pytest.fixture
+def mock_journal_entry_manager() -> AsyncMock: return AsyncMock(spec=JournalEntryManager)
+
+@pytest.fixture
+def mock_app_core(
+    mock_journal_entry_manager: AsyncMock, 
+    mock_configuration_service: AsyncMock 
+) -> MagicMock:
+    app_core = MagicMock(spec=ApplicationCore)
+    app_core.logger = MagicMock(spec=logging.Logger)
+    app_core.journal_entry_manager = mock_journal_entry_manager
+    app_core.configuration_service = mock_configuration_service 
+    return app_core
+
+@pytest.fixture 
+def mock_configuration_service() -> AsyncMock: return AsyncMock(spec=ConfigurationService)
+
+@pytest.fixture
+def gst_manager(
+    mock_tax_code_service: AsyncMock, mock_journal_service: AsyncMock, 
+    mock_company_settings_service: AsyncMock, mock_gst_return_service: AsyncMock,
+    mock_account_service: AsyncMock, mock_fiscal_period_service: AsyncMock,
+    mock_sequence_generator: AsyncMock, mock_app_core: MagicMock
+) -> GSTManager:
+    return GSTManager(
+        tax_code_service=mock_tax_code_service, journal_service=mock_journal_service,
+        company_settings_service=mock_company_settings_service, gst_return_service=mock_gst_return_service,
+        account_service=mock_account_service, fiscal_period_service=mock_fiscal_period_service,
+        sequence_generator=mock_sequence_generator, app_core=mock_app_core
+    )
+
+@pytest.fixture
+def sample_company_settings() -> CompanySettingModel:
+    return CompanySettingModel(id=1, company_name="Test Biz", gst_registration_no="M12345678Z", base_currency="SGD", updated_by_user_id=1)
+
+@pytest.fixture
+def sample_sr_tax_code() -> TaxCodeModel:
+    return TaxCodeModel(id=1, code="SR", tax_type="GST", rate=Decimal("9.00"), affects_account_id=101)
+
+@pytest.fixture
+def sample_tx_tax_code() -> TaxCodeModel:
+    return TaxCodeModel(id=2, code="TX", tax_type="GST", rate=Decimal("9.00"), affects_account_id=102)
+
+@pytest.fixture
+def sample_revenue_account() -> AccountModel:
+    return AccountModel(id=201, code="4000", name="Sales", account_type="Revenue", created_by_user_id=1,updated_by_user_id=1)
+
+@pytest.fixture
+def sample_expense_account() -> AccountModel:
+    return AccountModel(id=202, code="5000", name="Purchases", account_type="Expense", created_by_user_id=1,updated_by_user_id=1)
+
+@pytest.fixture
+def sample_posted_je_sales(sample_revenue_account: AccountModel, sample_sr_tax_code: TaxCodeModel) -> JournalEntry:
+    je = JournalEntry(id=10, entry_no="JE-S001", entry_date=date(2023,1,15), is_posted=True, created_by_user_id=1,updated_by_user_id=1, description="Sales Inv #1")
+    je.lines = [
+        JournalEntryLine(account_id=999, account=AccountModel(id=999,code="AR",name="AR",account_type="Asset",created_by_user_id=1,updated_by_user_id=1), debit_amount=Decimal("109.00")),
+        JournalEntryLine(account_id=sample_revenue_account.id, account=sample_revenue_account, credit_amount=Decimal("100.00"), tax_code="SR", tax_code_obj=sample_sr_tax_code, tax_amount=Decimal("9.00"), description="Sale of goods")
+    ]
+    return je
+
+@pytest.fixture
+def sample_posted_je_purchase(sample_expense_account: AccountModel, sample_tx_tax_code: TaxCodeModel) -> JournalEntry:
+    je = JournalEntry(id=11, entry_no="JE-P001", entry_date=date(2023,1,20), is_posted=True, created_by_user_id=1,updated_by_user_id=1, description="Purchase Inv #P1")
+    je.lines = [
+        JournalEntryLine(account_id=sample_expense_account.id, account=sample_expense_account, debit_amount=Decimal("50.00"), tax_code="TX", tax_code_obj=sample_tx_tax_code, tax_amount=Decimal("4.50"), description="Purchase of materials"),
+        JournalEntryLine(account_id=888, account=AccountModel(id=888,code="AP",name="AP",account_type="Liability",created_by_user_id=1,updated_by_user_id=1), credit_amount=Decimal("54.50"))
+    ]
+    return je
+
+@pytest.fixture
+def sample_gst_return_draft_orm() -> GSTReturnModel:
+    return GSTReturnModel(
+        id=1, return_period="Q1/2023", start_date=date(2023,1,1), end_date=date(2023,3,31),
+        filing_due_date=date(2023,4,30), status=GSTReturnStatusEnum.DRAFT.value,
+        output_tax=Decimal("1000.00"), input_tax=Decimal("300.00"), tax_payable=Decimal("700.00"),
+        created_by_user_id=1, updated_by_user_id=1
+    )
+
+
+# --- Test Cases ---
+async def test_prepare_gst_return_data_no_company_settings(gst_manager: GSTManager, mock_company_settings_service: AsyncMock):
+    mock_company_settings_service.get_company_settings.return_value = None
+    result = await gst_manager.prepare_gst_return_data(date(2023,1,1), date(2023,3,31), 1)
+    assert not result.is_success
+    assert "Company settings not found" in result.errors[0]
+
+async def test_prepare_gst_return_data_no_transactions(gst_manager: GSTManager, mock_company_settings_service: AsyncMock, mock_journal_service: AsyncMock, sample_company_settings: CompanySettingModel):
+    mock_company_settings_service.get_company_settings.return_value = sample_company_settings
+    mock_journal_service.get_posted_entries_by_date_range.return_value = []
+    
+    result = await gst_manager.prepare_gst_return_data(date(2023,1,1), date(2023,3,31), 1)
+    
+    assert result.is_success
+    data = result.value
+    assert data is not None
+    assert data.standard_rated_supplies == Decimal(0)
+    assert data.output_tax == Decimal(0)
+    assert data.tax_payable == Decimal(0)
+    assert not data.detailed_breakdown["box1_standard_rated_supplies"] # Empty list
+
+async def test_prepare_gst_return_data_with_sales_and_purchases(
+    gst_manager: GSTManager, mock_company_settings_service: AsyncMock, mock_journal_service: AsyncMock,
+    sample_company_settings: CompanySettingModel, sample_posted_je_sales: JournalEntry, sample_posted_je_purchase: JournalEntry
+):
+    mock_company_settings_service.get_company_settings.return_value = sample_company_settings
+    mock_journal_service.get_posted_entries_by_date_range.return_value = [sample_posted_je_sales, sample_posted_je_purchase]
+    
+    result = await gst_manager.prepare_gst_return_data(date(2023,1,1), date(2023,3,31), 1)
+    
+    assert result.is_success
+    data = result.value
+    assert data is not None
+    assert data.standard_rated_supplies == Decimal("100.00") 
+    assert data.output_tax == Decimal("9.00")
+    assert data.taxable_purchases == Decimal("50.00") 
+    assert data.input_tax == Decimal("4.50")
+    assert data.tax_payable == Decimal("4.50") 
+    assert len(data.detailed_breakdown["box1_standard_rated_supplies"]) == 1
+    assert data.detailed_breakdown["box1_standard_rated_supplies"][0].net_amount == Decimal("100.00")
+    assert len(data.detailed_breakdown["box6_output_tax_details"]) == 1
+    assert len(data.detailed_breakdown["box5_taxable_purchases"]) == 1
+    assert data.detailed_breakdown["box5_taxable_purchases"][0].net_amount == Decimal("50.00")
+    assert len(data.detailed_breakdown["box7_input_tax_details"]) == 1
+
+async def test_save_gst_return_new(gst_manager: GSTManager, mock_gst_return_service: AsyncMock):
+    gst_data_dto = GSTReturnData(
+        return_period="Q1/2024", start_date=date(2024,1,1), end_date=date(2024,3,31),
+        standard_rated_supplies=Decimal(1000), output_tax=Decimal(90), user_id=1
+    )
+    mock_gst_return_service.get_by_id.return_value = None 
+    
+    async def mock_save(return_orm: GSTReturnModel):
+        return_orm.id = 10; return return_orm
+    mock_gst_return_service.save_gst_return.side_effect = mock_save
+    
+    result = await gst_manager.save_gst_return(gst_data_dto)
+    
+    assert result.is_success; assert result.value is not None; assert result.value.id == 10
+
+async def test_finalize_gst_return_success_with_je(
+    gst_manager: GSTManager, mock_gst_return_service: AsyncMock, mock_journal_entry_manager: AsyncMock,
+    mock_account_service: AsyncMock, mock_configuration_service: AsyncMock, sample_gst_return_draft_orm: GSTReturnModel
+):
+    sample_gst_return_draft_orm.status = GSTReturnStatusEnum.DRAFT.value
+    sample_gst_return_draft_orm.tax_payable = Decimal("700.00")
+    mock_gst_return_service.get_by_id.return_value = sample_gst_return_draft_orm
+    
+    mock_configuration_service.get_config_value.side_effect = lambda key, default: {"SysAcc_DefaultGSTOutput": "SYS-GST-OUT", "SysAcc_DefaultGSTInput": "SYS-GST-IN", "SysAcc_GSTControl": "SYS-GST-CTRL"}.get(key, default)
+    mock_account_service.get_by_code.side_effect = lambda code: MagicMock(spec=AccountModel, id=hash(code), code=code, is_active=True)
+
+    mock_created_je = MagicMock(spec=JournalEntry, id=55)
+    mock_journal_entry_manager.create_journal_entry.return_value = Result.success(mock_created_je)
+    mock_journal_entry_manager.post_journal_entry.return_value = Result.success(mock_created_je)
+    mock_gst_return_service.save_gst_return.side_effect = lambda orm_obj: orm_obj
+
+    result = await gst_manager.finalize_gst_return(1, "REF123", date(2023,4,10), 1)
+
+    assert result.is_success
+    finalized_return = result.value
+    assert finalized_return is not None
+    assert finalized_return.status == GSTReturnStatusEnum.SUBMITTED.value
+    assert finalized_return.journal_entry_id == 55
+
+```
+
 # tests/unit/utils/__init__.py
 ```py
 # File: tests/unit/utils/__init__.py
@@ -622,6 +830,501 @@ async def test_next_sequence_format_template_zfill_variant(
 
 ```
 
+# tests/unit/services/test_payment_service.py
+```py
+# File: tests/unit/services/test_payment_service.py
+import pytest
+from unittest.mock import AsyncMock, MagicMock, call
+from typing import List, Optional
+from decimal import Decimal
+from datetime import date, datetime
+
+from app.services.business_services import PaymentService
+from app.models.business.payment import Payment, PaymentAllocation
+from app.models.business.customer import Customer
+from app.models.business.vendor import Vendor
+from app.models.business.bank_account import BankAccount
+from app.models.accounting.currency import Currency
+from app.models.accounting.journal_entry import JournalEntry
+from app.core.database_manager import DatabaseManager
+from app.core.application_core import ApplicationCore
+from app.utils.pydantic_models import PaymentSummaryData
+from app.common.enums import PaymentTypeEnum, PaymentMethodEnum, PaymentEntityTypeEnum, PaymentStatusEnum, InvoiceStatusEnum
+import logging
+
+# Mark all tests in this module as asyncio
+pytestmark = pytest.mark.asyncio
+
+@pytest.fixture
+def mock_session() -> AsyncMock:
+    session = AsyncMock()
+    session.get = AsyncMock()
+    session.execute = AsyncMock()
+    session.add = MagicMock()
+    session.delete = AsyncMock()
+    session.flush = AsyncMock()
+    session.refresh = AsyncMock()
+    return session
+
+@pytest.fixture
+def mock_db_manager(mock_session: AsyncMock) -> MagicMock:
+    db_manager = MagicMock(spec=DatabaseManager)
+    db_manager.session.return_value.__aenter__.return_value = mock_session
+    db_manager.session.return_value.__aexit__.return_value = None
+    return db_manager
+
+@pytest.fixture
+def mock_app_core() -> MagicMock:
+    app_core = MagicMock(spec=ApplicationCore)
+    app_core.logger = MagicMock(spec=logging.Logger)
+    return app_core
+
+@pytest.fixture
+def payment_service(mock_db_manager: MagicMock, mock_app_core: MagicMock) -> PaymentService:
+    return PaymentService(db_manager=mock_db_manager, app_core=mock_app_core)
+
+@pytest.fixture
+def sample_customer_orm() -> Customer:
+    return Customer(id=1, name="Test Customer Inc.", customer_code="CUST001", created_by_user_id=1,updated_by_user_id=1)
+
+@pytest.fixture
+def sample_vendor_orm() -> Vendor:
+    return Vendor(id=2, name="Test Vendor Ltd.", vendor_code="VEND001", created_by_user_id=1,updated_by_user_id=1)
+
+@pytest.fixture
+def sample_payment_orm(sample_customer_orm: Customer) -> Payment:
+    return Payment(
+        id=1, payment_no="PAY001", 
+        payment_type=PaymentTypeEnum.CUSTOMER_PAYMENT.value,
+        payment_method=PaymentMethodEnum.BANK_TRANSFER.value,
+        payment_date=date(2023, 5, 15),
+        entity_type=PaymentEntityTypeEnum.CUSTOMER.value,
+        entity_id=sample_customer_orm.id,
+        amount=Decimal("100.00"), currency_code="SGD",
+        status=PaymentStatusEnum.DRAFT.value,
+        created_by_user_id=1, updated_by_user_id=1,
+        allocations=[] # Assuming no allocations by default for simplicity in some tests
+    )
+
+# --- Test Cases ---
+
+async def test_get_payment_by_id_found(payment_service: PaymentService, mock_session: AsyncMock, sample_payment_orm: Payment):
+    mock_session.execute.return_value.scalars.return_value.first.return_value = sample_payment_orm
+    result = await payment_service.get_by_id(1)
+    assert result == sample_payment_orm
+    assert result is not None # For mypy
+    assert result.payment_no == "PAY001"
+    mock_session.execute.assert_awaited_once()
+
+async def test_get_payment_by_id_not_found(payment_service: PaymentService, mock_session: AsyncMock):
+    mock_session.execute.return_value.scalars.return_value.first.return_value = None
+    result = await payment_service.get_by_id(99)
+    assert result is None
+
+async def test_get_all_payments(payment_service: PaymentService, mock_session: AsyncMock, sample_payment_orm: Payment):
+    mock_session.execute.return_value.scalars.return_value.all.return_value = [sample_payment_orm]
+    result = await payment_service.get_all()
+    assert len(result) == 1
+    assert result[0].payment_no == "PAY001"
+
+async def test_get_by_payment_no_found(payment_service: PaymentService, mock_session: AsyncMock, sample_payment_orm: Payment):
+    mock_session.execute.return_value.scalars.return_value.first.return_value = sample_payment_orm
+    result = await payment_service.get_by_payment_no("PAY001")
+    assert result is not None
+    assert result.id == 1
+
+async def test_get_all_summary_no_filters(payment_service: PaymentService, mock_session: AsyncMock, sample_payment_orm: Payment):
+    mock_row_mapping = MagicMock()
+    mock_row_mapping._asdict.return_value = {
+        "id": sample_payment_orm.id, "payment_no": sample_payment_orm.payment_no,
+        "payment_date": sample_payment_orm.payment_date, "payment_type": sample_payment_orm.payment_type,
+        "payment_method": sample_payment_orm.payment_method, "entity_type": sample_payment_orm.entity_type,
+        "entity_id": sample_payment_orm.entity_id, "amount": sample_payment_orm.amount,
+        "currency_code": sample_payment_orm.currency_code, "status": sample_payment_orm.status,
+        "entity_name": "Test Customer Inc." # This would be result of subquery in real scenario
+    }
+    mock_session.execute.return_value.mappings.return_value.all.return_value = [mock_row_mapping]
+    
+    summaries = await payment_service.get_all_summary()
+    assert len(summaries) == 1
+    assert isinstance(summaries[0], PaymentSummaryData)
+    assert summaries[0].payment_no == "PAY001"
+    assert summaries[0].entity_name == "Test Customer Inc."
+
+async def test_save_new_payment(payment_service: PaymentService, mock_session: AsyncMock, sample_customer_orm: Customer):
+    new_payment = Payment(
+        payment_type=PaymentTypeEnum.CUSTOMER_PAYMENT.value,
+        payment_method=PaymentMethodEnum.CASH.value,
+        payment_date=date(2023, 6, 1),
+        entity_type=PaymentEntityTypeEnum.CUSTOMER.value,
+        entity_id=sample_customer_orm.id,
+        amount=Decimal("50.00"), currency_code="SGD",
+        status=PaymentStatusEnum.DRAFT.value,
+        created_by_user_id=1, updated_by_user_id=1
+    )
+    # Simulate ORM refresh after save
+    async def mock_refresh(obj, attribute_names=None):
+        obj.id = 2 # Simulate ID generation
+        obj.payment_no = "PAY002" # Simulate sequence/logic setting this
+        if attribute_names and 'allocations' in attribute_names:
+            obj.allocations = [] # Simulate allocations list refresh
+    mock_session.refresh.side_effect = mock_refresh
+
+    result = await payment_service.save(new_payment)
+    
+    mock_session.add.assert_called_once_with(new_payment)
+    mock_session.flush.assert_awaited_once()
+    # Refresh is called twice if allocations is not None
+    mock_session.refresh.assert_any_call(new_payment)
+    if hasattr(new_payment, 'allocations') and new_payment.allocations is not None :
+        mock_session.refresh.assert_any_call(new_payment, attribute_names=['allocations'])
+    
+    assert result.id == 2
+    assert result.payment_no == "PAY002"
+
+async def test_save_updated_payment(payment_service: PaymentService, mock_session: AsyncMock, sample_payment_orm: Payment):
+    sample_payment_orm.reference = "Updated Ref"
+    
+    result = await payment_service.save(sample_payment_orm)
+    
+    mock_session.add.assert_called_once_with(sample_payment_orm)
+    assert result.reference == "Updated Ref"
+
+async def test_delete_draft_payment_success(payment_service: PaymentService, mock_session: AsyncMock, sample_payment_orm: Payment):
+    sample_payment_orm.status = PaymentStatusEnum.DRAFT.value # Ensure it's draft
+    mock_session.get.return_value = sample_payment_orm
+    
+    deleted = await payment_service.delete(1)
+    assert deleted is True
+    mock_session.get.assert_awaited_once_with(Payment, 1)
+    mock_session.delete.assert_awaited_once_with(sample_payment_orm)
+
+async def test_delete_non_draft_payment_fails(payment_service: PaymentService, mock_session: AsyncMock, sample_payment_orm: Payment):
+    sample_payment_orm.status = PaymentStatusEnum.APPROVED.value # Not draft
+    mock_session.get.return_value = sample_payment_orm
+    
+    deleted = await payment_service.delete(1)
+    assert deleted is False
+    mock_session.get.assert_awaited_once_with(Payment, 1)
+    mock_session.delete.assert_not_called()
+    # Check logger warning if app_core.logger was properly injected and used in service
+    payment_service.logger.warning.assert_called_once()
+
+
+async def test_delete_payment_not_found(payment_service: PaymentService, mock_session: AsyncMock):
+    mock_session.get.return_value = None
+    deleted = await payment_service.delete(99)
+    assert deleted is False
+
+```
+
+# tests/unit/services/test_sales_invoice_service.py
+```py
+# File: tests/unit/services/test_sales_invoice_service.py
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+from typing import List, Optional
+from decimal import Decimal
+from datetime import date, datetime
+
+from app.services.business_services import SalesInvoiceService
+from app.models.business.sales_invoice import SalesInvoice, SalesInvoiceLine
+from app.models.business.customer import Customer
+from app.core.database_manager import DatabaseManager
+from app.core.application_core import ApplicationCore
+from app.utils.pydantic_models import SalesInvoiceSummaryData
+from app.common.enums import InvoiceStatusEnum
+import logging # For logger spec
+
+# Mark all tests in this module as asyncio
+pytestmark = pytest.mark.asyncio
+
+@pytest.fixture
+def mock_session() -> AsyncMock:
+    session = AsyncMock()
+    session.get = AsyncMock()
+    session.execute = AsyncMock()
+    session.add = MagicMock()
+    session.delete = MagicMock()
+    session.flush = AsyncMock()
+    session.refresh = AsyncMock()
+    return session
+
+@pytest.fixture
+def mock_db_manager(mock_session: AsyncMock) -> MagicMock:
+    db_manager = MagicMock(spec=DatabaseManager)
+    db_manager.session.return_value.__aenter__.return_value = mock_session
+    db_manager.session.return_value.__aexit__.return_value = None
+    return db_manager
+
+@pytest.fixture
+def mock_app_core() -> MagicMock:
+    app_core = MagicMock(spec=ApplicationCore)
+    app_core.logger = MagicMock(spec=logging.Logger)
+    return app_core
+
+@pytest.fixture
+def sales_invoice_service(mock_db_manager: MagicMock, mock_app_core: MagicMock) -> SalesInvoiceService:
+    return SalesInvoiceService(db_manager=mock_db_manager, app_core=mock_app_core)
+
+@pytest.fixture
+def sample_customer_orm() -> Customer:
+    return Customer(id=1, customer_code="CUS001", name="Test Customer", created_by_user_id=1, updated_by_user_id=1)
+
+@pytest.fixture
+def sample_sales_invoice_orm(sample_customer_orm: Customer) -> SalesInvoice:
+    return SalesInvoice(
+        id=1, invoice_no="INV001", customer_id=sample_customer_orm.id, customer=sample_customer_orm,
+        invoice_date=date(2023, 1, 15), due_date=date(2023, 2, 15),
+        currency_code="SGD", total_amount=Decimal("109.00"), amount_paid=Decimal("0.00"),
+        status=InvoiceStatusEnum.DRAFT.value, created_by_user_id=1, updated_by_user_id=1,
+        lines=[
+            SalesInvoiceLine(id=1, invoice_id=1, description="Item A", quantity=Decimal(1), unit_price=Decimal(100), line_total=Decimal(109), tax_amount=Decimal(9))
+        ]
+    )
+
+# --- Test Cases ---
+
+async def test_get_by_id_found(sales_invoice_service: SalesInvoiceService, mock_session: AsyncMock, sample_sales_invoice_orm: SalesInvoice):
+    mock_session.execute.return_value.scalars.return_value.first.return_value = sample_sales_invoice_orm
+    result = await sales_invoice_service.get_by_id(1)
+    assert result == sample_sales_invoice_orm
+    mock_session.execute.assert_awaited_once()
+
+async def test_get_by_id_not_found(sales_invoice_service: SalesInvoiceService, mock_session: AsyncMock):
+    mock_session.execute.return_value.scalars.return_value.first.return_value = None
+    result = await sales_invoice_service.get_by_id(99)
+    assert result is None
+
+async def test_get_all_summary(sales_invoice_service: SalesInvoiceService, mock_session: AsyncMock, sample_sales_invoice_orm: SalesInvoice):
+    mock_row = MagicMock()
+    mock_row._asdict.return_value = { # Simulate RowMapping._asdict()
+        "id": sample_sales_invoice_orm.id,
+        "invoice_no": sample_sales_invoice_orm.invoice_no,
+        "invoice_date": sample_sales_invoice_orm.invoice_date,
+        "due_date": sample_sales_invoice_orm.due_date,
+        "customer_name": sample_sales_invoice_orm.customer.name,
+        "total_amount": sample_sales_invoice_orm.total_amount,
+        "amount_paid": sample_sales_invoice_orm.amount_paid,
+        "status": sample_sales_invoice_orm.status,
+        "currency_code": sample_sales_invoice_orm.currency_code,
+    }
+    mock_session.execute.return_value.mappings.return_value.all.return_value = [mock_row]
+    
+    result_dtos = await sales_invoice_service.get_all_summary()
+    assert len(result_dtos) == 1
+    assert isinstance(result_dtos[0], SalesInvoiceSummaryData)
+    assert result_dtos[0].invoice_no == "INV001"
+
+async def test_save_new_invoice(sales_invoice_service: SalesInvoiceService, mock_session: AsyncMock, sample_customer_orm: Customer):
+    new_invoice = SalesInvoice(
+        customer_id=sample_customer_orm.id, invoice_date=date(2023, 3, 1), due_date=date(2023, 3, 31),
+        currency_code="SGD", total_amount=Decimal("200.00"), status=InvoiceStatusEnum.DRAFT.value,
+        created_by_user_id=1, updated_by_user_id=1
+    )
+    # Simulate what refresh would do after save
+    async def mock_refresh(obj, attribute_names=None):
+        obj.id = 10 # Simulate ID generated by DB
+        obj.invoice_no = "INV002" # Simulate sequence generation
+        obj.created_at = datetime.now()
+        obj.updated_at = datetime.now()
+        if attribute_names and 'lines' in attribute_names and not hasattr(obj, 'lines_loaded_flag'): # Mock simple line loading
+             obj.lines = [SalesInvoiceLine(id=1, description="Test", quantity=1, unit_price=100, line_total=100)]
+             obj.lines_loaded_flag = True
+    mock_session.refresh.side_effect = mock_refresh
+
+    result = await sales_invoice_service.save(new_invoice)
+    
+    mock_session.add.assert_called_once_with(new_invoice)
+    mock_session.flush.assert_awaited_once()
+    # Refresh will be called twice if lines are present and invoice.id is set
+    assert mock_session.refresh.await_count >= 1 
+    assert result.id == 10
+    assert result.invoice_no == "INV002"
+
+async def test_get_outstanding_invoices_for_customer(
+    sales_invoice_service: SalesInvoiceService, mock_session: AsyncMock, sample_sales_invoice_orm: SalesInvoice
+):
+    # Make sample invoice outstanding
+    sample_sales_invoice_orm.status = InvoiceStatusEnum.APPROVED.value
+    sample_sales_invoice_orm.amount_paid = Decimal("50.00")
+    sample_sales_invoice_orm.total_amount = Decimal("109.00")
+    sample_sales_invoice_orm.invoice_date = date(2023, 1, 1)
+    sample_sales_invoice_orm.due_date = date(2023, 1, 31)
+
+
+    mock_session.execute.return_value.scalars.return_value.all.return_value = [sample_sales_invoice_orm]
+    
+    as_of = date(2023, 2, 1) # Invoice is overdue
+    results = await sales_invoice_service.get_outstanding_invoices_for_customer(customer_id=1, as_of_date=as_of)
+
+    assert len(results) == 1
+    assert results[0].id == sample_sales_invoice_orm.id
+    mock_session.execute.assert_awaited_once()
+    # Can add more assertions on the query conditions if needed
+
+```
+
+# tests/unit/services/test_journal_service.py
+```py
+# File: tests/unit/services/test_journal_service.py
+import pytest
+from unittest.mock import AsyncMock, MagicMock, call
+from typing import List, Optional, Dict, Any
+from decimal import Decimal
+from datetime import date, datetime
+
+from app.services.journal_service import JournalService
+from app.models.accounting.journal_entry import JournalEntry, JournalEntryLine
+from app.models.accounting.account import Account
+from app.models.accounting.recurring_pattern import RecurringPattern
+from app.models.accounting.fiscal_period import FiscalPeriod
+from app.core.database_manager import DatabaseManager
+from app.core.application_core import ApplicationCore # For mocking app_core
+import logging
+
+# Mark all tests in this module as asyncio
+pytestmark = pytest.mark.asyncio
+
+@pytest.fixture
+def mock_session() -> AsyncMock:
+    session = AsyncMock()
+    session.get = AsyncMock()
+    session.execute = AsyncMock()
+    session.add = MagicMock()
+    session.delete = AsyncMock()
+    session.flush = AsyncMock()
+    session.refresh = AsyncMock()
+    return session
+
+@pytest.fixture
+def mock_db_manager(mock_session: AsyncMock) -> MagicMock:
+    db_manager = MagicMock(spec=DatabaseManager)
+    db_manager.session.return_value.__aenter__.return_value = mock_session
+    db_manager.session.return_value.__aexit__.return_value = None
+    return db_manager
+
+@pytest.fixture
+def mock_app_core() -> MagicMock:
+    app_core = MagicMock(spec=ApplicationCore)
+    app_core.logger = MagicMock(spec=logging.Logger)
+    # Mock other services if JournalService directly calls them via app_core
+    # For now, assuming direct dependencies are passed or not used in tested methods
+    return app_core
+
+@pytest.fixture
+def journal_service(mock_db_manager: MagicMock, mock_app_core: MagicMock) -> JournalService:
+    return JournalService(db_manager=mock_db_manager, app_core=mock_app_core)
+
+@pytest.fixture
+def sample_account_orm() -> Account:
+    return Account(id=101, code="1110", name="Bank", account_type="Asset", sub_type="Cash", is_active=True, created_by_user_id=1,updated_by_user_id=1)
+
+@pytest.fixture
+def sample_journal_entry_orm(sample_account_orm: Account) -> JournalEntry:
+    je = JournalEntry(
+        id=1, entry_no="JE001", journal_type="General", entry_date=date(2023,1,10),
+        fiscal_period_id=1, description="Test JE", is_posted=False,
+        created_by_user_id=1, updated_by_user_id=1
+    )
+    je.lines = [
+        JournalEntryLine(id=1, journal_entry_id=1, line_number=1, account_id=sample_account_orm.id, debit_amount=Decimal("100.00"), credit_amount=Decimal("0.00"), account=sample_account_orm),
+        JournalEntryLine(id=2, journal_entry_id=1, line_number=2, account_id=201, credit_amount=Decimal("100.00"), debit_amount=Decimal("0.00")) # Assume account 201 exists
+    ]
+    return je
+
+@pytest.fixture
+def sample_recurring_pattern_orm(sample_journal_entry_orm: JournalEntry) -> RecurringPattern:
+    return RecurringPattern(
+        id=1, name="Monthly Rent", template_entry_id=sample_journal_entry_orm.id,
+        frequency="Monthly", interval_value=1, start_date=date(2023,1,1),
+        next_generation_date=date(2023,2,1), is_active=True,
+        created_by_user_id=1, updated_by_user_id=1,
+        template_journal_entry=sample_journal_entry_orm # Link template JE
+    )
+
+# --- Test Cases ---
+
+async def test_get_je_by_id_found(journal_service: JournalService, mock_session: AsyncMock, sample_journal_entry_orm: JournalEntry):
+    mock_session.execute.return_value.scalars.return_value.first.return_value = sample_journal_entry_orm
+    result = await journal_service.get_by_id(1)
+    assert result == sample_journal_entry_orm
+    assert result.entry_no == "JE001"
+
+async def test_get_all_summary_no_filters(journal_service: JournalService, mock_session: AsyncMock, sample_journal_entry_orm: JournalEntry):
+    mock_row_mapping = MagicMock()
+    mock_row_mapping._asdict.return_value = { # Simulate RowMapping._asdict() if needed, or direct dict
+        "id": sample_journal_entry_orm.id, "entry_no": sample_journal_entry_orm.entry_no,
+        "entry_date": sample_journal_entry_orm.entry_date, "description": sample_journal_entry_orm.description,
+        "journal_type": sample_journal_entry_orm.journal_type, "is_posted": sample_journal_entry_orm.is_posted,
+        "total_debits": Decimal("100.00")
+    }
+    mock_session.execute.return_value.mappings.return_value.all.return_value = [mock_row_mapping]
+
+    summaries = await journal_service.get_all_summary()
+    assert len(summaries) == 1
+    assert summaries[0]["entry_no"] == "JE001"
+    assert summaries[0]["status"] == "Draft"
+
+async def test_save_new_journal_entry(journal_service: JournalService, mock_session: AsyncMock, sample_account_orm: Account):
+    new_je = JournalEntry(
+        journal_type="General", entry_date=date(2023,2,5), fiscal_period_id=2,
+        description="New test JE", created_by_user_id=1, updated_by_user_id=1
+    )
+    new_je.lines = [
+        JournalEntryLine(account_id=sample_account_orm.id, debit_amount=Decimal("50.00"))
+    ]
+    async def mock_refresh(obj, attribute_names=None):
+        obj.id = 2
+        obj.entry_no = "JE002" # Simulate sequence
+        if attribute_names and 'lines' in attribute_names:
+            for line in obj.lines: line.id = line.id or (len(obj.lines) + 100) # Simulate line ID
+    mock_session.refresh.side_effect = mock_refresh
+    
+    result = await journal_service.save(new_je)
+    mock_session.add.assert_called_once_with(new_je)
+    assert result.id == 2
+    assert result.entry_no == "JE002"
+
+async def test_delete_draft_je(journal_service: JournalService, mock_session: AsyncMock, sample_journal_entry_orm: JournalEntry):
+    sample_journal_entry_orm.is_posted = False # Ensure draft
+    mock_session.get.return_value = sample_journal_entry_orm
+    
+    deleted = await journal_service.delete(1)
+    assert deleted is True
+    mock_session.delete.assert_awaited_once_with(sample_journal_entry_orm)
+
+async def test_delete_posted_je_fails(journal_service: JournalService, mock_session: AsyncMock, mock_app_core: MagicMock, sample_journal_entry_orm: JournalEntry):
+    sample_journal_entry_orm.is_posted = True # Posted
+    mock_session.get.return_value = sample_journal_entry_orm
+    
+    deleted = await journal_service.delete(1)
+    assert deleted is False
+    mock_session.delete.assert_not_called()
+    mock_app_core.logger.warning.assert_called_once()
+
+async def test_get_account_balance(journal_service: JournalService, mock_session: AsyncMock, sample_account_orm: Account):
+    sample_account_orm.opening_balance = Decimal("100.00")
+    sample_account_orm.opening_balance_date = date(2023,1,1)
+    mock_session.execute.return_value.first.return_value = (sample_account_orm.opening_balance, sample_account_orm.opening_balance_date) # For the account fetch
+    
+    # For the JE activity sum
+    mock_je_sum_result = AsyncMock()
+    mock_je_sum_result.scalar_one_or_none.return_value = Decimal("50.00") # Net debit activity
+    mock_session.execute.side_effect = [mock_session.execute.return_value, mock_je_sum_result] # First for account, second for sum
+
+    balance = await journal_service.get_account_balance(sample_account_orm.id, date(2023,1,31))
+    assert balance == Decimal("150.00") # 100 OB + 50 Activity
+
+async def test_get_recurring_patterns_due(journal_service: JournalService, mock_session: AsyncMock, sample_recurring_pattern_orm: RecurringPattern):
+    mock_session.execute.return_value.scalars.return_value.unique.return_value.all.return_value = [sample_recurring_pattern_orm]
+    
+    patterns = await journal_service.get_recurring_patterns_due(date(2023,2,1))
+    assert len(patterns) == 1
+    assert patterns[0].name == "Monthly Rent"
+
+```
+
 # tests/unit/services/test_currency_service.py
 ```py
 # File: tests/unit/services/test_currency_service.py
@@ -794,6 +1497,249 @@ async def test_delete_currency_not_found(currency_service: CurrencyService, mock
 
 ```
 
+# tests/unit/services/test_tax_code_service.py
+```py
+# File: tests/unit/services/test_tax_code_service.py
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+from typing import List, Optional
+from decimal import Decimal
+import datetime
+
+from app.services.tax_service import TaxCodeService
+from app.models.accounting.tax_code import TaxCode as TaxCodeModel
+from app.models.core.user import User as UserModel
+from app.core.database_manager import DatabaseManager
+from app.core.application_core import ApplicationCore
+import logging
+
+pytestmark = pytest.mark.asyncio
+
+@pytest.fixture
+def mock_session() -> AsyncMock:
+    session = AsyncMock(); session.get = AsyncMock(); session.execute = AsyncMock()
+    session.add = MagicMock(); session.delete = MagicMock(); session.flush = AsyncMock()
+    session.refresh = AsyncMock()
+    return session
+
+@pytest.fixture
+def mock_db_manager(mock_session: AsyncMock) -> MagicMock:
+    db_manager = MagicMock(spec=DatabaseManager)
+    db_manager.session.return_value.__aenter__.return_value = mock_session
+    db_manager.session.return_value.__aexit__.return_value = None
+    return db_manager
+
+@pytest.fixture
+def mock_user() -> MagicMock:
+    user = MagicMock(spec=UserModel); user.id = 1; return user
+
+@pytest.fixture
+def mock_app_core(mock_user: MagicMock) -> MagicMock:
+    app_core = MagicMock(spec=ApplicationCore); app_core.logger = MagicMock(spec=logging.Logger)
+    app_core.current_user = mock_user # For audit fields in save
+    return app_core
+
+@pytest.fixture
+def tax_code_service(mock_db_manager: MagicMock, mock_app_core: MagicMock) -> TaxCodeService:
+    return TaxCodeService(db_manager=mock_db_manager, app_core=mock_app_core)
+
+@pytest.fixture
+def sample_tax_code_sr() -> TaxCodeModel:
+    return TaxCodeModel(id=1, code="SR", description="Standard Rate", tax_type="GST", rate=Decimal("9.00"), is_active=True, created_by_user_id=1, updated_by_user_id=1)
+
+@pytest.fixture
+def sample_tax_code_zr_inactive() -> TaxCodeModel:
+    return TaxCodeModel(id=2, code="ZR", description="Zero Rate", tax_type="GST", rate=Decimal("0.00"), is_active=False, created_by_user_id=1, updated_by_user_id=1)
+
+async def test_get_tax_code_by_id_found(tax_code_service: TaxCodeService, mock_session: AsyncMock, sample_tax_code_sr: TaxCodeModel):
+    mock_session.get.return_value = sample_tax_code_sr
+    result = await tax_code_service.get_by_id(1)
+    assert result == sample_tax_code_sr
+
+async def test_get_tax_code_by_code_active_found(tax_code_service: TaxCodeService, mock_session: AsyncMock, sample_tax_code_sr: TaxCodeModel):
+    mock_session.execute.return_value.scalars.return_value.first.return_value = sample_tax_code_sr
+    result = await tax_code_service.get_tax_code("SR")
+    assert result == sample_tax_code_sr
+
+async def test_get_tax_code_by_code_inactive_returns_none(tax_code_service: TaxCodeService, mock_session: AsyncMock, sample_tax_code_zr_inactive: TaxCodeModel):
+    # get_tax_code filters for is_active=True
+    mock_session.execute.return_value.scalars.return_value.first.return_value = None 
+    result = await tax_code_service.get_tax_code("ZR") # Even if ZR exists but is inactive
+    assert result is None
+
+async def test_get_all_active_tax_codes(tax_code_service: TaxCodeService, mock_session: AsyncMock, sample_tax_code_sr: TaxCodeModel):
+    mock_session.execute.return_value.scalars.return_value.all.return_value = [sample_tax_code_sr]
+    results = await tax_code_service.get_all() # get_all in service implies active_only
+    assert len(results) == 1
+    assert results[0].code == "SR"
+
+async def test_save_new_tax_code(tax_code_service: TaxCodeService, mock_session: AsyncMock, mock_user: MagicMock):
+    new_tc = TaxCodeModel(code="EX", description="Exempt", tax_type="GST", rate=Decimal("0.00"))
+    # Audit fields (created_by_user_id, updated_by_user_id) are set by service.save()
+
+    async def mock_refresh(obj, attr=None): obj.id=3 # Simulate DB generated ID
+    mock_session.refresh.side_effect = mock_refresh
+    
+    result = await tax_code_service.save(new_tc)
+    assert result.id == 3
+    assert result.created_by_user_id == mock_user.id
+    assert result.updated_by_user_id == mock_user.id
+    mock_session.add.assert_called_once_with(new_tc)
+
+async def test_delete_tax_code_deactivates(tax_code_service: TaxCodeService, mock_session: AsyncMock, sample_tax_code_sr: TaxCodeModel):
+    sample_tax_code_sr.is_active = True
+    mock_session.get.return_value = sample_tax_code_sr
+    tax_code_service.save = AsyncMock(return_value=sample_tax_code_sr) # Mock save as it's called by delete
+
+    deleted_flag = await tax_code_service.delete(1)
+    assert deleted_flag is True
+    assert sample_tax_code_sr.is_active is False
+    tax_code_service.save.assert_awaited_once_with(sample_tax_code_sr)
+
+```
+
+# tests/unit/services/test_purchase_invoice_service.py
+```py
+# File: tests/unit/services/test_purchase_invoice_service.py
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+from typing import List, Optional
+from decimal import Decimal
+from datetime import date, datetime
+
+from app.services.business_services import PurchaseInvoiceService
+from app.models.business.purchase_invoice import PurchaseInvoice, PurchaseInvoiceLine
+from app.models.business.vendor import Vendor
+from app.core.database_manager import DatabaseManager
+from app.core.application_core import ApplicationCore
+from app.utils.pydantic_models import PurchaseInvoiceSummaryData
+from app.common.enums import InvoiceStatusEnum
+import logging
+
+pytestmark = pytest.mark.asyncio
+
+@pytest.fixture
+def mock_session() -> AsyncMock:
+    session = AsyncMock()
+    session.get = AsyncMock()
+    session.execute = AsyncMock()
+    session.add = MagicMock()
+    session.delete = AsyncMock() # For delete test
+    session.flush = AsyncMock()
+    session.refresh = AsyncMock()
+    return session
+
+@pytest.fixture
+def mock_db_manager(mock_session: AsyncMock) -> MagicMock:
+    db_manager = MagicMock(spec=DatabaseManager)
+    db_manager.session.return_value.__aenter__.return_value = mock_session
+    db_manager.session.return_value.__aexit__.return_value = None
+    return db_manager
+
+@pytest.fixture
+def mock_app_core() -> MagicMock:
+    app_core = MagicMock(spec=ApplicationCore)
+    app_core.logger = MagicMock(spec=logging.Logger)
+    return app_core
+
+@pytest.fixture
+def purchase_invoice_service(mock_db_manager: MagicMock, mock_app_core: MagicMock) -> PurchaseInvoiceService:
+    return PurchaseInvoiceService(db_manager=mock_db_manager, app_core=mock_app_core)
+
+@pytest.fixture
+def sample_vendor_orm() -> Vendor:
+    return Vendor(id=1, vendor_code="VEN001", name="Test Vendor", created_by_user_id=1, updated_by_user_id=1)
+
+@pytest.fixture
+def sample_purchase_invoice_orm(sample_vendor_orm: Vendor) -> PurchaseInvoice:
+    return PurchaseInvoice(
+        id=1, invoice_no="PI001", vendor_id=sample_vendor_orm.id, vendor=sample_vendor_orm,
+        vendor_invoice_no="VINV001", invoice_date=date(2023, 1, 10), due_date=date(2023, 2, 10),
+        currency_code="SGD", total_amount=Decimal("55.00"), amount_paid=Decimal("0.00"),
+        status=InvoiceStatusEnum.DRAFT.value, created_by_user_id=1, updated_by_user_id=1,
+        lines=[
+            PurchaseInvoiceLine(id=1, invoice_id=1, description="Material X", quantity=Decimal(5), unit_price=Decimal(10), line_total=Decimal(55), tax_amount=Decimal(5))
+        ]
+    )
+
+# --- Test Cases ---
+async def test_get_pi_by_id_found(purchase_invoice_service: PurchaseInvoiceService, mock_session: AsyncMock, sample_purchase_invoice_orm: PurchaseInvoice):
+    mock_session.execute.return_value.scalars.return_value.first.return_value = sample_purchase_invoice_orm
+    result = await purchase_invoice_service.get_by_id(1)
+    assert result == sample_purchase_invoice_orm
+    mock_session.execute.assert_awaited_once()
+
+async def test_get_all_pi_summary(purchase_invoice_service: PurchaseInvoiceService, mock_session: AsyncMock, sample_purchase_invoice_orm: PurchaseInvoice):
+    mock_row = MagicMock()
+    mock_row._asdict.return_value = {
+        "id": sample_purchase_invoice_orm.id,
+        "invoice_no": sample_purchase_invoice_orm.invoice_no,
+        "vendor_invoice_no": sample_purchase_invoice_orm.vendor_invoice_no,
+        "invoice_date": sample_purchase_invoice_orm.invoice_date,
+        "vendor_name": sample_purchase_invoice_orm.vendor.name,
+        "total_amount": sample_purchase_invoice_orm.total_amount,
+        "status": sample_purchase_invoice_orm.status,
+        "currency_code": sample_purchase_invoice_orm.currency_code,
+    }
+    mock_session.execute.return_value.mappings.return_value.all.return_value = [mock_row]
+    
+    result_dtos = await purchase_invoice_service.get_all_summary()
+    assert len(result_dtos) == 1
+    assert isinstance(result_dtos[0], PurchaseInvoiceSummaryData)
+    assert result_dtos[0].invoice_no == "PI001"
+
+async def test_save_new_pi(purchase_invoice_service: PurchaseInvoiceService, mock_session: AsyncMock, sample_vendor_orm: Vendor):
+    new_pi = PurchaseInvoice(
+        vendor_id=sample_vendor_orm.id, vendor_invoice_no="VINV002", invoice_date=date(2023, 4, 1), 
+        due_date=date(2023, 4, 30), currency_code="SGD", total_amount=Decimal("300.00"), 
+        status=InvoiceStatusEnum.DRAFT.value, created_by_user_id=1, updated_by_user_id=1
+    )
+    async def mock_refresh(obj, attribute_names=None):
+        obj.id = 20 # Simulate ID
+        obj.invoice_no = "PI002" # Simulate internal ref no
+    mock_session.refresh.side_effect = mock_refresh
+
+    result = await purchase_invoice_service.save(new_pi)
+    mock_session.add.assert_called_once_with(new_pi)
+    assert result.id == 20
+    assert result.invoice_no == "PI002"
+
+async def test_delete_draft_pi_success(purchase_invoice_service: PurchaseInvoiceService, mock_session: AsyncMock, sample_purchase_invoice_orm: PurchaseInvoice):
+    sample_purchase_invoice_orm.status = InvoiceStatusEnum.DRAFT.value # Ensure it's draft
+    mock_session.get.return_value = sample_purchase_invoice_orm
+    
+    result = await purchase_invoice_service.delete(1)
+    assert result is True
+    mock_session.get.assert_awaited_once_with(PurchaseInvoice, 1)
+    mock_session.delete.assert_awaited_once_with(sample_purchase_invoice_orm)
+
+async def test_delete_non_draft_pi_fails(purchase_invoice_service: PurchaseInvoiceService, mock_session: AsyncMock, sample_purchase_invoice_orm: PurchaseInvoice):
+    sample_purchase_invoice_orm.status = InvoiceStatusEnum.APPROVED.value # Not draft
+    mock_session.get.return_value = sample_purchase_invoice_orm
+    
+    with pytest.raises(ValueError) as excinfo:
+        await purchase_invoice_service.delete(1)
+    assert "Only Draft invoices can be deleted" in str(excinfo.value)
+    mock_session.delete.assert_not_called()
+
+async def test_get_outstanding_invoices_for_vendor(
+    purchase_invoice_service: PurchaseInvoiceService, mock_session: AsyncMock, sample_purchase_invoice_orm: PurchaseInvoice
+):
+    sample_purchase_invoice_orm.status = InvoiceStatusEnum.APPROVED.value
+    sample_purchase_invoice_orm.amount_paid = Decimal("20.00")
+    sample_purchase_invoice_orm.total_amount = Decimal("55.00")
+    sample_purchase_invoice_orm.invoice_date = date(2023, 1, 1)
+    
+    mock_session.execute.return_value.scalars.return_value.all.return_value = [sample_purchase_invoice_orm]
+    
+    as_of = date(2023, 2, 1)
+    results = await purchase_invoice_service.get_outstanding_invoices_for_vendor(vendor_id=1, as_of_date=as_of)
+
+    assert len(results) == 1
+    assert results[0].id == sample_purchase_invoice_orm.id
+
+```
+
 # tests/unit/services/test_company_settings_service.py
 ```py
 # File: tests/unit/services/test_company_settings_service.py
@@ -955,10 +1901,285 @@ async def test_save_company_settings_when_app_core_or_user_is_none(
 
 ```
 
+# tests/unit/services/test_vendor_service_dashboard_ext.py
+```py
+# File: tests/unit/services/test_vendor_service_dashboard_ext.py
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+from typing import List
+from decimal import Decimal
+from datetime import date, timedelta
+
+from app.services.business_services import VendorService
+from app.models.business.purchase_invoice import PurchaseInvoice
+from app.common.enums import InvoiceStatusEnum
+from app.core.database_manager import DatabaseManager
+from app.core.application_core import ApplicationCore
+import logging
+
+pytestmark = pytest.mark.asyncio
+
+@pytest.fixture
+def mock_session() -> AsyncMock:
+    session = AsyncMock()
+    session.execute = AsyncMock()
+    return session
+
+@pytest.fixture
+def mock_db_manager(mock_session: AsyncMock) -> MagicMock:
+    db_manager = MagicMock(spec=DatabaseManager)
+    db_manager.session.return_value.__aenter__.return_value = mock_session
+    db_manager.session.return_value.__aexit__.return_value = None
+    return db_manager
+
+@pytest.fixture
+def mock_app_core() -> MagicMock:
+    app_core = MagicMock(spec=ApplicationCore)
+    app_core.logger = MagicMock(spec=logging.Logger)
+    return app_core
+
+@pytest.fixture
+def vendor_service(mock_db_manager: MagicMock, mock_app_core: MagicMock) -> VendorService:
+    return VendorService(db_manager=mock_db_manager, app_core=mock_app_core)
+
+def create_mock_purchase_invoice(id: int, due_date: date, total_amount: Decimal, amount_paid: Decimal, status: InvoiceStatusEnum) -> MagicMock:
+    inv = MagicMock(spec=PurchaseInvoice)
+    inv.id = id
+    inv.due_date = due_date
+    inv.total_amount = total_amount
+    inv.amount_paid = amount_paid
+    inv.status = status.value
+    inv.invoice_date = due_date - timedelta(days=30)
+    return inv
+
+async def test_get_ap_aging_summary_no_invoices(vendor_service: VendorService, mock_session: AsyncMock):
+    mock_session.execute.return_value.scalars.return_value.all.return_value = []
+    today = date(2023, 10, 15)
+    summary = await vendor_service.get_ap_aging_summary(as_of_date=today)
+    expected = {"Current": Decimal(0), "1-30 Days": Decimal(0), "31-60 Days": Decimal(0), "61-90 Days": Decimal(0), "91+ Days": Decimal(0)}
+    assert summary == expected
+
+async def test_get_ap_aging_summary_various_scenarios(vendor_service: VendorService, mock_session: AsyncMock):
+    today = date(2023, 10, 15)
+    mock_invoices = [
+        create_mock_purchase_invoice(1, today, Decimal("1000"), Decimal("0"), InvoiceStatusEnum.APPROVED),
+        create_mock_purchase_invoice(2, today - timedelta(days=15), Decimal("500"), Decimal("100"), InvoiceStatusEnum.PARTIALLY_PAID), # 400 in 1-30
+        create_mock_purchase_invoice(3, today - timedelta(days=45), Decimal("750"), Decimal("0"), InvoiceStatusEnum.OVERDUE), # 750 in 31-60
+        create_mock_purchase_invoice(4, today - timedelta(days=75), Decimal("200"), Decimal("0"), InvoiceStatusEnum.OVERDUE), # 200 in 61-90
+        create_mock_purchase_invoice(5, today - timedelta(days=100), Decimal("300"), Decimal("0"), InvoiceStatusEnum.OVERDUE),# 300 in 91+
+        create_mock_purchase_invoice(6, today + timedelta(days=5), Decimal("600"), Decimal("0"), InvoiceStatusEnum.APPROVED), # 600 in Current
+    ]
+    mock_session.execute.return_value.scalars.return_value.all.return_value = mock_invoices
+    
+    summary = await vendor_service.get_ap_aging_summary(as_of_date=today)
+    
+    assert summary["Current"] == Decimal("1600.00") # 1000 + 600
+    assert summary["1-30 Days"] == Decimal("400.00")
+    assert summary["31-60 Days"] == Decimal("750.00")
+    assert summary["61-90 Days"] == Decimal("200.00")
+    assert summary["91+ Days"] == Decimal("300.00")
+
+```
+
 # tests/unit/services/__init__.py
 ```py
 # File: tests/unit/services/__init__.py
 # This file makes 'services' (under 'unit') a Python package.
+
+```
+
+# tests/unit/services/test_audit_log_service.py
+```py
+# File: tests/unit/services/test_audit_log_service.py
+import pytest
+from unittest.mock import AsyncMock, MagicMock, call
+from typing import List, Optional, Dict, Any
+from datetime import datetime, date, timedelta
+from decimal import Decimal 
+
+from app.services.audit_services import AuditLogService
+from app.models.audit.audit_log import AuditLog as AuditLogModel
+from app.models.audit.data_change_history import DataChangeHistory as DataChangeHistoryModel
+from app.models.core.user import User as UserModel
+from app.core.database_manager import DatabaseManager
+from app.core.application_core import ApplicationCore 
+from app.utils.pydantic_models import AuditLogEntryData, DataChangeHistoryEntryData
+from app.common.enums import DataChangeTypeEnum
+import logging
+
+pytestmark = pytest.mark.asyncio
+
+@pytest.fixture
+def mock_session() -> AsyncMock:
+    session = AsyncMock()
+    session.execute = AsyncMock()
+    session.get = AsyncMock() 
+    return session
+
+@pytest.fixture
+def mock_db_manager(mock_session: AsyncMock) -> MagicMock:
+    db_manager = MagicMock(spec=DatabaseManager)
+    db_manager.session.return_value.__aenter__.return_value = mock_session
+    db_manager.session.return_value.__aexit__.return_value = None
+    return db_manager
+
+@pytest.fixture
+def mock_app_core() -> MagicMock:
+    app_core = MagicMock(spec=ApplicationCore)
+    app_core.logger = MagicMock(spec=logging.Logger)
+    return app_core
+
+@pytest.fixture
+def audit_log_service(mock_db_manager: MagicMock, mock_app_core: MagicMock) -> AuditLogService:
+    return AuditLogService(db_manager=mock_db_manager, app_core=mock_app_core)
+
+@pytest.fixture
+def sample_user_orm() -> UserModel:
+    return UserModel(id=1, username="test_user", full_name="Test User FullName", password_hash="hashed", is_active=True)
+
+@pytest.fixture
+def sample_audit_log_orm_create(sample_user_orm: UserModel) -> AuditLogModel:
+    return AuditLogModel(
+        id=1, user_id=sample_user_orm.id, action="Insert", entity_type="core.customer",
+        entity_id=101, entity_name="Customer Alpha", 
+        changes={"new": {"name": "Customer Alpha", "credit_limit": "1000.00", "is_active": True}},
+        ip_address="127.0.0.1", timestamp=datetime(2023, 1, 1, 10, 0, 0)
+    )
+
+@pytest.fixture
+def sample_audit_log_orm_update(sample_user_orm: UserModel) -> AuditLogModel:
+    return AuditLogModel(
+        id=2, user_id=sample_user_orm.id, action="Update", entity_type="core.customer",
+        entity_id=101, entity_name="Customer Alpha V2", 
+        changes={"old": {"name": "Customer Alpha", "credit_limit": "1000.00"}, "new": {"name": "Customer Alpha V2", "credit_limit": "1500.00"}},
+        ip_address="127.0.0.1", timestamp=datetime(2023, 1, 1, 10, 5, 0)
+    )
+
+@pytest.fixture
+def sample_audit_log_orm_delete(sample_user_orm: UserModel) -> AuditLogModel:
+    return AuditLogModel(
+        id=3, user_id=sample_user_orm.id, action="Delete", entity_type="core.customer",
+        entity_id=102, entity_name="Customer Beta", 
+        changes={"old": {"name": "Customer Beta"}},
+        ip_address="127.0.0.1", timestamp=datetime(2023, 1, 1, 10, 10, 0)
+    )
+    
+@pytest.fixture
+def sample_data_change_history_orm(sample_user_orm: UserModel) -> DataChangeHistoryModel:
+    return DataChangeHistoryModel(
+        id=1, table_name="core.customer", record_id=101, field_name="credit_limit",
+        old_value="500.00", new_value="1000.00", change_type=DataChangeTypeEnum.UPDATE.value,
+        changed_by=sample_user_orm.id, changed_at=datetime(2023,1,1,10,0,0)
+    )
+
+# --- Tests for AuditLogService ---
+
+async def test_get_audit_logs_paginated_no_filters(
+    audit_log_service: AuditLogService, 
+    mock_session: AsyncMock, 
+    sample_audit_log_orm_create: AuditLogModel, 
+    sample_user_orm: UserModel
+):
+    mock_count_execute = AsyncMock(); mock_count_execute.scalar_one.return_value = 1
+    mock_data_execute = AsyncMock()
+    mock_data_execute.mappings.return_value.all.return_value = [
+        {AuditLogModel: sample_audit_log_orm_create, "username": sample_user_orm.username}
+    ]
+    mock_session.execute.side_effect = [mock_count_execute, mock_data_execute]
+
+    logs, total_records = await audit_log_service.get_audit_logs_paginated(page=1, page_size=10)
+
+    assert total_records == 1
+    assert len(logs) == 1
+    assert isinstance(logs[0], AuditLogEntryData)
+    assert logs[0].id == sample_audit_log_orm_create.id
+    assert logs[0].username == sample_user_orm.username
+    assert "Record Created." in (logs[0].changes_summary or "")
+    assert "name: 'Customer Alpha'" in (logs[0].changes_summary or "")
+    assert "credit_limit: '1000.00'" in (logs[0].changes_summary or "")
+    assert mock_session.execute.await_count == 2
+
+async def test_get_audit_logs_paginated_with_user_filter(
+    audit_log_service: AuditLogService, mock_session: AsyncMock
+):
+    await audit_log_service.get_audit_logs_paginated(user_id_filter=1)
+    assert mock_session.execute.await_count == 2 
+
+def test_format_changes_summary_created(audit_log_service: AuditLogService):
+    changes = {"new": {"name": "Item X", "code": "X001", "price": "10.99"}}
+    summary = audit_log_service._format_changes_summary(changes)
+    assert summary == "Record Created. Details: name: 'Item X', code: 'X001', price: '10.99'"
+
+def test_format_changes_summary_deleted(audit_log_service: AuditLogService):
+    changes = {"old": {"name": "Item Y", "code": "Y001"}}
+    summary = audit_log_service._format_changes_summary(changes)
+    assert summary == "Record Deleted."
+
+def test_format_changes_summary_modified_few(audit_log_service: AuditLogService):
+    changes = {"old": {"status": "Active", "notes": "Old note"}, "new": {"status": "Inactive", "notes": "Old note"}}
+    summary = audit_log_service._format_changes_summary(changes)
+    assert summary == "'status': 'Active' -> 'Inactive'"
+
+def test_format_changes_summary_modified_many(audit_log_service: AuditLogService):
+    changes = {
+        "old": {"f1": "a", "f2": "b", "f3": "c", "f4": "d", "f5": "e"},
+        "new": {"f1": "A", "f2": "B", "f3": "C", "f4": "D", "f5": "E"}
+    }
+    summary = audit_log_service._format_changes_summary(changes)
+    assert "'f1': 'a' -> 'A'; 'f2': 'b' -> 'B'; 'f3': 'c' -> 'C'; ...and 2 other field(s)." == summary
+
+def test_format_changes_summary_no_meaningful_change(audit_log_service: AuditLogService):
+    changes = {"old": {"updated_at": "ts1"}, "new": {"updated_at": "ts2"}} 
+    summary = audit_log_service._format_changes_summary(changes)
+    assert "updated_at" in summary # Current impl shows this
+
+def test_format_changes_summary_no_diff_fields(audit_log_service: AuditLogService):
+    changes = {"old": {"field": "value"}, "new": {"field": "value"}}
+    summary = audit_log_service._format_changes_summary(changes)
+    assert summary == "No changes detailed or only sensitive fields updated."
+
+
+def test_format_changes_summary_none(audit_log_service: AuditLogService):
+    summary = audit_log_service._format_changes_summary(None)
+    assert summary is None
+
+async def test_get_data_change_history_paginated(
+    audit_log_service: AuditLogService, mock_session: AsyncMock, 
+    sample_data_change_history_orm: DataChangeHistoryModel, sample_user_orm: UserModel
+):
+    mock_count_execute = AsyncMock(); mock_count_execute.scalar_one.return_value = 1
+    mock_data_execute = AsyncMock()
+    mock_data_execute.mappings.return_value.all.return_value = [
+        {DataChangeHistoryModel: sample_data_change_history_orm, "changed_by_username": sample_user_orm.username}
+    ]
+    mock_session.execute.side_effect = [mock_count_execute, mock_data_execute]
+
+    history, total_records = await audit_log_service.get_data_change_history_paginated()
+    assert total_records == 1
+    assert len(history) == 1
+    assert history[0].field_name == "credit_limit"
+    assert history[0].change_type == DataChangeTypeEnum.UPDATE
+    assert history[0].changed_by_username == sample_user_orm.username
+
+async def test_audit_log_service_unsupported_methods(audit_log_service: AuditLogService):
+    """Test that add, update, delete methods for AuditLog/DataChangeHistory raise NotImplementedError."""
+    with pytest.raises(NotImplementedError):
+        await audit_log_service.add(MagicMock(spec=AuditLogModel))
+    with pytest.raises(NotImplementedError):
+        await audit_log_service.update(MagicMock(spec=AuditLogModel))
+    with pytest.raises(NotImplementedError):
+        await audit_log_service.delete(1) # Argument is id_val: int
+    with pytest.raises(NotImplementedError):
+        await audit_log_service.get_all()
+    
+    # Check get_by_id - it has a minimal implementation for completeness
+    mock_session = audit_log_service.db_manager.session.return_value.__aenter__.return_value
+    mock_session.get.side_effect = [None, None] # Return None for both AuditLog and DataChangeHistory get
+    result = await audit_log_service.get_by_id(123)
+    assert result is None
+    assert mock_session.get.await_count == 2
+    mock_session.get.assert_any_await(AuditLogModel, 123)
+    mock_session.get.assert_any_await(DataChangeHistoryModel, 123)
 
 ```
 
@@ -1156,6 +2377,201 @@ async def test_get_rate_for_date_not_found(exchange_rate_service: ExchangeRateSe
 
 ```
 
+# tests/unit/services/test_bank_transaction_service.py
+```py
+# File: tests/unit/services/test_bank_transaction_service.py
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+from typing import List, Optional
+from decimal import Decimal
+from datetime import date, datetime
+import logging
+
+from app.services.business_services import BankTransactionService
+from app.models.business.bank_transaction import BankTransaction as BankTransactionModel
+from app.models.business.bank_account import BankAccount as BankAccountModel
+from app.core.database_manager import DatabaseManager
+from app.core.application_core import ApplicationCore
+from app.utils.pydantic_models import BankTransactionSummaryData
+from app.common.enums import BankTransactionTypeEnum
+
+pytestmark = pytest.mark.asyncio
+
+@pytest.fixture
+def mock_session() -> AsyncMock:
+    session = AsyncMock()
+    session.get = AsyncMock()
+    session.execute = AsyncMock()
+    session.add = MagicMock()
+    session.delete = AsyncMock()
+    session.flush = AsyncMock()
+    session.refresh = AsyncMock()
+    return session
+
+@pytest.fixture
+def mock_db_manager(mock_session: AsyncMock) -> MagicMock:
+    db_manager = MagicMock(spec=DatabaseManager)
+    db_manager.session.return_value.__aenter__.return_value = mock_session
+    db_manager.session.return_value.__aexit__.return_value = None
+    return db_manager
+
+@pytest.fixture
+def mock_app_core() -> MagicMock:
+    app_core = MagicMock(spec=ApplicationCore)
+    app_core.logger = MagicMock(spec=logging.Logger)
+    return app_core
+
+@pytest.fixture
+def bank_transaction_service(mock_db_manager: MagicMock, mock_app_core: MagicMock) -> BankTransactionService:
+    return BankTransactionService(db_manager=mock_db_manager, app_core=mock_app_core)
+
+@pytest.fixture
+def sample_bank_transaction_orm() -> BankTransactionModel:
+    return BankTransactionModel(
+        id=1, bank_account_id=1, transaction_date=date(2023,1,5),
+        transaction_type=BankTransactionTypeEnum.DEPOSIT.value,
+        description="Cash Deposit", amount=Decimal("500.00"),
+        is_reconciled=False, created_by_user_id=1, updated_by_user_id=1
+    )
+
+async def test_get_bank_transaction_by_id_found(bank_transaction_service: BankTransactionService, mock_session: AsyncMock, sample_bank_transaction_orm: BankTransactionModel):
+    mock_session.execute.return_value.scalars.return_value.first.return_value = sample_bank_transaction_orm
+    result = await bank_transaction_service.get_by_id(1)
+    assert result == sample_bank_transaction_orm
+
+async def test_get_all_for_bank_account(bank_transaction_service: BankTransactionService, mock_session: AsyncMock, sample_bank_transaction_orm: BankTransactionModel):
+    mock_session.execute.return_value.scalars.return_value.all.return_value = [sample_bank_transaction_orm]
+    
+    summaries = await bank_transaction_service.get_all_for_bank_account(bank_account_id=1)
+    assert len(summaries) == 1
+    assert isinstance(summaries[0], BankTransactionSummaryData)
+    assert summaries[0].description == "Cash Deposit"
+
+async def test_save_new_bank_transaction(bank_transaction_service: BankTransactionService, mock_session: AsyncMock):
+    new_txn = BankTransactionModel(
+        bank_account_id=1, transaction_date=date(2023,2,1), 
+        transaction_type=BankTransactionTypeEnum.WITHDRAWAL.value,
+        description="ATM Withdrawal", amount=Decimal("-100.00"),
+        created_by_user_id=1, updated_by_user_id=1
+    )
+    async def mock_refresh(obj, attr=None): obj.id = 2
+    mock_session.refresh.side_effect = mock_refresh
+    
+    result = await bank_transaction_service.save(new_txn)
+    mock_session.add.assert_called_once_with(new_txn)
+    assert result.id == 2
+
+async def test_delete_unreconciled_transaction(bank_transaction_service: BankTransactionService, mock_session: AsyncMock, sample_bank_transaction_orm: BankTransactionModel):
+    sample_bank_transaction_orm.is_reconciled = False
+    mock_session.get.return_value = sample_bank_transaction_orm
+    
+    deleted = await bank_transaction_service.delete(1)
+    assert deleted is True
+    mock_session.delete.assert_awaited_once_with(sample_bank_transaction_orm)
+
+async def test_delete_reconciled_transaction_fails(bank_transaction_service: BankTransactionService, mock_session: AsyncMock, sample_bank_transaction_orm: BankTransactionModel):
+    sample_bank_transaction_orm.is_reconciled = True
+    mock_session.get.return_value = sample_bank_transaction_orm
+    
+    deleted = await bank_transaction_service.delete(1)
+    assert deleted is False
+    mock_session.delete.assert_not_called()
+    bank_transaction_service.logger.warning.assert_called_once()
+
+```
+
+# tests/unit/services/test_customer_service_dashboard_ext.py
+```py
+# File: tests/unit/services/test_customer_service_dashboard_ext.py
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+from typing import List
+from decimal import Decimal
+from datetime import date, timedelta
+
+from app.services.business_services import CustomerService
+from app.models.business.sales_invoice import SalesInvoice
+from app.common.enums import InvoiceStatusEnum
+from app.core.database_manager import DatabaseManager
+from app.core.application_core import ApplicationCore
+import logging
+
+pytestmark = pytest.mark.asyncio
+
+@pytest.fixture
+def mock_session() -> AsyncMock:
+    session = AsyncMock()
+    session.execute = AsyncMock()
+    return session
+
+@pytest.fixture
+def mock_db_manager(mock_session: AsyncMock) -> MagicMock:
+    db_manager = MagicMock(spec=DatabaseManager)
+    db_manager.session.return_value.__aenter__.return_value = mock_session
+    db_manager.session.return_value.__aexit__.return_value = None
+    return db_manager
+
+@pytest.fixture
+def mock_app_core() -> MagicMock:
+    app_core = MagicMock(spec=ApplicationCore)
+    app_core.logger = MagicMock(spec=logging.Logger)
+    return app_core
+    
+@pytest.fixture
+def customer_service(mock_db_manager: MagicMock, mock_app_core: MagicMock) -> CustomerService:
+    return CustomerService(db_manager=mock_db_manager, app_core=mock_app_core)
+
+def create_mock_sales_invoice(id: int, due_date: date, total_amount: Decimal, amount_paid: Decimal, status: InvoiceStatusEnum) -> MagicMock:
+    inv = MagicMock(spec=SalesInvoice)
+    inv.id = id
+    inv.due_date = due_date
+    inv.total_amount = total_amount
+    inv.amount_paid = amount_paid
+    inv.status = status.value
+    inv.invoice_date = due_date - timedelta(days=30) # Assume invoice date is 30 days before due date
+    return inv
+
+async def test_get_ar_aging_summary_no_invoices(customer_service: CustomerService, mock_session: AsyncMock):
+    mock_session.execute.return_value.scalars.return_value.all.return_value = []
+    today = date(2023, 10, 15)
+    summary = await customer_service.get_ar_aging_summary(as_of_date=today)
+    expected = {"Current": Decimal(0), "1-30 Days": Decimal(0), "31-60 Days": Decimal(0), "61-90 Days": Decimal(0), "91+ Days": Decimal(0)}
+    assert summary == expected
+
+async def test_get_ar_aging_summary_various_scenarios(customer_service: CustomerService, mock_session: AsyncMock):
+    today = date(2023, 10, 15)
+    mock_invoices = [
+        # Current (due today or future)
+        create_mock_sales_invoice(1, today, Decimal("100"), Decimal("0"), InvoiceStatusEnum.APPROVED),
+        create_mock_sales_invoice(2, today + timedelta(days=10), Decimal("50"), Decimal("0"), InvoiceStatusEnum.APPROVED),
+        # 1-30 Days Overdue
+        create_mock_sales_invoice(3, today - timedelta(days=1), Decimal("200"), Decimal("0"), InvoiceStatusEnum.OVERDUE),
+        create_mock_sales_invoice(4, today - timedelta(days=30), Decimal("150"), Decimal("50"), InvoiceStatusEnum.PARTIALLY_PAID), # Outstanding 100
+        # 31-60 Days Overdue
+        create_mock_sales_invoice(5, today - timedelta(days=31), Decimal("300"), Decimal("0"), InvoiceStatusEnum.OVERDUE),
+        create_mock_sales_invoice(6, today - timedelta(days=60), Decimal("250"), Decimal("0"), InvoiceStatusEnum.OVERDUE),
+        # 61-90 Days Overdue
+        create_mock_sales_invoice(7, today - timedelta(days=61), Decimal("400"), Decimal("100"), InvoiceStatusEnum.PARTIALLY_PAID), # Outstanding 300
+        create_mock_sales_invoice(8, today - timedelta(days=90), Decimal("350"), Decimal("0"), InvoiceStatusEnum.OVERDUE),
+        # 91+ Days Overdue
+        create_mock_sales_invoice(9, today - timedelta(days=91), Decimal("500"), Decimal("0"), InvoiceStatusEnum.OVERDUE),
+        create_mock_sales_invoice(10, today - timedelta(days=120), Decimal("450"), Decimal("0"), InvoiceStatusEnum.OVERDUE),
+        # Paid / Voided (should be ignored)
+        create_mock_sales_invoice(11, today - timedelta(days=5), Decimal("50"), Decimal("50"), InvoiceStatusEnum.PAID),
+        create_mock_sales_invoice(12, today - timedelta(days=5), Decimal("60"), Decimal("0"), InvoiceStatusEnum.VOIDED),
+    ]
+    mock_session.execute.return_value.scalars.return_value.all.return_value = mock_invoices
+    
+    summary = await customer_service.get_ar_aging_summary(as_of_date=today)
+    
+    assert summary["Current"] == Decimal("150.00") # 100 + 50
+    assert summary["1-30 Days"] == Decimal("300.00") # 200 + 100
+    assert summary["31-60 Days"] == Decimal("550.00") # 300 + 250
+    assert summary["61-90 Days"] == Decimal("650.00") # 300 + 350
+    assert summary["91+ Days"] == Decimal("950.00") # 500 + 450
+
+```
+
 # tests/unit/services/test_fiscal_period_service.py
 ```py
 # File: tests/unit/services/test_fiscal_period_service.py
@@ -1332,6 +2748,310 @@ async def test_get_fiscal_periods_for_year(
     result = await fiscal_period_service.get_fiscal_periods_for_year(1, period_type="Month")
     assert len(result) == 1
     assert result[0] == sample_period_jan_2023
+
+```
+
+# tests/unit/services/test_account_service_dashboard_ext.py
+```py
+# File: tests/unit/services/test_account_service_dashboard_ext.py
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+from typing import List
+from decimal import Decimal
+from datetime import date
+
+from app.services.account_service import AccountService
+from app.models.accounting.account import Account as AccountModel
+from app.core.database_manager import DatabaseManager
+from app.core.application_core import ApplicationCore
+from app.services.journal_service import JournalService # For mocking
+import logging
+
+pytestmark = pytest.mark.asyncio
+
+@pytest.fixture
+def mock_session() -> AsyncMock:
+    session = AsyncMock()
+    session.execute = AsyncMock()
+    return session
+
+@pytest.fixture
+def mock_db_manager(mock_session: AsyncMock) -> MagicMock:
+    db_manager = MagicMock(spec=DatabaseManager)
+    db_manager.session.return_value.__aenter__.return_value = mock_session
+    db_manager.session.return_value.__aexit__.return_value = None
+    return db_manager
+
+@pytest.fixture
+def mock_journal_service() -> AsyncMock:
+    return AsyncMock(spec=JournalService)
+
+@pytest.fixture
+def mock_app_core(mock_journal_service: AsyncMock) -> MagicMock:
+    app_core = MagicMock(spec=ApplicationCore)
+    app_core.logger = MagicMock(spec=logging.Logger)
+    app_core.journal_service = mock_journal_service # Inject mock journal_service
+    return app_core
+
+@pytest.fixture
+def account_service(mock_db_manager: MagicMock, mock_app_core: MagicMock) -> AccountService:
+    return AccountService(db_manager=mock_db_manager, app_core=mock_app_core)
+
+# Sample Accounts
+@pytest.fixture
+def current_asset_accounts() -> List[AccountModel]:
+    return [
+        AccountModel(id=1, code="1010", name="Cash", account_type="Asset", sub_type="Cash and Cash Equivalents", is_active=True, created_by_user_id=1,updated_by_user_id=1),
+        AccountModel(id=2, code="1020", name="AR", account_type="Asset", sub_type="Accounts Receivable", is_active=True, created_by_user_id=1,updated_by_user_id=1),
+        AccountModel(id=3, code="1030", name="Inventory", account_type="Asset", sub_type="Inventory", is_active=True, created_by_user_id=1,updated_by_user_id=1),
+    ]
+
+@pytest.fixture
+def current_liability_accounts() -> List[AccountModel]:
+    return [
+        AccountModel(id=4, code="2010", name="AP", account_type="Liability", sub_type="Accounts Payable", is_active=True, created_by_user_id=1,updated_by_user_id=1),
+        AccountModel(id=5, code="2020", name="GST Payable", account_type="Liability", sub_type="GST Payable", is_active=True, created_by_user_id=1,updated_by_user_id=1),
+    ]
+
+@pytest.fixture
+def non_current_asset_account() -> AccountModel:
+     return AccountModel(id=6, code="1500", name="Equipment", account_type="Asset", sub_type="Fixed Asset", is_active=True, created_by_user_id=1,updated_by_user_id=1)
+
+
+async def test_get_total_balance_current_assets(
+    account_service: AccountService, 
+    mock_session: AsyncMock, 
+    mock_journal_service: AsyncMock,
+    current_asset_accounts: List[AccountModel]
+):
+    mock_session.execute.return_value.scalars.return_value.all.return_value = current_asset_accounts
+    
+    # Mock balances for these accounts
+    def get_balance_side_effect(acc_id, as_of_date):
+        if acc_id == 1: return Decimal("1000.00")
+        if acc_id == 2: return Decimal("5000.00")
+        if acc_id == 3: return Decimal("12000.00")
+        return Decimal("0.00")
+    mock_journal_service.get_account_balance.side_effect = get_balance_side_effect
+
+    # Test for a specific subtype that matches one of the accounts
+    total = await account_service.get_total_balance_by_account_category_and_type_pattern(
+        account_category="Asset", 
+        account_type_name_like="Cash and Cash Equivalents", # Exact match for first account's sub_type
+        as_of_date=date.today()
+    )
+    assert total == Decimal("1000.00")
+
+    # Test with a pattern matching multiple accounts
+    # Reset side effect for a new call scenario
+    mock_journal_service.get_account_balance.side_effect = get_balance_side_effect
+    total_current = await account_service.get_total_balance_by_account_category_and_type_pattern(
+        account_category="Asset",
+        # Using a pattern that should ideally match multiple current asset subtypes based on your DashboardManager's lists
+        # For this test, we assume these sub_types are fetched if they match "Current Asset%"
+        # A more precise test might involve mocking specific `sub_type` names from `CURRENT_ASSET_SUBTYPES`
+        account_type_name_like="Current Asset%", # Example, this might need adjustment based on actual CoA data
+        as_of_date=date.today()
+    )
+    # This test depends on how broadly "Current Asset%" matches the sub_types in current_asset_accounts
+    # If only AccountModel(sub_type="Current Asset") existed, the result would be based on that.
+    # Given the current sample data, "Current Asset%" likely won't match any sub_type.
+    # This test highlights the dependency on the `account_type_name_like` parameter and the data.
+    # To make it robust, let's assume we are looking for "Cash and Cash Equivalents" and "Accounts Receivable"
+    # This requires a more flexible `get_total_balance_by_sub_types` or multiple calls.
+    
+    # Let's test with actual subtypes from DashboardManager's CURRENT_ASSET_SUBTYPES logic
+    # This test simulates how DashboardManager would sum up.
+    
+    # Mock setup for this specific scenario:
+    # Accounts that match CURRENT_ASSET_SUBTYPES
+    matching_accounts = [
+        AccountModel(id=1, sub_type="Cash and Cash Equivalents", account_type="Asset", is_active=True, code="CASH", name="Cash", created_by_user_id=1, updated_by_user_id=1),
+        AccountModel(id=2, sub_type="Accounts Receivable", account_type="Asset", is_active=True, code="AR", name="AR", created_by_user_id=1, updated_by_user_id=1),
+        AccountModel(id=7, sub_type="Fixed Asset", account_type="Asset", is_active=True, code="FA", name="FA", created_by_user_id=1, updated_by_user_id=1) # Non-current
+    ]
+    mock_session.execute.return_value.scalars.return_value.all.return_value = matching_accounts
+    
+    def get_balance_for_current_asset_test(acc_id, as_of_date):
+        if acc_id == 1: return Decimal("200") # Cash
+        if acc_id == 2: return Decimal("300") # AR
+        if acc_id == 7: return Decimal("1000") # FA
+        return Decimal(0)
+    mock_journal_service.get_account_balance.side_effect = get_balance_for_current_asset_test
+    
+    # Simulate DashboardManager's iteration and summation
+    from app.reporting.dashboard_manager import CURRENT_ASSET_SUBTYPES # Import the list
+    
+    calculated_current_assets = Decimal(0)
+    for acc_subtype in CURRENT_ASSET_SUBTYPES:
+        # This relies on the `account_type_name_like` to be an exact match here
+        # The actual AccountService method takes one pattern. 
+        # To test the sum for dashboard, we need to call it for each subtype or adapt it.
+        # Let's adapt the test to reflect how AccountService.get_total_balance_by_account_category_and_type_pattern
+        # would be called for a single subtype from the list.
+        
+        # Test for one specific subtype from the list
+        mock_session.execute.return_value.scalars.return_value.all.return_value = [matching_accounts[0]] # Only cash account
+        mock_journal_service.get_account_balance.side_effect = lambda acc_id, dt: Decimal("200") if acc_id == 1 else Decimal(0)
+        sum_for_cash_subtype = await account_service.get_total_balance_by_account_category_and_type_pattern(
+            account_category="Asset",
+            account_type_name_like="Cash and Cash Equivalents", # Exact subtype
+            as_of_date=date.today()
+        )
+        assert sum_for_cash_subtype == Decimal("200.00")
+
+        mock_session.execute.return_value.scalars.return_value.all.return_value = [matching_accounts[1]] # Only AR account
+        mock_journal_service.get_account_balance.side_effect = lambda acc_id, dt: Decimal("300") if acc_id == 2 else Decimal(0)
+        sum_for_ar_subtype = await account_service.get_total_balance_by_account_category_and_type_pattern(
+            account_category="Asset",
+            account_type_name_like="Accounts Receivable", # Exact subtype
+            as_of_date=date.today()
+        )
+        assert sum_for_ar_subtype == Decimal("300.00")
+
+
+async def test_get_total_balance_no_matching_accounts(
+    account_service: AccountService, mock_session: AsyncMock, mock_journal_service: AsyncMock
+):
+    mock_session.execute.return_value.scalars.return_value.all.return_value = [] # No accounts match criteria
+    
+    total = await account_service.get_total_balance_by_account_category_and_type_pattern(
+        account_category="Asset", 
+        account_type_name_like="NonExistentSubType%", 
+        as_of_date=date.today()
+    )
+    assert total == Decimal("0.00")
+    mock_journal_service.get_account_balance.assert_not_called() # Should not be called if no accounts found
+
+```
+
+# tests/unit/services/test_bank_account_service.py
+```py
+# File: tests/unit/services/test_bank_account_service.py
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+from typing import List, Optional
+from decimal import Decimal
+from datetime import date, datetime
+import logging
+
+from app.services.business_services import BankAccountService
+from app.models.business.bank_account import BankAccount as BankAccountModel
+from app.models.accounting.account import Account as AccountModel
+from app.models.accounting.currency import Currency as CurrencyModel
+from app.core.database_manager import DatabaseManager
+from app.core.application_core import ApplicationCore
+from app.utils.pydantic_models import BankAccountSummaryData
+
+pytestmark = pytest.mark.asyncio
+
+@pytest.fixture
+def mock_session() -> AsyncMock:
+    session = AsyncMock()
+    session.get = AsyncMock()
+    session.execute = AsyncMock()
+    session.add = MagicMock()
+    session.delete = MagicMock() # For BankAccount, delete means deactivate
+    session.flush = AsyncMock()
+    session.refresh = AsyncMock()
+    return session
+
+@pytest.fixture
+def mock_db_manager(mock_session: AsyncMock) -> MagicMock:
+    db_manager = MagicMock(spec=DatabaseManager)
+    db_manager.session.return_value.__aenter__.return_value = mock_session
+    db_manager.session.return_value.__aexit__.return_value = None
+    return db_manager
+
+@pytest.fixture
+def mock_app_core() -> MagicMock:
+    app_core = MagicMock(spec=ApplicationCore)
+    app_core.logger = MagicMock(spec=logging.Logger)
+    return app_core
+
+@pytest.fixture
+def bank_account_service(mock_db_manager: MagicMock, mock_app_core: MagicMock) -> BankAccountService:
+    return BankAccountService(db_manager=mock_db_manager, app_core=mock_app_core)
+
+@pytest.fixture
+def sample_gl_account_orm() -> AccountModel:
+    return AccountModel(id=101, code="1110", name="Bank GL", account_type="Asset", sub_type="Cash and Cash Equivalents", is_active=True, created_by_user_id=1, updated_by_user_id=1)
+
+@pytest.fixture
+def sample_currency_orm() -> CurrencyModel:
+    return CurrencyModel(code="SGD", name="Singapore Dollar", symbol="$", is_active=True)
+
+@pytest.fixture
+def sample_bank_account_orm(sample_gl_account_orm: AccountModel, sample_currency_orm: CurrencyModel) -> BankAccountModel:
+    return BankAccountModel(
+        id=1, account_name="DBS Current", account_number="123-456-789", bank_name="DBS Bank",
+        currency_code=sample_currency_orm.code, currency=sample_currency_orm,
+        gl_account_id=sample_gl_account_orm.id, gl_account=sample_gl_account_orm,
+        current_balance=Decimal("10000.00"), is_active=True,
+        created_by_user_id=1, updated_by_user_id=1
+    )
+
+# --- Test Cases ---
+async def test_get_bank_account_by_id_found(bank_account_service: BankAccountService, mock_session: AsyncMock, sample_bank_account_orm: BankAccountModel):
+    mock_session.execute.return_value.scalars.return_value.first.return_value = sample_bank_account_orm
+    result = await bank_account_service.get_by_id(1)
+    assert result == sample_bank_account_orm
+    assert result.account_name == "DBS Current"
+
+async def test_get_all_bank_accounts(bank_account_service: BankAccountService, mock_session: AsyncMock, sample_bank_account_orm: BankAccountModel):
+    mock_session.execute.return_value.scalars.return_value.all.return_value = [sample_bank_account_orm]
+    result = await bank_account_service.get_all()
+    assert len(result) == 1
+    assert result[0] == sample_bank_account_orm
+
+async def test_get_all_summary_filters(bank_account_service: BankAccountService, mock_session: AsyncMock, sample_bank_account_orm: BankAccountModel):
+    mock_row = MagicMock()
+    mock_row._asdict.return_value = {
+        "id": sample_bank_account_orm.id, "account_name": sample_bank_account_orm.account_name,
+        "bank_name": sample_bank_account_orm.bank_name, "account_number": sample_bank_account_orm.account_number,
+        "currency_code": sample_bank_account_orm.currency_code, "current_balance": sample_bank_account_orm.current_balance,
+        "is_active": sample_bank_account_orm.is_active, 
+        "gl_account_code": sample_bank_account_orm.gl_account.code, 
+        "gl_account_name": sample_bank_account_orm.gl_account.name
+    }
+    mock_session.execute.return_value.mappings.return_value.all.return_value = [mock_row]
+    
+    summaries = await bank_account_service.get_all_summary(active_only=True, currency_code="SGD")
+    assert len(summaries) == 1
+    assert isinstance(summaries[0], BankAccountSummaryData)
+    assert summaries[0].currency_code == "SGD"
+    # Further assertions could check the SQL query string for filter application if mock_session.execute was more detailed
+
+async def test_save_new_bank_account(bank_account_service: BankAccountService, mock_session: AsyncMock, sample_gl_account_orm: AccountModel):
+    new_ba = BankAccountModel(
+        account_name="OCBC Savings", account_number="987-654-321", bank_name="OCBC Bank",
+        currency_code="SGD", gl_account_id=sample_gl_account_orm.id, current_balance=Decimal("500.00"),
+        created_by_user_id=1, updated_by_user_id=1
+    )
+    async def mock_refresh(obj, attribute_names=None): obj.id = 2
+    mock_session.refresh.side_effect = mock_refresh
+
+    result = await bank_account_service.save(new_ba)
+    mock_session.add.assert_called_once_with(new_ba)
+    assert result.id == 2
+
+async def test_delete_active_bank_account_deactivates(bank_account_service: BankAccountService, mock_session: AsyncMock, sample_bank_account_orm: BankAccountModel):
+    sample_bank_account_orm.is_active = True
+    mock_session.get.return_value = sample_bank_account_orm
+    
+    # Mock the save call within delete
+    bank_account_service.save = AsyncMock(return_value=sample_bank_account_orm)
+
+    deleted = await bank_account_service.delete(1)
+    assert deleted is True
+    assert sample_bank_account_orm.is_active is False
+    bank_account_service.save.assert_awaited_once_with(sample_bank_account_orm)
+
+async def test_get_by_gl_account_id_found(bank_account_service: BankAccountService, mock_session: AsyncMock, sample_bank_account_orm: BankAccountModel):
+    mock_session.execute.return_value.scalars.return_value.first.return_value = sample_bank_account_orm
+    result = await bank_account_service.get_by_gl_account_id(101) # sample_gl_account_orm.id
+    assert result == sample_bank_account_orm
+    mock_session.execute.assert_awaited_once()
 
 ```
 
@@ -2016,6 +3736,200 @@ async def test_delete_reconciliation(
 
 ```
 
+# tests/unit/services/test_inventory_movement_service.py
+```py
+# File: tests/unit/services/test_inventory_movement_service.py
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+from typing import List, Optional
+from decimal import Decimal
+from datetime import date, datetime
+import logging
+
+from app.services.business_services import InventoryMovementService
+from app.models.business.inventory_movement import InventoryMovement as InventoryMovementModel
+from app.models.business.product import Product as ProductModel # For context
+from app.core.database_manager import DatabaseManager
+from app.core.application_core import ApplicationCore
+from app.common.enums import InventoryMovementTypeEnum
+
+pytestmark = pytest.mark.asyncio
+
+@pytest.fixture
+def mock_session() -> AsyncMock:
+    session = AsyncMock()
+    session.get = AsyncMock()
+    session.execute = AsyncMock()
+    session.add = MagicMock()
+    session.delete = AsyncMock()
+    session.flush = AsyncMock()
+    session.refresh = AsyncMock()
+    return session
+
+@pytest.fixture
+def mock_db_manager(mock_session: AsyncMock) -> MagicMock:
+    db_manager = MagicMock(spec=DatabaseManager)
+    db_manager.session.return_value.__aenter__.return_value = mock_session
+    db_manager.session.return_value.__aexit__.return_value = None
+    return db_manager
+
+@pytest.fixture
+def mock_app_core() -> MagicMock:
+    app_core = MagicMock(spec=ApplicationCore)
+    app_core.logger = MagicMock(spec=logging.Logger)
+    return app_core
+
+@pytest.fixture
+def inventory_movement_service(mock_db_manager: MagicMock, mock_app_core: MagicMock) -> InventoryMovementService:
+    return InventoryMovementService(db_manager=mock_db_manager, app_core=mock_app_core)
+
+@pytest.fixture
+def sample_product_orm() -> ProductModel:
+    return ProductModel(id=1, product_code="ITEM001", name="Test Item", product_type="Inventory", created_by_user_id=1, updated_by_user_id=1)
+
+@pytest.fixture
+def sample_inventory_movement_orm(sample_product_orm: ProductModel) -> InventoryMovementModel:
+    return InventoryMovementModel(
+        id=1, product_id=sample_product_orm.id, 
+        movement_date=date(2023, 1, 10),
+        movement_type=InventoryMovementTypeEnum.PURCHASE.value,
+        quantity=Decimal("10.00"), unit_cost=Decimal("5.00"), total_cost=Decimal("50.00"),
+        created_by_user_id=1
+    )
+
+# --- Test Cases ---
+async def test_get_movement_by_id_found(inventory_movement_service: InventoryMovementService, mock_session: AsyncMock, sample_inventory_movement_orm: InventoryMovementModel):
+    mock_session.get.return_value = sample_inventory_movement_orm
+    result = await inventory_movement_service.get_by_id(1)
+    assert result == sample_inventory_movement_orm
+
+async def test_get_all_movements(inventory_movement_service: InventoryMovementService, mock_session: AsyncMock, sample_inventory_movement_orm: InventoryMovementModel):
+    mock_session.execute.return_value.scalars.return_value.all.return_value = [sample_inventory_movement_orm]
+    result = await inventory_movement_service.get_all()
+    assert len(result) == 1
+    assert result[0] == sample_inventory_movement_orm
+
+async def test_save_new_movement(inventory_movement_service: InventoryMovementService, mock_session: AsyncMock, sample_product_orm: ProductModel):
+    new_movement = InventoryMovementModel(
+        product_id=sample_product_orm.id, movement_date=date(2023, 2, 2),
+        movement_type=InventoryMovementTypeEnum.SALE.value, quantity=Decimal("-2.00"),
+        unit_cost=Decimal("5.00"), total_cost=Decimal("10.00"),
+        created_by_user_id=1
+    )
+    async def mock_refresh(obj, attr=None): obj.id = 2
+    mock_session.refresh.side_effect = mock_refresh
+    
+    result = await inventory_movement_service.save(new_movement)
+    mock_session.add.assert_called_once_with(new_movement)
+    assert result.id == 2
+
+async def test_save_movement_with_explicit_session(inventory_movement_service: InventoryMovementService, mock_session: AsyncMock, sample_inventory_movement_orm: InventoryMovementModel):
+    # Pass the session explicitly
+    result = await inventory_movement_service.save(sample_inventory_movement_orm, session=mock_session)
+    mock_session.add.assert_called_once_with(sample_inventory_movement_orm)
+    assert result == sample_inventory_movement_orm
+
+async def test_delete_movement(inventory_movement_service: InventoryMovementService, mock_session: AsyncMock, sample_inventory_movement_orm: InventoryMovementModel):
+    mock_session.get.return_value = sample_inventory_movement_orm
+    deleted = await inventory_movement_service.delete(1)
+    assert deleted is True
+    mock_session.delete.assert_awaited_once_with(sample_inventory_movement_orm)
+    inventory_movement_service.logger.warning.assert_called_once() # Check for warning log
+
+```
+
+# tests/unit/services/test_gst_return_service.py
+```py
+# File: tests/unit/services/test_gst_return_service.py
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+from typing import List, Optional
+from decimal import Decimal
+from datetime import date, datetime
+
+from app.services.tax_service import GSTReturnService
+from app.models.accounting.gst_return import GSTReturn as GSTReturnModel
+from app.models.core.user import User as UserModel
+from app.core.database_manager import DatabaseManager
+from app.core.application_core import ApplicationCore
+from app.common.enums import GSTReturnStatusEnum
+import logging
+
+pytestmark = pytest.mark.asyncio
+
+@pytest.fixture
+def mock_session() -> AsyncMock:
+    session = AsyncMock(); session.get = AsyncMock(); session.execute = AsyncMock()
+    session.add = MagicMock(); session.delete = AsyncMock(); session.flush = AsyncMock()
+    session.refresh = AsyncMock()
+    return session
+
+@pytest.fixture
+def mock_db_manager(mock_session: AsyncMock) -> MagicMock:
+    db_manager = MagicMock(spec=DatabaseManager)
+    db_manager.session.return_value.__aenter__.return_value = mock_session
+    db_manager.session.return_value.__aexit__.return_value = None
+    return db_manager
+
+@pytest.fixture
+def mock_user() -> MagicMock:
+    user = MagicMock(spec=UserModel); user.id = 1; return user
+
+@pytest.fixture
+def mock_app_core(mock_user: MagicMock) -> MagicMock:
+    app_core = MagicMock(spec=ApplicationCore); app_core.logger = MagicMock(spec=logging.Logger)
+    app_core.current_user = mock_user
+    return app_core
+
+@pytest.fixture
+def gst_return_service(mock_db_manager: MagicMock, mock_app_core: MagicMock) -> GSTReturnService:
+    return GSTReturnService(db_manager=mock_db_manager, app_core=mock_app_core)
+
+@pytest.fixture
+def sample_gst_return_draft() -> GSTReturnModel:
+    return GSTReturnModel(
+        id=1, return_period="Q1/2023", start_date=date(2023,1,1), end_date=date(2023,3,31),
+        filing_due_date=date(2023,4,30), status=GSTReturnStatusEnum.DRAFT.value,
+        output_tax=Decimal("1000.00"), input_tax=Decimal("300.00"), tax_payable=Decimal("700.00"),
+        created_by_user_id=1, updated_by_user_id=1
+    )
+
+async def test_get_gst_return_by_id_found(gst_return_service: GSTReturnService, mock_session: AsyncMock, sample_gst_return_draft: GSTReturnModel):
+    mock_session.get.return_value = sample_gst_return_draft
+    result = await gst_return_service.get_by_id(1) # get_gst_return calls get_by_id
+    assert result == sample_gst_return_draft
+
+async def test_save_new_gst_return(gst_return_service: GSTReturnService, mock_session: AsyncMock, mock_user: MagicMock):
+    new_return = GSTReturnModel(
+        return_period="Q2/2023", start_date=date(2023,4,1), end_date=date(2023,6,30),
+        status=GSTReturnStatusEnum.DRAFT.value, output_tax=Decimal("1200"), input_tax=Decimal("400"), tax_payable=Decimal("800")
+        # user_ids will be set by service
+    )
+    async def mock_refresh(obj, attr=None): obj.id=2
+    mock_session.refresh.side_effect = mock_refresh
+
+    result = await gst_return_service.save_gst_return(new_return)
+    assert result.id == 2
+    assert result.created_by_user_id == mock_user.id
+    assert result.updated_by_user_id == mock_user.id
+    mock_session.add.assert_called_once_with(new_return)
+
+async def test_delete_draft_gst_return(gst_return_service: GSTReturnService, mock_session: AsyncMock, sample_gst_return_draft: GSTReturnModel):
+    sample_gst_return_draft.status = GSTReturnStatusEnum.DRAFT.value
+    mock_session.get.return_value = sample_gst_return_draft
+    deleted = await gst_return_service.delete(1)
+    assert deleted is True
+    mock_session.delete.assert_awaited_once_with(sample_gst_return_draft)
+
+async def test_delete_submitted_gst_return_fails(gst_return_service: GSTReturnService, mock_session: AsyncMock, sample_gst_return_draft: GSTReturnModel):
+    sample_gst_return_draft.status = GSTReturnStatusEnum.SUBMITTED.value
+    mock_session.get.return_value = sample_gst_return_draft
+    deleted = await gst_return_service.delete(1)
+    assert deleted is False
+    mock_session.delete.assert_not_called()
+
+```
+
 # tests/unit/services/test_sequence_service.py
 ```py
 # File: tests/unit/services/test_sequence_service.py
@@ -2347,6 +4261,586 @@ async def test_get_fy_by_date_overlap_exclude_id(
     # To properly test exclude_id, the mock for session.execute would need to be more sophisticated
     # to check the WHERE clause of the statement passed to it. For now, this ensures it's called.
     mock_session.execute.assert_awaited_once()
+
+```
+
+# tests/unit/reporting/test_dashboard_manager.py
+```py
+# File: tests/unit/reporting/test_dashboard_manager.py
+import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
+from decimal import Decimal
+from datetime import date
+
+from app.reporting.dashboard_manager import DashboardManager, CURRENT_ASSET_SUBTYPES, CURRENT_LIABILITY_SUBTYPES
+from app.utils.pydantic_models import DashboardKPIData
+from app.models.core.company_setting import CompanySetting as CompanySettingModel
+from app.models.accounting.fiscal_year import FiscalYear as FiscalYearModel
+from app.models.business.bank_account import BankAccount as BankAccountModel # For BankAccountSummaryData mock
+from app.utils.pydantic_models import BankAccountSummaryData # For _get_total_cash_balance mock
+from app.models.accounting.account import Account as AccountModel
+
+
+# Mark all tests in this module as asyncio
+pytestmark = pytest.mark.asyncio
+
+@pytest.fixture
+def mock_app_core() -> MagicMock:
+    """Fixture to create a mock ApplicationCore with mocked services."""
+    app_core = MagicMock(spec_set=["company_settings_service", "fiscal_year_service", 
+                                   "financial_statement_generator", "bank_account_service", 
+                                   "customer_service", "vendor_service", 
+                                   "account_service", "journal_service", "logger",
+                                   "configuration_service"]) # Added configuration_service
+    
+    app_core.company_settings_service = AsyncMock()
+    app_core.fiscal_year_service = AsyncMock()
+    app_core.financial_statement_generator = AsyncMock()
+    app_core.bank_account_service = AsyncMock()
+    app_core.customer_service = AsyncMock()
+    app_core.vendor_service = AsyncMock()
+    app_core.account_service = AsyncMock()
+    app_core.journal_service = AsyncMock()
+    app_core.configuration_service = AsyncMock() # Mock for configuration service
+    app_core.logger = MagicMock()
+    return app_core
+
+@pytest.fixture
+def dashboard_manager(mock_app_core: MagicMock) -> DashboardManager:
+    """Fixture to create a DashboardManager instance."""
+    return DashboardManager(app_core=mock_app_core)
+
+# --- Tests for _get_total_cash_balance ---
+async def test_get_total_cash_balance_no_accounts(dashboard_manager: DashboardManager, mock_app_core: MagicMock):
+    mock_app_core.bank_account_service.get_all_summary.return_value = []
+    mock_app_core.configuration_service.get_config_value.return_value = "1110" # Example cash GL
+    mock_app_core.account_service.get_by_code.return_value = None # No cash GL account
+
+    balance = await dashboard_manager._get_total_cash_balance("SGD")
+    assert balance == Decimal("0")
+
+async def test_get_total_cash_balance_with_bank_accounts(dashboard_manager: DashboardManager, mock_app_core: MagicMock):
+    mock_bank_accounts = [
+        BankAccountSummaryData(id=1, account_name="B1", bank_name="BankA", account_number="111", currency_code="SGD", current_balance=Decimal("1000.50"), gl_account_code="1010", is_active=True),
+        BankAccountSummaryData(id=2, account_name="B2", bank_name="BankB", account_number="222", currency_code="SGD", current_balance=Decimal("500.25"), gl_account_code="1011", is_active=True),
+        BankAccountSummaryData(id=3, account_name="B3", bank_name="BankC", account_number="333", currency_code="USD", current_balance=Decimal("200.00"), gl_account_code="1012", is_active=True), # Different currency
+    ]
+    mock_app_core.bank_account_service.get_all_summary.return_value = mock_bank_accounts
+    mock_app_core.configuration_service.get_config_value.return_value = None # No separate cash GL
+
+    balance = await dashboard_manager._get_total_cash_balance("SGD")
+    assert balance == Decimal("1500.75")
+
+async def test_get_total_cash_balance_with_cash_gl(dashboard_manager: DashboardManager, mock_app_core: MagicMock):
+    mock_app_core.bank_account_service.get_all_summary.return_value = [] # No bank accounts
+    
+    mock_cash_gl = AccountModel(id=5, code="1110", name="Cash On Hand", account_type="Asset", sub_type="Cash and Cash Equivalents", is_active=True, created_by_user_id=1, updated_by_user_id=1)
+    mock_app_core.configuration_service.get_config_value.return_value = "1110"
+    mock_app_core.account_service.get_by_code.return_value = mock_cash_gl
+    mock_app_core.bank_account_service.get_by_gl_account_id.return_value = None # Cash GL not linked to a bank account
+    mock_app_core.journal_service.get_account_balance.return_value = Decimal("50.00")
+
+    balance = await dashboard_manager._get_total_cash_balance("SGD")
+    assert balance == Decimal("50.00")
+
+async def test_get_total_cash_balance_cash_gl_linked_to_bank(dashboard_manager: DashboardManager, mock_app_core: MagicMock):
+    mock_bank_account_linked_to_cash_gl = BankAccountSummaryData(id=1, account_name="Main SGD", bank_name="DBS", account_number="123", currency_code="SGD", current_balance=Decimal("100.00"), gl_account_code="1110", gl_account_name="Cash On Hand", is_active=True)
+    mock_app_core.bank_account_service.get_all_summary.return_value = [mock_bank_account_linked_to_cash_gl]
+    
+    mock_cash_gl = AccountModel(id=5, code="1110", name="Cash On Hand", account_type="Asset", sub_type="Cash and Cash Equivalents", is_active=True, created_by_user_id=1, updated_by_user_id=1)
+    mock_app_core.configuration_service.get_config_value.return_value = "1110"
+    mock_app_core.account_service.get_by_code.return_value = mock_cash_gl
+    # Simulate that this GL account IS linked to a bank account (the one we already summed)
+    mock_app_core.bank_account_service.get_by_gl_account_id.return_value = BankAccountModel(id=1, gl_account_id=5, account_name="Main SGD", account_number="123", bank_name="DBS", currency_code="SGD", created_by_user_id=1,updated_by_user_id=1)
+
+    balance = await dashboard_manager._get_total_cash_balance("SGD")
+    assert balance == Decimal("100.00") # Should not double count
+
+# --- Tests for get_dashboard_kpis ---
+@pytest.fixture
+def mock_kpi_dependencies(mock_app_core: MagicMock):
+    mock_app_core.company_settings_service.get_company_settings.return_value = CompanySettingModel(id=1, company_name="Test Co", base_currency="SGD", fiscal_year_start_month=1, fiscal_year_start_day=1, updated_by_user_id=1)
+    mock_app_core.fiscal_year_service.get_all.return_value = [
+        FiscalYearModel(id=1, year_name="FY2023", start_date=date(2023,1,1), end_date=date(2023,12,31), is_closed=False, created_by_user_id=1, updated_by_user_id=1)
+    ]
+    mock_app_core.financial_statement_generator.generate_profit_loss.return_value = {
+        "revenue": {"total": Decimal("120000")},
+        "expenses": {"total": Decimal("80000")},
+        "net_profit": Decimal("40000")
+    }
+    # Mock _get_total_cash_balance directly for this test's focus
+    # Patching an async method of an instance requires careful setup if not mocking the instance itself
+    # For simplicity, let's assume _get_total_cash_balance is called and returns a value
+    
+    mock_app_core.customer_service.get_total_outstanding_balance.return_value = Decimal("15000")
+    mock_app_core.customer_service.get_total_overdue_balance.return_value = Decimal("5000")
+    mock_app_core.customer_service.get_ar_aging_summary.return_value = {
+        "Current": Decimal("10000"), "1-30 Days": Decimal("3000"), 
+        "31-60 Days": Decimal("1500"), "61-90 Days": Decimal("500"), "91+ Days": Decimal(0)
+    }
+    mock_app_core.vendor_service.get_total_outstanding_balance.return_value = Decimal("8000")
+    mock_app_core.vendor_service.get_total_overdue_balance.return_value = Decimal("2000")
+    mock_app_core.vendor_service.get_ap_aging_summary.return_value = {
+        "Current": Decimal("6000"), "1-30 Days": Decimal("1000"), 
+        "31-60 Days": Decimal("700"), "61-90 Days": Decimal("300"), "91+ Days": Decimal(0)
+    }
+    # Mock account fetching for Current Ratio
+    mock_app_core.account_service.get_all_active.return_value = [
+        AccountModel(id=10, code="CA1", name="Current Asset 1", account_type="Asset", sub_type="Current Asset", is_active=True, created_by_user_id=1, updated_by_user_id=1),
+        AccountModel(id=11, code="CA2", name="Bank", account_type="Asset", sub_type="Cash and Cash Equivalents", is_active=True, created_by_user_id=1, updated_by_user_id=1),
+        AccountModel(id=20, code="CL1", name="Current Liability 1", account_type="Liability", sub_type="Current Liability", is_active=True, created_by_user_id=1, updated_by_user_id=1),
+        AccountModel(id=21, code="CL2", name="AP Control", account_type="Liability", sub_type="Accounts Payable", is_active=True, created_by_user_id=1, updated_by_user_id=1),
+        AccountModel(id=30, code="NCA1", name="Fixed Asset", account_type="Asset", sub_type="Fixed Asset", is_active=True, created_by_user_id=1, updated_by_user_id=1),
+    ]
+    # Mock journal_service.get_account_balance calls
+    def mock_get_balance(acc_id, as_of_date):
+        if acc_id == 10: return Decimal("50000") # CA1
+        if acc_id == 11: return Decimal("30000") # CA2 (Bank)
+        if acc_id == 20: return Decimal("20000") # CL1
+        if acc_id == 21: return Decimal("10000") # CL2 (AP)
+        if acc_id == 30: return Decimal("100000") # NCA1
+        return Decimal(0)
+    mock_app_core.journal_service.get_account_balance.side_effect = mock_get_balance
+    
+    # Mock for cash balance method if not testing it directly here
+    # This needs to be an async mock if _get_total_cash_balance is async
+    # For simplicity, we mock the result it contributes to.
+    # Or, we can make _get_total_cash_balance a synchronous helper if it only orchestrates async calls.
+    # Let's assume it's async for now and patch it.
+    
+async def test_get_dashboard_kpis_full_data(dashboard_manager: DashboardManager, mock_app_core: MagicMock, mock_kpi_dependencies):
+    # Patch the _get_total_cash_balance method for this specific test
+    with patch.object(dashboard_manager, '_get_total_cash_balance', AsyncMock(return_value=Decimal("30000"))) as mock_cash_balance_method:
+        kpis = await dashboard_manager.get_dashboard_kpis()
+
+    assert kpis is not None
+    assert kpis.kpi_period_description.startswith("YTD as of")
+    assert kpis.base_currency == "SGD"
+    assert kpis.total_revenue_ytd == Decimal("120000")
+    assert kpis.total_expenses_ytd == Decimal("80000")
+    assert kpis.net_profit_ytd == Decimal("40000")
+    
+    mock_cash_balance_method.assert_awaited_once_with("SGD")
+    assert kpis.current_cash_balance == Decimal("30000") # From patched method
+
+    assert kpis.total_outstanding_ar == Decimal("15000")
+    assert kpis.total_ar_overdue == Decimal("5000")
+    assert kpis.ar_aging_current == Decimal("10000")
+    assert kpis.ar_aging_1_30 == Decimal("3000")
+    
+    assert kpis.total_outstanding_ap == Decimal("8000")
+    assert kpis.total_ap_overdue == Decimal("2000")
+    assert kpis.ap_aging_current == Decimal("6000")
+    assert kpis.ap_aging_1_30 == Decimal("1000")
+
+    # Current Assets = CA1 (50000) + CA2 (30000) = 80000
+    # Current Liabilities = CL1 (20000) + CL2 (10000) = 30000
+    # Current Ratio = 80000 / 30000 = 2.666... -> 2.67
+    assert kpis.total_current_assets == Decimal("80000.00")
+    assert kpis.total_current_liabilities == Decimal("30000.00")
+    assert kpis.current_ratio == Decimal("2.67") # 80000 / 30000
+
+async def test_get_dashboard_kpis_no_fiscal_year(dashboard_manager: DashboardManager, mock_app_core: MagicMock, mock_kpi_dependencies):
+    mock_app_core.fiscal_year_service.get_all.return_value = [] # No fiscal years
+    
+    with patch.object(dashboard_manager, '_get_total_cash_balance', AsyncMock(return_value=Decimal("100"))):
+        kpis = await dashboard_manager.get_dashboard_kpis()
+
+    assert kpis is not None
+    assert kpis.kpi_period_description.endswith("(No active FY)")
+    assert kpis.total_revenue_ytd == Decimal("0") # Default if no FY
+    assert kpis.net_profit_ytd == Decimal("0")
+
+async def test_get_dashboard_kpis_current_ratio_zero_liabilities(dashboard_manager: DashboardManager, mock_app_core: MagicMock, mock_kpi_dependencies):
+    # Override AccountService.get_all_active and JournalService.get_account_balance for this case
+    mock_app_core.account_service.get_all_active.return_value = [
+        AccountModel(id=10, code="CA1", name="Current Asset 1", account_type="Asset", sub_type="Current Asset", is_active=True, created_by_user_id=1, updated_by_user_id=1)
+    ]
+    mock_app_core.journal_service.get_account_balance.side_effect = lambda acc_id, as_of_date: Decimal("50000") if acc_id == 10 else Decimal(0)
+
+    with patch.object(dashboard_manager, '_get_total_cash_balance', AsyncMock(return_value=Decimal("0"))):
+        kpis = await dashboard_manager.get_dashboard_kpis()
+    
+    assert kpis is not None
+    assert kpis.total_current_assets == Decimal("50000.00")
+    assert kpis.total_current_liabilities == Decimal("0.00")
+    assert kpis.current_ratio == Decimal('Infinity') # Or None if we prefer to represent it that way in DTO
+    # My DTO stores current_ratio: Optional[Decimal], manager sets it to Decimal('Infinity') then DTO field is Optional.
+    # Pydantic might convert Decimal('Infinity') to float('inf'). The DashboardWidget then handles display.
+    # This needs to be consistent. Let's say manager sets `current_ratio = None` if liabilities are zero.
+    # I updated DashboardManager to set current_ratio to Decimal('Infinity') if L=0 and A>0.
+    # The DTO DashboardKPIData current_ratio field is Optional[Decimal].
+    # The _format_decimal_for_display handles is_finite(), so this should become "N/A (Infinite)"
+
+```
+
+# tests/unit/reporting/test_financial_statement_generator.py.bak
+```bak
+# File: tests/unit/reporting/test_financial_statement_generator.py
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+from typing import List, Dict, Any, Optional
+from decimal import Decimal
+from datetime import date
+
+from app.reporting.financial_statement_generator import FinancialStatementGenerator
+from app.models.accounting.account import Account as AccountModel
+from app.models.accounting.account_type import AccountType as AccountTypeModel
+from app.models.accounting.fiscal_year import FiscalYear as FiscalYearModel
+from app.models.core.company_setting import CompanySetting as CompanySettingModel
+# Services to mock
+from app.services.account_service import AccountService
+from app.services.journal_service import JournalService
+from app.services.fiscal_period_service import FiscalPeriodService
+from app.services.accounting_services import AccountTypeService, DimensionService
+from app.services.tax_service import TaxCodeService
+from app.services.core_services import CompanySettingsService
+
+pytestmark = pytest.mark.asyncio
+
+@pytest.fixture
+def mock_account_service() -> AsyncMock: return AsyncMock(spec=AccountService)
+@pytest.fixture
+def mock_journal_service() -> AsyncMock: return AsyncMock(spec=JournalService)
+@pytest.fixture
+def mock_fiscal_period_service() -> AsyncMock: return AsyncMock(spec=FiscalPeriodService)
+@pytest.fixture
+def mock_account_type_service() -> AsyncMock: return AsyncMock(spec=AccountTypeService)
+@pytest.fixture
+def mock_tax_code_service() -> AsyncMock: return AsyncMock(spec=TaxCodeService)
+@pytest.fixture
+def mock_company_settings_service() -> AsyncMock: return AsyncMock(spec=CompanySettingsService)
+@pytest.fixture
+def mock_dimension_service() -> AsyncMock: return AsyncMock(spec=DimensionService)
+
+
+@pytest.fixture
+def fs_generator(
+    mock_account_service: AsyncMock, mock_journal_service: AsyncMock,
+    mock_fiscal_period_service: AsyncMock, mock_account_type_service: AsyncMock,
+    mock_tax_code_service: AsyncMock, mock_company_settings_service: AsyncMock,
+    mock_dimension_service: AsyncMock
+) -> FinancialStatementGenerator:
+    return FinancialStatementGenerator(
+        account_service=mock_account_service, journal_service=mock_journal_service,
+        fiscal_period_service=mock_fiscal_period_service, account_type_service=mock_account_type_service,
+        tax_code_service=mock_tax_code_service, company_settings_service=mock_company_settings_service,
+        dimension_service=mock_dimension_service
+    )
+
+# Sample ORM objects
+@pytest.fixture
+def asset_account_type() -> AccountTypeModel:
+    return AccountTypeModel(id=1, name="Current Asset", category="Asset", is_debit_balance=True, report_type="BS", display_order=1)
+@pytest.fixture
+def liability_account_type() -> AccountTypeModel:
+    return AccountTypeModel(id=2, name="Current Liability", category="Liability", is_debit_balance=False, report_type="BS", display_order=2)
+@pytest.fixture
+def equity_account_type() -> AccountTypeModel:
+    return AccountTypeModel(id=3, name="Share Capital", category="Equity", is_debit_balance=False, report_type="BS", display_order=3)
+@pytest.fixture
+def revenue_account_type() -> AccountTypeModel:
+    return AccountTypeModel(id=4, name="Sales Revenue", category="Revenue", is_debit_balance=False, report_type="PL", display_order=4)
+@pytest.fixture
+def expense_account_type() -> AccountTypeModel:
+    return AccountTypeModel(id=5, name="Rent Expense", category="Expense", is_debit_balance=True, report_type="PL", display_order=5)
+
+@pytest.fixture
+def sample_accounts(asset_account_type, liability_account_type, equity_account_type, revenue_account_type, expense_account_type) -> List[AccountModel]:
+    # Account.account_type stores the category, Account.sub_type stores the AccountType.name
+    return [
+        AccountModel(id=1, code="1010", name="Cash", account_type="Asset", sub_type="Current Asset", is_active=True, created_by_user_id=1,updated_by_user_id=1),
+        AccountModel(id=2, code="2010", name="AP", account_type="Liability", sub_type="Current Liability", is_active=True, created_by_user_id=1,updated_by_user_id=1),
+        AccountModel(id=3, code="3010", name="Capital", account_type="Equity", sub_type="Share Capital", is_active=True, created_by_user_id=1,updated_by_user_id=1),
+        AccountModel(id=4, code="4010", name="Sales", account_type="Revenue", sub_type="Sales Revenue", is_active=True, created_by_user_id=1,updated_by_user_id=1),
+        AccountModel(id=5, code="5010", name="Rent", account_type="Expense", sub_type="Rent Expense", is_active=True, created_by_user_id=1,updated_by_user_id=1),
+    ]
+
+async def test_generate_trial_balance(fs_generator: FinancialStatementGenerator, mock_account_service: AsyncMock, mock_journal_service: AsyncMock, sample_accounts: List[AccountModel]):
+    as_of = date(2023,12,31)
+    mock_account_service.get_all_active.return_value = sample_accounts
+    
+    def get_balance_side_effect(acc_id, dt):
+        if acc_id == 1: return Decimal("1000") # Cash - Debit
+        if acc_id == 2: return Decimal("-1500") # AP - Credit (JournalService returns signed, FSG flips for display)
+        if acc_id == 3: return Decimal("-500")  # Capital - Credit
+        if acc_id == 4: return Decimal("-2000") # Sales - Credit
+        if acc_id == 5: return Decimal("1000")  # Rent - Debit
+        return Decimal(0)
+    mock_journal_service.get_account_balance.side_effect = get_balance_side_effect
+    
+    # Mock AccountTypeService for _get_account_type_map
+    mock_account_type_service = fs_generator.account_type_service
+    mock_account_type_service.get_all.return_value = [ # type: ignore
+        AccountTypeModel(category="Asset", is_debit_balance=True, name="N/A", id=0, display_order=0, report_type="N/A"), 
+        AccountTypeModel(category="Liability", is_debit_balance=False, name="N/A", id=0, display_order=0, report_type="N/A"),
+        AccountTypeModel(category="Equity", is_debit_balance=False, name="N/A", id=0, display_order=0, report_type="N/A"),
+        AccountTypeModel(category="Revenue", is_debit_balance=False, name="N/A", id=0, display_order=0, report_type="N/A"),
+        AccountTypeModel(category="Expense", is_debit_balance=True, name="N/A", id=0, display_order=0, report_type="N/A")
+    ]
+
+
+    tb_data = await fs_generator.generate_trial_balance(as_of)
+
+    assert tb_data['title'] == "Trial Balance"
+    assert tb_data['total_debits'] == Decimal("2000.00") # 1000 Cash + 1000 Rent
+    assert tb_data['total_credits'] == Decimal("4000.00") # 1500 AP + 500 Capital + 2000 Sales
+    assert tb_data['is_balanced'] is False # Based on these numbers
+
+    # Check if accounts are in correct columns
+    debit_codes = [acc['code'] for acc in tb_data['debit_accounts']]
+    credit_codes = [acc['code'] for acc in tb_data['credit_accounts']]
+    assert "1010" in debit_codes
+    assert "5010" in debit_codes
+    assert "2010" in credit_codes
+    assert "3010" in credit_codes
+    assert "4010" in credit_codes
+
+
+async def test_generate_balance_sheet(fs_generator: FinancialStatementGenerator, mock_account_service: AsyncMock, mock_journal_service: AsyncMock, sample_accounts: List[AccountModel]):
+    as_of = date(2023,12,31)
+    mock_account_service.get_all_active.return_value = sample_accounts
+    
+    def get_balance_side_effect(acc_id, dt): # Balances for BS
+        if acc_id == 1: return Decimal("1000") # Cash
+        if acc_id == 2: return Decimal("-1500")# AP
+        if acc_id == 3: return Decimal("-500") # Capital
+        return Decimal(0) # Revenue/Expense not on BS directly
+    mock_journal_service.get_account_balance.side_effect = get_balance_side_effect
+    mock_account_type_service = fs_generator.account_type_service
+    mock_account_type_service.get_all.return_value = [ # type: ignore
+        AccountTypeModel(category="Asset", is_debit_balance=True, name="N/A", id=0, display_order=0, report_type="N/A"), 
+        AccountTypeModel(category="Liability", is_debit_balance=False, name="N/A", id=0, display_order=0, report_type="N/A"),
+        AccountTypeModel(category="Equity", is_debit_balance=False, name="N/A", id=0, display_order=0, report_type="N/A")
+    ]
+
+    bs_data = await fs_generator.generate_balance_sheet(as_of)
+
+    assert bs_data['assets']['total'] == Decimal("1000.00")
+    assert bs_data['liabilities']['total'] == Decimal("1500.00") # Note: -1500 becomes 1500 due to !is_debit_nature
+    assert bs_data['equity']['total'] == Decimal("500.00")
+    assert bs_data['total_liabilities_equity'] == Decimal("2000.00")
+    assert bs_data['is_balanced'] is False # 1000 != 2000
+
+async def test_generate_profit_loss(fs_generator: FinancialStatementGenerator, mock_account_service: AsyncMock, mock_journal_service: AsyncMock, sample_accounts: List[AccountModel]):
+    start_date, end_date = date(2023,1,1), date(2023,12,31)
+    mock_account_service.get_all_active.return_value = sample_accounts
+
+    def get_period_activity_side_effect(acc_id, sd, ed): # Balances for P&L (period activity)
+        if acc_id == 4: return Decimal("-2000") # Sales (credit balance shown as positive revenue)
+        if acc_id == 5: return Decimal("1000")  # Rent (debit balance shown as positive expense)
+        return Decimal(0) # Assets/Liab/Equity not on P&L directly
+    mock_journal_service.get_account_balance_for_period.side_effect = get_period_activity_side_effect
+    mock_account_type_service = fs_generator.account_type_service
+    mock_account_type_service.get_all.return_value = [ # type: ignore
+        AccountTypeModel(category="Revenue", is_debit_balance=False, name="N/A", id=0, display_order=0, report_type="N/A"),
+        AccountTypeModel(category="Expense", is_debit_balance=True, name="N/A", id=0, display_order=0, report_type="N/A")
+    ]
+
+    pl_data = await fs_generator.generate_profit_loss(start_date, end_date)
+    
+    assert pl_data['revenue']['total'] == Decimal("2000.00") # Note: -2000 becomes 2000
+    assert pl_data['expenses']['total'] == Decimal("1000.00")
+    assert pl_data['net_profit'] == Decimal("1000.00") # 2000 - 1000
+
+```
+
+# tests/unit/reporting/test_financial_statement_generator.py
+```py
+# File: tests/unit/reporting/test_financial_statement_generator.py
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+from typing import List, Dict, Any, Optional
+from decimal import Decimal
+from datetime import date
+
+from app.reporting.financial_statement_generator import FinancialStatementGenerator
+from app.models.accounting.account import Account as AccountModel
+from app.models.accounting.account_type import AccountType as AccountTypeModel
+from app.models.accounting.fiscal_year import FiscalYear as FiscalYearModel
+from app.models.accounting.fiscal_period import FiscalPeriod as FiscalPeriodModel
+from app.models.core.company_setting import CompanySetting as CompanySettingModel
+from app.models.accounting.journal_entry import JournalEntry as JournalEntryModel, JournalEntryLine as JournalEntryLineModel
+from app.models.accounting.dimension import Dimension as DimensionModel
+
+# Service Mocks
+from app.services.account_service import AccountService
+from app.services.journal_service import JournalService
+from app.services.fiscal_period_service import FiscalPeriodService
+from app.services.accounting_services import AccountTypeService, DimensionService
+from app.services.tax_service import TaxCodeService 
+from app.services.core_services import CompanySettingsService 
+
+pytestmark = pytest.mark.asyncio
+
+@pytest.fixture
+def mock_account_service() -> AsyncMock: return AsyncMock(spec=AccountService)
+@pytest.fixture
+def mock_journal_service() -> AsyncMock: return AsyncMock(spec=JournalService)
+@pytest.fixture
+def mock_fiscal_period_service() -> AsyncMock: return AsyncMock(spec=FiscalPeriodService)
+@pytest.fixture
+def mock_account_type_service() -> AsyncMock: return AsyncMock(spec=AccountTypeService)
+@pytest.fixture
+def mock_tax_code_service() -> AsyncMock: return AsyncMock(spec=TaxCodeService) # Optional
+@pytest.fixture
+def mock_company_settings_service() -> AsyncMock: return AsyncMock(spec=CompanySettingsService) # Optional
+@pytest.fixture
+def mock_dimension_service() -> AsyncMock: return AsyncMock(spec=DimensionService) # Optional
+
+@pytest.fixture
+def fs_generator(
+    mock_account_service: AsyncMock, mock_journal_service: AsyncMock,
+    mock_fiscal_period_service: AsyncMock, mock_account_type_service: AsyncMock,
+    mock_tax_code_service: AsyncMock, mock_company_settings_service: AsyncMock,
+    mock_dimension_service: AsyncMock
+) -> FinancialStatementGenerator:
+    return FinancialStatementGenerator(
+        account_service=mock_account_service, journal_service=mock_journal_service,
+        fiscal_period_service=mock_fiscal_period_service, account_type_service=mock_account_type_service,
+        tax_code_service=mock_tax_code_service, company_settings_service=mock_company_settings_service,
+        dimension_service=mock_dimension_service
+    )
+
+# --- Sample ORM Data ---
+@pytest.fixture
+def sample_account_types() -> List[AccountTypeModel]:
+    return [
+        AccountTypeModel(id=1, name="Cash Equivalents", category="Asset", is_debit_balance=True, report_type="BS", display_order=1),
+        AccountTypeModel(id=2, name="Accounts Payable", category="Liability", is_debit_balance=False, report_type="BS", display_order=2),
+        AccountTypeModel(id=3, name="Retained Earnings", category="Equity", is_debit_balance=False, report_type="BS", display_order=3),
+        AccountTypeModel(id=4, name="Product Sales", category="Revenue", is_debit_balance=False, report_type="PL", display_order=4),
+        AccountTypeModel(id=5, name="Operating Expenses", category="Expense", is_debit_balance=True, report_type="PL", display_order=5),
+        AccountTypeModel(id=6, name="Current Asset", category="Asset", is_debit_balance=True, report_type="BS", display_order=0), # Generic
+        AccountTypeModel(id=7, name="Current Liability", category="Liability", is_debit_balance=False, report_type="BS", display_order=0) # Generic
+    ]
+
+@pytest.fixture
+def sample_accounts_for_fs(sample_account_types: List[AccountTypeModel]) -> List[AccountModel]:
+    # Account.account_type stores the category (Asset, Liability etc.)
+    # Account.sub_type stores the specific AccountType.name (Cash Equivalents, Accounts Payable etc.)
+    return [
+        AccountModel(id=1, code="1010", name="Cash in Bank", account_type="Asset", sub_type="Cash Equivalents", is_active=True, opening_balance=Decimal(0),created_by_user_id=1,updated_by_user_id=1),
+        AccountModel(id=2, code="1020", name="Accounts Receivable", account_type="Asset", sub_type="Current Asset", is_active=True, opening_balance=Decimal(0),created_by_user_id=1,updated_by_user_id=1),
+        AccountModel(id=3, code="2010", name="Trade Payables", account_type="Liability", sub_type="Accounts Payable", is_active=True, opening_balance=Decimal(0),created_by_user_id=1,updated_by_user_id=1),
+        AccountModel(id=4, code="3010", name="Share Capital", account_type="Equity", sub_type="Retained Earnings", is_active=True, opening_balance=Decimal(0),created_by_user_id=1,updated_by_user_id=1), # Using RE as subtype example
+        AccountModel(id=5, code="4010", name="Product Revenue", account_type="Revenue", sub_type="Product Sales", is_active=True, opening_balance=Decimal(0),created_by_user_id=1,updated_by_user_id=1),
+        AccountModel(id=6, code="5010", name="Rent Expense", account_type="Expense", sub_type="Operating Expenses", is_active=True, opening_balance=Decimal(0),created_by_user_id=1,updated_by_user_id=1),
+    ]
+
+# --- Test Cases ---
+
+async def test_get_account_type_map_caching(fs_generator: FinancialStatementGenerator, mock_account_type_service: AsyncMock, sample_account_types: List[AccountTypeModel]):
+    mock_account_type_service.get_all.return_value = sample_account_types
+    
+    # First call
+    await fs_generator._get_account_type_map()
+    mock_account_type_service.get_all.assert_awaited_once()
+    
+    # Second call should use cache
+    await fs_generator._get_account_type_map()
+    mock_account_type_service.get_all.assert_awaited_once() # Still called only once
+
+async def test_calculate_balances_correct_sign(fs_generator: FinancialStatementGenerator, mock_journal_service: AsyncMock, sample_accounts_for_fs: List[AccountModel], sample_account_types: List[AccountTypeModel]):
+    as_of = date(2023,12,31)
+    # Mock get_all for _get_account_type_map
+    fs_generator.account_type_service.get_all = AsyncMock(return_value=sample_account_types) # type: ignore
+
+    # Mock balances: Cash (Asset, debit nature) = +100, AP (Liability, credit nature) = -50 (GL balance), Sales (Revenue, credit nature) = -200
+    mock_journal_service.get_account_balance.side_effect = lambda acc_id, dt: {1: Decimal(100), 3: Decimal(-50), 5: Decimal(-200)}.get(acc_id, Decimal(0))
+
+    accounts_to_test = [
+        next(acc for acc in sample_accounts_for_fs if acc.id == 1), # Cash
+        next(acc for acc in sample_accounts_for_fs if acc.id == 3), # AP
+        next(acc for acc in sample_accounts_for_fs if acc.id == 5), # Sales
+    ]
+    results = await fs_generator._calculate_account_balances_for_report(accounts_to_test, as_of)
+    
+    assert next(r['balance'] for r in results if r['id'] == 1) == Decimal(100)  # Asset, debit nature, positive stays positive
+    assert next(r['balance'] for r in results if r['id'] == 3) == Decimal(50)   # Liability, credit nature, GL -50 becomes +50 for report
+    assert next(r['balance'] for r in results if r['id'] == 5) == Decimal(200)  # Revenue, credit nature, GL -200 becomes +200 for report
+
+
+async def test_generate_trial_balance(fs_generator: FinancialStatementGenerator, mock_account_service: AsyncMock, mock_journal_service: AsyncMock, sample_accounts_for_fs, sample_account_types):
+    as_of = date(2023,12,31)
+    mock_account_service.get_all_active.return_value = sample_accounts_for_fs
+    fs_generator.account_type_service.get_all = AsyncMock(return_value=sample_account_types) # type: ignore
+
+    # Cash +100 (D), AR +200 (D), AP -150 (C), Capital -50 (C), Sales -300 (C), Rent +100 (D)
+    # Debits: 100 + 200 + 100 = 400
+    # Credits: 150 + 50 + 300 = 500 => Unbalanced
+    mock_journal_service.get_account_balance.side_effect = lambda id, dt: {
+        1: Decimal("100"), 2: Decimal("200"), 3: Decimal("-150"), 
+        4: Decimal("-50"), 5: Decimal("-300"), 6: Decimal("100")
+    }.get(id, Decimal(0))
+
+    tb_data = await fs_generator.generate_trial_balance(as_of)
+    assert tb_data['total_debits'] == Decimal("400.00")
+    assert tb_data['total_credits'] == Decimal("500.00")
+    assert tb_data['is_balanced'] is False
+
+async def test_generate_balance_sheet_simple(fs_generator: FinancialStatementGenerator, mock_account_service: AsyncMock, mock_journal_service: AsyncMock, sample_accounts_for_fs, sample_account_types):
+    as_of = date(2023,12,31)
+    mock_account_service.get_all_active.return_value = sample_accounts_for_fs
+    fs_generator.account_type_service.get_all = AsyncMock(return_value=sample_account_types) # type: ignore
+    
+    # Cash +1000, AR +2000 => Assets = 3000
+    # AP -1500 => Liabilities = 1500
+    # Capital -500 => Equity = 500
+    # L+E = 2000. Assets = 3000. Unbalanced.
+    mock_journal_service.get_account_balance.side_effect = lambda id, dt: {
+        1: Decimal("1000"), 2: Decimal("2000"), 
+        3: Decimal("-1500"), 4: Decimal("-500") 
+    }.get(id, Decimal(0))
+
+    bs_data = await fs_generator.generate_balance_sheet(as_of)
+    assert bs_data['assets']['total'] == Decimal("3000.00")
+    assert bs_data['liabilities']['total'] == Decimal("1500.00")
+    assert bs_data['equity']['total'] == Decimal("500.00")
+    assert bs_data['total_liabilities_equity'] == Decimal("2000.00")
+    assert bs_data['is_balanced'] is False
+
+async def test_generate_profit_loss_simple(fs_generator: FinancialStatementGenerator, mock_account_service: AsyncMock, mock_journal_service: AsyncMock, sample_accounts_for_fs, sample_account_types):
+    start_date, end_date = date(2023,1,1), date(2023,12,31)
+    mock_account_service.get_all_active.return_value = sample_accounts_for_fs
+    fs_generator.account_type_service.get_all = AsyncMock(return_value=sample_account_types) # type: ignore
+
+    # Sales (Revenue) activity -20000 (so +20000 for report)
+    # Rent (Expense) activity +5000 (so +5000 for report)
+    # Net Profit = 20000 - 5000 = 15000
+    mock_journal_service.get_account_balance_for_period.side_effect = lambda id, sd, ed: {
+        5: Decimal("-20000"), # Product Revenue (ID 5)
+        6: Decimal("5000")    # Rent Expense (ID 6)
+    }.get(id, Decimal(0))
+
+    pl_data = await fs_generator.generate_profit_loss(start_date, end_date)
+    assert pl_data['revenue']['total'] == Decimal("20000.00")
+    assert pl_data['expenses']['total'] == Decimal("5000.00")
+    assert pl_data['net_profit'] == Decimal("15000.00")
+
+async def test_generate_general_ledger(fs_generator: FinancialStatementGenerator, mock_account_service: AsyncMock, mock_journal_service: AsyncMock, sample_accounts_for_fs):
+    target_account = next(acc for acc in sample_accounts_for_fs if acc.id == 1) # Cash account
+    start_date, end_date = date(2023,1,1), date(2023,1,31)
+    
+    mock_account_service.get_by_id.return_value = target_account
+    mock_journal_service.get_account_balance.return_value = Decimal("100.00") # Opening balance as of Dec 31, 2022
+
+    mock_lines = [
+        MagicMock(spec=JournalEntryLineModel, journal_entry=MagicMock(spec=JournalEntryModel, entry_date=date(2023,1,5), entry_no="JE001", description="Cash Sale"), description="LineDesc1", debit_amount=Decimal("200"), credit_amount=Decimal(0)),
+        MagicMock(spec=JournalEntryLineModel, journal_entry=MagicMock(spec=JournalEntryModel, entry_date=date(2023,1,10), entry_no="JE002", description="Paid Rent"), description="LineDesc2", debit_amount=Decimal(0), credit_amount=Decimal("50")),
+    ]
+    mock_journal_service.get_posted_lines_for_account_in_range.return_value = mock_lines
+    
+    gl_data = await fs_generator.generate_general_ledger(1, start_date, end_date)
+
+    assert gl_data['account_code'] == "1010"
+    assert gl_data['opening_balance'] == Decimal("100.00")
+    assert len(gl_data['transactions']) == 2
+    assert gl_data['transactions'][0]['debit'] == Decimal("200")
+    assert gl_data['transactions'][0]['balance'] == Decimal("300.00") # 100 + 200
+    assert gl_data['transactions'][1]['credit'] == Decimal("50")
+    assert gl_data['transactions'][1]['balance'] == Decimal("250.00") # 300 - 50
+    assert gl_data['closing_balance'] == Decimal("250.00")
 
 ```
 

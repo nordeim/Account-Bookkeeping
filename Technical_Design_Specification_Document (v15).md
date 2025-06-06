@@ -1,12 +1,12 @@
-# Technical Design Specification Document: SG Bookkeeper (v16)
+# Technical Design Specification Document: SG Bookkeeper (v15)
 
-**Version:** 16.0
-**Date:** 2025-06-06
+**Version:** 15.0
+**Date:** 2025-06-04
 
 ## 1. Introduction
 
 ### 1.1 Purpose
-This Technical Design Specification (TDS) document, version **16.0**, provides a detailed and up-to-date overview of the SG Bookkeeper application's technical design and implementation. It reflects the current state of the project, incorporating architectural decisions, component structures, and functionalities up to schema version **1.0.5**. This version specifically details refinements and enhancements to:
+This Technical Design Specification (TDS) document, version **15.0**, provides a detailed and up-to-date overview of the SG Bookkeeper application's technical design and implementation. It reflects the current state of the project, incorporating architectural decisions, component structures, and functionalities up to schema version **1.0.5**. This version specifically details refinements and enhancements to:
 *   **Bank Reconciliation Module**: Comprehensive UI and backend logic for reconciling bank statements, including CSV import, draft reconciliation persistence, provisional matching/unmatching of transactions, creating adjustment journal entries, finalizing reconciliations, and viewing history of finalized reconciliations.
 *   **Automated Bank Transaction Creation from Journal Entries**: Posting a journal entry that affects a bank-linked GL account now automatically generates a corresponding system bank transaction.
 *   **Dashboard KPIs (Enhanced)**: Display of key financial indicators including YTD P&L figures, cash balance, AR/AP totals (outstanding and overdue), detailed AR/AP Aging summaries, and Current Ratio.
@@ -34,7 +34,7 @@ This TDS covers the following aspects of the SG Bookkeeper application:
 SG Bookkeeper is a cross-platform desktop application engineered with Python, utilizing PySide6 for its graphical user interface and PostgreSQL for robust data storage. It is designed to provide comprehensive accounting solutions for Singaporean Small to Medium-sized Businesses (SMBs). Key features include a full double-entry bookkeeping system, Singapore-specific GST management (including F5 return preparation with detailed export), interactive financial reporting, modules for managing essential business operations (Customers, Vendors, Products/Services, full Sales & Purchase Invoicing lifecycle, Payments with allocations), Bank Account management with manual transaction entry, CSV bank statement import, a full bank reconciliation module with draft persistence, provisional matching/unmatching capabilities, and history viewing. It also features an enhanced dashboard displaying AR/AP aging summaries and current ratio KPIs, alongside comprehensive system administration for Users, Roles, Permissions, and Audit Log viewing. The application emphasizes data integrity, compliance with local accounting standards, user-friendliness, and robust auditability.
 
 ### 1.5 Current Implementation Status
-As of version 16.0 (reflecting schema v1.0.5):
+As of version 15.0 (reflecting schema v1.0.5):
 *   All features listed in the previous TDS iteration (covering initial bank rec, CSV import, auto bank txns from JEs, basic dashboard) are implemented.
 *   **Enhanced Banking Features (Bank Reconciliation Refinements)**:
     *   **Draft Reconciliation Persistence**: Reconciliations can be started and saved in a "Draft" state. When a user returns to a bank account/statement date combination with an existing draft, it's loaded.
@@ -322,9 +322,9 @@ Interface definitions for services are updated to reflect new functionalities:
     1.  Clone repository.
     2.  Install dependencies: `poetry install`.
     3.  Configure database connection in `config.ini` (located in a platform-specific user config directory). Create `config.ini` from `config.example.ini` if it doesn't exist, ensuring correct database credentials and name.
-    4.  Initialize database: `poetry run sg_bookkeeper_db_init --user <pg_admin_user> ...`. This executes `scripts/schema.sql` (DDL, v1.0.5) and `scripts/initial_data.sql` (seeding roles, permissions, default user, system accounts, etc.). Refer to `scripts/db_init.py` for all command-line arguments.
+    4.  Initialize database: `poetry run sg_bookkeeper_db_init --user <pg_admin_user> ...`. This executes `scripts/schema.sql` (DDL, v1.0.5) and `scripts/initial_data.sql` (seeding roles, permissions, default user, system accounts, etc.).
 -   **Execution**: `poetry run sg_bookkeeper`.
--   Refer to `README.md` for more detailed user-facing installation instructions.
+-   Refer to `README.md` and potentially a separate `deployment_guide.md` for more detailed user-facing instructions.
 
 ## 9. Data Flow Examples
 
@@ -381,7 +381,4 @@ Interface definitions for services are updated to reflect new functionalities:
 
 ## 10. Conclusion (Updated)
 Version 15 of SG Bookkeeper significantly refines the Bank Reconciliation module by introducing persistent draft sessions with provisional matching and unmatching capabilities, leading to a more robust and user-friendly reconciliation experience. The Dashboard has been enhanced with crucial AR/AP Aging summaries and the Current Ratio, providing deeper financial insights at a glance. Continuous architectural improvements, such as the resolution of circular import dependencies, strengthen the codebase's maintainability and stability. These features further solidify SG Bookkeeper as a comprehensive accounting tool for SMBs. Future work will focus on expanding automated test coverage, potentially handling more complex reconciliation matching scenarios (e.g., many-to-one), and further enriching dashboard and reporting functionalities based on user feedback and evolving business needs.
-
----
-https://drive.google.com/file/d/160xDsKvPVAoauLYynWiBe9NHBnZdTL8J/view?usp=sharing, https://drive.google.com/file/d/18TtNiuwMgTDNao0zAFm09n-jytG2YUGz/view?usp=sharing, https://aistudio.google.com/app/prompts?state=%7B%22ids%22:%5B%221C3YLnRKPRGzPZnYLR1QTk7UWEwAsh3Nz%22%5D,%22action%22:%22open%22,%22userId%22:%22103961307342447084491%22,%22resourceKeys%22:%7B%7D%7D&usp=sharing, https://drive.google.com/file/d/1Ca9966PXKMDnjAxCsyT8OmVM2CPRlb-7/view?usp=sharing, https://drive.google.com/file/d/1JQqsPW16CEQ_KOYug004UPmNUP8BkdJ-/view?usp=sharing, https://drive.google.com/file/d/1Uej9gO7t12EkmldGnw5jk_V_fDjhTJMw/view?usp=sharing, https://drive.google.com/file/d/1ZsmOW6huYvGv9eyPviU1VZzh2YZqtxgW/view?usp=sharing, https://drive.google.com/file/d/1azUf7bWoZO_Niu3T7P81Vg8osVNEAvdG/view?usp=sharing, https://drive.google.com/file/d/1bI33CCtQPwhzoEUl854m3V002dxflsWg/view?usp=sharing, https://drive.google.com/file/d/1eFLuD4rI0YIctcHcXtE_aGXdEI19KS7A/view?usp=sharing, https://drive.google.com/file/d/1i0d3rPoQdMDESiN3d1xl0HwlhxsW8IKA/view?usp=sharing, https://drive.google.com/file/d/1peEbFNwTqJse_rI4-Cr6AHJC5VkdMEyJ/view?usp=sharing, https://drive.google.com/file/d/1wiAxnIzKK89xeuNXnUIwze7jX3IRpmh0/view?usp=sharing, https://drive.google.com/file/d/1z8Ad5AKfM2zETmgHi_8lWviUGZCQl1bF/view?usp=sharing
 
