@@ -24,7 +24,7 @@ from .pydantic_models import (
     BankReconciliationBaseData, BankReconciliationCreateData, BankReconciliationData,
     BankReconciliationSummaryData,
     DashboardKPIData,
-    CSVImportErrorData # New DTO export
+    CSVImportErrorData
 )
 from .result import Result
 from .sequence_generator import SequenceGenerator
@@ -54,6 +54,6 @@ __all__ = [
     "BankReconciliationBaseData", "BankReconciliationCreateData", "BankReconciliationData",
     "BankReconciliationSummaryData",
     "DashboardKPIData",
-    "CSVImportErrorData", # New DTO export
+    "CSVImportErrorData",
     "Result", "SequenceGenerator", "is_valid_uen"
 ]

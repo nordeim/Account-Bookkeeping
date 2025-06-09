@@ -15,7 +15,6 @@ from app.main import schedule_task_from_qt
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore 
-    # from PySide6.QtGui import QPaintDevice # QPaintDevice not directly used, can be removed
 
 class DashboardWidget(QWidget):
     def __init__(self, app_core: "ApplicationCore", parent: Optional[QWidget] = None): 
@@ -63,8 +62,8 @@ class DashboardWidget(QWidget):
         self.kpi_layout.setSpacing(10)
         self.kpi_layout.setColumnStretch(1, 1) 
         self.kpi_layout.setColumnStretch(3, 1) 
-        self.kpi_layout.setColumnMinimumWidth(0, 200) 
-        self.kpi_layout.setColumnMinimumWidth(2, 200) 
+        self.kpi_layout.setColumnMinimumWidth(0, 220) 
+        self.kpi_layout.setColumnMinimumWidth(2, 220) 
 
 
         def add_kpi_row(layout: QGridLayout, row: int, col_offset: int, title: str) -> QLabel:
@@ -94,7 +93,11 @@ class DashboardWidget(QWidget):
         self.current_ratio_label = add_kpi_row(self.kpi_layout, current_row, 2, "Current Ratio:") 
         current_row += 1
         self.net_profit_value_label = add_kpi_row(self.kpi_layout, current_row, 0, "Net Profit / (Loss) (YTD):")
-        current_row += 1 
+        self.quick_ratio_label = add_kpi_row(self.kpi_layout, current_row, 2, "Quick Ratio (Acid Test):")
+        current_row += 1
+        
+        self.debt_to_equity_label = add_kpi_row(self.kpi_layout, current_row, 2, "Debt-to-Equity Ratio:")
+        current_row += 1
 
         self.kpi_layout.addWidget(QLabel("---"), current_row, 0, 1, 4) 
         current_row += 1
@@ -127,7 +130,6 @@ class DashboardWidget(QWidget):
         
         container_layout.addStretch() 
 
-
     def _format_decimal_for_display(self, value: Optional[Decimal], currency_symbol: str = "") -> str:
         if value is None:
             return "N/A"
@@ -139,6 +141,13 @@ class DashboardWidget(QWidget):
         except (TypeError, InvalidOperation): 
             return f"{prefix}Error"
 
+    def _format_ratio_for_display(self, value: Optional[Decimal]) -> str:
+        if value is None: return "N/A"
+        try:
+            if not isinstance(value, Decimal) : value = Decimal(str(value))
+            if not value.is_finite(): return "N/A (Infinite)" 
+            return f"{value:.2f} : 1"
+        except (TypeError, InvalidOperation): return "Error"
 
     @Slot()
     def _request_kpi_load(self):
@@ -154,7 +163,7 @@ class DashboardWidget(QWidget):
             self.ar_aging_61_90_label, self.ar_aging_91_plus_label,
             self.ap_aging_current_label, self.ap_aging_1_30_label, self.ap_aging_31_60_label, 
             self.ap_aging_61_90_label, self.ap_aging_91_plus_label,
-            self.current_ratio_label
+            self.current_ratio_label, self.quick_ratio_label, self.debt_to_equity_label
         ]
         for label in labels_to_reset:
             if hasattr(self, 'app_core') and self.app_core and hasattr(self.app_core, 'logger'): 
@@ -174,7 +183,7 @@ class DashboardWidget(QWidget):
 
     async def _fetch_kpis_data(self):
         self.app_core.logger.info("DashboardWidget: _fetch_kpis_data started.")
-        kpi_data_result: Optional[DashboardKPIData] = None # This holds the DTO instance
+        kpi_data_result: Optional[DashboardKPIData] = None
         json_payload: Optional[str] = None
         try:
             if not self.app_core.dashboard_manager:
@@ -183,16 +192,14 @@ class DashboardWidget(QWidget):
                 kpi_data_result = await self.app_core.dashboard_manager.get_dashboard_kpis()
                 if kpi_data_result:
                     self.app_core.logger.info(f"DashboardWidget: Fetched KPI data: Period='{kpi_data_result.kpi_period_description}', Revenue='{kpi_data_result.total_revenue_ytd}'")
-                    json_payload = kpi_data_result.model_dump_json() # Corrected: use kpi_data_result
+                    json_payload = kpi_data_result.model_dump_json()
                 else:
                     self.app_core.logger.warning("DashboardWidget: DashboardManager.get_dashboard_kpis returned None.")
         except Exception as e:
             self.app_core.logger.error(f"DashboardWidget: Exception in _fetch_kpis_data during manager call: {e}", exc_info=True)
         
         self.app_core.logger.info(f"DashboardWidget: Queuing _update_kpi_display_slot with payload: {'JSON string' if json_payload else 'None'}")
-        QMetaObject.invokeMethod(self, "_update_kpi_display_slot", 
-                                 Qt.ConnectionType.QueuedConnection, 
-                                 Q_ARG(str, json_payload if json_payload is not None else ""))
+        QMetaObject.invokeMethod(self, "_update_kpi_display_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, json_payload if json_payload is not None else ""))
 
     @Slot(str)
     def _update_kpi_display_slot(self, kpi_data_json_str: str):
@@ -236,20 +243,15 @@ class DashboardWidget(QWidget):
             self.ap_aging_61_90_label.setText(self._format_decimal_for_display(kpi_data_dto.ap_aging_61_90, bc_symbol))
             self.ap_aging_91_plus_label.setText(self._format_decimal_for_display(kpi_data_dto.ap_aging_91_plus, bc_symbol))
             
-            # Current Ratio
-            if kpi_data_dto.current_ratio is None:
-                self.current_ratio_label.setText("N/A")
-            elif not kpi_data_dto.current_ratio.is_finite(): 
-                self.current_ratio_label.setText("N/A (Infinite)")
-            else:
-                self.current_ratio_label.setText(f"{kpi_data_dto.current_ratio:.2f} : 1")
+            # Ratios
+            self.current_ratio_label.setText(self._format_ratio_for_display(kpi_data_dto.current_ratio))
+            self.quick_ratio_label.setText(self._format_ratio_for_display(kpi_data_dto.quick_ratio))
+            self.debt_to_equity_label.setText(self._format_ratio_for_display(kpi_data_dto.debt_to_equity_ratio))
 
             self.app_core.logger.info("DashboardWidget: UI labels updated with KPI data.")
         else:
             self.app_core.logger.warning("DashboardWidget: _update_kpi_display_slot called with no valid DTO. Setting error text.")
             error_text = "N/A - Data unavailable"
-            self.period_label.setText("Period: N/A")
-            self.base_currency_label.setText("Currency: N/A")
             for label in [self.revenue_value_label, self.expenses_value_label, self.net_profit_value_label,
                           self.cash_balance_value_label, self.ar_value_label, self.ap_value_label,
                           self.ar_overdue_value_label, self.ap_overdue_value_label,
@@ -257,7 +259,9 @@ class DashboardWidget(QWidget):
                           self.ar_aging_61_90_label, self.ar_aging_91_plus_label,
                           self.ap_aging_current_label, self.ap_aging_1_30_label, self.ap_aging_31_60_label,
                           self.ap_aging_61_90_label, self.ap_aging_91_plus_label,
-                          self.current_ratio_label]:
+                          self.current_ratio_label, self.quick_ratio_label, self.debt_to_equity_label]:
                 label.setText(error_text)
+            self.period_label.setText("Period: N/A")
+            self.base_currency_label.setText("Currency: N/A")
             if kpi_data_json_str: 
                  QMessageBox.warning(self, "Dashboard Data Error", "Could not process Key Performance Indicators data.")
