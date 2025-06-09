@@ -1,0 +1,4 @@
+$ /opt/brave.com/brave/brave-browser 
+[28068:28068:0609/085020.067398:FATAL:sandbox/linux/services/credentials.cc:134] Check failed: . : Permission denied (13)
+/opt/brave.com/brave/brave-browser: line 39: 28068 Trace/breakpoint trap   (core dumped) "$HERE/brave" "$@"
+
