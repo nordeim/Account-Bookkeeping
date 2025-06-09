@@ -3,12 +3,6 @@ from typing import List, Dict, Any, Optional, TYPE_CHECKING
 from datetime import date, timedelta 
 from decimal import Decimal
 
-# REMOVED: from app.services.account_service import AccountService
-# REMOVED: from app.services.journal_service import JournalService
-# REMOVED: from app.services.fiscal_period_service import FiscalPeriodService
-# REMOVED: from app.services.tax_service import TaxCodeService 
-# REMOVED: from app.services.core_services import CompanySettingsService 
-# REMOVED: from app.services.accounting_services import AccountTypeService, DimensionService 
 from app.models.accounting.account import Account 
 from app.models.accounting.fiscal_year import FiscalYear
 from app.models.accounting.account_type import AccountType 
@@ -16,12 +10,12 @@ from app.models.accounting.journal_entry import JournalEntryLine
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore 
-    from app.services.account_service import AccountService # ADDED
-    from app.services.journal_service import JournalService # ADDED
-    from app.services.fiscal_period_service import FiscalPeriodService # ADDED
-    from app.services.tax_service import TaxCodeService # ADDED
-    from app.services.core_services import CompanySettingsService # ADDED
-    from app.services.accounting_services import AccountTypeService, DimensionService # ADDED
+    from app.services.account_service import AccountService
+    from app.services.journal_service import JournalService
+    from app.services.fiscal_period_service import FiscalPeriodService
+    from app.services.tax_service import TaxCodeService
+    from app.services.core_services import CompanySettingsService, ConfigurationService
+    from app.services.accounting_services import AccountTypeService, DimensionService
 
 
 class FinancialStatementGenerator:
@@ -32,7 +26,8 @@ class FinancialStatementGenerator:
                  account_type_service: "AccountTypeService", 
                  tax_code_service: Optional["TaxCodeService"] = None, 
                  company_settings_service: Optional["CompanySettingsService"] = None,
-                 dimension_service: Optional["DimensionService"] = None 
+                 dimension_service: Optional["DimensionService"] = None,
+                 configuration_service: Optional["ConfigurationService"] = None
                  ):
         self.account_service = account_service
         self.journal_service = journal_service
@@ -41,6 +36,7 @@ class FinancialStatementGenerator:
         self.tax_code_service = tax_code_service
         self.company_settings_service = company_settings_service
         self.dimension_service = dimension_service 
+        self.configuration_service = configuration_service
         self._account_type_map_cache: Optional[Dict[str, AccountType]] = None
 
 
@@ -108,21 +104,59 @@ class FinancialStatementGenerator:
         debit_accounts_list.sort(key=lambda a: a['code']); credit_accounts_list.sort(key=lambda a: a['code'])
         return {'title': 'Trial Balance', 'report_date_description': f"As of {as_of_date.strftime('%d %b %Y')}",'as_of_date': as_of_date,'debit_accounts': debit_accounts_list, 'credit_accounts': credit_accounts_list,'total_debits': total_debits_val, 'total_credits': total_credits_val,'is_balanced': abs(total_debits_val - total_credits_val) < Decimal("0.01")}
 
-    async def generate_income_tax_computation(self, year_int_value: int) -> Dict[str, Any]: 
-        fiscal_year_obj: Optional[FiscalYear] = await self.fiscal_period_service.get_fiscal_year(year_int_value) 
-        if not fiscal_year_obj: raise ValueError(f"Fiscal year definition for {year_int_value} not found.")
-        start_date, end_date = fiscal_year_obj.start_date, fiscal_year_obj.end_date
-        pl_data = await self.generate_profit_loss(start_date, end_date); net_profit = pl_data['net_profit']
-        adjustments = []; tax_effect = Decimal(0)
-        tax_adj_accounts = await self.account_service.get_accounts_by_tax_treatment('Tax Adjustment')
-        for account in tax_adj_accounts:
+    async def generate_income_tax_computation(self, fiscal_year: FiscalYear) -> Dict[str, Any]:
+        if not self.configuration_service:
+            raise RuntimeError("ConfigurationService not available for tax computation.")
+            
+        start_date, end_date = fiscal_year.start_date, fiscal_year.end_date
+        
+        pl_data = await self.generate_profit_loss(start_date, end_date)
+        net_profit_before_tax = pl_data.get('net_profit', Decimal(0))
+
+        add_back_adjustments: List[Dict[str, Any]] = []
+        less_adjustments: List[Dict[str, Any]] = []
+        total_add_back = Decimal(0)
+        total_less = Decimal(0)
+
+        non_deductible_accounts = await self.account_service.get_accounts_by_tax_treatment('Non-Deductible')
+        for account in non_deductible_accounts:
             activity = await self.journal_service.get_account_balance_for_period(account.id, start_date, end_date)
-            if abs(activity) < Decimal("0.01"): continue
-            adj_is_addition = activity > Decimal(0) if account.account_type == 'Expense' else activity < Decimal(0)
-            adjustments.append({'id': account.id, 'code': account.code, 'name': account.name, 'amount': activity, 'is_addition': adj_is_addition})
-            tax_effect += activity 
-        taxable_income = net_profit + tax_effect
-        return {'title': f'Income Tax Computation for Year of Assessment {year_int_value + 1}', 'report_date_description': f"For Financial Year Ended {fiscal_year_obj.end_date.strftime('%d %b %Y')}",'year': year_int_value, 'fiscal_year_start': start_date, 'fiscal_year_end': end_date,'net_profit': net_profit, 'adjustments': adjustments, 'tax_effect': tax_effect, 'taxable_income': taxable_income}
+            if activity != Decimal(0):
+                add_back_adjustments.append({'name': f"{account.code} - {account.name}", 'amount': activity})
+                total_add_back += activity
+
+        non_taxable_accounts = await self.account_service.get_accounts_by_tax_treatment('Non-Taxable Income')
+        for account in non_taxable_accounts:
+            activity = await self.journal_service.get_account_balance_for_period(account.id, start_date, end_date)
+            if activity != Decimal(0):
+                # Revenue has negative balance, so activity is negative. We subtract a negative -> add.
+                # To show it as a subtraction, we use the absolute value.
+                less_adjustments.append({'name': f"{account.code} - {account.name}", 'amount': abs(activity)})
+                total_less += abs(activity)
+        
+        chargeable_income = net_profit_before_tax + total_add_back - total_less
+        
+        tax_rate_str = await self.configuration_service.get_config_value("CorpTaxRate_Default", "17.0")
+        tax_rate = Decimal(tax_rate_str if tax_rate_str else "17.0")
+        
+        # Note: This is a simplified calculation. Real tax computation involves capital allowances, PTE, etc.
+        estimated_tax = chargeable_income * (tax_rate / Decimal(100))
+        if estimated_tax < 0:
+            estimated_tax = Decimal(0)
+
+        return {
+            'title': 'Income Tax Computation',
+            'report_date_description': f"For Financial Year Ended {fiscal_year.end_date.strftime('%d %b %Y')}",
+            'fiscal_year_name': fiscal_year.year_name,
+            'net_profit_before_tax': net_profit_before_tax,
+            'add_back_adjustments': add_back_adjustments,
+            'total_add_back': total_add_back,
+            'less_adjustments': less_adjustments,
+            'total_less': total_less,
+            'chargeable_income': chargeable_income,
+            'tax_rate': tax_rate,
+            'estimated_tax': estimated_tax
+        }
 
     async def generate_gst_f5(self, start_date: date, end_date: date) -> Dict[str, Any]:
         if not self.company_settings_service or not self.tax_code_service: raise RuntimeError("TaxCodeService and CompanySettingsService are required for GST F5.")
@@ -183,7 +217,6 @@ class FinancialStatementGenerator:
         if dimension2_id and self.dimension_service:
             dim2 = await self.dimension_service.get_by_id(dimension2_id)
             if dim2: report_desc += f" (Dim2: {dim2.dimension_type}-{dim2.code})"
-
 
         return {
             "title": "General Ledger", "report_date_description": report_desc,

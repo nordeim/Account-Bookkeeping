@@ -1,4 +1,4 @@
-# app/ui/reports/reports_widget.py
+# File: app/ui/reports/reports_widget.py
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QDateEdit, QPushButton, QFormLayout, 
     QLineEdit, QGroupBox, QHBoxLayout, QMessageBox, QSpacerItem, QSizePolicy,
@@ -18,11 +18,12 @@ from datetime import date as python_date, timedelta
 from app.core.application_core import ApplicationCore
 from app.main import schedule_task_from_qt
 from app.utils.json_helpers import json_converter, json_date_hook
-from app.utils.pydantic_models import GSTReturnData, GSTTransactionLineDetail 
+from app.utils.pydantic_models import GSTReturnData, GSTTransactionLineDetail, FiscalYearData 
 from app.utils.result import Result 
 from app.models.accounting.gst_return import GSTReturn 
 from app.models.accounting.account import Account 
 from app.models.accounting.dimension import Dimension 
+from app.models.accounting.fiscal_year import FiscalYear
 
 from .trial_balance_table_model import TrialBalanceTableModel
 from .general_ledger_table_model import GeneralLedgerTableModel
@@ -40,6 +41,7 @@ class ReportsWidget(QWidget):
         self._gl_accounts_cache: List[Dict[str, Any]] = [] 
         self._dimension_types_cache: List[str] = []
         self._dimension_codes_cache: Dict[str, List[Dict[str, Any]]] = {} 
+        self._fiscal_years_cache: List[FiscalYearData] = []
 
         self.icon_path_prefix = "resources/icons/" 
         try:
@@ -57,17 +59,16 @@ class ReportsWidget(QWidget):
         self._create_financial_statements_tab()
         
         self.setLayout(self.main_layout)
+        # Load data required for filter combos
+        QTimer.singleShot(0, lambda: schedule_task_from_qt(self._load_fs_combo_data()))
 
     def _format_decimal_for_display(self, value: Optional[Decimal], default_str: str = "0.00", show_blank_for_zero: bool = False) -> str:
-        if value is None:
-            return default_str if not show_blank_for_zero else ""
+        if value is None: return default_str if not show_blank_for_zero else ""
         try:
-            d_value = Decimal(str(value)) 
-            if show_blank_for_zero and d_value.is_zero(): 
-                return ""
+            d_value = Decimal(str(value)); 
+            if show_blank_for_zero and d_value.is_zero(): return ""
             return f"{d_value:,.2f}"
-        except (InvalidOperation, TypeError):
-            return "Error" 
+        except (InvalidOperation, TypeError): return "Error" 
 
     def _create_gst_f5_tab(self):
         gst_f5_widget = QWidget(); gst_f5_main_layout = QVBoxLayout(gst_f5_widget); gst_f5_group = QGroupBox("GST F5 Return Data Preparation"); gst_f5_group_layout = QVBoxLayout(gst_f5_group) 
@@ -87,14 +88,11 @@ class ReportsWidget(QWidget):
         self.save_draft_gst_button = QPushButton("Save Draft GST Return"); self.save_draft_gst_button.setEnabled(False); self.save_draft_gst_button.clicked.connect(self._on_save_draft_gst_return_clicked)
         self.finalize_gst_button = QPushButton("Finalize GST Return"); self.finalize_gst_button.setEnabled(False); self.finalize_gst_button.clicked.connect(self._on_finalize_gst_return_clicked)
         
-        self.export_gst_detail_excel_button = QPushButton("Export Details (Excel)") 
-        self.export_gst_detail_excel_button.setEnabled(False)
+        self.export_gst_detail_excel_button = QPushButton("Export Details (Excel)"); self.export_gst_detail_excel_button.setEnabled(False)
         self.export_gst_detail_excel_button.clicked.connect(self._on_export_gst_f5_details_excel_clicked)
 
         gst_action_button_layout.addStretch()
-        gst_action_button_layout.addWidget(self.export_gst_detail_excel_button) 
-        gst_action_button_layout.addWidget(self.save_draft_gst_button)
-        gst_action_button_layout.addWidget(self.finalize_gst_button)
+        gst_action_button_layout.addWidget(self.export_gst_detail_excel_button); gst_action_button_layout.addWidget(self.save_draft_gst_button); gst_action_button_layout.addWidget(self.finalize_gst_button)
         gst_f5_group_layout.addLayout(gst_action_button_layout)
 
         gst_f5_main_layout.addWidget(gst_f5_group); gst_f5_main_layout.addStretch(); self.tab_widget.addTab(gst_f5_widget, "GST F5 Preparation")
@@ -106,77 +104,44 @@ class ReportsWidget(QWidget):
         if not self.app_core.current_user: QMessageBox.warning(self, "Authentication Error", "No user logged in."); return
         if not self.app_core.gst_manager: QMessageBox.critical(self, "Error", "GST Manager not available."); return
         self.prepare_gst_button.setEnabled(False); self.prepare_gst_button.setText("Preparing...")
-        self._saved_draft_gst_return_orm = None; self.finalize_gst_button.setEnabled(False)
-        self.export_gst_detail_excel_button.setEnabled(False) 
-        current_user_id = self.app_core.current_user.id
-        future = schedule_task_from_qt(self.app_core.gst_manager.prepare_gst_return_data(start_date, end_date, current_user_id))
-        
-        if future:
-            future.add_done_callback(
-                lambda res: QMetaObject.invokeMethod(
-                    self, "_safe_handle_prepare_gst_f5_result_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(object, future)
-                )
-            )
-        else:
-            self.app_core.logger.error("Failed to schedule GST data preparation task.")
-            self._handle_prepare_gst_f5_result(None) 
+        self._saved_draft_gst_return_orm = None; self.finalize_gst_button.setEnabled(False); self.export_gst_detail_excel_button.setEnabled(False) 
+        future = schedule_task_from_qt(self.app_core.gst_manager.prepare_gst_return_data(start_date, end_date, self.app_core.current_user.id))
+        if future: future.add_done_callback(lambda res: QMetaObject.invokeMethod(self, "_safe_handle_prepare_gst_f5_result_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(object, future)))
+        else: self.app_core.logger.error("Failed to schedule GST data preparation task."); self._handle_prepare_gst_f5_result(None) 
 
     @Slot(object)
     def _safe_handle_prepare_gst_f5_result_slot(self, future_arg):
         self._handle_prepare_gst_f5_result(future_arg)
 
     def _handle_prepare_gst_f5_result(self, future):
-        self.prepare_gst_button.setEnabled(True); self.prepare_gst_button.setText("Prepare GST F5 Data")
-        self.export_gst_detail_excel_button.setEnabled(False) 
-        if future is None: 
-            QMessageBox.critical(self, "Task Error", "Failed to schedule GST data preparation.")
-            self._clear_gst_display_fields(); self.save_draft_gst_button.setEnabled(False); self.finalize_gst_button.setEnabled(False)
-            return
+        self.prepare_gst_button.setEnabled(True); self.prepare_gst_button.setText("Prepare GST F5 Data"); self.export_gst_detail_excel_button.setEnabled(False) 
+        if future is None: QMessageBox.critical(self, "Task Error", "Failed to schedule GST data preparation."); self._clear_gst_display_fields(); self.save_draft_gst_button.setEnabled(False); self.finalize_gst_button.setEnabled(False); return
         try:
             result: Result[GSTReturnData] = future.result()
             if result.is_success and result.value: 
-                self._prepared_gst_data = result.value
-                self._update_gst_f5_display(self._prepared_gst_data)
-                self.save_draft_gst_button.setEnabled(True)
-                self.finalize_gst_button.setEnabled(False) 
-                if self._prepared_gst_data and self._prepared_gst_data.detailed_breakdown:
-                    self.export_gst_detail_excel_button.setEnabled(True)
-            else: 
-                self._clear_gst_display_fields(); self.save_draft_gst_button.setEnabled(False); self.finalize_gst_button.setEnabled(False)
-                QMessageBox.warning(self, "GST Data Error", f"Failed to prepare GST data:\n{', '.join(result.errors)}")
-        except Exception as e: 
-            self._clear_gst_display_fields(); self.save_draft_gst_button.setEnabled(False); self.finalize_gst_button.setEnabled(False)
-            self.app_core.logger.error(f"Exception handling GST F5 preparation result: {e}", exc_info=True)
-            QMessageBox.critical(self, "GST Data Error", f"An unexpected error occurred: {str(e)}")
+                self._prepared_gst_data = result.value; self._update_gst_f5_display(self._prepared_gst_data)
+                self.save_draft_gst_button.setEnabled(True); self.finalize_gst_button.setEnabled(False) 
+                if self._prepared_gst_data and self._prepared_gst_data.detailed_breakdown: self.export_gst_detail_excel_button.setEnabled(True)
+            else: self._clear_gst_display_fields(); self.save_draft_gst_button.setEnabled(False); self.finalize_gst_button.setEnabled(False); QMessageBox.warning(self, "GST Data Error", f"Failed to prepare GST data:\n{', '.join(result.errors)}")
+        except Exception as e: self._clear_gst_display_fields(); self.save_draft_gst_button.setEnabled(False); self.finalize_gst_button.setEnabled(False); self.app_core.logger.error(f"Exception handling GST F5 preparation result: {e}", exc_info=True); QMessageBox.critical(self, "GST Data Error", f"An unexpected error occurred: {str(e)}")
 
     def _update_gst_f5_display(self, gst_data: GSTReturnData):
         self.gst_std_rated_supplies_display.setText(self._format_decimal_for_display(gst_data.standard_rated_supplies)); self.gst_zero_rated_supplies_display.setText(self._format_decimal_for_display(gst_data.zero_rated_supplies)); self.gst_exempt_supplies_display.setText(self._format_decimal_for_display(gst_data.exempt_supplies)); self.gst_total_supplies_display.setText(self._format_decimal_for_display(gst_data.total_supplies)); self.gst_taxable_purchases_display.setText(self._format_decimal_for_display(gst_data.taxable_purchases)); self.gst_output_tax_display.setText(self._format_decimal_for_display(gst_data.output_tax)); self.gst_input_tax_display.setText(self._format_decimal_for_display(gst_data.input_tax)); self.gst_adjustments_display.setText(self._format_decimal_for_display(gst_data.tax_adjustments)); self.gst_net_payable_display.setText(self._format_decimal_for_display(gst_data.tax_payable)); self.gst_filing_due_date_display.setText(gst_data.filing_due_date.strftime('%d/%m/%Y') if gst_data.filing_due_date else "")
     
     def _clear_gst_display_fields(self):
         for w in [self.gst_std_rated_supplies_display, self.gst_zero_rated_supplies_display, self.gst_exempt_supplies_display, self.gst_total_supplies_display, self.gst_taxable_purchases_display, self.gst_output_tax_display, self.gst_input_tax_display, self.gst_net_payable_display, self.gst_filing_due_date_display]: w.clear()
-        self.gst_adjustments_display.setText("0.00"); self._prepared_gst_data = None; self._saved_draft_gst_return_orm = None
-        self.export_gst_detail_excel_button.setEnabled(False) 
+        self.gst_adjustments_display.setText("0.00"); self._prepared_gst_data = None; self._saved_draft_gst_return_orm = None; self.export_gst_detail_excel_button.setEnabled(False) 
     
     @Slot()
     def _on_save_draft_gst_return_clicked(self):
         if not self._prepared_gst_data: QMessageBox.warning(self, "No Data", "Please prepare GST data first."); return
         if not self.app_core.current_user: QMessageBox.warning(self, "Authentication Error", "No user logged in."); return
         self._prepared_gst_data.user_id = self.app_core.current_user.id
-        if self._saved_draft_gst_return_orm and self._saved_draft_gst_return_orm.id: 
-            self._prepared_gst_data.id = self._saved_draft_gst_return_orm.id
-            
+        if self._saved_draft_gst_return_orm and self._saved_draft_gst_return_orm.id: self._prepared_gst_data.id = self._saved_draft_gst_return_orm.id
         self.save_draft_gst_button.setEnabled(False); self.save_draft_gst_button.setText("Saving Draft..."); self.finalize_gst_button.setEnabled(False)
         future = schedule_task_from_qt(self.app_core.gst_manager.save_gst_return(self._prepared_gst_data))
-        
-        if future:
-            future.add_done_callback(
-                lambda res: QMetaObject.invokeMethod(
-                    self, "_safe_handle_save_draft_gst_result_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(object, future)
-                )
-            )
-        else:
-            self.app_core.logger.error("Failed to schedule GST draft save task.")
-            self._handle_save_draft_gst_result(None)
+        if future: future.add_done_callback(lambda res: QMetaObject.invokeMethod(self, "_safe_handle_save_draft_gst_result_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(object, future)))
+        else: self.app_core.logger.error("Failed to schedule GST draft save task."); self._handle_save_draft_gst_result(None)
 
     @Slot(object)
     def _safe_handle_save_draft_gst_result_slot(self, future_arg):
@@ -189,19 +154,10 @@ class ReportsWidget(QWidget):
             result: Result[GSTReturn] = future.result()
             if result.is_success and result.value: 
                 self._saved_draft_gst_return_orm = result.value
-                if self._prepared_gst_data: 
-                    self._prepared_gst_data.id = result.value.id 
-                QMessageBox.information(self, "Success", f"GST Return draft saved successfully (ID: {result.value.id}).")
-                self.finalize_gst_button.setEnabled(True) 
-                self.export_gst_detail_excel_button.setEnabled(bool(self._prepared_gst_data and self._prepared_gst_data.detailed_breakdown))
-
-            else: 
-                QMessageBox.warning(self, "Save Error", f"Failed to save GST Return draft:\n{', '.join(result.errors)}")
-                self.finalize_gst_button.setEnabled(False)
-        except Exception as e: 
-            self.app_core.logger.error(f"Exception handling save draft GST result: {e}", exc_info=True)
-            QMessageBox.critical(self, "Save Error", f"An unexpected error occurred: {str(e)}")
-            self.finalize_gst_button.setEnabled(False)
+                if self._prepared_gst_data: self._prepared_gst_data.id = result.value.id 
+                QMessageBox.information(self, "Success", f"GST Return draft saved successfully (ID: {result.value.id})."); self.finalize_gst_button.setEnabled(True); self.export_gst_detail_excel_button.setEnabled(bool(self._prepared_gst_data and self._prepared_gst_data.detailed_breakdown))
+            else: QMessageBox.warning(self, "Save Error", f"Failed to save GST Return draft:\n{', '.join(result.errors)}"); self.finalize_gst_button.setEnabled(False)
+        except Exception as e: self.app_core.logger.error(f"Exception handling save draft GST result: {e}", exc_info=True); QMessageBox.critical(self, "Save Error", f"An unexpected error occurred: {str(e)}"); self.finalize_gst_button.setEnabled(False)
 
     @Slot()
     def _on_finalize_gst_return_clicked(self):
@@ -214,88 +170,36 @@ class ReportsWidget(QWidget):
         if not ok_date or not submission_date_str.strip(): QMessageBox.information(self, "Cancelled", "Submission date not provided. Finalization cancelled."); return
         try: parsed_submission_date = python_date.fromisoformat(submission_date_str)
         except ValueError: QMessageBox.warning(self, "Invalid Date", "Submission date format is invalid. Please use YYYY-MM-DD."); return
-        self.finalize_gst_button.setEnabled(False); self.finalize_gst_button.setText("Finalizing..."); self.save_draft_gst_button.setEnabled(False)
-        self.export_gst_detail_excel_button.setEnabled(False)
+        self.finalize_gst_button.setEnabled(False); self.finalize_gst_button.setText("Finalizing..."); self.save_draft_gst_button.setEnabled(False); self.export_gst_detail_excel_button.setEnabled(False)
         future = schedule_task_from_qt(self.app_core.gst_manager.finalize_gst_return(return_id=self._saved_draft_gst_return_orm.id, submission_reference=submission_ref.strip(), submission_date=parsed_submission_date, user_id=self.app_core.current_user.id))
-        
-        if future:
-            future.add_done_callback(
-                lambda res: QMetaObject.invokeMethod(
-                    self, "_safe_handle_finalize_gst_result_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(object, future)
-                )
-            )
-        else:
-            self.app_core.logger.error("Failed to schedule GST finalization task.")
-            self._handle_finalize_gst_result(None)
+        if future: future.add_done_callback(lambda res: QMetaObject.invokeMethod(self, "_safe_handle_finalize_gst_result_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(object, future)))
+        else: self.app_core.logger.error("Failed to schedule GST finalization task."); self._handle_finalize_gst_result(None)
 
     @Slot(object)
     def _safe_handle_finalize_gst_result_slot(self, future_arg):
         self._handle_finalize_gst_result(future_arg)
 
     def _handle_finalize_gst_result(self, future): 
-        self.finalize_gst_button.setText("Finalize GST Return") 
-        can_finalize_default = self._saved_draft_gst_return_orm and self._saved_draft_gst_return_orm.status == "Draft"
-        can_save_draft_default = self._prepared_gst_data is not None and \
-                                 (not self._saved_draft_gst_return_orm or self._saved_draft_gst_return_orm.status == "Draft")
-        can_export_detail_default = bool(self._prepared_gst_data and self._prepared_gst_data.detailed_breakdown)
-
-        if future is None: 
-            QMessageBox.critical(self, "Task Error", "Failed to schedule GST finalization.")
-            self.finalize_gst_button.setEnabled(can_finalize_default)
-            self.save_draft_gst_button.setEnabled(can_save_draft_default)
-            self.export_gst_detail_excel_button.setEnabled(can_export_detail_default)
-            return
-        
+        self.finalize_gst_button.setText("Finalize GST Return"); can_finalize_default = self._saved_draft_gst_return_orm and self._saved_draft_gst_return_orm.status == "Draft"; can_save_draft_default = self._prepared_gst_data is not None and (not self._saved_draft_gst_return_orm or self._saved_draft_gst_return_orm.status == "Draft"); can_export_detail_default = bool(self._prepared_gst_data and self._prepared_gst_data.detailed_breakdown)
+        if future is None: QMessageBox.critical(self, "Task Error", "Failed to schedule GST finalization."); self.finalize_gst_button.setEnabled(can_finalize_default); self.save_draft_gst_button.setEnabled(can_save_draft_default); self.export_gst_detail_excel_button.setEnabled(can_export_detail_default); return
         try:
             result: Result[GSTReturn] = future.result()
             if result.is_success and result.value: 
-                QMessageBox.information(self, "Success", f"GST Return (ID: {result.value.id}) finalized successfully.\nStatus: {result.value.status}.\nSettlement JE ID: {result.value.journal_entry_id or 'N/A'}")
-                self._saved_draft_gst_return_orm = result.value 
-                self.save_draft_gst_button.setEnabled(False) 
-                self.finalize_gst_button.setEnabled(False)
-                self.export_gst_detail_excel_button.setEnabled(can_export_detail_default) 
-                if self._prepared_gst_data: 
-                    self._prepared_gst_data.status = result.value.status
-            else: 
-                QMessageBox.warning(self, "Finalization Error", f"Failed to finalize GST Return:\n{', '.join(result.errors)}")
-                self.finalize_gst_button.setEnabled(can_finalize_default)
-                self.save_draft_gst_button.setEnabled(can_save_draft_default) 
-                self.export_gst_detail_excel_button.setEnabled(can_export_detail_default)
-        except Exception as e: 
-            self.app_core.logger.error(f"Exception handling finalize GST result: {e}", exc_info=True)
-            QMessageBox.critical(self, "Finalization Error", f"An unexpected error occurred: {str(e)}")
-            self.finalize_gst_button.setEnabled(can_finalize_default)
-            self.save_draft_gst_button.setEnabled(can_save_draft_default)
-            self.export_gst_detail_excel_button.setEnabled(can_export_detail_default)
+                QMessageBox.information(self, "Success", f"GST Return (ID: {result.value.id}) finalized successfully.\nStatus: {result.value.status}.\nSettlement JE ID: {result.value.journal_entry_id or 'N/A'}"); self._saved_draft_gst_return_orm = result.value; self.save_draft_gst_button.setEnabled(False); self.finalize_gst_button.setEnabled(False); self.export_gst_detail_excel_button.setEnabled(can_export_detail_default) 
+                if self._prepared_gst_data: self._prepared_gst_data.status = result.value.status
+            else: QMessageBox.warning(self, "Finalization Error", f"Failed to finalize GST Return:\n{', '.join(result.errors)}"); self.finalize_gst_button.setEnabled(can_finalize_default); self.save_draft_gst_button.setEnabled(can_save_draft_default); self.export_gst_detail_excel_button.setEnabled(can_export_detail_default)
+        except Exception as e: self.app_core.logger.error(f"Exception handling finalize GST result: {e}", exc_info=True); QMessageBox.critical(self, "Finalization Error", f"An unexpected error occurred: {str(e)}"); self.finalize_gst_button.setEnabled(can_finalize_default); self.save_draft_gst_button.setEnabled(can_save_draft_default); self.export_gst_detail_excel_button.setEnabled(can_export_detail_default)
 
     @Slot()
     def _on_export_gst_f5_details_excel_clicked(self):
-        if not self._prepared_gst_data or not self._prepared_gst_data.detailed_breakdown:
-            QMessageBox.warning(self, "No Data", "Please prepare GST data with details first.")
-            return
-        
-        default_filename = f"GST_F5_Details_{self._prepared_gst_data.start_date.strftime('%Y%m%d')}_{self._prepared_gst_data.end_date.strftime('%Y%m%d')}.xlsx"
-        documents_path = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DocumentsLocation)
-        file_path, _ = QFileDialog.getSaveFileName(
-            self, "Save GST F5 Detail Report (Excel)", 
-            os.path.join(documents_path, default_filename), 
-            "Excel Files (*.xlsx);;All Files (*)"
-        )
-        if file_path:
+        if not self._prepared_gst_data or not self._prepared_gst_data.detailed_breakdown: QMessageBox.warning(self, "No Data", "Please prepare GST data with details first."); return
+        default_filename = f"GST_F5_Details_{self._prepared_gst_data.start_date.strftime('%Y%m%d')}_{self._prepared_gst_data.end_date.strftime('%Y%m%d')}.xlsx"; documents_path = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DocumentsLocation)
+        file_path, _ = QFileDialog.getSaveFileName(self, "Save GST F5 Detail Report (Excel)", os.path.join(documents_path, default_filename), "Excel Files (*.xlsx);;All Files (*)")
+        if file_path: 
             self.export_gst_detail_excel_button.setEnabled(False)
-            future = schedule_task_from_qt(
-                self.app_core.report_engine.export_report(self._prepared_gst_data, "gst_excel_detail")
-            )
-            if future:
-                future.add_done_callback(
-                    lambda res, fp=file_path: QMetaObject.invokeMethod(
-                        self, "_safe_handle_gst_detail_export_result_slot", Qt.ConnectionType.QueuedConnection,
-                        Q_ARG(object, future), Q_ARG(str, fp)
-                    )
-                )
-            else:
-                self.app_core.logger.error("Failed to schedule GST detail export task.")
-                self.export_gst_detail_excel_button.setEnabled(True) 
+            future = schedule_task_from_qt(self.app_core.report_engine.export_report(self._prepared_gst_data, "gst_excel_detail"))
+            if future: future.add_done_callback(lambda res, fp=file_path: QMetaObject.invokeMethod(self, "_safe_handle_gst_detail_export_result_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(object, future), Q_ARG(str, fp)))
+            else: self.app_core.logger.error("Failed to schedule GST detail export task."); self.export_gst_detail_excel_button.setEnabled(True) 
 
     @Slot(object, str)
     def _safe_handle_gst_detail_export_result_slot(self, future_arg, file_path_arg: str):
@@ -303,25 +207,20 @@ class ReportsWidget(QWidget):
 
     def _handle_gst_detail_export_result(self, future, file_path: str):
         self.export_gst_detail_excel_button.setEnabled(True) 
-        if future is None:
-            QMessageBox.critical(self, "Task Error", "Failed to schedule GST detail export."); return
+        if future is None: QMessageBox.critical(self, "Task Error", "Failed to schedule GST detail export."); return
         try:
             report_bytes: Optional[bytes] = future.result()
             if report_bytes:
-                with open(file_path, "wb") as f:
-                    f.write(report_bytes)
+                with open(file_path, "wb") as f: f.write(report_bytes)
                 QMessageBox.information(self, "Export Successful", f"GST F5 Detail Report exported to:\n{file_path}")
-            else:
-                QMessageBox.warning(self, "Export Failed", "Failed to generate GST F5 Detail report bytes.")
-        except Exception as e:
-            self.app_core.logger.error(f"Exception handling GST detail export result: {e}", exc_info=True)
-            QMessageBox.critical(self, "Export Error", f"An error occurred during GST detail export: {str(e)}")
+            else: QMessageBox.warning(self, "Export Failed", "Failed to generate GST F5 Detail report bytes.")
+        except Exception as e: self.app_core.logger.error(f"Exception handling GST detail export result: {e}", exc_info=True); QMessageBox.critical(self, "Export Error", f"An error occurred during GST detail export: {str(e)}")
     
     def _create_financial_statements_tab(self):
-        fs_widget = QWidget(); fs_main_layout = QVBoxLayout(fs_widget)
-        fs_group = QGroupBox("Financial Statements"); fs_group_layout = QVBoxLayout(fs_group) 
+        fs_widget = QWidget(); fs_main_layout = QVBoxLayout(fs_widget); fs_group = QGroupBox("Financial Statements"); fs_group_layout = QVBoxLayout(fs_group) 
         controls_layout = QHBoxLayout(); self.fs_params_form = QFormLayout() 
-        self.fs_report_type_combo = QComboBox(); self.fs_report_type_combo.addItems(["Balance Sheet", "Profit & Loss Statement", "Trial Balance", "General Ledger"]); self.fs_params_form.addRow("Report Type:", self.fs_report_type_combo)
+        self.fs_report_type_combo = QComboBox(); self.fs_report_type_combo.addItems(["Balance Sheet", "Profit & Loss Statement", "Trial Balance", "General Ledger", "Income Tax Computation"]); self.fs_params_form.addRow("Report Type:", self.fs_report_type_combo)
+        self.fs_fiscal_year_label = QLabel("Fiscal Year:"); self.fs_fiscal_year_combo = QComboBox(); self.fs_fiscal_year_combo.setMinimumWidth(200); self.fs_params_form.addRow(self.fs_fiscal_year_label, self.fs_fiscal_year_combo)
         self.fs_gl_account_label = QLabel("Account for GL:"); self.fs_gl_account_combo = QComboBox(); self.fs_gl_account_combo.setMinimumWidth(250); self.fs_gl_account_combo.setEditable(True)
         completer = QCompleter([f"{item.get('code')} - {item.get('name')}" for item in self._gl_accounts_cache]); completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion); completer.setFilterMode(Qt.MatchFlag.MatchContains); self.fs_gl_account_combo.setCompleter(completer); self.fs_params_form.addRow(self.fs_gl_account_label, self.fs_gl_account_combo)
         self.fs_as_of_date_edit = QDateEdit(QDate.currentDate()); self.fs_as_of_date_edit.setCalendarPopup(True); self.fs_as_of_date_edit.setDisplayFormat("dd/MM/yyyy"); self.fs_params_form.addRow("As of Date:", self.fs_as_of_date_edit)
@@ -344,13 +243,13 @@ class ReportsWidget(QWidget):
         self.pl_tree_view = QTreeView(); self.pl_tree_view.setAlternatingRowColors(True); self.pl_tree_view.setHeaderHidden(False); self.pl_tree_view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.pl_model = QStandardItemModel(); self.pl_tree_view.setModel(self.pl_model); self.fs_display_stack.addWidget(self.pl_tree_view)
         self.tb_table_view = QTableView(); self.tb_table_view.setAlternatingRowColors(True); self.tb_table_view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.tb_table_view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection); self.tb_table_view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.tb_table_view.setSortingEnabled(True); self.tb_model = TrialBalanceTableModel(); self.tb_table_view.setModel(self.tb_model); self.fs_display_stack.addWidget(self.tb_table_view)
         gl_widget_container = QWidget(); gl_layout = QVBoxLayout(gl_widget_container); gl_layout.setContentsMargins(0,0,0,0)
-        self.gl_summary_label_account = QLabel("Account: N/A"); self.gl_summary_label_account.setStyleSheet("font-weight: bold;")
-        self.gl_summary_label_period = QLabel("Period: N/A")
-        self.gl_summary_label_ob = QLabel("Opening Balance: 0.00")
-        gl_summary_header_layout = QHBoxLayout(); gl_summary_header_layout.addWidget(self.gl_summary_label_account); gl_summary_header_layout.addStretch(); gl_summary_header_layout.addWidget(self.gl_summary_label_period); gl_layout.addLayout(gl_summary_header_layout); gl_layout.addWidget(self.gl_summary_label_ob)
+        self.gl_summary_label_account = QLabel("Account: N/A"); self.gl_summary_label_account.setStyleSheet("font-weight: bold;"); self.gl_summary_label_period = QLabel("Period: N/A"); self.gl_summary_label_ob = QLabel("Opening Balance: 0.00"); gl_summary_header_layout = QHBoxLayout(); gl_summary_header_layout.addWidget(self.gl_summary_label_account); gl_summary_header_layout.addStretch(); gl_summary_header_layout.addWidget(self.gl_summary_label_period); gl_layout.addLayout(gl_summary_header_layout); gl_layout.addWidget(self.gl_summary_label_ob)
         self.gl_table_view = QTableView(); self.gl_table_view.setAlternatingRowColors(True); self.gl_table_view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.gl_table_view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection); self.gl_table_view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.gl_table_view.setSortingEnabled(True); self.gl_model = GeneralLedgerTableModel(); self.gl_table_view.setModel(self.gl_model); gl_layout.addWidget(self.gl_table_view)
         self.gl_summary_label_cb = QLabel("Closing Balance: 0.00"); self.gl_summary_label_cb.setAlignment(Qt.AlignmentFlag.AlignRight); gl_layout.addWidget(self.gl_summary_label_cb)
         self.fs_display_stack.addWidget(gl_widget_container); self.gl_widget_container = gl_widget_container 
+        
+        self.tax_comp_tree_view = QTreeView(); self.tax_comp_tree_view.setAlternatingRowColors(True); self.tax_comp_tree_view.setHeaderHidden(False); self.tax_comp_tree_view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.tax_comp_model = QStandardItemModel(); self.tax_comp_tree_view.setModel(self.tax_comp_model); self.fs_display_stack.addWidget(self.tax_comp_tree_view)
+
         export_button_layout = QHBoxLayout(); self.export_pdf_button = QPushButton("Export to PDF"); self.export_pdf_button.setEnabled(False); self.export_pdf_button.clicked.connect(lambda: self._on_export_report_clicked("pdf")); self.export_excel_button = QPushButton("Export to Excel"); self.export_excel_button.setEnabled(False); self.export_excel_button.clicked.connect(lambda: self._on_export_report_clicked("excel")); export_button_layout.addStretch(); export_button_layout.addWidget(self.export_pdf_button); export_button_layout.addWidget(self.export_excel_button); fs_group_layout.addLayout(export_button_layout)
         fs_main_layout.addWidget(fs_group); self.tab_widget.addTab(fs_widget, "Financial Statements")
         self.fs_report_type_combo.currentTextChanged.connect(self._on_fs_report_type_changed)
@@ -358,10 +257,16 @@ class ReportsWidget(QWidget):
         self.fs_dim1_type_combo.currentIndexChanged.connect(lambda index, tc=self.fs_dim1_type_combo, cc=self.fs_dim1_code_combo: self._on_dimension_type_selected(tc, cc))
         self.fs_dim2_type_combo.currentIndexChanged.connect(lambda index, tc=self.fs_dim2_type_combo, cc=self.fs_dim2_code_combo: self._on_dimension_type_selected(tc, cc))
         self._on_fs_report_type_changed(self.fs_report_type_combo.currentText()) 
+
+    async def _load_fs_combo_data(self):
+        await self._load_gl_accounts_for_combo()
+        await self._load_fiscal_years_for_combo()
+
     @Slot(str)
     def _on_fs_report_type_changed(self, report_type: str):
-        is_bs = (report_type == "Balance Sheet"); is_pl = (report_type == "Profit & Loss Statement"); is_gl = (report_type == "General Ledger"); is_tb = (report_type == "Trial Balance")
+        is_bs = (report_type == "Balance Sheet"); is_pl = (report_type == "Profit & Loss Statement"); is_gl = (report_type == "General Ledger"); is_tb = (report_type == "Trial Balance"); is_tax = (report_type == "Income Tax Computation")
         self.fs_as_of_date_edit.setVisible(is_bs or is_tb); self.fs_start_date_edit.setVisible(is_pl or is_gl); self.fs_end_date_edit.setVisible(is_pl or is_gl)
+        self.fs_fiscal_year_combo.setVisible(is_tax); self.fs_fiscal_year_label.setVisible(is_tax)
         self.fs_gl_account_combo.setVisible(is_gl); self.fs_gl_account_label.setVisible(is_gl); self.fs_include_zero_balance_check.setVisible(is_bs); self.fs_include_comparative_check.setVisible(is_bs or is_pl)
         for w in [self.fs_dim1_type_label, self.fs_dim1_type_combo, self.fs_dim1_code_label, self.fs_dim1_code_combo, self.fs_dim2_type_label, self.fs_dim2_type_combo, self.fs_dim2_code_label, self.fs_dim2_code_combo]: w.setVisible(is_gl)
         if is_gl and self.fs_dim1_type_combo.count() <= 1 : schedule_task_from_qt(self._load_dimension_types())
@@ -370,6 +275,7 @@ class ReportsWidget(QWidget):
         elif is_bs: self.fs_display_stack.setCurrentWidget(self.bs_tree_view)
         elif is_pl: self.fs_display_stack.setCurrentWidget(self.pl_tree_view)
         elif is_tb: self.fs_display_stack.setCurrentWidget(self.tb_table_view)
+        elif is_tax: self.fs_display_stack.setCurrentWidget(self.tax_comp_tree_view)
         self._clear_current_financial_report_display(); self.export_pdf_button.setEnabled(False); self.export_excel_button.setEnabled(False)
     async def _load_dimension_types(self):
         if not self.app_core.dimension_service: self.app_core.logger.error("DimensionService not available."); return
@@ -385,7 +291,7 @@ class ReportsWidget(QWidget):
         for combo in [self.fs_dim1_type_combo, self.fs_dim2_type_combo]:
             current_data = combo.currentData(); combo.clear(); combo.addItem("All Types", None)
             for dt in dim_types: combo.addItem(dt, dt)
-            idx = combo.findData(current_data)
+            idx = combo.findData(current_data); 
             if idx != -1: combo.setCurrentIndex(idx)
             else: combo.setCurrentIndex(0) 
         self._on_dimension_type_selected(self.fs_dim1_type_combo, self.fs_dim1_code_combo); self._on_dimension_type_selected(self.fs_dim2_type_combo, self.fs_dim2_code_combo)
@@ -404,9 +310,7 @@ class ReportsWidget(QWidget):
         except Exception as e: self.app_core.logger.error(f"Error loading dimension codes for type '{dim_type_str}': {e}", exc_info=True)
     @Slot(str, str)
     def _populate_dimension_codes_slot(self, dim_codes_json_str: str, target_code_combo_name: str):
-        target_combo: Optional[QComboBox] = None
-        if target_code_combo_name == self.fs_dim1_code_combo.objectName(): target_combo = self.fs_dim1_code_combo
-        elif target_code_combo_name == self.fs_dim2_code_combo.objectName(): target_combo = self.fs_dim2_code_combo
+        target_combo: Optional[QComboBox] = self.findChild(QComboBox, target_code_combo_name)
         if not target_combo: self.app_core.logger.error(f"Target code combo '{target_code_combo_name}' not found."); return
         current_data = target_combo.currentData(); target_combo.clear(); target_combo.addItem("All Codes", None) 
         try:
@@ -439,13 +343,35 @@ class ReportsWidget(QWidget):
             for acc_data in self._gl_accounts_cache: self.fs_gl_account_combo.addItem(f"{acc_data['code']} - {acc_data['name']}", acc_data['id'])
             if isinstance(self.fs_gl_account_combo.completer(), QCompleter): self.fs_gl_account_combo.completer().setModel(self.fs_gl_account_combo.model())
         except json.JSONDecodeError: self.app_core.logger.error("Failed to parse accounts JSON for GL combo."); self.fs_gl_account_combo.addItem("Error loading accounts", 0)
+
+    async def _load_fiscal_years_for_combo(self):
+        if not self.app_core.fiscal_period_manager: self.app_core.logger.error("FiscalPeriodManager not available."); return
+        try:
+            fy_orms = await self.app_core.fiscal_period_manager.get_all_fiscal_years()
+            self._fiscal_years_cache = [FiscalYearData.model_validate(fy) for fy in fy_orms]
+            fy_json = json.dumps([fy.model_dump(mode='json') for fy in self._fiscal_years_cache])
+            QMetaObject.invokeMethod(self, "_populate_fiscal_years_combo_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, fy_json))
+        except Exception as e: self.app_core.logger.error(f"Error loading fiscal years for combo: {e}", exc_info=True)
+
+    @Slot(str)
+    def _populate_fiscal_years_combo_slot(self, fy_json_str: str):
+        self.fs_fiscal_year_combo.clear()
+        try:
+            fy_dicts = json.loads(fy_json_str, object_hook=json_date_hook)
+            self._fiscal_years_cache = [FiscalYearData.model_validate(fy) for fy in fy_dicts]
+            if not self._fiscal_years_cache: self.fs_fiscal_year_combo.addItem("No fiscal years found", 0); return
+            for fy_data in sorted(self._fiscal_years_cache, key=lambda fy: fy.start_date, reverse=True):
+                self.fs_fiscal_year_combo.addItem(f"{fy_data.year_name} ({fy_data.start_date.strftime('%d/%m/%Y')} - {fy_data.end_date.strftime('%d/%m/%Y')})", fy_data.id)
+        except Exception as e: self.app_core.logger.error(f"Error parsing fiscal years for combo: {e}"); self.fs_fiscal_year_combo.addItem("Error loading", 0)
+
     def _clear_current_financial_report_display(self):
         self._current_financial_report_data = None; current_view = self.fs_display_stack.currentWidget()
         if isinstance(current_view, QTreeView): model = current_view.model(); 
-        if isinstance(model, QStandardItemModel): model.clear() # type: ignore
+        if isinstance(model, QStandardItemModel): model.clear() 
         elif isinstance(current_view, QTableView): model = current_view.model(); 
-        if hasattr(model, 'update_data'): model.update_data({}) 
+        if hasattr(model, 'update_data'): model.update_data([]) 
         elif current_view == self.gl_widget_container : self.gl_model.update_data({}); self.gl_summary_label_account.setText("Account: N/A"); self.gl_summary_label_period.setText("Period: N/A"); self.gl_summary_label_ob.setText("Opening Balance: 0.00"); self.gl_summary_label_cb.setText("Closing Balance: 0.00")
+    
     @Slot()
     def _on_generate_financial_report_clicked(self):
         report_type = self.fs_report_type_combo.currentText()
@@ -471,12 +397,21 @@ class ReportsWidget(QWidget):
             start_date_val = self.fs_start_date_edit.date().toPython(); end_date_val = self.fs_end_date_edit.date().toPython() 
             if start_date_val > end_date_val: QMessageBox.warning(self, "Date Error", "Start date cannot be after end date for General Ledger."); self.generate_fs_button.setEnabled(True); self.generate_fs_button.setText("Generate Report"); return
             coro = self.app_core.financial_statement_generator.generate_general_ledger(account_id, start_date_val, end_date_val, dimension1_id, dimension2_id)
+        elif report_type == "Income Tax Computation":
+            fy_id = self.fs_fiscal_year_combo.currentData()
+            if not isinstance(fy_id, int) or fy_id == 0: QMessageBox.warning(self, "Selection Error", "Please select a Fiscal Year for the Tax Computation report."); self.generate_fs_button.setEnabled(True); self.generate_fs_button.setText("Generate Report"); return
+            fy_data_obj = next((fy for fy in self._fiscal_years_cache if fy.id == fy_id), None)
+            if not fy_data_obj: QMessageBox.warning(self, "Data Error", f"Could not find data for selected fiscal year ID {fy_id}."); self.generate_fs_button.setEnabled(True); self.generate_fs_button.setText("Generate Report"); return
+            coro = self.app_core.financial_statement_generator.generate_income_tax_computation(fy_data_obj) # Pass DTO
+
         future_obj: Optional[Any] = None ; 
         if coro: future_obj = schedule_task_from_qt(coro)
         if future_obj: future_obj.add_done_callback( lambda res: QMetaObject.invokeMethod( self, "_safe_handle_financial_report_result_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(object, future_obj)))
         else: self.app_core.logger.error(f"Failed to schedule report generation for {report_type}."); self.generate_fs_button.setEnabled(True); self.generate_fs_button.setText("Generate Report"); self._handle_financial_report_result(None) 
+    
     @Slot(object)
     def _safe_handle_financial_report_result_slot(self, future_arg): self._handle_financial_report_result(future_arg)
+    
     def _handle_financial_report_result(self, future):
         self.generate_fs_button.setEnabled(True); self.generate_fs_button.setText("Generate Report"); self.export_pdf_button.setEnabled(False) ; self.export_excel_button.setEnabled(False); self._current_financial_report_data = None
         if future is None: QMessageBox.critical(self, "Task Error", "Failed to schedule report generation."); return
@@ -485,6 +420,7 @@ class ReportsWidget(QWidget):
             if report_data: self._current_financial_report_data = report_data; self._display_financial_report(report_data); self.export_pdf_button.setEnabled(True); self.export_excel_button.setEnabled(True)
             else: QMessageBox.warning(self, "Report Error", "Failed to generate report data or report data is empty.")
         except Exception as e: self.app_core.logger.error(f"Exception handling financial report result: {e}", exc_info=True); QMessageBox.critical(self, "Report Generation Error", f"An unexpected error occurred: {str(e)}")
+
     def _populate_balance_sheet_model(self, model: QStandardItemModel, report_data: Dict[str, Any]):
         model.clear(); has_comparative = bool(report_data.get('comparative_date')); headers = ["Description", "Amount"]; 
         if has_comparative: headers.append(f"Comparative ({report_data.get('comparative_date','Prev').strftime('%d/%m/%Y') if isinstance(report_data.get('comparative_date'), python_date) else 'Prev'})")
@@ -513,11 +449,13 @@ class ReportsWidget(QWidget):
             root_node.appendRow(tle_row)
         if report_data.get('is_balanced') is False: warning_item = QStandardItem("Warning: Balance Sheet is out of balance!"); warning_item.setForeground(QColor("red")); warning_item.setFont(bold_font); warning_row = [warning_item, QStandardItem("")]; 
         if has_comparative: warning_row.append(QStandardItem("")); root_node.appendRow(warning_row)
+    
     def _populate_profit_loss_model(self, model: QStandardItemModel, report_data: Dict[str, Any]):
         model.clear(); has_comparative = bool(report_data.get('comparative_start')); comp_header_text = "Comparative"; 
         if has_comparative and report_data.get('comparative_start') and report_data.get('comparative_end'): comp_start_str = report_data['comparative_start'].strftime('%d/%m/%y'); comp_end_str = report_data['comparative_end'].strftime('%d/%m/%y'); comp_header_text = f"Comp. ({comp_start_str}-{comp_end_str})"
         headers = ["Description", "Amount"]; 
-        if has_comparative: headers.append(comp_header_text); model.setHorizontalHeaderLabels(headers); root_node = model.invisibleRootItem(); bold_font = QFont(); bold_font.setBold(True)
+        if has_comparative: headers.append(comp_header_text); 
+        model.setHorizontalHeaderLabels(headers); root_node = model.invisibleRootItem(); bold_font = QFont(); bold_font.setBold(True)
         def add_pl_account_rows(parent_item: QStandardItem, accounts: List[Dict[str,Any]], comparative_accounts: Optional[List[Dict[str,Any]]]):
             for acc_dict in accounts:
                 desc_item = QStandardItem(f"  {acc_dict.get('code','')} - {acc_dict.get('name','')}"); amount_item = QStandardItem(self._format_decimal_for_display(acc_dict.get('balance'))); amount_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); row_items = [desc_item, amount_item]
@@ -540,48 +478,58 @@ class ReportsWidget(QWidget):
             if has_comparative: comp_np_amount = QStandardItem(self._format_decimal_for_display(report_data.get('comparative_net_profit'))); comp_np_amount.setFont(bold_font); comp_np_amount.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); np_row.append(comp_np_amount)
             root_node.appendRow(np_row)
 
+    def _populate_tax_computation_model(self, model: QStandardItemModel, report_data: Dict[str, Any]):
+        model.clear(); headers = ["Description", "Amount"]; model.setHorizontalHeaderLabels(headers); root_node = model.invisibleRootItem(); bold_font = QFont(); bold_font.setBold(True)
+        def add_row(parent: QStandardItem, desc: str, amt: Optional[Decimal] = None, is_bold: bool = False, is_underline: bool = False):
+            desc_item = QStandardItem(desc); amt_item = QStandardItem(self._format_decimal_for_display(amt) if amt is not None else ""); amt_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            if is_bold: desc_item.setFont(bold_font); amt_item.setFont(bold_font)
+            if is_underline: desc_item.setData(QColor('black'), Qt.ItemDataRole.ForegroundRole); amt_item.setData(QColor('black'), Qt.ItemDataRole.ForegroundRole) # This doesn't create underline, just for concept
+            parent.appendRow([desc_item, amt_item])
+        
+        add_row(root_node, "Net Profit Before Tax", report_data.get('net_profit_before_tax'), is_bold=True)
+        add_row(root_node, "") # Spacer
+        
+        add_row(root_node, "Add: Non-Deductible Expenses", is_bold=True)
+        for adj in report_data.get('add_back_adjustments', []): add_row(root_node, f"  {adj['name']}", adj['amount'])
+        add_row(root_node, "Total Additions", report_data.get('total_add_back'), is_underline=True)
+        add_row(root_node, "") # Spacer
+        
+        add_row(root_node, "Less: Non-Taxable Income", is_bold=True)
+        for adj in report_data.get('less_adjustments', []): add_row(root_node, f"  {adj['name']}", adj['amount'])
+        add_row(root_node, "Total Subtractions", report_data.get('total_less'), is_underline=True)
+        add_row(root_node, "") # Spacer
+
+        add_row(root_node, "Chargeable Income", report_data.get('chargeable_income'), is_bold=True)
+        add_row(root_node, f"Tax at {report_data.get('tax_rate', 0):.2f}%", is_bold=False) # Description only
+        add_row(root_node, "Estimated Tax Payable", report_data.get('estimated_tax'), is_bold=True)
+
+
     def _display_financial_report(self, report_data: Dict[str, Any]):
         report_title = report_data.get('title', '')
-        
         if report_title == "Balance Sheet":
-            self.fs_display_stack.setCurrentWidget(self.bs_tree_view)
-            self._populate_balance_sheet_model(self.bs_model, report_data)
-            self.bs_tree_view.expandAll()
-            for i in range(self.bs_model.columnCount()): 
-                self.bs_tree_view.resizeColumnToContents(i)
-        elif report_title == "Profit & Loss Statement": # This was line 556 in the traceback
-            self.fs_display_stack.setCurrentWidget(self.pl_tree_view)
-            self._populate_profit_loss_model(self.pl_model, report_data)
-            self.pl_tree_view.expandAll()
-            for i in range(self.pl_model.columnCount()): 
-                self.pl_tree_view.resizeColumnToContents(i)
+            self.fs_display_stack.setCurrentWidget(self.bs_tree_view); self._populate_balance_sheet_model(self.bs_model, report_data)
+            self.bs_tree_view.expandAll(); [self.bs_tree_view.resizeColumnToContents(i) for i in range(self.bs_model.columnCount())]
+        elif report_title == "Profit & Loss Statement":
+            self.fs_display_stack.setCurrentWidget(self.pl_tree_view); self._populate_profit_loss_model(self.pl_model, report_data)
+            self.pl_tree_view.expandAll(); [self.pl_tree_view.resizeColumnToContents(i) for i in range(self.pl_model.columnCount())]
         elif report_title == "Trial Balance":
-            self.fs_display_stack.setCurrentWidget(self.tb_table_view)
-            self.tb_model.update_data(report_data)
-            for i in range(self.tb_model.columnCount()): 
-                self.tb_table_view.resizeColumnToContents(i)
+            self.fs_display_stack.setCurrentWidget(self.tb_table_view); self.tb_model.update_data(report_data)
+            [self.tb_table_view.resizeColumnToContents(i) for i in range(self.tb_model.columnCount())]
         elif report_title == "General Ledger": 
-            self.fs_display_stack.setCurrentWidget(self.gl_widget_container)
-            self.gl_model.update_data(report_data)
-            gl_summary_data = self.gl_model.get_report_summary()
-            self.gl_summary_label_account.setText(f"Account: {gl_summary_data['account_name']}")
-            self.gl_summary_label_period.setText(gl_summary_data['period_description'])
-            self.gl_summary_label_ob.setText(f"Opening Balance: {self._format_decimal_for_display(gl_summary_data['opening_balance'], show_blank_for_zero=False)}")
-            self.gl_summary_label_cb.setText(f"Closing Balance: {self._format_decimal_for_display(gl_summary_data['closing_balance'], show_blank_for_zero=False)}")
-            for i in range(self.gl_model.columnCount()): 
-                self.gl_table_view.resizeColumnToContents(i)
-        else: 
-            self._clear_current_financial_report_display()
-            self.app_core.logger.warning(f"Unhandled report title '{report_title}' for specific display.")
-            QMessageBox.warning(self, "Display Error", f"Display format for '{report_title}' is not fully implemented in this view.")
+            self.fs_display_stack.setCurrentWidget(self.gl_widget_container); self.gl_model.update_data(report_data)
+            gl_summary_data = self.gl_model.get_report_summary(); self.gl_summary_label_account.setText(f"Account: {gl_summary_data['account_name']}"); self.gl_summary_label_period.setText(gl_summary_data['period_description'])
+            self.gl_summary_label_ob.setText(f"Opening Balance: {self._format_decimal_for_display(gl_summary_data['opening_balance'], show_blank_for_zero=False)}"); self.gl_summary_label_cb.setText(f"Closing Balance: {self._format_decimal_for_display(gl_summary_data['closing_balance'], show_blank_for_zero=False)}")
+            [self.gl_table_view.resizeColumnToContents(i) for i in range(self.gl_model.columnCount())]
+        elif report_title == "Income Tax Computation":
+            self.fs_display_stack.setCurrentWidget(self.tax_comp_tree_view); self._populate_tax_computation_model(self.tax_comp_model, report_data)
+            self.tax_comp_tree_view.expandAll(); [self.tax_comp_tree_view.resizeColumnToContents(i) for i in range(self.tax_comp_model.columnCount())]
+        else: self._clear_current_financial_report_display(); self.app_core.logger.warning(f"Unhandled report title '{report_title}' for specific display."); QMessageBox.warning(self, "Display Error", f"Display format for '{report_title}' is not fully implemented in this view.")
 
     @Slot(str)
     def _on_export_report_clicked(self, format_type: str):
         if not self._current_financial_report_data: QMessageBox.warning(self, "No Report", "Please generate a report first before exporting."); return
         report_title_str = self._current_financial_report_data.get('title', 'FinancialReport')
-        # Ensure report_title_str is a string before calling string methods on it.
         if not isinstance(report_title_str, str): report_title_str = "FinancialReport"
-        
         default_filename = f"{report_title_str.replace(' ', '_').replace('&', 'And').replace('/', '-').replace(':', '')}_{python_date.today().strftime('%Y%m%d')}.{format_type}"
         documents_path = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DocumentsLocation); 
         if not documents_path: documents_path = os.path.expanduser("~") 
@@ -603,4 +551,3 @@ class ReportsWidget(QWidget):
                 QMessageBox.information(self, "Export Successful", f"Report exported to:\n{file_path}")
             else: QMessageBox.warning(self, "Export Failed", f"Failed to generate report bytes for {format_type.upper()}.")
         except Exception as e: self.app_core.logger.error(f"Exception handling report export result: {e}", exc_info=True); QMessageBox.critical(self, "Export Error", f"An error occurred during export: {str(e)}")
-

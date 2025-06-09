@@ -105,3 +105,5 @@ please get a solid grounding of the current codebase for the application by care
 ---
 awesome plan, but you did not generate any *complete* updated *replacement* files according to your stated plan.
 
+---
+Instead of me dropping the existing database and then 
