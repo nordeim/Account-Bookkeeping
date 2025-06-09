@@ -35,12 +35,12 @@ from typing import List, Dict, Any, Optional, TYPE_CHECKING
 from datetime import date, timedelta 
 from decimal import Decimal
 
-from app.services.account_service import AccountService
-from app.services.journal_service import JournalService
-from app.services.fiscal_period_service import FiscalPeriodService
-from app.services.tax_service import TaxCodeService 
-from app.services.core_services import CompanySettingsService 
-from app.services.accounting_services import AccountTypeService, DimensionService # Added DimensionService
+# REMOVED: from app.services.account_service import AccountService
+# REMOVED: from app.services.journal_service import JournalService
+# REMOVED: from app.services.fiscal_period_service import FiscalPeriodService
+# REMOVED: from app.services.tax_service import TaxCodeService 
+# REMOVED: from app.services.core_services import CompanySettingsService 
+# REMOVED: from app.services.accounting_services import AccountTypeService, DimensionService 
 from app.models.accounting.account import Account 
 from app.models.accounting.fiscal_year import FiscalYear
 from app.models.accounting.account_type import AccountType 
@@ -48,16 +48,23 @@ from app.models.accounting.journal_entry import JournalEntryLine
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore 
+    from app.services.account_service import AccountService # ADDED
+    from app.services.journal_service import JournalService # ADDED
+    from app.services.fiscal_period_service import FiscalPeriodService # ADDED
+    from app.services.tax_service import TaxCodeService # ADDED
+    from app.services.core_services import CompanySettingsService # ADDED
+    from app.services.accounting_services import AccountTypeService, DimensionService # ADDED
+
 
 class FinancialStatementGenerator:
     def __init__(self, 
-                 account_service: AccountService, 
-                 journal_service: JournalService, 
-                 fiscal_period_service: FiscalPeriodService, 
-                 account_type_service: AccountTypeService, 
-                 tax_code_service: Optional[TaxCodeService] = None, 
-                 company_settings_service: Optional[CompanySettingsService] = None,
-                 dimension_service: Optional[DimensionService] = None # New dependency
+                 account_service: "AccountService", 
+                 journal_service: "JournalService", 
+                 fiscal_period_service: "FiscalPeriodService", 
+                 account_type_service: "AccountTypeService", 
+                 tax_code_service: Optional["TaxCodeService"] = None, 
+                 company_settings_service: Optional["CompanySettingsService"] = None,
+                 dimension_service: Optional["DimensionService"] = None 
                  ):
         self.account_service = account_service
         self.journal_service = journal_service
@@ -65,18 +72,16 @@ class FinancialStatementGenerator:
         self.account_type_service = account_type_service
         self.tax_code_service = tax_code_service
         self.company_settings_service = company_settings_service
-        self.dimension_service = dimension_service # New
+        self.dimension_service = dimension_service 
         self._account_type_map_cache: Optional[Dict[str, AccountType]] = None
 
 
-    # ... (_get_account_type_map, _calculate_account_balances_for_report, _calculate_account_period_activity_for_report,
-    #      generate_balance_sheet, generate_profit_loss, generate_trial_balance, generate_income_tax_computation,
-    #      generate_gst_f5 - unchanged from file set 7)
     async def _get_account_type_map(self) -> Dict[str, AccountType]:
         if self._account_type_map_cache is None:
              ats = await self.account_type_service.get_all()
              self._account_type_map_cache = {at.category: at for at in ats} 
         return self._account_type_map_cache
+
     async def _calculate_account_balances_for_report(self, accounts: List[Account], as_of_date: date) -> List[Dict[str, Any]]:
         result_list = []; acc_type_map = await self._get_account_type_map()
         for account in accounts:
@@ -85,6 +90,7 @@ class FinancialStatementGenerator:
             if not is_debit_nature: display_balance = -balance_value 
             result_list.append({'id': account.id, 'code': account.code, 'name': account.name, 'balance': display_balance})
         return result_list
+
     async def _calculate_account_period_activity_for_report(self, accounts: List[Account], start_date: date, end_date: date) -> List[Dict[str, Any]]:
         result_list = []; acc_type_map = await self._get_account_type_map()
         for account in accounts:
@@ -93,6 +99,7 @@ class FinancialStatementGenerator:
             if not is_debit_nature: display_activity = -activity_value 
             result_list.append({'id': account.id, 'code': account.code, 'name': account.name, 'balance': display_activity})
         return result_list
+
     async def generate_balance_sheet(self, as_of_date: date, comparative_date: Optional[date] = None, include_zero_balances: bool = False) -> Dict[str, Any]:
         accounts = await self.account_service.get_all_active(); assets_orm = [a for a in accounts if a.account_type == 'Asset']; liabilities_orm = [a for a in accounts if a.account_type == 'Liability']; equity_orm = [a for a in accounts if a.account_type == 'Equity']
         asset_accounts = await self._calculate_account_balances_for_report(assets_orm, as_of_date); liability_accounts = await self._calculate_account_balances_for_report(liabilities_orm, as_of_date); equity_accounts = await self._calculate_account_balances_for_report(equity_orm, as_of_date)
@@ -104,6 +111,7 @@ class FinancialStatementGenerator:
         total_assets = sum(a['balance'] for a in asset_accounts); total_liabilities = sum(a['balance'] for a in liability_accounts); total_equity = sum(a['balance'] for a in equity_accounts)
         comp_total_assets = sum(a['balance'] for a in comp_asset_accs) if comp_asset_accs else None; comp_total_liabilities = sum(a['balance'] for a in comp_liab_accs) if comp_liab_accs else None; comp_total_equity = sum(a['balance'] for a in comp_equity_accs) if comp_equity_accs else None
         return {'title': 'Balance Sheet', 'report_date_description': f"As of {as_of_date.strftime('%d %b %Y')}",'as_of_date': as_of_date, 'comparative_date': comparative_date,'assets': {'accounts': asset_accounts, 'total': total_assets, 'comparative_accounts': comp_asset_accs, 'comparative_total': comp_total_assets},'liabilities': {'accounts': liability_accounts, 'total': total_liabilities, 'comparative_accounts': comp_liab_accs, 'comparative_total': comp_total_liabilities},'equity': {'accounts': equity_accounts, 'total': total_equity, 'comparative_accounts': comp_equity_accs, 'comparative_total': comp_total_equity},'total_liabilities_equity': total_liabilities + total_equity,'comparative_total_liabilities_equity': (comp_total_liabilities + comp_total_equity) if comparative_date and comp_total_liabilities is not None and comp_total_equity is not None else None,'is_balanced': abs(total_assets - (total_liabilities + total_equity)) < Decimal("0.01")}
+
     async def generate_profit_loss(self, start_date: date, end_date: date, comparative_start: Optional[date] = None, comparative_end: Optional[date] = None) -> Dict[str, Any]:
         accounts = await self.account_service.get_all_active(); revenues_orm = [a for a in accounts if a.account_type == 'Revenue']; expenses_orm = [a for a in accounts if a.account_type == 'Expense'] 
         revenue_accounts = await self._calculate_account_period_activity_for_report(revenues_orm, start_date, end_date); expense_accounts = await self._calculate_account_period_activity_for_report(expenses_orm, start_date, end_date)
@@ -114,6 +122,7 @@ class FinancialStatementGenerator:
         comp_total_revenue = sum(a['balance'] for a in comp_rev_accs) if comp_rev_accs else None; comp_total_expenses = sum(a['balance'] for a in comp_exp_accs) if comp_exp_accs else None
         comp_net_profit = (comp_total_revenue - comp_total_expenses) if comp_total_revenue is not None and comp_total_expenses is not None else None
         return {'title': 'Profit & Loss Statement', 'report_date_description': f"For the period {start_date.strftime('%d %b %Y')} to {end_date.strftime('%d %b %Y')}",'start_date': start_date, 'end_date': end_date, 'comparative_start': comparative_start, 'comparative_end': comparative_end,'revenue': {'accounts': revenue_accounts, 'total': total_revenue, 'comparative_accounts': comp_rev_accs, 'comparative_total': comp_total_revenue},'expenses': {'accounts': expense_accounts, 'total': total_expenses, 'comparative_accounts': comp_exp_accs, 'comparative_total': comp_total_expenses},'net_profit': net_profit, 'comparative_net_profit': comp_net_profit}
+
     async def generate_trial_balance(self, as_of_date: date) -> Dict[str, Any]:
         accounts = await self.account_service.get_all_active(); debit_accounts_list, credit_accounts_list = [], []; total_debits_val, total_credits_val = Decimal(0), Decimal(0) 
         acc_type_map = await self._get_account_type_map()
@@ -130,6 +139,7 @@ class FinancialStatementGenerator:
                 else: account_data['balance'] = raw_balance; debit_accounts_list.append(account_data); total_debits_val += raw_balance
         debit_accounts_list.sort(key=lambda a: a['code']); credit_accounts_list.sort(key=lambda a: a['code'])
         return {'title': 'Trial Balance', 'report_date_description': f"As of {as_of_date.strftime('%d %b %Y')}",'as_of_date': as_of_date,'debit_accounts': debit_accounts_list, 'credit_accounts': credit_accounts_list,'total_debits': total_debits_val, 'total_credits': total_credits_val,'is_balanced': abs(total_debits_val - total_credits_val) < Decimal("0.01")}
+
     async def generate_income_tax_computation(self, year_int_value: int) -> Dict[str, Any]: 
         fiscal_year_obj: Optional[FiscalYear] = await self.fiscal_period_service.get_fiscal_year(year_int_value) 
         if not fiscal_year_obj: raise ValueError(f"Fiscal year definition for {year_int_value} not found.")
@@ -145,6 +155,7 @@ class FinancialStatementGenerator:
             tax_effect += activity 
         taxable_income = net_profit + tax_effect
         return {'title': f'Income Tax Computation for Year of Assessment {year_int_value + 1}', 'report_date_description': f"For Financial Year Ended {fiscal_year_obj.end_date.strftime('%d %b %Y')}",'year': year_int_value, 'fiscal_year_start': start_date, 'fiscal_year_end': end_date,'net_profit': net_profit, 'adjustments': adjustments, 'tax_effect': tax_effect, 'taxable_income': taxable_income}
+
     async def generate_gst_f5(self, start_date: date, end_date: date) -> Dict[str, Any]:
         if not self.company_settings_service or not self.tax_code_service: raise RuntimeError("TaxCodeService and CompanySettingsService are required for GST F5.")
         company = await self.company_settings_service.get_company_settings();
@@ -177,13 +188,10 @@ class FinancialStatementGenerator:
             raise ValueError(f"Account with ID {account_id} not found.")
 
         ob_date = start_date - timedelta(days=1)
-        # Note: Opening balance calculation for GL should also consider dimensions if they apply to OB.
-        # For now, assume OB is not dimension-specific for simplicity. A more advanced system
-        # might require passing dimension filters to get_account_balance if OB JEs have dimensions.
         opening_balance = await self.journal_service.get_account_balance(account_id, ob_date)
 
         lines: List[JournalEntryLine] = await self.journal_service.get_posted_lines_for_account_in_range(
-            account_id, start_date, end_date, dimension1_id, dimension2_id # Pass dimensions here
+            account_id, start_date, end_date, dimension1_id, dimension2_id 
         )
 
         transactions_data = []
@@ -196,7 +204,7 @@ class FinancialStatementGenerator:
                 "date": line.journal_entry.entry_date, "entry_no": line.journal_entry.entry_no,
                 "je_description": line.journal_entry.description or "", "line_description": line.description or "",
                 "debit": line.debit_amount, "credit": line.credit_amount, "balance": current_balance,
-                "dim1_id": line.dimension1_id, "dim2_id": line.dimension2_id # Include dim IDs in output
+                "dim1_id": line.dimension1_id, "dim2_id": line.dimension2_id 
             })
         closing_balance = current_balance
         
@@ -239,15 +247,37 @@ __all__ = [
 # app/reporting/dashboard_manager.py
 ```py
 # File: app/reporting/dashboard_manager.py
-from typing import Optional, TYPE_CHECKING, List
+from typing import Optional, TYPE_CHECKING, List, Dict # Added Dict
 from datetime import date
 from decimal import Decimal
 
 from app.utils.pydantic_models import DashboardKPIData
 from app.models.accounting.fiscal_year import FiscalYear 
+from app.models.accounting.account import Account # For type hinting
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore
+
+# Define standard "current" account subtypes. These should ideally match common usage or be configurable.
+# These are based on typical Chart of Accounts structures like the general_template.csv.
+CURRENT_ASSET_SUBTYPES = [
+    "Cash and Cash Equivalents", 
+    "Accounts Receivable", 
+    "Inventory", 
+    "Prepaid Expenses",
+    "Other Current Assets", # A generic category
+    "Current Asset" # Another generic category often used as a sub_type directly
+]
+CURRENT_LIABILITY_SUBTYPES = [
+    "Accounts Payable", 
+    "Accrued Liabilities", 
+    "Short-Term Loans", # Assuming "Loans Payable" might be split or if a specific ST Loan subtype exists
+    "Current Portion of Long-Term Debt", # If such a subtype exists
+    "GST Payable", # Typically current
+    "Other Current Liabilities",
+    "Current Liability"
+]
+
 
 class DashboardManager:
     def __init__(self, app_core: "ApplicationCore"):
@@ -287,7 +317,7 @@ class DashboardManager:
                 fy_end_date = current_fy.end_date
                 effective_end_date_for_ytd = min(today, fy_end_date)
                 kpi_period_description = f"YTD as of {effective_end_date_for_ytd.strftime('%d %b %Y')} (FY: {current_fy.year_name})"
-                if today >= fy_start_date:
+                if today >= fy_start_date: # Ensure we are within or past the start of the current FY
                     pl_data = await self.app_core.financial_statement_generator.generate_profit_loss(
                         start_date=fy_start_date,
                         end_date=effective_end_date_for_ytd
@@ -303,8 +333,34 @@ class DashboardManager:
             current_cash_balance = await self._get_total_cash_balance(base_currency)
             total_outstanding_ar = await self.app_core.customer_service.get_total_outstanding_balance()
             total_outstanding_ap = await self.app_core.vendor_service.get_total_outstanding_balance()
-            total_ar_overdue = await self.app_core.customer_service.get_total_overdue_balance() # New KPI
-            total_ap_overdue = await self.app_core.vendor_service.get_total_overdue_balance() # New KPI
+            total_ar_overdue = await self.app_core.customer_service.get_total_overdue_balance() 
+            total_ap_overdue = await self.app_core.vendor_service.get_total_overdue_balance() 
+
+            # Fetch AR/AP Aging Summaries
+            ar_aging_summary = await self.app_core.customer_service.get_ar_aging_summary(as_of_date=today)
+            ap_aging_summary = await self.app_core.vendor_service.get_ap_aging_summary(as_of_date=today)
+
+            # Calculate Total Current Assets and Liabilities
+            total_current_assets = Decimal(0)
+            total_current_liabilities = Decimal(0)
+            all_active_accounts: List[Account] = await self.app_core.account_service.get_all_active()
+
+            for acc in all_active_accounts:
+                balance = await self.app_core.journal_service.get_account_balance(acc.id, today)
+                if acc.account_type == "Asset" and acc.sub_type in CURRENT_ASSET_SUBTYPES:
+                    total_current_assets += balance
+                elif acc.account_type == "Liability" and acc.sub_type in CURRENT_LIABILITY_SUBTYPES:
+                    # JournalService.get_account_balance for liability accounts (credit nature)
+                    # returns a positive value if it's a credit balance. Summing these directly is correct.
+                    total_current_liabilities += balance 
+            
+            current_ratio: Optional[Decimal] = None
+            if total_current_liabilities > Decimal(0):
+                current_ratio = (total_current_assets / total_current_liabilities).quantize(Decimal("0.01"))
+            elif total_current_assets > Decimal(0) and total_current_liabilities == Decimal(0):
+                current_ratio = Decimal('Infinity') # Represent as None or a very large number for display
+                self.logger.warning("Current Liabilities are zero, Current Ratio is effectively infinite.")
+
 
             return DashboardKPIData(
                 kpi_period_description=kpi_period_description,
@@ -315,21 +371,50 @@ class DashboardManager:
                 current_cash_balance=current_cash_balance,
                 total_outstanding_ar=total_outstanding_ar,
                 total_outstanding_ap=total_outstanding_ap,
-                total_ar_overdue=total_ar_overdue, # New field
-                total_ap_overdue=total_ap_overdue   # New field
+                total_ar_overdue=total_ar_overdue, 
+                total_ap_overdue=total_ap_overdue,
+                ar_aging_current=ar_aging_summary.get("Current", Decimal(0)),
+                ar_aging_31_60=ar_aging_summary.get("31-60 Days", Decimal(0)),
+                ar_aging_61_90=ar_aging_summary.get("61-90 Days", Decimal(0)),
+                ar_aging_91_plus=ar_aging_summary.get("91+ Days", Decimal(0)),
+                # Adding 1-30 days for AR (ensure service provides this key or adjust)
+                ar_aging_1_30=ar_aging_summary.get("1-30 Days", Decimal(0)),
+                ap_aging_current=ap_aging_summary.get("Current", Decimal(0)),
+                ap_aging_31_60=ap_aging_summary.get("31-60 Days", Decimal(0)),
+                ap_aging_61_90=ap_aging_summary.get("61-90 Days", Decimal(0)),
+                ap_aging_91_plus=ap_aging_summary.get("91+ Days", Decimal(0)),
+                # Adding 1-30 days for AP
+                ap_aging_1_30=ap_aging_summary.get("1-30 Days", Decimal(0)),
+                total_current_assets=total_current_assets.quantize(Decimal("0.01")),
+                total_current_liabilities=total_current_liabilities.quantize(Decimal("0.01")),
+                current_ratio=current_ratio
             )
         except Exception as e:
             self.logger.error(f"Error fetching dashboard KPIs: {e}", exc_info=True)
             return None
 
     async def _get_total_cash_balance(self, base_currency: str) -> Decimal:
-        active_bank_accounts = await self.app_core.bank_account_service.get_all_summary(
+        active_bank_accounts_summary = await self.app_core.bank_account_service.get_all_summary(
             active_only=True, 
-            currency_code=base_currency,
+            currency_code=base_currency, # Only sum bank accounts in base currency for simplicity
             page_size=-1 
         )
-        total_cash = sum(ba.current_balance for ba in active_bank_accounts if ba.currency_code == base_currency)
-        return total_cash if total_cash is not None else Decimal(0)
+        total_cash = Decimal(0)
+        if active_bank_accounts_summary:
+            total_cash = sum(ba.current_balance for ba in active_bank_accounts_summary if ba.currency_code == base_currency and ba.current_balance is not None)
+        
+        # Optionally, add cash on hand GL account balance if distinct from bank GLs
+        cash_on_hand_code = await self.app_core.configuration_service.get_config_value("SysAcc_DefaultCash")
+        if cash_on_hand_code:
+            cash_on_hand_acc = await self.app_core.account_service.get_by_code(cash_on_hand_code)
+            if cash_on_hand_acc and cash_on_hand_acc.is_active:
+                 # Check if this GL is NOT already linked to any bank account to avoid double counting
+                linked_bank_acc_check = await self.app_core.bank_account_service.get_by_gl_account_id(cash_on_hand_acc.id)
+                if not linked_bank_acc_check:
+                    cash_on_hand_balance = await self.app_core.journal_service.get_account_balance(cash_on_hand_acc.id, date.today())
+                    total_cash += cash_on_hand_balance
+
+        return total_cash.quantize(Decimal("0.01"))
 
 ```
 
@@ -792,25 +877,28 @@ class TaxReportGenerator:
 
 # app/business_logic/vendor_manager.py
 ```py
-# app/business_logic/vendor_manager.py
+# File: app/business_logic/vendor_manager.py
 from typing import List, Optional, Dict, Any, TYPE_CHECKING
 from decimal import Decimal
 
 from app.models.business.vendor import Vendor
-from app.services.business_services import VendorService
-from app.services.account_service import AccountService # Corrected import
-from app.services.accounting_services import CurrencyService # Correct import
+# REMOVED: from app.services.business_services import VendorService
+# REMOVED: from app.services.account_service import AccountService
+# REMOVED: from app.services.accounting_services import CurrencyService
 from app.utils.result import Result
 from app.utils.pydantic_models import VendorCreateData, VendorUpdateData, VendorSummaryData
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore
+    from app.services.business_services import VendorService # ADDED
+    from app.services.account_service import AccountService # ADDED
+    from app.services.accounting_services import CurrencyService # ADDED
 
 class VendorManager:
     def __init__(self, 
-                 vendor_service: VendorService, 
-                 account_service: AccountService, 
-                 currency_service: CurrencyService, 
+                 vendor_service: "VendorService", 
+                 account_service: "AccountService", 
+                 currency_service: "CurrencyService", 
                  app_core: "ApplicationCore"):
         self.vendor_service = vendor_service
         self.account_service = account_service
@@ -951,7 +1039,6 @@ class VendorManager:
             self.logger.error(f"Error toggling active status for vendor ID {vendor_id}: {e}", exc_info=True)
             return Result.failure([f"Failed to toggle active status for vendor: {str(e)}"])
 
-
 ```
 
 # app/business_logic/__init__.py
@@ -989,17 +1076,17 @@ from datetime import date
 from app.models.business.payment import Payment, PaymentAllocation
 from app.models.business.sales_invoice import SalesInvoice
 from app.models.business.purchase_invoice import PurchaseInvoice
-from app.models.accounting.account import Account
+# REMOVED: from app.models.accounting.account import Account # Not directly used by PaymentManager
 from app.models.accounting.journal_entry import JournalEntry 
-from app.models.business.bank_account import BankAccount
+# REMOVED: from app.models.business.bank_account import BankAccount # Not directly used by PaymentManager
 
-from app.services.business_services import (
-    PaymentService, BankAccountService, CustomerService, VendorService,
-    SalesInvoiceService, PurchaseInvoiceService
-)
-from app.services.core_services import SequenceService, ConfigurationService
-from app.services.account_service import AccountService
-from app.accounting.journal_entry_manager import JournalEntryManager 
+# REMOVED: from app.services.business_services import (
+#     PaymentService, BankAccountService, CustomerService, VendorService,
+#     SalesInvoiceService, PurchaseInvoiceService
+# )
+# REMOVED: from app.services.core_services import SequenceService, ConfigurationService
+# REMOVED: from app.services.account_service import AccountService
+# REMOVED: from app.accounting.journal_entry_manager import JournalEntryManager 
 
 from app.utils.result import Result
 from app.utils.pydantic_models import (
@@ -1008,25 +1095,32 @@ from app.utils.pydantic_models import (
 )
 from app.common.enums import (
     PaymentEntityTypeEnum, PaymentTypeEnum, PaymentStatusEnum,
-    InvoiceStatusEnum, JournalTypeEnum, PaymentAllocationDocTypeEnum # Added PaymentAllocationDocTypeEnum
+    InvoiceStatusEnum, JournalTypeEnum, PaymentAllocationDocTypeEnum 
 )
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore
-    from sqlalchemy.ext.asyncio import AsyncSession # For type hinting session
+    from sqlalchemy.ext.asyncio import AsyncSession 
+    from app.services.business_services import (
+        PaymentService, BankAccountService, CustomerService, VendorService,
+        SalesInvoiceService, PurchaseInvoiceService
+    )
+    from app.services.core_services import SequenceService, ConfigurationService
+    from app.services.account_service import AccountService
+    from app.accounting.journal_entry_manager import JournalEntryManager 
 
 class PaymentManager:
     def __init__(self,
-                 payment_service: PaymentService,
-                 sequence_service: SequenceService,
-                 bank_account_service: BankAccountService,
-                 customer_service: CustomerService,
-                 vendor_service: VendorService,
-                 sales_invoice_service: SalesInvoiceService,
-                 purchase_invoice_service: PurchaseInvoiceService,
-                 journal_entry_manager: JournalEntryManager,
-                 account_service: AccountService,
-                 configuration_service: ConfigurationService,
+                 payment_service: "PaymentService",
+                 sequence_service: "SequenceService",
+                 bank_account_service: "BankAccountService",
+                 customer_service: "CustomerService",
+                 vendor_service: "VendorService",
+                 sales_invoice_service: "SalesInvoiceService",
+                 purchase_invoice_service: "PurchaseInvoiceService",
+                 journal_entry_manager: "JournalEntryManager",
+                 account_service: "AccountService",
+                 configuration_service: "ConfigurationService",
                  app_core: "ApplicationCore"):
         self.payment_service = payment_service
         self.sequence_service = sequence_service
@@ -1044,45 +1138,41 @@ class PaymentManager:
     async def _validate_payment_data(self, dto: PaymentCreateData, session: "AsyncSession") -> List[str]:
         errors: List[str] = []
         
-        # Validate Entity
         entity_name_for_desc: str = "Entity"
         if dto.entity_type == PaymentEntityTypeEnum.CUSTOMER:
-            entity = await self.customer_service.get_by_id(dto.entity_id) # Use service, not direct session get
+            entity = await self.customer_service.get_by_id(dto.entity_id) 
             if not entity or not entity.is_active: errors.append(f"Active Customer ID {dto.entity_id} not found.")
             else: entity_name_for_desc = entity.name
         elif dto.entity_type == PaymentEntityTypeEnum.VENDOR:
-            entity = await self.vendor_service.get_by_id(dto.entity_id) # Use service
+            entity = await self.vendor_service.get_by_id(dto.entity_id) 
             if not entity or not entity.is_active: errors.append(f"Active Vendor ID {dto.entity_id} not found.")
             else: entity_name_for_desc = entity.name
         
-        # Validate Bank Account if not cash
-        if dto.payment_method != PaymentMethodEnum.CASH: # Use enum member for comparison
+        if dto.payment_method != PaymentMethodEnum.CASH: 
             if not dto.bank_account_id: errors.append("Bank Account is required for non-cash payments.")
             else:
-                bank_acc = await self.bank_account_service.get_by_id(dto.bank_account_id) # Use service
+                bank_acc = await self.bank_account_service.get_by_id(dto.bank_account_id) 
                 if not bank_acc or not bank_acc.is_active: errors.append(f"Active Bank Account ID {dto.bank_account_id} not found.")
                 elif bank_acc.currency_code != dto.currency_code: errors.append(f"Payment currency ({dto.currency_code}) does not match bank account currency ({bank_acc.currency_code}).")
         
-        # Validate Currency
         currency = await self.app_core.currency_manager.get_currency_by_code(dto.currency_code)
         if not currency or not currency.is_active: errors.append(f"Currency '{dto.currency_code}' is invalid or inactive.")
 
-        # Validate Allocations
         total_allocated = Decimal(0)
         for i, alloc_dto in enumerate(dto.allocations):
             total_allocated += alloc_dto.amount_allocated
             invoice_orm: Union[SalesInvoice, PurchaseInvoice, None] = None
             doc_type_str = ""
             if alloc_dto.document_type == PaymentAllocationDocTypeEnum.SALES_INVOICE:
-                invoice_orm = await self.sales_invoice_service.get_by_id(alloc_dto.document_id) # Use service
+                invoice_orm = await self.sales_invoice_service.get_by_id(alloc_dto.document_id) 
                 doc_type_str = "Sales Invoice"
             elif alloc_dto.document_type == PaymentAllocationDocTypeEnum.PURCHASE_INVOICE:
-                invoice_orm = await self.purchase_invoice_service.get_by_id(alloc_dto.document_id) # Use service
+                invoice_orm = await self.purchase_invoice_service.get_by_id(alloc_dto.document_id) 
                 doc_type_str = "Purchase Invoice"
             
             if not invoice_orm: errors.append(f"Allocation {i+1}: {doc_type_str} ID {alloc_dto.document_id} not found.")
             elif invoice_orm.status not in [InvoiceStatusEnum.APPROVED, InvoiceStatusEnum.PARTIALLY_PAID, InvoiceStatusEnum.OVERDUE]:
-                errors.append(f"Allocation {i+1}: {doc_type_str} {invoice_orm.invoice_no} is not in an allocatable status ({invoice_orm.status.value}).") # Use .value for enum
+                errors.append(f"Allocation {i+1}: {doc_type_str} {invoice_orm.invoice_no} is not in an allocatable status ({invoice_orm.status.value}).") 
             elif isinstance(invoice_orm, SalesInvoice) and invoice_orm.customer_id != dto.entity_id:
                  errors.append(f"Allocation {i+1}: Sales Invoice {invoice_orm.invoice_no} does not belong to selected customer.")
             elif isinstance(invoice_orm, PurchaseInvoice) and invoice_orm.vendor_id != dto.entity_id:
@@ -1149,7 +1239,7 @@ class PaymentManager:
                         document_type=alloc_dto.document_type.value,
                         document_id=alloc_dto.document_id,
                         amount=alloc_dto.amount_allocated,
-                        created_by_user_id=dto.user_id # Audit for allocation line
+                        created_by_user_id=dto.user_id 
                     ))
                 
                 je_lines_data: List[JournalEntryLineData] = []
@@ -1199,7 +1289,7 @@ class PaymentManager:
                             session.add(inv)
 
                 await session.flush()
-                await session.refresh(saved_payment, attribute_names=['allocations', 'journal_entry']) # Refresh all relevant attributes
+                await session.refresh(saved_payment, attribute_names=['allocations', 'journal_entry']) 
                 
                 self.logger.info(f"Payment '{saved_payment.payment_no}' created and posted successfully. JE ID: {created_je.id}")
                 return Result.success(saved_payment)
@@ -1246,20 +1336,21 @@ from typing import List, Optional, Dict, Any, TYPE_CHECKING, Union, cast
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from datetime import date, datetime 
 
-from sqlalchemy import text # Added for text()
+from sqlalchemy import text 
 from sqlalchemy.orm import selectinload 
 
 from app.models.business.sales_invoice import SalesInvoice, SalesInvoiceLine
 from app.models.business.customer import Customer
 from app.models.business.product import Product
-from app.models.accounting.tax_code import TaxCode
+# REMOVED: from app.models.accounting.tax_code import TaxCode # Not directly used here, TaxCodeService is
 from app.models.accounting.journal_entry import JournalEntry 
-from app.models.business.inventory_movement import InventoryMovement # New import
+from app.models.business.inventory_movement import InventoryMovement 
 
-from app.services.business_services import SalesInvoiceService, CustomerService, ProductService, InventoryMovementService # Added InventoryMovementService
-from app.services.core_services import SequenceService, ConfigurationService 
-from app.services.tax_service import TaxCodeService 
-from app.services.account_service import AccountService 
+# REMOVED: from app.services.business_services import SalesInvoiceService, CustomerService, ProductService, InventoryMovementService
+# REMOVED: from app.services.core_services import SequenceService, ConfigurationService 
+# REMOVED: from app.services.tax_service import TaxCodeService 
+# REMOVED: from app.services.account_service import AccountService 
+# REMOVED: from app.tax.tax_calculator import TaxCalculator 
 
 from app.utils.result import Result
 from app.utils.pydantic_models import (
@@ -1267,24 +1358,29 @@ from app.utils.pydantic_models import (
     SalesInvoiceSummaryData, TaxCalculationResultData,
     JournalEntryData, JournalEntryLineData 
 )
-from app.tax.tax_calculator import TaxCalculator 
-from app.common.enums import InvoiceStatusEnum, ProductTypeEnum, JournalTypeEnum, InventoryMovementTypeEnum # Added InventoryMovementTypeEnum
+from app.common.enums import InvoiceStatusEnum, ProductTypeEnum, JournalTypeEnum, InventoryMovementTypeEnum 
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore
+    from app.services.business_services import SalesInvoiceService, CustomerService, ProductService, InventoryMovementService
+    from app.services.core_services import SequenceService, ConfigurationService
+    from app.services.tax_service import TaxCodeService
+    from app.services.account_service import AccountService
+    from app.tax.tax_calculator import TaxCalculator
+    from app.models.accounting.tax_code import TaxCode # Keep for TaxCodeService method returns if needed
 
 class SalesInvoiceManager:
     def __init__(self, 
-                 sales_invoice_service: SalesInvoiceService,
-                 customer_service: CustomerService,
-                 product_service: ProductService,
-                 tax_code_service: TaxCodeService, 
-                 tax_calculator: TaxCalculator, 
-                 sequence_service: SequenceService,
-                 account_service: AccountService, 
-                 configuration_service: ConfigurationService, 
+                 sales_invoice_service: "SalesInvoiceService",
+                 customer_service: "CustomerService",
+                 product_service: "ProductService",
+                 tax_code_service: "TaxCodeService", 
+                 tax_calculator: "TaxCalculator", 
+                 sequence_service: "SequenceService",
+                 account_service: "AccountService", 
+                 configuration_service: "ConfigurationService", 
                  app_core: "ApplicationCore",
-                 inventory_movement_service: InventoryMovementService): # New dependency
+                 inventory_movement_service: "InventoryMovementService"): 
         self.sales_invoice_service = sales_invoice_service
         self.customer_service = customer_service
         self.product_service = product_service
@@ -1295,9 +1391,8 @@ class SalesInvoiceManager:
         self.configuration_service = configuration_service 
         self.app_core = app_core
         self.logger = app_core.logger
-        self.inventory_movement_service = inventory_movement_service # New dependency
+        self.inventory_movement_service = inventory_movement_service
 
-    # ... (_validate_and_prepare_invoice_data, create_draft_invoice, update_draft_invoice, get_invoice_for_dialog - unchanged from file set 7) ...
     async def _validate_and_prepare_invoice_data(
         self, 
         dto: Union[SalesInvoiceCreateData, SalesInvoiceUpdateData],
@@ -1338,8 +1433,8 @@ class SalesInvoiceManager:
                 tax_calc_result: TaxCalculationResultData = await self.tax_calculator.calculate_line_tax(amount=line_subtotal_before_tax, tax_code_str=line_dto.tax_code, transaction_type="SalesInvoiceLine")
                 line_tax_amount_calc = tax_calc_result.tax_amount; line_tax_account_id = tax_calc_result.tax_account_id 
                 if tax_calc_result.tax_account_id is None and line_tax_amount_calc > Decimal(0): 
-                    tc_check = await self.tax_code_service.get_tax_code(line_dto.tax_code)
-                    if not tc_check or not tc_check.is_active: line_errors_current_line.append(f"Tax code '{line_dto.tax_code}' used on line {i+1} is invalid or inactive.")
+                    tc_check_orm = await self.tax_code_service.get_tax_code(line_dto.tax_code)
+                    if not tc_check_orm or not tc_check_orm.is_active: line_errors_current_line.append(f"Tax code '{line_dto.tax_code}' used on line {i+1} is invalid or inactive.")
             invoice_subtotal_calc += line_subtotal_before_tax; invoice_total_tax_calc += line_tax_amount_calc
             if line_errors_current_line: errors.extend(line_errors_current_line)
             calculated_lines_for_orm.append({
@@ -1422,8 +1517,8 @@ class SalesInvoiceManager:
                     SalesInvoice, invoice_id, 
                     options=[
                         selectinload(SalesInvoice.lines).selectinload(SalesInvoiceLine.product).selectinload(Product.sales_account),
-                        selectinload(SalesInvoice.lines).selectinload(SalesInvoiceLine.product).selectinload(Product.inventory_account), # For COGS inventory account
-                        selectinload(SalesInvoice.lines).selectinload(SalesInvoiceLine.product).selectinload(Product.purchase_account), # For COGS expense account
+                        selectinload(SalesInvoice.lines).selectinload(SalesInvoiceLine.product).selectinload(Product.inventory_account), 
+                        selectinload(SalesInvoice.lines).selectinload(SalesInvoiceLine.product).selectinload(Product.purchase_account), 
                         selectinload(SalesInvoice.lines).selectinload(SalesInvoiceLine.tax_code_obj).selectinload(TaxCode.affects_account), 
                         selectinload(SalesInvoice.customer).selectinload(Customer.receivables_account)
                     ]
@@ -1437,9 +1532,8 @@ class SalesInvoiceManager:
 
                 default_sales_acc_code = await self.configuration_service.get_config_value("SysAcc_DefaultSalesRevenue", "4100")
                 default_gst_output_acc_code = await self.configuration_service.get_config_value("SysAcc_DefaultGSTOutput", "SYS-GST-OUTPUT")
-                default_cogs_acc_code = await self.configuration_service.get_config_value("SysAcc_DefaultCOGS", "5100") # New default
+                default_cogs_acc_code = await self.configuration_service.get_config_value("SysAcc_DefaultCOGS", "5100") 
 
-                # Main Financial JE for Sales
                 fin_je_lines_data: List[JournalEntryLineData] = []
                 fin_je_lines_data.append(JournalEntryLineData( account_id=ar_account.id, debit_amount=invoice_to_post.total_amount, credit_amount=Decimal(0), description=f"A/R for Inv {invoice_to_post.invoice_no}", currency_code=invoice_to_post.currency_code, exchange_rate=invoice_to_post.exchange_rate))
                 for line in invoice_to_post.lines:
@@ -1447,7 +1541,8 @@ class SalesInvoiceManager:
                     if not sales_gl_id: return Result.failure([f"Could not determine Sales Revenue account for line: {line.description}"])
                     fin_je_lines_data.append(JournalEntryLineData( account_id=sales_gl_id, debit_amount=Decimal(0), credit_amount=line.line_subtotal, description=f"Sale: {line.description[:100]} (Inv {invoice_to_post.invoice_no})", currency_code=invoice_to_post.currency_code, exchange_rate=invoice_to_post.exchange_rate))
                     if line.tax_amount and line.tax_amount != Decimal(0) and line.tax_code:
-                        gst_gl_id = (line.tax_code_obj.affects_account.id if line.tax_code_obj and line.tax_code_obj.affects_account and line.tax_code_obj.affects_account.is_active else (await self.account_service.get_by_code(default_gst_output_acc_code)).id) if default_gst_output_acc_code else None # type: ignore
+                        gst_gl_id_orm = line.tax_code_obj.affects_account if line.tax_code_obj and line.tax_code_obj.affects_account else None
+                        gst_gl_id = gst_gl_id_orm.id if gst_gl_id_orm and gst_gl_id_orm.is_active else (await self.account_service.get_by_code(default_gst_output_acc_code)).id if default_gst_output_acc_code else None # type: ignore
                         if not gst_gl_id: return Result.failure([f"Could not determine GST Output account for tax on line: {line.description}"])
                         fin_je_lines_data.append(JournalEntryLineData( account_id=gst_gl_id, debit_amount=Decimal(0), credit_amount=line.tax_amount, description=f"GST Output ({line.tax_code}) for Inv {invoice_to_post.invoice_no}", currency_code=invoice_to_post.currency_code, exchange_rate=invoice_to_post.exchange_rate))
                 
@@ -1458,32 +1553,30 @@ class SalesInvoiceManager:
                 post_fin_je_result = await self.app_core.journal_entry_manager.post_journal_entry(created_fin_je.id, user_id, session=session)
                 if not post_fin_je_result.is_success: return Result.failure([f"Financial JE (ID: {created_fin_je.id}) created but failed to post."] + post_fin_je_result.errors)
 
-                # Inventory Movements and COGS JE
                 cogs_je_lines_data: List[JournalEntryLineData] = []
                 for line in invoice_to_post.lines:
                     if line.product and ProductTypeEnum(line.product.product_type) == ProductTypeEnum.INVENTORY:
-                        # Fetch WAC using raw SQL against the view (within current session)
                         wac_query = text("SELECT average_cost FROM business.inventory_summary WHERE product_id = :pid")
                         wac_result = await session.execute(wac_query, {"pid": line.product_id})
                         current_wac = wac_result.scalar_one_or_none()
-                        if current_wac is None: current_wac = line.product.purchase_price or Decimal(0) # Fallback
+                        if current_wac is None: current_wac = line.product.purchase_price or Decimal(0) 
                         
                         cogs_amount_for_line = (line.quantity * current_wac).quantize(Decimal("0.01"), ROUND_HALF_UP)
 
                         inv_movement = InventoryMovement(
                             product_id=line.product_id, movement_date=invoice_to_post.invoice_date,
-                            movement_type=InventoryMovementTypeEnum.SALE.value, quantity=-line.quantity, # Negative for outflow
+                            movement_type=InventoryMovementTypeEnum.SALE.value, quantity=-line.quantity, 
                             unit_cost=current_wac, total_cost=cogs_amount_for_line,
                             reference_type='SalesInvoiceLine', reference_id=line.id, created_by_user_id=user_id
                         )
                         await self.inventory_movement_service.save(inv_movement, session=session)
 
-                        cogs_acc_id = line.product.purchase_account_id if line.product.purchase_account and line.product.purchase_account.is_active else (await self.account_service.get_by_code(default_cogs_acc_code)).id # type: ignore
-                        inv_asset_acc_id = line.product.inventory_account_id if line.product.inventory_account and line.product.inventory_account.is_active else None
-                        if not cogs_acc_id or not inv_asset_acc_id: return Result.failure(["COGS or Inventory Asset account setup issue for product."])
+                        cogs_acc_orm = line.product.purchase_account if line.product.purchase_account and line.product.purchase_account.is_active else (await self.account_service.get_by_code(default_cogs_acc_code))
+                        inv_asset_acc_orm = line.product.inventory_account if line.product.inventory_account and line.product.inventory_account.is_active else None # No easy system default for this specific product's asset account
+                        if not cogs_acc_orm or not cogs_acc_orm.is_active or not inv_asset_acc_orm or not inv_asset_acc_orm.is_active: return Result.failure(["COGS or Inventory Asset account setup issue for product."])
                         
-                        cogs_je_lines_data.append(JournalEntryLineData(account_id=cogs_acc_id, debit_amount=cogs_amount_for_line, credit_amount=Decimal(0), description=f"COGS: {line.description[:50]}"))
-                        cogs_je_lines_data.append(JournalEntryLineData(account_id=inv_asset_acc_id, debit_amount=Decimal(0), credit_amount=cogs_amount_for_line, description=f"Inventory Sold: {line.description[:50]}"))
+                        cogs_je_lines_data.append(JournalEntryLineData(account_id=cogs_acc_orm.id, debit_amount=cogs_amount_for_line, credit_amount=Decimal(0), description=f"COGS: {line.description[:50]}"))
+                        cogs_je_lines_data.append(JournalEntryLineData(account_id=inv_asset_acc_orm.id, debit_amount=Decimal(0), credit_amount=cogs_amount_for_line, description=f"Inventory Sold: {line.description[:50]}"))
 
                 if cogs_je_lines_data:
                     cogs_je_dto = JournalEntryData(journal_type=JournalTypeEnum.GENERAL.value, entry_date=invoice_to_post.invoice_date, description=f"COGS for SI {invoice_to_post.invoice_no}", source_type="SalesInvoiceCOGS", source_id=invoice_to_post.id, user_id=user_id, lines=cogs_je_lines_data)
@@ -1517,42 +1610,53 @@ from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from datetime import date
 
 from sqlalchemy.orm import selectinload 
+from sqlalchemy import text # Added text
 
 from app.models.business.purchase_invoice import PurchaseInvoice, PurchaseInvoiceLine
-from app.models.business.vendor import Vendor
-from app.models.business.product import Product
-from app.models.accounting.tax_code import TaxCode
-from app.models.accounting.journal_entry import JournalEntry 
-from app.models.business.inventory_movement import InventoryMovement # New import
+# REMOVED: from app.models.business.vendor import Vendor # Not directly used, VendorService is
+# REMOVED: from app.models.business.product import Product # Not directly used, ProductService is
+# REMOVED: from app.models.accounting.tax_code import TaxCode # Not directly used, TaxCodeService is
+# REMOVED: from app.models.accounting.journal_entry import JournalEntry # Not directly used, JournalEntryManager is
+from app.models.business.inventory_movement import InventoryMovement 
 
-from app.services.business_services import PurchaseInvoiceService, VendorService, ProductService, InventoryMovementService # Added InventoryMovementService
-from app.services.core_services import SequenceService, ConfigurationService
-from app.services.tax_service import TaxCodeService
-from app.services.account_service import AccountService
+# REMOVED: from app.services.business_services import PurchaseInvoiceService, VendorService, ProductService, InventoryMovementService
+# REMOVED: from app.services.core_services import SequenceService, ConfigurationService
+# REMOVED: from app.services.tax_service import TaxCodeService
+# REMOVED: from app.services.account_service import AccountService
+# REMOVED: from app.tax.tax_calculator import TaxCalculator
+
 from app.utils.result import Result
 from app.utils.pydantic_models import (
     PurchaseInvoiceCreateData, PurchaseInvoiceUpdateData, PurchaseInvoiceSummaryData,
     PurchaseInvoiceLineBaseData, TaxCalculationResultData,
     JournalEntryData, JournalEntryLineData 
 )
-from app.tax.tax_calculator import TaxCalculator
-from app.common.enums import InvoiceStatusEnum, ProductTypeEnum, JournalTypeEnum, InventoryMovementTypeEnum # Added InventoryMovementTypeEnum
+from app.common.enums import InvoiceStatusEnum, ProductTypeEnum, JournalTypeEnum, InventoryMovementTypeEnum 
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore
+    from app.services.business_services import PurchaseInvoiceService, VendorService, ProductService, InventoryMovementService
+    from app.services.core_services import SequenceService, ConfigurationService
+    from app.services.tax_service import TaxCodeService
+    from app.services.account_service import AccountService
+    from app.tax.tax_calculator import TaxCalculator
+    from app.models.business.vendor import Vendor # For type hint
+    from app.models.business.product import Product # For type hint
+    from app.models.accounting.tax_code import TaxCode # For type hint
+
 
 class PurchaseInvoiceManager:
     def __init__(self,
-                 purchase_invoice_service: PurchaseInvoiceService,
-                 vendor_service: VendorService,
-                 product_service: ProductService,
-                 tax_code_service: TaxCodeService,
-                 tax_calculator: TaxCalculator,
-                 sequence_service: SequenceService, 
-                 account_service: AccountService,
-                 configuration_service: ConfigurationService,
+                 purchase_invoice_service: "PurchaseInvoiceService",
+                 vendor_service: "VendorService",
+                 product_service: "ProductService",
+                 tax_code_service: "TaxCodeService",
+                 tax_calculator: "TaxCalculator",
+                 sequence_service: "SequenceService", 
+                 account_service: "AccountService",
+                 configuration_service: "ConfigurationService",
                  app_core: "ApplicationCore",
-                 inventory_movement_service: InventoryMovementService): # New dependency
+                 inventory_movement_service: "InventoryMovementService"): 
         self.purchase_invoice_service = purchase_invoice_service
         self.vendor_service = vendor_service
         self.product_service = product_service
@@ -1563,9 +1667,8 @@ class PurchaseInvoiceManager:
         self.configuration_service = configuration_service
         self.app_core = app_core
         self.logger = app_core.logger
-        self.inventory_movement_service = inventory_movement_service # New dependency
+        self.inventory_movement_service = inventory_movement_service
         
-    # ... (_validate_and_prepare_pi_data, create_draft_purchase_invoice, update_draft_purchase_invoice - unchanged from file set 7)
     async def _validate_and_prepare_pi_data(
         self, 
         dto: Union[PurchaseInvoiceCreateData, PurchaseInvoiceUpdateData],
@@ -1605,7 +1708,7 @@ class PurchaseInvoiceManager:
         
         for i, line_dto in enumerate(dto.lines):
             line_errors_current_line: List[str] = []
-            product: Optional[Product] = None
+            product: Optional["Product"] = None # Use TYPE_CHECKING import
             line_description = line_dto.description
             unit_price = line_dto.unit_price
             line_purchase_account_id: Optional[int] = None 
@@ -1640,8 +1743,8 @@ class PurchaseInvoiceManager:
                 tax_calc_result: TaxCalculationResultData = await self.tax_calculator.calculate_line_tax(amount=line_subtotal_before_tax, tax_code_str=line_dto.tax_code, transaction_type="PurchaseInvoiceLine")
                 line_tax_amount_calc = tax_calc_result.tax_amount; line_tax_account_id = tax_calc_result.tax_account_id
                 if tax_calc_result.tax_account_id is None and line_tax_amount_calc > Decimal(0):
-                    tc_check = await self.tax_code_service.get_tax_code(line_dto.tax_code)
-                    if not tc_check or not tc_check.is_active: line_errors_current_line.append(f"Tax code '{line_dto.tax_code}' used on line {i+1} is invalid or inactive.")
+                    tc_check_orm = await self.tax_code_service.get_tax_code(line_dto.tax_code) # Use TYPE_CHECKING import
+                    if not tc_check_orm or not tc_check_orm.is_active: line_errors_current_line.append(f"Tax code '{line_dto.tax_code}' used on line {i+1} is invalid or inactive.")
             
             invoice_subtotal_calc += line_subtotal_before_tax; invoice_total_tax_calc += line_tax_amount_calc
             if line_errors_current_line: errors.extend(line_errors_current_line)
@@ -1771,7 +1874,7 @@ class PurchaseInvoiceManager:
                     if product_type_for_line == ProductTypeEnum.INVENTORY and line.product and line.product.inventory_account:
                         if line.product.inventory_account.is_active: debit_account_id_for_line = line.product.inventory_account.id
                         else: self.logger.warning(f"Product '{line.product.name}' inventory account '{line.product.inventory_account.code}' is inactive for PI {invoice_to_post.invoice_no}.")
-                    elif line.product and line.product.purchase_account: # For Service, Non-Inventory, or Inventory if inventory_acc not set
+                    elif line.product and line.product.purchase_account: 
                          if line.product.purchase_account.is_active: debit_account_id_for_line = line.product.purchase_account.id
                          else: self.logger.warning(f"Product '{line.product.name}' purchase account '{line.product.purchase_account.code}' is inactive for PI {invoice_to_post.invoice_no}.")
                     
@@ -1790,10 +1893,10 @@ class PurchaseInvoiceManager:
 
                     if line.tax_amount and line.tax_amount != Decimal(0) and line.tax_code:
                         gst_gl_id_for_line: Optional[int] = None
-                        line_tax_code_obj = line.tax_code_obj 
-                        if line_tax_code_obj and line_tax_code_obj.affects_account:
-                            if line_tax_code_obj.affects_account.is_active: gst_gl_id_for_line = line_tax_code_obj.affects_account.id
-                            else: self.logger.warning(f"Tax code '{line.tax_code}' affects account '{line_tax_code_obj.affects_account.code}' is inactive. Falling back.")
+                        line_tax_code_obj_orm = line.tax_code_obj 
+                        if line_tax_code_obj_orm and line_tax_code_obj_orm.affects_account:
+                            if line_tax_code_obj_orm.affects_account.is_active: gst_gl_id_for_line = line_tax_code_obj_orm.affects_account.id
+                            else: self.logger.warning(f"Tax code '{line.tax_code}' affects account '{line_tax_code_obj_orm.affects_account.code}' is inactive. Falling back.")
                         
                         if not gst_gl_id_for_line and default_gst_input_acc_code: 
                             def_gst_input_acc = await self.account_service.get_by_code(default_gst_input_acc_code)
@@ -1820,7 +1923,6 @@ class PurchaseInvoiceManager:
                 post_je_result = await self.app_core.journal_entry_manager.post_journal_entry(created_je.id, user_id, session=session)
                 if not post_je_result.is_success: return Result.failure([f"JE (ID: {created_je.id}) created but failed to post."] + post_je_result.errors)
 
-                # Create InventoryMovements
                 for line in invoice_to_post.lines:
                     if line.product and ProductTypeEnum(line.product.product_type) == ProductTypeEnum.INVENTORY:
                         inv_movement = InventoryMovement(
@@ -1862,9 +1964,9 @@ from typing import List, Optional, Dict, Any, TYPE_CHECKING, Union
 from decimal import Decimal
 
 from app.models.business.bank_account import BankAccount
-from app.services.business_services import BankAccountService
-from app.services.account_service import AccountService
-from app.services.accounting_services import CurrencyService
+# REMOVED: from app.services.business_services import BankAccountService
+# REMOVED: from app.services.account_service import AccountService
+# REMOVED: from app.services.accounting_services import CurrencyService
 from app.utils.result import Result
 from app.utils.pydantic_models import (
     BankAccountCreateData, BankAccountUpdateData, BankAccountSummaryData
@@ -1872,12 +1974,16 @@ from app.utils.pydantic_models import (
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore
+    from app.services.business_services import BankAccountService # ADDED
+    from app.services.account_service import AccountService # ADDED
+    from app.services.accounting_services import CurrencyService # ADDED
+
 
 class BankAccountManager:
     def __init__(self,
-                 bank_account_service: BankAccountService,
-                 account_service: AccountService,
-                 currency_service: CurrencyService,
+                 bank_account_service: "BankAccountService",
+                 account_service: "AccountService",
+                 currency_service: "CurrencyService",
                  app_core: "ApplicationCore"):
         self.bank_account_service = bank_account_service
         self.account_service = account_service
@@ -1917,10 +2023,7 @@ class BankAccountManager:
         existing_bank_account_id: Optional[int] = None
     ) -> List[str]:
         errors: List[str] = []
-
-        # Pydantic handles basic field presence/type. This is for business rules.
         
-        # Validate GL Account
         gl_account = await self.account_service.get_by_id(dto.gl_account_id)
         if not gl_account:
             errors.append(f"GL Account ID '{dto.gl_account_id}' not found.")
@@ -1929,18 +2032,15 @@ class BankAccountManager:
                 errors.append(f"GL Account '{gl_account.code} - {gl_account.name}' is not active.")
             if gl_account.account_type != 'Asset':
                 errors.append(f"GL Account '{gl_account.code}' must be an Asset type account.")
-            if not gl_account.is_bank_account: # Check the flag on Account model
+            if not gl_account.is_bank_account: 
                 errors.append(f"GL Account '{gl_account.code}' is not flagged as a bank account. Please update the Chart of Accounts.")
 
-        # Validate Currency
         currency = await self.currency_service.get_by_id(dto.currency_code)
         if not currency:
             errors.append(f"Currency Code '{dto.currency_code}' not found.")
         elif not currency.is_active:
             errors.append(f"Currency '{dto.currency_code}' is not active.")
             
-        # Check for duplicate account number (globally, not just per bank)
-        # In a real system, account_number + bank_name might be unique. For now, just account_number.
         existing_by_acc_no = await self.bank_account_service.get_by_account_number(dto.account_number)
         if existing_by_acc_no and \
            (existing_bank_account_id is None or existing_by_acc_no.id != existing_bank_account_id):
@@ -1966,7 +2066,6 @@ class BankAccountManager:
                 gl_account_id=dto.gl_account_id,
                 is_active=dto.is_active,
                 description=dto.description,
-                # current_balance will be opening_balance initially for new accounts
                 current_balance=dto.opening_balance, 
                 created_by_user_id=dto.user_id,
                 updated_by_user_id=dto.user_id
@@ -1995,10 +2094,6 @@ class BankAccountManager:
             
             existing_bank_account.updated_by_user_id = dto.user_id
             
-            # Note: current_balance update logic is typically handled by transactions, not direct edit here.
-            # If opening_balance is changed, current_balance might need re-evaluation if it's simply OB + transactions.
-            # For now, assume current_balance is not directly editable here.
-
             updated_bank_account = await self.bank_account_service.save(existing_bank_account)
             self.logger.info(f"Bank account '{updated_bank_account.account_name}' (ID: {bank_account_id}) updated.")
             return Result.success(updated_bank_account)
@@ -2011,11 +2106,8 @@ class BankAccountManager:
         if not bank_account:
             return Result.failure([f"Bank Account with ID {bank_account_id} not found."])
         
-        # Future check: if current_balance is non-zero, or has unreconciled transactions, warn or prevent deactivation.
-        # For now, simple toggle.
         if bank_account.current_balance != Decimal(0) and bank_account.is_active:
             self.logger.warning(f"Deactivating bank account ID {bank_account_id} ('{bank_account.account_name}') which has a non-zero balance of {bank_account.current_balance}.")
-            # Not returning failure, just logging. UI might want to confirm.
 
         bank_account.is_active = not bank_account.is_active
         bank_account.updated_by_user_id = user_id
@@ -2033,26 +2125,29 @@ class BankAccountManager:
 
 # app/business_logic/product_manager.py
 ```py
-# app/business_logic/product_manager.py
+# File: app/business_logic/product_manager.py
 from typing import List, Optional, Dict, Any, TYPE_CHECKING
 from decimal import Decimal
 
 from app.models.business.product import Product
-from app.services.business_services import ProductService
-from app.services.account_service import AccountService
-from app.services.tax_service import TaxCodeService # For validating tax_code
+# REMOVED: from app.services.business_services import ProductService
+# REMOVED: from app.services.account_service import AccountService
+# REMOVED: from app.services.tax_service import TaxCodeService 
 from app.utils.result import Result
 from app.utils.pydantic_models import ProductCreateData, ProductUpdateData, ProductSummaryData
-from app.common.enums import ProductTypeEnum # For product_type comparison
+from app.common.enums import ProductTypeEnum 
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore
+    from app.services.business_services import ProductService # ADDED
+    from app.services.account_service import AccountService # ADDED
+    from app.services.tax_service import TaxCodeService # ADDED
 
 class ProductManager:
     def __init__(self, 
-                 product_service: ProductService, 
-                 account_service: AccountService, 
-                 tax_code_service: TaxCodeService,
+                 product_service: "ProductService", 
+                 account_service: "AccountService", 
+                 tax_code_service: "TaxCodeService",
                  app_core: "ApplicationCore"):
         self.product_service = product_service
         self.account_service = account_service
@@ -2093,21 +2188,19 @@ class ProductManager:
         """ Common validation logic for creating and updating products/services. """
         errors: List[str] = []
 
-        # Validate product_code uniqueness
         if dto.product_code:
             existing_by_code = await self.product_service.get_by_code(dto.product_code)
             if existing_by_code and (existing_product_id is None or existing_by_code.id != existing_product_id):
                 errors.append(f"Product code '{dto.product_code}' already exists.")
         else:
-             errors.append("Product code is required.") # Pydantic should catch this with min_length
+             errors.append("Product code is required.") 
 
         if not dto.name or not dto.name.strip():
-            errors.append("Product name is required.") # Pydantic should catch this
+            errors.append("Product name is required.") 
 
-        # Validate GL Accounts
         account_ids_to_check = {
             "Sales Account": (dto.sales_account_id, ['Revenue']),
-            "Purchase Account": (dto.purchase_account_id, ['Expense', 'Asset']), # COGS or Asset for purchases
+            "Purchase Account": (dto.purchase_account_id, ['Expense', 'Asset']), 
         }
         if dto.product_type == ProductTypeEnum.INVENTORY:
             account_ids_to_check["Inventory Account"] = (dto.inventory_account_id, ['Asset'])
@@ -2122,15 +2215,12 @@ class ProductManager:
                 elif acc.account_type not in valid_types:
                     errors.append(f"{acc_label} '{acc.code} - {acc.name}' is not a valid type (Expected: {', '.join(valid_types)}).")
 
-        # Validate Tax Code (string code)
         if dto.tax_code is not None:
             tax_code_obj = await self.tax_code_service.get_tax_code(dto.tax_code)
             if not tax_code_obj:
                 errors.append(f"Tax code '{dto.tax_code}' not found.")
             elif not tax_code_obj.is_active:
                 errors.append(f"Tax code '{dto.tax_code}' is not active.")
-
-        # Pydantic DTO root_validator already checks inventory_account_id and stock levels based on product_type
         return errors
 
     async def create_product(self, dto: ProductCreateData) -> Result[Product]:
@@ -2141,7 +2231,7 @@ class ProductManager:
         try:
             product_orm = Product(
                 product_code=dto.product_code, name=dto.name, description=dto.description,
-                product_type=dto.product_type.value, # Store enum value
+                product_type=dto.product_type.value, 
                 category=dto.category, unit_of_measure=dto.unit_of_measure, barcode=dto.barcode,
                 sales_price=dto.sales_price, purchase_price=dto.purchase_price,
                 sales_account_id=dto.sales_account_id, purchase_account_id=dto.purchase_account_id,
@@ -2167,11 +2257,10 @@ class ProductManager:
             return Result.failure(validation_errors)
 
         try:
-            # Use model_dump to get only provided fields for update
             update_data_dict = dto.model_dump(exclude={'id', 'user_id'}, exclude_unset=True)
             for key, value in update_data_dict.items():
                 if hasattr(existing_product, key):
-                    if key == "product_type" and isinstance(value, ProductTypeEnum): # Handle enum
+                    if key == "product_type" and isinstance(value, ProductTypeEnum): 
                         setattr(existing_product, key, value.value)
                     else:
                         setattr(existing_product, key, value)
@@ -2189,10 +2278,7 @@ class ProductManager:
         if not product:
             return Result.failure([f"Product/Service with ID {product_id} not found."])
         
-        # Future validation: check if product is used in open sales/purchase orders, or has stock.
-        # For now, simple toggle.
-        
-        product_name_for_log = product.name # Capture before potential changes for logging
+        product_name_for_log = product.name 
         
         product.is_active = not product.is_active
         product.updated_by_user_id = user_id
@@ -2205,7 +2291,6 @@ class ProductManager:
         except Exception as e:
             self.logger.error(f"Error toggling active status for product ID {product_id}: {e}", exc_info=True)
             return Result.failure([f"Failed to toggle active status for product/service: {str(e)}"])
-
 
 ```
 
@@ -2220,7 +2305,7 @@ from typing import List, Optional, Dict, Any, TYPE_CHECKING, Union, cast, Tuple
 from sqlalchemy import select 
 
 from app.models.business.bank_transaction import BankTransaction
-from app.services.business_services import BankTransactionService, BankAccountService
+# REMOVED: from app.services.business_services import BankTransactionService, BankAccountService
 from app.utils.result import Result
 from app.utils.pydantic_models import (
     BankTransactionCreateData, BankTransactionSummaryData
@@ -2230,11 +2315,12 @@ from app.common.enums import BankTransactionTypeEnum
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore
     from sqlalchemy.ext.asyncio import AsyncSession
+    from app.services.business_services import BankTransactionService, BankAccountService # ADDED
 
 class BankTransactionManager:
     def __init__(self,
-                 bank_transaction_service: BankTransactionService,
-                 bank_account_service: BankAccountService, 
+                 bank_transaction_service: "BankTransactionService",
+                 bank_account_service: "BankAccountService", 
                  app_core: "ApplicationCore"):
         self.bank_transaction_service = bank_transaction_service
         self.bank_account_service = bank_account_service
@@ -2434,25 +2520,28 @@ class BankTransactionManager:
 
 # app/business_logic/customer_manager.py
 ```py
-# app/business_logic/customer_manager.py
+# File: app/business_logic/customer_manager.py
 from typing import List, Optional, Dict, Any, TYPE_CHECKING
 from decimal import Decimal
 
 from app.models.business.customer import Customer
-from app.services.business_services import CustomerService
-from app.services.account_service import AccountService # Corrected import
-from app.services.accounting_services import CurrencyService # Correct import
+# REMOVED: from app.services.business_services import CustomerService
+# REMOVED: from app.services.account_service import AccountService 
+# REMOVED: from app.services.accounting_services import CurrencyService 
 from app.utils.result import Result
 from app.utils.pydantic_models import CustomerCreateData, CustomerUpdateData, CustomerSummaryData
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore
+    from app.services.business_services import CustomerService # ADDED
+    from app.services.account_service import AccountService # ADDED
+    from app.services.accounting_services import CurrencyService # ADDED
 
 class CustomerManager:
     def __init__(self, 
-                 customer_service: CustomerService, 
-                 account_service: AccountService, 
-                 currency_service: CurrencyService, 
+                 customer_service: "CustomerService", 
+                 account_service: "AccountService", 
+                 currency_service: "CurrencyService", 
                  app_core: "ApplicationCore"):
         self.customer_service = customer_service
         self.account_service = account_service
@@ -2476,7 +2565,6 @@ class CustomerManager:
                                       ) -> Result[List[CustomerSummaryData]]:
         """ Fetches a list of customer summaries for table display. """
         try:
-            # Pydantic DTOs are now directly returned by the service
             summaries: List[CustomerSummaryData] = await self.customer_service.get_all_summary(
                 active_only=active_only,
                 search_term=search_term,
@@ -2495,10 +2583,10 @@ class CustomerManager:
             existing_by_code = await self.customer_service.get_by_code(dto.customer_code)
             if existing_by_code and (existing_customer_id is None or existing_by_code.id != existing_customer_id):
                 errors.append(f"Customer code '{dto.customer_code}' already exists.")
-        else: # Should be caught by Pydantic if min_length=1
+        else: 
             errors.append("Customer code is required.") 
             
-        if dto.name is None or not dto.name.strip(): # Should be caught by Pydantic if min_length=1
+        if dto.name is None or not dto.name.strip(): 
             errors.append("Customer name is required.")
 
         if dto.receivables_account_id is not None:
@@ -2509,7 +2597,6 @@ class CustomerManager:
                 errors.append(f"Account '{acc.code} - {acc.name}' is not an Asset account and cannot be used as receivables account.")
             elif not acc.is_active:
                  errors.append(f"Receivables account '{acc.code} - {acc.name}' is not active.")
-            # Ideally, also check if it's specifically marked as an Accounts Receivable control account via a flag or sub_type
 
         if dto.currency_code:
             curr = await self.currency_service.get_by_id(dto.currency_code) 
@@ -2517,12 +2604,8 @@ class CustomerManager:
                 errors.append(f"Currency code '{dto.currency_code}' not found.")
             elif not curr.is_active:
                  errors.append(f"Currency '{dto.currency_code}' is not active.")
-        else: # Should be caught by Pydantic if required
+        else: 
              errors.append("Currency code is required.")
-
-
-        # Pydantic DTO's own root_validator handles gst_no if gst_registered
-        # No need to repeat here unless more complex cross-field logic is added.
         return errors
 
     async def create_customer(self, dto: CustomerCreateData) -> Result[Customer]:
@@ -2560,12 +2643,10 @@ class CustomerManager:
             return Result.failure(validation_errors)
 
         try:
-            # Update fields from DTO
             update_data_dict = dto.model_dump(exclude={'id', 'user_id'}, exclude_unset=True)
             for key, value in update_data_dict.items():
                 if hasattr(existing_customer, key):
-                    # Special handling for EmailStr which might be an object
-                    if key == 'email' and value is not None:
+                    if key == 'email' and value is not None: 
                         setattr(existing_customer, key, str(value))
                     else:
                         setattr(existing_customer, key, value)

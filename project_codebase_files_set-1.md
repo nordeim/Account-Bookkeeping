@@ -370,37 +370,32 @@ __all__ = [
 # app/tax/income_tax_manager.py
 ```py
 # File: app/tax/income_tax_manager.py
-from typing import TYPE_CHECKING # Ensured TYPE_CHECKING is imported
-# from app.core.application_core import ApplicationCore # Direct import removed, now under TYPE_CHECKING
-from app.services.account_service import AccountService
-# Removed: from app.services.journal_service import JournalService # Removed direct top-level import
-from app.services.fiscal_period_service import FiscalPeriodService
+from typing import TYPE_CHECKING 
+# REMOVED: from app.services.account_service import AccountService
+# REMOVED: from app.services.fiscal_period_service import FiscalPeriodService
 
 if TYPE_CHECKING:
-    from app.core.application_core import ApplicationCore # For type hinting
-    from app.services.journal_service import JournalService # Added for type hinting
+    from app.core.application_core import ApplicationCore 
+    from app.services.journal_service import JournalService 
+    from app.services.account_service import AccountService # ADDED
+    from app.services.fiscal_period_service import FiscalPeriodService # ADDED
+
 
 class IncomeTaxManager:
-    def __init__(self, app_core: "ApplicationCore"): # String literal for app_core is fine
+    def __init__(self, app_core: "ApplicationCore"): 
         self.app_core = app_core
-        self.account_service: AccountService = app_core.account_service
-        self.journal_service: "JournalService" = app_core.journal_service # Type hint uses the conditional import
-        self.fiscal_period_service: FiscalPeriodService = app_core.fiscal_period_service
-        # self.company_settings_service = app_core.company_settings_service
+        self.account_service: "AccountService" = app_core.account_service # type: ignore
+        self.journal_service: "JournalService" = app_core.journal_service # type: ignore 
+        self.fiscal_period_service: "FiscalPeriodService" = app_core.fiscal_period_service # type: ignore
         print("IncomeTaxManager initialized (stub).")
     
     async def calculate_provisional_tax(self, fiscal_year_id: int):
         print(f"Calculating provisional tax for fiscal year ID {fiscal_year_id} (stub).")
-        # Example:
-        # financial_reports = self.app_core.financial_statement_generator
-        # income_comp = await financial_reports.generate_income_tax_computation_for_fy_id(fiscal_year_id)
-        # apply tax rates...
         return {"provisional_tax_payable": 0.00}
 
     async def get_form_cs_data(self, fiscal_year_id: int):
         print(f"Fetching data for Form C-S for fiscal year ID {fiscal_year_id} (stub).")
         return {"company_name": "Example Pte Ltd", "revenue": 100000.00, "profit_before_tax": 20000.00}
-
 
 ```
 
@@ -412,15 +407,14 @@ from datetime import date, timedelta
 from dateutil.relativedelta import relativedelta 
 from decimal import Decimal
 
-from app.services.tax_service import TaxCodeService, GSTReturnService 
-from app.services.account_service import AccountService
-from app.services.fiscal_period_service import FiscalPeriodService
-from app.services.core_services import CompanySettingsService 
-# Removed: from app.utils.sequence_generator import SequenceGenerator # Direct top-level import
+# REMOVED: from app.services.tax_service import TaxCodeService, GSTReturnService 
+# REMOVED: from app.services.account_service import AccountService
+# REMOVED: from app.services.fiscal_period_service import FiscalPeriodService
+# REMOVED: from app.services.core_services import CompanySettingsService 
 from app.utils.result import Result
 from app.utils.pydantic_models import GSTReturnData, JournalEntryData, JournalEntryLineData, GSTTransactionLineDetail
 from app.models.accounting.gst_return import GSTReturn 
-from app.models.accounting.journal_entry import JournalEntry, JournalEntryLine
+from app.models.accounting.journal_entry import JournalEntry, JournalEntryLine # Keep specific model imports
 from app.models.accounting.account import Account
 from app.models.accounting.tax_code import TaxCode
 from app.common.enums import GSTReturnStatusEnum 
@@ -428,17 +422,22 @@ from app.common.enums import GSTReturnStatusEnum
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore 
     from app.services.journal_service import JournalService 
-    from app.utils.sequence_generator import SequenceGenerator # Import for type hinting only
+    from app.utils.sequence_generator import SequenceGenerator
+    from app.services.tax_service import TaxCodeService, GSTReturnService # ADDED
+    from app.services.account_service import AccountService # ADDED
+    from app.services.fiscal_period_service import FiscalPeriodService # ADDED
+    from app.services.core_services import CompanySettingsService # ADDED
+
 
 class GSTManager:
     def __init__(self, 
-                 tax_code_service: TaxCodeService, 
+                 tax_code_service: "TaxCodeService", 
                  journal_service: "JournalService", 
-                 company_settings_service: CompanySettingsService, 
-                 gst_return_service: GSTReturnService,
-                 account_service: AccountService, 
-                 fiscal_period_service: FiscalPeriodService, 
-                 sequence_generator: "SequenceGenerator", # Type hint will use the conditional import
+                 company_settings_service: "CompanySettingsService", 
+                 gst_return_service: "GSTReturnService",
+                 account_service: "AccountService", 
+                 fiscal_period_service: "FiscalPeriodService", 
+                 sequence_generator: "SequenceGenerator", 
                  app_core: "ApplicationCore"): 
         self.tax_code_service = tax_code_service
         self.journal_service = journal_service
@@ -596,7 +595,7 @@ class GSTManager:
             
             output_tax_acc = await self.account_service.get_by_code(gst_output_tax_acc_code) # type: ignore
             input_tax_acc = await self.account_service.get_by_code(gst_input_tax_acc_code) # type: ignore
-            control_acc = await self.account_service.get_by_code(gst_control_acc_code) if gst_control_acc_code else None
+            control_acc = await self.account_service.get_by_code(gst_control_acc_code) if gst_control_acc_code else None # type: ignore
 
             if not (output_tax_acc and input_tax_acc and control_acc):
                 missing_accs = []
@@ -639,9 +638,9 @@ class GSTManager:
                 if not je_result.is_success:
                     try:
                         updated_return_je_fail = await self.gst_return_service.save_gst_return(gst_return)
-                        return Result.failure([f"GST Return finalized and saved (ID: {updated_return_je_fail.id}) but settlement JE creation failed."] + je_result.errors)
+                        return Result.failure([f"GST Return finalized and saved (ID: {updated_return_je_fail.id}) but settlement JE creation failed."] + (je_result.errors or []))
                     except Exception as e_save_2:
-                         return Result.failure([f"Failed to finalize GST return and also failed during JE creation and subsequent save: {str(e_save_2)}"] + je_result.errors)
+                         return Result.failure([f"Failed to finalize GST return and also failed during JE creation and subsequent save: {str(e_save_2)}"] + (je_result.errors or []))
                 else:
                     assert je_result.value is not None
                     gst_return.journal_entry_id = je_result.value.id
@@ -661,22 +660,18 @@ class GSTManager:
 ```py
 # File: app/tax/withholding_tax_manager.py
 from typing import TYPE_CHECKING
-# from app.core.application_core import ApplicationCore # Direct import removed, now under TYPE_CHECKING
-from app.services.tax_service import TaxCodeService
-# Removed: from app.services.journal_service import JournalService # Removed direct top-level import
-# from app.services.vendor_service import VendorService # This was already commented out
-# from app.models.accounting.withholding_tax_certificate import WithholdingTaxCertificate # This was already commented out
+# REMOVED: from app.services.tax_service import TaxCodeService
 
 if TYPE_CHECKING:
-    from app.core.application_core import ApplicationCore # For type hinting
-    from app.services.journal_service import JournalService # Added for type hinting
+    from app.core.application_core import ApplicationCore 
+    from app.services.journal_service import JournalService 
+    from app.services.tax_service import TaxCodeService # ADDED
 
 class WithholdingTaxManager:
-    def __init__(self, app_core: "ApplicationCore"): # String literal for app_core is fine
+    def __init__(self, app_core: "ApplicationCore"): 
         self.app_core = app_core
-        self.tax_code_service: TaxCodeService = app_core.tax_code_service # type: ignore
-        self.journal_service: "JournalService" = app_core.journal_service # type: ignore # Type hint uses the conditional import
-        # self.vendor_service = app_core.vendor_service 
+        self.tax_code_service: "TaxCodeService" = app_core.tax_code_service # type: ignore
+        self.journal_service: "JournalService" = app_core.journal_service # type: ignore 
         print("WithholdingTaxManager initialized (stub).")
 
     async def generate_s45_form_data(self, wht_certificate_id: int):
@@ -692,16 +687,18 @@ class WithholdingTaxManager:
 # app/tax/tax_calculator.py
 ```py
 # File: app/tax/tax_calculator.py
-# (Content as previously generated, verified)
 from decimal import Decimal
-from typing import List, Optional, Any
+from typing import List, Optional, Any, TYPE_CHECKING
 
-from app.services.tax_service import TaxCodeService 
+# REMOVED: from app.services.tax_service import TaxCodeService 
 from app.utils.pydantic_models import TaxCalculationResultData, TransactionTaxData, TransactionLineTaxData
-from app.models.accounting.tax_code import TaxCode 
+from app.models.accounting.tax_code import TaxCode as TaxCodeModel
+
+if TYPE_CHECKING:
+    from app.services.tax_service import TaxCodeService # ADDED
 
 class TaxCalculator:
-    def __init__(self, tax_code_service: TaxCodeService):
+    def __init__(self, tax_code_service: "TaxCodeService"):
         self.tax_code_service = tax_code_service
     
     async def calculate_transaction_taxes(self, transaction_data: TransactionTaxData) -> List[dict]:
@@ -732,7 +729,7 @@ class TaxCalculator:
         if not tax_code_str or abs(amount) < Decimal("0.01"):
             return result
         
-        tax_code_info: Optional[TaxCode] = await self.tax_code_service.get_tax_code(tax_code_str)
+        tax_code_info: Optional[TaxCodeModel] = await self.tax_code_service.get_tax_code(tax_code_str) # Use TYPE_CHECKING for TaxCodeModel
         if not tax_code_info:
             return result 
         
@@ -742,7 +739,7 @@ class TaxCalculator:
             return await self._calculate_withholding_tax(amount, tax_code_info, transaction_type)
         return result
     
-    async def _calculate_gst(self, amount: Decimal, tax_code_info: TaxCode, transaction_type: str) -> TaxCalculationResultData:
+    async def _calculate_gst(self, amount: Decimal, tax_code_info: TaxCodeModel, transaction_type: str) -> TaxCalculationResultData:
         tax_rate = Decimal(str(tax_code_info.rate))
         net_amount = amount 
         tax_amount = net_amount * tax_rate / Decimal(100)
@@ -754,7 +751,7 @@ class TaxCalculator:
             taxable_amount=net_amount
         )
     
-    async def _calculate_withholding_tax(self, amount: Decimal, tax_code_info: TaxCode, transaction_type: str) -> TaxCalculationResultData:
+    async def _calculate_withholding_tax(self, amount: Decimal, tax_code_info: TaxCodeModel, transaction_type: str) -> TaxCalculationResultData:
         applicable_transaction_types = ['Purchase Payment', 'Expense Payment'] 
         if transaction_type not in applicable_transaction_types:
             return TaxCalculationResultData(

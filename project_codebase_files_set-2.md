@@ -1498,7 +1498,7 @@ from app.utils.pydantic_models import (
 from app.common.enums import BankTransactionTypeEnum
 from app.utils.json_helpers import json_converter, json_date_hook
 from app.utils.result import Result
-from app.models.business.bank_reconciliation import BankReconciliation # For ORM instantiation
+from app.models.business.bank_reconciliation import BankReconciliation # For type hint
 
 if TYPE_CHECKING:
     from PySide6.QtGui import QPaintDevice
@@ -1515,8 +1515,11 @@ class BankReconciliationWidget(QWidget):
         self._current_bank_account_gl_id: Optional[int] = None
         self._current_bank_account_currency: str = "SGD"
         
-        self._all_loaded_statement_lines: List[BankTransactionSummaryData] = []
-        self._all_loaded_system_transactions: List[BankTransactionSummaryData] = []
+        self._all_loaded_statement_lines: List[BankTransactionSummaryData] = [] # Unreconciled statement lines
+        self._all_loaded_system_transactions: List[BankTransactionSummaryData] = [] # Unreconciled system transactions
+
+        self._current_draft_statement_lines: List[BankTransactionSummaryData] = [] # Provisionally matched statement lines
+        self._current_draft_system_transactions: List[BankTransactionSummaryData] = [] # Provisionally matched system lines
 
         self._statement_ending_balance = Decimal(0)
         self._book_balance_gl = Decimal(0) 
@@ -1535,13 +1538,13 @@ class BankReconciliationWidget(QWidget):
         try: import app.resources_rc; self.icon_path_prefix = ":/icons/"
         except ImportError: pass
 
-        self._init_ui() # Calls _connect_signals internally
+        self._init_ui()
         QTimer.singleShot(0, lambda: schedule_task_from_qt(self._load_bank_accounts_for_combo()))
 
     def _init_ui(self):
-        self.main_layout = QVBoxLayout(self); self.main_layout.setContentsMargins(10,10,10,10)
+        self.main_layout = QVBoxLayout(self); self.main_layout.setContentsMargins(5,5,5,5) # Reduced margins slightly
         
-        # --- Reconciliation Setup Group ---
+        # --- Top Controls (Bank Account, Date, Balance, Load Button) ---
         header_controls_group = QGroupBox("Reconciliation Setup"); header_layout = QGridLayout(header_controls_group)
         header_layout.addWidget(QLabel("Bank Account*:"), 0, 0); self.bank_account_combo = QComboBox(); self.bank_account_combo.setMinimumWidth(250); header_layout.addWidget(self.bank_account_combo, 0, 1)
         header_layout.addWidget(QLabel("Statement End Date*:"), 0, 2); self.statement_date_edit = QDateEdit(QDate.currentDate()); self.statement_date_edit.setCalendarPopup(True); self.statement_date_edit.setDisplayFormat("dd/MM/yyyy"); header_layout.addWidget(self.statement_date_edit, 0, 3)
@@ -1549,16 +1552,18 @@ class BankReconciliationWidget(QWidget):
         self.load_transactions_button = QPushButton(QIcon(self.icon_path_prefix + "refresh.svg"), "Load / Refresh Transactions"); header_layout.addWidget(self.load_transactions_button, 1, 3)
         header_layout.setColumnStretch(2,1); self.main_layout.addWidget(header_controls_group)
 
-        # --- Main Splitter for Current Reconciliation and History ---
+        # --- Main Vertical Splitter for Current Rec vs History ---
         self.overall_splitter = QSplitter(Qt.Orientation.Vertical)
-        self.main_layout.addWidget(self.overall_splitter, 1)
+        self.main_layout.addWidget(self.overall_splitter, 1) # Give more space to splitter
 
-        # --- Current Reconciliation Area (Top Pane of Overall Splitter) ---
-        current_recon_widget = QWidget()
-        current_recon_layout = QVBoxLayout(current_recon_widget)
-        current_recon_layout.setContentsMargins(0,0,0,0)
+        # --- Current Reconciliation Work Area (Top part of overall_splitter) ---
+        current_recon_work_area_widget = QWidget()
+        current_recon_work_area_layout = QVBoxLayout(current_recon_work_area_widget)
+        current_recon_work_area_layout.setContentsMargins(0,0,0,0)
 
+        # Reconciliation Summary Group (Stays at the top of current work area)
         summary_group = QGroupBox("Reconciliation Summary"); summary_layout = QFormLayout(summary_group); summary_layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        # ... (Summary labels unchanged, already present in previous versions) ...
         self.book_balance_gl_label = QLabel("0.00"); summary_layout.addRow("Book Balance (per GL):", self.book_balance_gl_label)
         self.adj_interest_earned_label = QLabel("0.00"); summary_layout.addRow("Add: Interest / Credits (on Stmt, not Book):", self.adj_interest_earned_label)
         self.adj_bank_charges_label = QLabel("0.00"); summary_layout.addRow("Less: Bank Charges / Debits (on Stmt, not Book):", self.adj_bank_charges_label)
@@ -1568,38 +1573,70 @@ class BankReconciliationWidget(QWidget):
         self.adj_outstanding_checks_label = QLabel("0.00"); summary_layout.addRow("Less: Outstanding Withdrawals (in Book, not Stmt):", self.adj_outstanding_checks_label)
         self.adjusted_bank_balance_label = QLabel("0.00"); self.adjusted_bank_balance_label.setFont(QFont(self.font().family(), -1, QFont.Weight.Bold)); summary_layout.addRow("Adjusted Bank Balance:", self.adjusted_bank_balance_label)
         summary_layout.addRow(QLabel("---")); self.difference_label = QLabel("0.00"); font_diff = self.difference_label.font(); font_diff.setBold(True); font_diff.setPointSize(font_diff.pointSize()+1); self.difference_label.setFont(font_diff)
-        summary_layout.addRow("Difference:", self.difference_label); current_recon_layout.addWidget(summary_group)
-        
-        self.tables_splitter = QSplitter(Qt.Orientation.Horizontal)
+        summary_layout.addRow("Difference:", self.difference_label); current_recon_work_area_layout.addWidget(summary_group)
+
+        # Splitter for Unreconciled vs Provisionally Matched Items
+        self.current_recon_tables_splitter = QSplitter(Qt.Orientation.Vertical)
+        current_recon_work_area_layout.addWidget(self.current_recon_tables_splitter, 1) # Stretch this splitter
+
+        # Unreconciled Items Area
+        unreconciled_area_widget = QWidget()
+        unreconciled_layout = QVBoxLayout(unreconciled_area_widget)
+        unreconciled_layout.setContentsMargins(0,0,0,0)
+        self.tables_splitter = QSplitter(Qt.Orientation.Horizontal) # For Statement vs System (Unreconciled)
         statement_items_group = QGroupBox("Bank Statement Items (Unreconciled)"); statement_layout = QVBoxLayout(statement_items_group)
         self.statement_lines_table = QTableView(); self.statement_lines_model = ReconciliationTableModel()
         self._configure_recon_table(self.statement_lines_table, self.statement_lines_model, is_statement_table=True)
         statement_layout.addWidget(self.statement_lines_table); self.tables_splitter.addWidget(statement_items_group)
-        
         system_txns_group = QGroupBox("System Bank Transactions (Unreconciled)"); system_layout = QVBoxLayout(system_txns_group)
         self.system_txns_table = QTableView(); self.system_txns_model = ReconciliationTableModel()
         self._configure_recon_table(self.system_txns_table, self.system_txns_model, is_statement_table=False)
         system_layout.addWidget(self.system_txns_table); self.tables_splitter.addWidget(system_txns_group)
-        self.tables_splitter.setSizes([self.width() // 2, self.width() // 2]); current_recon_layout.addWidget(self.tables_splitter, 1)
+        self.tables_splitter.setSizes([self.width() // 2, self.width() // 2])
+        unreconciled_layout.addWidget(self.tables_splitter, 1) # Stretch tables
+        self.current_recon_tables_splitter.addWidget(unreconciled_area_widget)
         
-        action_layout = QHBoxLayout(); self.match_selected_button = QPushButton(QIcon(self.icon_path_prefix + "post.svg"), "Match Selected"); self.match_selected_button.setEnabled(False)
-        self.create_je_button = QPushButton(QIcon(self.icon_path_prefix + "add.svg"), "Add Journal Entry"); self.create_je_button.setEnabled(False) 
-        self.save_reconciliation_button = QPushButton(QIcon(self.icon_path_prefix + "backup.svg"), "Save Reconciliation"); self.save_reconciliation_button.setEnabled(False) 
-        action_layout.addStretch(); action_layout.addWidget(self.match_selected_button); action_layout.addWidget(self.create_je_button); action_layout.addStretch(); action_layout.addWidget(self.save_reconciliation_button)
-        current_recon_layout.addLayout(action_layout)
-        self.overall_splitter.addWidget(current_recon_widget)
+        # Provisionally Matched Items Area (New)
+        draft_matched_area_widget = QWidget()
+        draft_matched_layout = QVBoxLayout(draft_matched_area_widget)
+        draft_matched_layout.setContentsMargins(0,5,0,0) # Add some top margin
+        self.tables_splitter_draft_matched = QSplitter(Qt.Orientation.Horizontal)
+        draft_stmt_items_group = QGroupBox("Provisionally Matched Statement Items (This Session)"); draft_stmt_layout = QVBoxLayout(draft_stmt_items_group)
+        self.draft_matched_statement_table = QTableView(); self.draft_matched_statement_model = ReconciliationTableModel()
+        self._configure_recon_table(self.draft_matched_statement_table, self.draft_matched_statement_model, is_statement_table=True)
+        draft_stmt_layout.addWidget(self.draft_matched_statement_table); self.tables_splitter_draft_matched.addWidget(draft_stmt_items_group)
+        draft_sys_txns_group = QGroupBox("Provisionally Matched System Transactions (This Session)"); draft_sys_layout = QVBoxLayout(draft_sys_txns_group)
+        self.draft_matched_system_table = QTableView(); self.draft_matched_system_model = ReconciliationTableModel()
+        self._configure_recon_table(self.draft_matched_system_table, self.draft_matched_system_model, is_statement_table=False)
+        draft_sys_layout.addWidget(self.draft_matched_system_table); self.tables_splitter_draft_matched.addWidget(draft_sys_txns_group)
+        self.tables_splitter_draft_matched.setSizes([self.width() // 2, self.width() // 2])
+        draft_matched_layout.addWidget(self.tables_splitter_draft_matched, 1)
+        self.current_recon_tables_splitter.addWidget(draft_matched_area_widget)
+        self.current_recon_tables_splitter.setSizes([self.height() * 2 // 3, self.height() // 3]) # Initial sizing
 
+        # Action Buttons for Current Reconciliation
+        action_layout = QHBoxLayout()
+        self.match_selected_button = QPushButton(QIcon(self.icon_path_prefix + "post.svg"), "Match Selected"); self.match_selected_button.setEnabled(False)
+        self.unmatch_button = QPushButton(QIcon(self.icon_path_prefix + "reverse.svg"), "Unmatch Selected"); self.unmatch_button.setEnabled(False) # New Button
+        self.create_je_button = QPushButton(QIcon(self.icon_path_prefix + "add.svg"), "Add Journal Entry"); self.create_je_button.setEnabled(False) 
+        self.save_reconciliation_button = QPushButton(QIcon(self.icon_path_prefix + "backup.svg"), "Save Final Reconciliation"); self.save_reconciliation_button.setEnabled(False); self.save_reconciliation_button.setObjectName("SaveReconButton")
+        action_layout.addStretch(); action_layout.addWidget(self.match_selected_button); action_layout.addWidget(self.unmatch_button); action_layout.addWidget(self.create_je_button); action_layout.addStretch(); action_layout.addWidget(self.save_reconciliation_button)
+        current_recon_work_area_layout.addLayout(action_layout)
+        self.overall_splitter.addWidget(current_recon_work_area_widget)
+
+        # --- Reconciliation History Area (Bottom Pane of Overall Splitter) ---
         history_outer_group = QGroupBox("Reconciliation History")
         history_outer_layout = QVBoxLayout(history_outer_group)
+        # ... (History table, pagination, detail group, and tables are unchanged from previous implementation) ...
         self.history_table = QTableView(); self.history_table_model = ReconciliationHistoryTableModel()
         self.history_table.setModel(self.history_table_model)
         self.history_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.history_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.history_table.horizontalHeader().setStretchLastSection(False); self.history_table.setSortingEnabled(True)
-        if "ID" in self.history_table_model._headers: # Check if "ID" exists before trying to access its index
+        if "ID" in self.history_table_model._headers:
             id_col_idx_hist = self.history_table_model._headers.index("ID")
             self.history_table.setColumnHidden(id_col_idx_hist, True)
         for i in range(self.history_table_model.columnCount()): 
-            if not self.history_table.isColumnHidden(i): # Only resize visible columns
+            if not self.history_table.isColumnHidden(i):
                 self.history_table.horizontalHeader().setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
         if "Statement Date" in self.history_table_model._headers and not self.history_table.isColumnHidden(self.history_table_model._headers.index("Statement Date")):
             self.history_table.horizontalHeader().setSectionResizeMode(self.history_table_model._headers.index("Statement Date"), QHeaderView.ResizeMode.Stretch)
@@ -1621,13 +1658,15 @@ class BankReconciliationWidget(QWidget):
         self._configure_readonly_detail_table(self.history_system_txns_table, self.history_system_txns_model)
         hist_sys_layout.addWidget(self.history_system_txns_table); history_details_splitter.addWidget(hist_sys_group)
         history_details_layout.addWidget(history_details_splitter); history_outer_layout.addWidget(self.history_details_group)
-        self.history_details_group.setVisible(False)
+        self.history_details_group.setVisible(False) # Initially hidden
         self.overall_splitter.addWidget(history_outer_group)
-        self.overall_splitter.setSizes([self.height() * 3 // 5, self.height() * 2 // 5]) 
+        self.overall_splitter.setSizes([int(self.height() * 0.6), int(self.height() * 0.4)]) # Adjust initial sizing
+        
         self.setLayout(self.main_layout)
         self._connect_signals()
 
     def _configure_readonly_detail_table(self, table_view: QTableView, table_model: BankTransactionTableModel):
+        # ... (Unchanged from previous implementation)
         table_view.setModel(table_model)
         table_view.setAlternatingRowColors(True)
         table_view.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
@@ -1642,10 +1681,12 @@ class BankReconciliationWidget(QWidget):
         if "Description" in table_model._headers and not table_view.isColumnHidden(desc_col_idx):
             table_view.horizontalHeader().setSectionResizeMode(desc_col_idx, QHeaderView.ResizeMode.Stretch)
 
+
     def _configure_recon_table(self, table_view: QTableView, table_model: ReconciliationTableModel, is_statement_table: bool):
+        # ... (Unchanged from previous implementation)
         table_view.setModel(table_model); table_view.setAlternatingRowColors(True)
         table_view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows) 
-        table_view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        table_view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers) # Will change if inline edit is added
         table_view.horizontalHeader().setStretchLastSection(False); table_view.setSortingEnabled(True)
         header = table_view.horizontalHeader(); visible_columns = ["Select", "Txn Date", "Description", "Amount"]
         if not is_statement_table: visible_columns.append("Reference")
@@ -1662,16 +1703,26 @@ class BankReconciliationWidget(QWidget):
         self.bank_account_combo.currentIndexChanged.connect(self._on_bank_account_changed)
         self.statement_balance_spin.valueChanged.connect(self._on_statement_balance_changed)
         self.load_transactions_button.clicked.connect(self._on_load_transactions_clicked)
+        
+        # For unreconciled tables
         self.statement_lines_model.item_check_state_changed.connect(self._on_transaction_selection_changed)
         self.system_txns_model.item_check_state_changed.connect(self._on_transaction_selection_changed)
+        
+        # For provisionally matched tables (new)
+        self.draft_matched_statement_model.item_check_state_changed.connect(self._update_unmatch_button_state)
+        self.draft_matched_system_model.item_check_state_changed.connect(self._update_unmatch_button_state)
+
         self.match_selected_button.clicked.connect(self._on_match_selected_clicked)
+        self.unmatch_button.clicked.connect(self._on_unmatch_selected_clicked) # New connection
         self.create_je_button.clicked.connect(self._on_create_je_for_statement_item_clicked)
         self.save_reconciliation_button.clicked.connect(self._on_save_reconciliation_clicked)
+        
         self.history_table.selectionModel().currentRowChanged.connect(self._on_history_selection_changed)
         self.prev_history_button.clicked.connect(lambda: self._load_reconciliation_history(self._current_history_page - 1))
         self.next_history_button.clicked.connect(lambda: self._load_reconciliation_history(self._current_history_page + 1))
 
     async def _load_bank_accounts_for_combo(self):
+        # ... (Unchanged from previous implementation)
         if not self.app_core.bank_account_manager: return
         try:
             result = await self.app_core.bank_account_manager.get_bank_accounts_for_listing(active_only=True, page_size=-1)
@@ -1681,8 +1732,10 @@ class BankReconciliationWidget(QWidget):
                 QMetaObject.invokeMethod(self, "_populate_bank_accounts_combo_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, items_json))
         except Exception as e: self.app_core.logger.error(f"Error loading bank accounts for reconciliation: {e}", exc_info=True)
 
+
     @Slot(str)
     def _populate_bank_accounts_combo_slot(self, items_json: str):
+        # ... (Unchanged from previous implementation)
         self.bank_account_combo.clear(); self.bank_account_combo.addItem("-- Select Bank Account --", 0)
         try:
             items = json.loads(items_json, object_hook=json_date_hook)
@@ -1696,52 +1749,126 @@ class BankReconciliationWidget(QWidget):
         self._current_bank_account_id = int(new_bank_account_id) if new_bank_account_id and int(new_bank_account_id) != 0 else None
         self._current_bank_account_gl_id = None
         self._current_bank_account_currency = "SGD" 
+        self._current_draft_reconciliation_id = None 
+
         if self._current_bank_account_id:
             selected_ba_dto = next((ba for ba in self._bank_accounts_cache if ba.id == self._current_bank_account_id), None)
             if selected_ba_dto:
                 self._current_bank_account_currency = selected_ba_dto.currency_code
                 self.statement_balance_spin.setSuffix(f" {selected_ba_dto.currency_code}")
+        
         self.statement_lines_model.update_data([]); self.system_txns_model.update_data([])
+        self.draft_matched_statement_model.update_data([]); self.draft_matched_system_model.update_data([]) # Clear new tables
         self._reset_summary_figures(); self._calculate_and_display_balances() 
         self._load_reconciliation_history(1) 
         self.history_details_group.setVisible(False)
         self._history_statement_txns_model.update_data([])
         self._history_system_txns_model.update_data([])
+        self.match_selected_button.setEnabled(False)
+        self._update_unmatch_button_state() # Update state for unmatch button
+
 
     @Slot(float)
     def _on_statement_balance_changed(self, value: float):
+        # ... (Unchanged from previous implementation)
         self._statement_ending_balance = Decimal(str(value)); self._calculate_and_display_balances()
 
     @Slot()
     def _on_load_transactions_clicked(self):
+        # ... (Logic preserved, current_user check already there)
         if not self._current_bank_account_id: QMessageBox.warning(self, "Selection Required", "Please select a bank account."); return
+        if not self.app_core.current_user: QMessageBox.warning(self, "Auth Error", "No user logged in."); return
+
         statement_date = self.statement_date_edit.date().toPython()
         self._statement_ending_balance = Decimal(str(self.statement_balance_spin.value()))
         self.load_transactions_button.setEnabled(False); self.load_transactions_button.setText("Loading...")
-        schedule_task_from_qt(self._fetch_and_populate_transactions(self._current_bank_account_id, statement_date))
-        self._load_reconciliation_history(1)
+        
+        schedule_task_from_qt(
+            self._fetch_and_populate_transactions(
+                self._current_bank_account_id, 
+                statement_date,
+                self._statement_ending_balance, 
+                self.app_core.current_user.id
+            )
+        )
+        self._load_reconciliation_history(1) 
 
-    async def _fetch_and_populate_transactions(self, bank_account_id: int, statement_date: python_date):
+    async def _fetch_and_populate_transactions(self, bank_account_id: int, statement_date: python_date,
+                                               statement_ending_balance: Decimal, user_id: int):
         self.load_transactions_button.setEnabled(True); self.load_transactions_button.setText("Load / Refresh Transactions")
-        if not self.app_core.bank_transaction_manager or not self.app_core.account_service or not self.app_core.journal_service or not self.app_core.bank_account_service : return
-        selected_bank_account_orm = await self.app_core.bank_account_service.get_by_id(bank_account_id)
-        if not selected_bank_account_orm or not selected_bank_account_orm.gl_account_id: QMessageBox.critical(self, "Error", "Selected bank account or its GL link is invalid."); return
-        self._current_bank_account_gl_id = selected_bank_account_orm.gl_account_id
-        self._current_bank_account_currency = selected_bank_account_orm.currency_code
-        self._book_balance_gl = await self.app_core.journal_service.get_account_balance(selected_bank_account_orm.gl_account_id, statement_date)
-        result = await self.app_core.bank_transaction_manager.get_unreconciled_transactions_for_matching(bank_account_id, statement_date)
-        if result.is_success and result.value:
-            self._all_loaded_statement_lines, self._all_loaded_system_transactions = result.value
-            stmt_lines_json = json.dumps([s.model_dump(mode='json') for s in self._all_loaded_statement_lines], default=json_converter)
-            sys_txns_json = json.dumps([s.model_dump(mode='json') for s in self._all_loaded_system_transactions], default=json_converter)
-            QMetaObject.invokeMethod(self, "_update_transaction_tables_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, stmt_lines_json), Q_ARG(str, sys_txns_json))
-        else:
-            QMessageBox.warning(self, "Load Error", f"Failed to load transactions: {', '.join(result.errors if result.errors else ['Unknown error'])}")
-            self.statement_lines_model.update_data([]); self.system_txns_model.update_data([])
-        self._reset_summary_figures(); self._calculate_and_display_balances()
+        self.match_selected_button.setEnabled(False) 
+        self._update_unmatch_button_state()
+        if not self.app_core.bank_reconciliation_service or \
+           not self.app_core.bank_transaction_manager or \
+           not self.app_core.account_service or \
+           not self.app_core.journal_service or \
+           not self.app_core.bank_account_service:
+            self.app_core.logger.error("One or more required services are not available for reconciliation.")
+            return
+
+        try:
+            async with self.app_core.db_manager.session() as session: 
+                draft_recon_orm = await self.app_core.bank_reconciliation_service.get_or_create_draft_reconciliation(
+                    bank_account_id=bank_account_id, statement_date=statement_date,
+                    statement_ending_balance=statement_ending_balance, user_id=user_id, session=session
+                )
+                if not draft_recon_orm or not draft_recon_orm.id:
+                    QMessageBox.critical(self, "Error", "Could not get or create a draft reconciliation record.")
+                    return
+                self._current_draft_reconciliation_id = draft_recon_orm.id
+                QMetaObject.invokeMethod(self.statement_balance_spin, "setValue", Qt.ConnectionType.QueuedConnection, Q_ARG(float, float(draft_recon_orm.statement_ending_balance)))
+                
+                selected_bank_account_orm = await self.app_core.bank_account_service.get_by_id(bank_account_id)
+                if not selected_bank_account_orm or not selected_bank_account_orm.gl_account_id:
+                    QMessageBox.critical(self, "Error", "Selected bank account or its GL link is invalid."); return
+                self._current_bank_account_gl_id = selected_bank_account_orm.gl_account_id
+                self._current_bank_account_currency = selected_bank_account_orm.currency_code
+                
+                self._book_balance_gl = await self.app_core.journal_service.get_account_balance(selected_bank_account_orm.gl_account_id, statement_date)
+                
+                # Fetch Unreconciled Transactions
+                unreconciled_result = await self.app_core.bank_transaction_manager.get_unreconciled_transactions_for_matching(bank_account_id, statement_date)
+                if unreconciled_result.is_success and unreconciled_result.value:
+                    self._all_loaded_statement_lines, self._all_loaded_system_transactions = unreconciled_result.value
+                    stmt_lines_json = json.dumps([s.model_dump(mode='json') for s in self._all_loaded_statement_lines], default=json_converter)
+                    sys_txns_json = json.dumps([s.model_dump(mode='json') for s in self._all_loaded_system_transactions], default=json_converter)
+                    QMetaObject.invokeMethod(self, "_update_transaction_tables_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, stmt_lines_json), Q_ARG(str, sys_txns_json))
+                else:
+                    QMessageBox.warning(self, "Load Error", f"Failed to load unreconciled transactions: {', '.join(unreconciled_result.errors if unreconciled_result.errors else ['Unknown error'])}")
+                    self.statement_lines_model.update_data([]); self.system_txns_model.update_data([])
+
+                # Fetch Provisionally Matched Transactions for this draft
+                draft_stmt_items, draft_sys_items = await self.app_core.bank_reconciliation_service.get_transactions_for_reconciliation(self._current_draft_reconciliation_id)
+                draft_stmt_json = json.dumps([s.model_dump(mode='json') for s in draft_stmt_items], default=json_converter)
+                draft_sys_json = json.dumps([s.model_dump(mode='json') for s in draft_sys_items], default=json_converter)
+                QMetaObject.invokeMethod(self, "_update_draft_matched_tables_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, draft_stmt_json), Q_ARG(str, draft_sys_json))
+                
+            self._reset_summary_figures(); self._calculate_and_display_balances()
+            self._update_match_button_state(); self._update_unmatch_button_state()
+
+        except Exception as e:
+            self.app_core.logger.error(f"Error during _fetch_and_populate_transactions: {e}", exc_info=True)
+            QMessageBox.critical(self, "Error", f"An unexpected error occurred while loading reconciliation data: {e}")
+            self._current_draft_reconciliation_id = None 
+            self._update_match_button_state(); self._update_unmatch_button_state()
+
+    @Slot(str) # New Slot for provisionally matched items
+    def _update_draft_matched_tables_slot(self, draft_stmt_json: str, draft_sys_json: str):
+        try:
+            draft_stmt_list_dict = json.loads(draft_stmt_json, object_hook=json_date_hook)
+            self._current_draft_statement_lines = [BankTransactionSummaryData.model_validate(d) for d in draft_stmt_list_dict]
+            self.draft_matched_statement_model.update_data(self._current_draft_statement_lines)
+            
+            draft_sys_list_dict = json.loads(draft_sys_json, object_hook=json_date_hook)
+            self._current_draft_system_transactions = [BankTransactionSummaryData.model_validate(d) for d in draft_sys_list_dict]
+            self.draft_matched_system_model.update_data(self._current_draft_system_transactions)
+        except Exception as e:
+            QMessageBox.critical(self, "Data Error", f"Failed to parse provisionally matched transaction data: {str(e)}")
+
 
     @Slot(str, str)
     def _update_transaction_tables_slot(self, stmt_lines_json: str, sys_txns_json: str):
+        # ... (Unchanged from previous implementation)
         try:
             stmt_list_dict = json.loads(stmt_lines_json, object_hook=json_date_hook)
             self._all_loaded_statement_lines = [BankTransactionSummaryData.model_validate(d) for d in stmt_list_dict]
@@ -1753,15 +1880,18 @@ class BankReconciliationWidget(QWidget):
 
     @Slot(int, Qt.CheckState)
     def _on_transaction_selection_changed(self, row: int, check_state: Qt.CheckState):
+        # ... (Unchanged from previous implementation)
         self._calculate_and_display_balances(); self._update_match_button_state()
 
     def _reset_summary_figures(self):
+        # ... (Unchanged from previous implementation)
         self._interest_earned_on_statement_not_in_book = Decimal(0)
         self._bank_charges_on_statement_not_in_book = Decimal(0)
         self._outstanding_system_deposits = Decimal(0) 
         self._outstanding_system_withdrawals = Decimal(0) 
 
     def _calculate_and_display_balances(self):
+        # ... (Unchanged from previous implementation)
         self._reset_summary_figures() 
         for i in range(self.statement_lines_model.rowCount()):
             if self.statement_lines_model.get_row_check_state(i) == Qt.CheckState.Unchecked:
@@ -1789,36 +1919,120 @@ class BankReconciliationWidget(QWidget):
         self.difference_label.setText(f"{self._difference:,.2f}")
         if abs(self._difference) < Decimal("0.01"): 
             self.difference_label.setStyleSheet("font-weight: bold; color: green;"); 
-            self.save_reconciliation_button.setEnabled(True)
+            self.save_reconciliation_button.setEnabled(self._current_draft_reconciliation_id is not None)
         else: 
             self.difference_label.setStyleSheet("font-weight: bold; color: red;"); 
             self.save_reconciliation_button.setEnabled(False)
         self.create_je_button.setEnabled(self._interest_earned_on_statement_not_in_book > 0 or self._bank_charges_on_statement_not_in_book > 0 or len(self.statement_lines_model.get_checked_item_data()) > 0)
 
     def _update_match_button_state(self):
+        # ... (Unchanged from previous implementation, but added draft ID check)
         stmt_checked_count = len(self.statement_lines_model.get_checked_item_data())
         sys_checked_count = len(self.system_txns_model.get_checked_item_data())
-        self.match_selected_button.setEnabled(stmt_checked_count > 0 and sys_checked_count > 0)
+        self.match_selected_button.setEnabled(stmt_checked_count > 0 and sys_checked_count > 0 and self._current_draft_reconciliation_id is not None)
         self.create_je_button.setEnabled(stmt_checked_count > 0 or self._interest_earned_on_statement_not_in_book > 0 or self._bank_charges_on_statement_not_in_book > 0)
+
+    def _update_unmatch_button_state(self): # New method
+        draft_stmt_checked_count = len(self.draft_matched_statement_model.get_checked_item_data())
+        draft_sys_checked_count = len(self.draft_matched_system_model.get_checked_item_data())
+        self.unmatch_button.setEnabled(
+            self._current_draft_reconciliation_id is not None and
+            (draft_stmt_checked_count > 0 or draft_sys_checked_count > 0)
+        )
 
     @Slot()
     def _on_match_selected_clicked(self):
-        selected_statement_items = self.statement_lines_model.get_checked_item_data(); 
+        # ... (Modified as per plan)
+        if not self._current_draft_reconciliation_id:
+            QMessageBox.warning(self, "Error", "No active reconciliation draft. Please load transactions first.")
+            return
+
+        selected_statement_items = self.statement_lines_model.get_checked_item_data()
         selected_system_items = self.system_txns_model.get_checked_item_data()
-        if not selected_statement_items or not selected_system_items: QMessageBox.information(self, "Selection Needed", "Please select items from both tables to match."); return
-        sum_stmt = sum(item.amount for item in selected_statement_items); sum_sys = sum(item.amount for item in selected_system_items)
-        if abs(sum_stmt + sum_sys) > Decimal("0.01"): 
-            QMessageBox.warning(self, "Match Error",  f"Selected statement items total ({sum_stmt:,.2f}) and selected system items total ({sum_sys:,.2f}) do not net to zero. Please ensure selections form a balanced match (e.g. a deposit and a withdrawal of same absolute amount)."); return
-        stmt_ids_to_clear = [item.id for item in selected_statement_items]; 
-        sys_ids_to_clear = [item.id for item in selected_system_items]
-        self.statement_lines_model.uncheck_items_by_id(stmt_ids_to_clear)
-        self.system_txns_model.uncheck_items_by_id(sys_ids_to_clear)
-        self.app_core.logger.info(f"UI Matched Statement Items (IDs: {stmt_ids_to_clear}) with System Items (IDs: {sys_ids_to_clear})")
-        QMessageBox.information(self, "Items Selected for Matching", "Selected items are marked for matching. Finalize with 'Save Reconciliation'.")
-        self._calculate_and_display_balances(); self._update_match_button_state()
+        if not selected_statement_items or not selected_system_items:
+            QMessageBox.information(self, "Selection Needed", "Please select items from both tables to match."); return
+        
+        sum_stmt_amounts = sum(item.amount for item in selected_statement_items)
+        sum_sys_amounts = sum(item.amount for item in selected_system_items)
+
+        if abs(sum_stmt_amounts - sum_sys_amounts) > Decimal("0.01"): 
+            QMessageBox.warning(self, "Match Error",  
+                                f"Selected statement items total ({sum_stmt_amounts:,.2f}) and selected system items total ({sum_sys_amounts:,.2f}) do not match. "
+                                "Please ensure selections represent the same net financial event.")
+            return
+        
+        all_selected_ids = [item.id for item in selected_statement_items] + [item.id for item in selected_system_items]
+        
+        self.match_selected_button.setEnabled(False) 
+        schedule_task_from_qt(self._perform_provisional_match(all_selected_ids))
+
+    async def _perform_provisional_match(self, transaction_ids: List[int]):
+        # ... (New method as per plan)
+        if self._current_draft_reconciliation_id is None: return 
+        if not self.app_core.current_user: return
+
+        try:
+            success = await self.app_core.bank_reconciliation_service.mark_transactions_as_provisionally_reconciled(
+                draft_reconciliation_id=self._current_draft_reconciliation_id,
+                transaction_ids=transaction_ids,
+                statement_date=self.statement_date_edit.date().toPython(),
+                user_id=self.app_core.current_user.id
+            )
+            if success:
+                QMessageBox.information(self, "Items Matched", f"{len(transaction_ids)} items marked as provisionally reconciled for this session.")
+                self._on_load_transactions_clicked() 
+            else:
+                QMessageBox.warning(self, "Match Error", "Failed to mark items as reconciled in the database.")
+        except Exception as e:
+            self.app_core.logger.error(f"Error during provisional match: {e}", exc_info=True)
+            QMessageBox.critical(self, "Error", f"An unexpected error occurred while matching: {e}")
+        finally:
+            self._update_match_button_state()
+
+    @Slot()
+    def _on_unmatch_selected_clicked(self): # New Slot
+        if self._current_draft_reconciliation_id is None:
+            QMessageBox.information(self, "Info", "No active draft reconciliation to unmatch from.")
+            return
+        if not self.app_core.current_user:
+            QMessageBox.warning(self, "Auth Error", "No user logged in."); return
+
+        selected_draft_stmt_items = self.draft_matched_statement_model.get_checked_item_data()
+        selected_draft_sys_items = self.draft_matched_system_model.get_checked_item_data()
+        
+        all_ids_to_unmatch = [item.id for item in selected_draft_stmt_items] + \
+                             [item.id for item in selected_draft_sys_items]
+
+        if not all_ids_to_unmatch:
+            QMessageBox.information(self, "Selection Needed", "Please select items from the 'Provisionally Matched' tables to unmatch.")
+            return
+
+        self.unmatch_button.setEnabled(False)
+        schedule_task_from_qt(self._perform_unmatch(all_ids_to_unmatch))
+
+    async def _perform_unmatch(self, transaction_ids: List[int]): # New async method
+        if not self.app_core.current_user: return
+        try:
+            success = await self.app_core.bank_reconciliation_service.unreconcile_transactions(
+                transaction_ids=transaction_ids,
+                user_id=self.app_core.current_user.id
+            )
+            if success:
+                QMessageBox.information(self, "Items Unmatched", f"{len(transaction_ids)} items have been unmarked and returned to the unreconciled lists.")
+                self._on_load_transactions_clicked() # Reload all lists
+            else:
+                QMessageBox.warning(self, "Unmatch Error", "Failed to unmatch items in the database.")
+        except Exception as e:
+            self.app_core.logger.error(f"Error during unmatch operation: {e}", exc_info=True)
+            QMessageBox.critical(self, "Error", f"An unexpected error occurred while unmatching: {e}")
+        finally:
+            self._update_unmatch_button_state() # Re-evaluate button state
+            self._update_match_button_state() # Also affects match button if selections changed
+
 
     @Slot()
     def _on_create_je_for_statement_item_clicked(self):
+        # ... (Unchanged from previous implementation)
         selected_statement_rows = [r for r in range(self.statement_lines_model.rowCount()) if self.statement_lines_model.get_row_check_state(r) == Qt.CheckState.Checked]
         if not selected_statement_rows: QMessageBox.information(self, "Selection Needed", "Please select a bank statement item to create a Journal Entry for."); return
         if len(selected_statement_rows) > 1: QMessageBox.information(self, "Selection Limit", "Please select only one statement item at a time to create a Journal Entry."); return
@@ -1838,72 +2052,62 @@ class BankReconciliationWidget(QWidget):
 
     @Slot(int, int)
     def _handle_je_created_for_statement_item(self, saved_je_id: int, original_statement_txn_id: int):
+        # ... (Unchanged from previous implementation)
         self.app_core.logger.info(f"Journal Entry ID {saved_je_id} created for statement item ID {original_statement_txn_id}. Refreshing transactions...")
-        for r in range(self.statement_lines_model.rowCount()):
-            dto = self.statement_lines_model.get_item_data_at_row(r)
-            if dto and dto.id == original_statement_txn_id:
-                self.statement_lines_model.uncheck_items_by_id([original_statement_txn_id])
-                break
-        self._on_load_transactions_clicked()
+        self._on_load_transactions_clicked() 
 
     @Slot()
     def _on_save_reconciliation_clicked(self):
-        if not self._current_bank_account_id or abs(self._difference) >= Decimal("0.01"):
-            QMessageBox.warning(self, "Cannot Save", "Reconciliation is not balanced or no bank account selected.")
+        # ... (Modified to use _current_draft_reconciliation_id and call _perform_finalize_reconciliation)
+        if self._current_draft_reconciliation_id is None:
+            QMessageBox.warning(self, "Error", "No active reconciliation draft. Please load transactions first.")
+            return
+        if abs(self._difference) >= Decimal("0.01"):
+            QMessageBox.warning(self, "Cannot Save", "Reconciliation is not balanced.")
             return
         if not self.app_core.current_user: QMessageBox.warning(self, "Auth Error", "Please log in."); return
-        all_statement_ids = {txn.id for txn in self._all_loaded_statement_lines}
-        all_system_ids = {txn.id for txn in self._all_loaded_system_transactions}
-        current_unreconciled_statement_ids = {self.statement_lines_model.get_item_data_at_row(r).id for r in range(self.statement_lines_model.rowCount()) if self.statement_lines_model.get_item_data_at_row(r)}
-        current_unreconciled_system_ids = {self.system_txns_model.get_item_data_at_row(r).id for r in range(self.system_txns_model.rowCount()) if self.system_txns_model.get_item_data_at_row(r)}
-        cleared_statement_item_ids = list(all_statement_ids - current_unreconciled_statement_ids)
-        cleared_system_item_ids = list(all_system_ids - current_unreconciled_system_ids)
-        self.app_core.logger.info(f"Saving reconciliation. Cleared Stmt IDs: {cleared_statement_item_ids}, Cleared Sys IDs: {cleared_system_item_ids}")
+        
         self.save_reconciliation_button.setEnabled(False); self.save_reconciliation_button.setText("Saving...")
-        schedule_task_from_qt(self._perform_save_reconciliation(cleared_statement_item_ids, cleared_system_item_ids))
+        schedule_task_from_qt(self._perform_finalize_reconciliation())
 
-    async def _perform_save_reconciliation(self, cleared_statement_ids: List[int], cleared_system_ids: List[int]):
-        if not self.app_core.bank_reconciliation_service or not self._current_bank_account_id:
-            QMessageBox.critical(self, "Error", "Reconciliation Service or Bank Account not set.")
-            self.save_reconciliation_button.setEnabled(abs(self._difference) < Decimal("0.01")); self.save_reconciliation_button.setText("Save Reconciliation"); return
+    async def _perform_finalize_reconciliation(self):
+        # ... (Modified to call service.finalize_reconciliation)
+        if not self.app_core.bank_reconciliation_service or self._current_draft_reconciliation_id is None:
+            QMessageBox.critical(self, "Error", "Reconciliation Service or Draft ID not set.")
+            self.save_reconciliation_button.setEnabled(abs(self._difference) < Decimal("0.01")); self.save_reconciliation_button.setText("Save Final Reconciliation"); return
 
-        statement_date_py = self.statement_date_edit.date().toPython()
         statement_end_bal_dec = Decimal(str(self.statement_balance_spin.value()))
         final_reconciled_book_balance_dec = self._book_balance_gl + self._interest_earned_on_statement_not_in_book - self._bank_charges_on_statement_not_in_book
         
-        new_reconciliation_orm = BankReconciliation(
-            bank_account_id=self._current_bank_account_id,
-            statement_date=statement_date_py,
-            statement_ending_balance=statement_end_bal_dec,
-            calculated_book_balance=final_reconciled_book_balance_dec,
-            reconciled_difference=self._difference, 
-            status="Finalized", # Set status to Finalized
-            created_by_user_id=self.app_core.current_user.id,
-            notes=None 
-        )
         try:
-            async with self.app_core.db_manager.session() as session:
-                saved_recon_orm = await self.app_core.bank_reconciliation_service.save_reconciliation_details(
-                    reconciliation_orm=new_reconciliation_orm,
-                    cleared_statement_txn_ids=cleared_statement_ids,
-                    cleared_system_txn_ids=cleared_system_ids,
-                    statement_end_date=statement_date_py,
-                    bank_account_id=self._current_bank_account_id,
+            async with self.app_core.db_manager.session() as session: 
+                result = await self.app_core.bank_reconciliation_service.finalize_reconciliation(
+                    draft_reconciliation_id=self._current_draft_reconciliation_id,
                     statement_ending_balance=statement_end_bal_dec,
-                    session=session
+                    calculated_book_balance=final_reconciled_book_balance_dec,
+                    reconciled_difference=self._difference,
+                    user_id=self.app_core.current_user.id,
+                    session=session 
                 )
-            QMessageBox.information(self, "Success", f"Bank reconciliation saved successfully (ID: {saved_recon_orm.id}).")
-            self.reconciliation_saved.emit(saved_recon_orm.id)
-            self._on_load_transactions_clicked() 
-            self._load_reconciliation_history(1)
+            
+            if result.is_success and result.value:
+                QMessageBox.information(self, "Success", f"Bank reconciliation finalized and saved successfully (ID: {result.value.id}).")
+                self.reconciliation_saved.emit(result.value.id)
+                self._current_draft_reconciliation_id = None 
+                self._on_load_transactions_clicked() 
+                self._load_reconciliation_history(1) 
+            else:
+                QMessageBox.warning(self, "Save Error", f"Failed to finalize reconciliation: {', '.join(result.errors if result.errors else ['Unknown error'])}")
         except Exception as e:
-            self.app_core.logger.error(f"Error performing save reconciliation: {e}", exc_info=True)
-            QMessageBox.warning(self, "Save Error", f"Failed to save reconciliation: {str(e)}")
+            self.app_core.logger.error(f"Error performing finalize reconciliation: {e}", exc_info=True)
+            QMessageBox.warning(self, "Save Error", f"Failed to finalize reconciliation: {str(e)}")
         finally:
-            self.save_reconciliation_button.setEnabled(abs(self._difference) < Decimal("0.01")); 
-            self.save_reconciliation_button.setText("Save Reconciliation")
+            self.save_reconciliation_button.setEnabled(abs(self._difference) < Decimal("0.01") and self._current_draft_reconciliation_id is not None); 
+            self.save_reconciliation_button.setText("Save Final Reconciliation")
+
 
     def _load_reconciliation_history(self, page_number: int):
+        # ... (Unchanged from previous implementation)
         if not self._current_bank_account_id:
             self.history_table_model.update_data([])
             self._update_history_pagination_controls(0, 0)
@@ -1913,6 +2117,7 @@ class BankReconciliationWidget(QWidget):
         schedule_task_from_qt(self._fetch_reconciliation_history())
 
     async def _fetch_reconciliation_history(self):
+        # ... (Unchanged from previous implementation)
         if not self.app_core.bank_reconciliation_service or self._current_bank_account_id is None: 
             self._update_history_pagination_controls(0,0); return
 
@@ -1929,6 +2134,7 @@ class BankReconciliationWidget(QWidget):
 
     @Slot(str)
     def _update_history_table_slot(self, history_json_str: str):
+        # ... (Unchanged from previous implementation)
         current_item_count = 0
         try:
             history_list_dict = json.loads(history_json_str, object_hook=json_date_hook)
@@ -1938,9 +2144,11 @@ class BankReconciliationWidget(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to display reconciliation history: {e}")
         self.history_details_group.setVisible(False)
-        self._update_history_pagination_controls(current_item_count, self._total_history_records) # Update pagination AFTER table model
+        self._update_history_pagination_controls(current_item_count, self._total_history_records)
+
 
     def _update_history_pagination_controls(self, current_page_count: int, total_records: int):
+        # ... (Unchanged from previous implementation)
         total_pages = (total_records + self._history_page_size - 1) // self._history_page_size
         if total_pages == 0: total_pages = 1
         self.history_page_info_label.setText(f"Page {self._current_history_page} of {total_pages} ({total_records} Records)")
@@ -1949,6 +2157,7 @@ class BankReconciliationWidget(QWidget):
 
     @Slot(QModelIndex, QModelIndex)
     def _on_history_selection_changed(self, current: QModelIndex, previous: QModelIndex):
+        # ... (Unchanged from previous implementation)
         if not current.isValid(): self.history_details_group.setVisible(False); return
         selected_row = current.row()
         reconciliation_id = self.history_table_model.get_reconciliation_id_at_row(selected_row)
@@ -1961,6 +2170,7 @@ class BankReconciliationWidget(QWidget):
             self._history_system_txns_model.update_data([])
 
     async def _load_historical_reconciliation_details(self, reconciliation_id: int):
+        # ... (Unchanged from previous implementation)
         if not self.app_core.bank_reconciliation_service: return
         statement_txns, system_txns = await self.app_core.bank_reconciliation_service.get_transactions_for_reconciliation(reconciliation_id)
         stmt_json = json.dumps([s.model_dump(mode='json') for s in statement_txns], default=json_converter)
@@ -1969,6 +2179,7 @@ class BankReconciliationWidget(QWidget):
 
     @Slot(str, str)
     def _update_history_detail_tables_slot(self, stmt_txns_json: str, sys_txns_json: str):
+        # ... (Unchanged from previous implementation)
         try:
             stmt_list = json.loads(stmt_txns_json, object_hook=json_date_hook)
             stmt_dtos = [BankTransactionSummaryData.model_validate(d) for d in stmt_list]
