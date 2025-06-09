@@ -201,10 +201,6 @@ sg_bookkeeper/
 │   ├── core/                       # Core components (ApplicationCore, DBManager, Config, Security)
 │   ├── common/                     # Common enums, constants, etc.
 │   ├── models/                     # SQLAlchemy ORM models (organized by schema: core, accounting, business, audit)
-│   │   ├── accounting/
-│   │   ├── audit/
-│   │   ├── business/
-│   │   └── core/
 │   ├── services/                   # Data access layer services (repositories)
 │   ├── accounting/                 # Business logic managers for accounting module
 │   ├── business_logic/             # Managers for Customers, Vendors, Products, Invoices, Payments, Banking

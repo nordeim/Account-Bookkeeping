@@ -91,3 +91,14 @@ Next, help me create a *complete* updated replacement file for "Project Architec
 ---
 Please carefully review the attached documents containing or describing the latest changes to the codebase. Then re-generate a *complete* updated *replacement* file version for `README.md` and `Technical Design Specification Document.md` incorporating the latest changes to the codebase. *IMPORTANT*, the updated replacment `README.md` and `Technical Design Specification Document.md` must be complete in itself, without containing any references to older versions or other documents.
 
+---
+Awesome response! Now help me to carefully review and validate the application codebase attached in the files listed below. Use line by line review to get a good grounding of the purpose of the application and its codebase, then create for me a detailed architecture overview document in markdown and named `Project Architecture Overview Document.md`.
+
+Next, carefully review the application database schema creation and data initialization scripts, and compare scripts/initial_data.sql (current) versus scripts/initial_data.sql-v1.0.4 (previous), and scripts/schema.sql (current) versus scripts/schema.sql-v1.0.4 (previous) to double-check and validate that the current version (v1.0.5) of the respective files did not accidentally omit the original lines in the previous (v1.0.4) verion of the files except for the database changes shown in the database update sql script `schema_update_patch.sql`.
+
+---
+please create a more complete architecture overview document by adding a map of the codebase directory structure and also add a section to explain what each of the sub-directories in the codebase are for, also add a flowchart diagram / map to show now the various application modules interact with the user and with each other. please expand the updated *complete* replacement architecture overview document to at least 6000 words with logical listing of key code files with code snippets and explanation. the new document should be detailed enough to quickly get a new developer up to speed with the current state of the codebase.
+
+---
+please get a solid grounding of the current codebase for the application by carefully reviewing the current project code and config files shared, then help me to create a *complete* updated *replacement* file for the attached `README.md` and `Technical_Design_Specification_Document.md`.
+

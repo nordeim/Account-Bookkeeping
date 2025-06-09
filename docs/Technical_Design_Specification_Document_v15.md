@@ -31,7 +31,7 @@ This TDS covers the following aspects of the SG Bookkeeper application:
 -   Technical Project Managers: For project oversight, planning, and resource allocation.
 
 ### 1.4 System Overview
-SG Bookkeeper is a cross-platform desktop application engineered with Python, utilizing PySide6 for its graphical user interface and PostgreSQL for robust data storage. It is designed to provide comprehensive accounting solutions for Singaporean Small to Medium-sized Businesses (SMBs). Key features include a full double-entry bookkeeping system, Singapore-specific GST management (including 9% rate calculations), interactive financial reporting, modules for managing essential business operations (Customers, Vendors, Products/Services, full Sales & Purchase Invoicing lifecycle, Payments with allocations), Bank Account management with manual transaction entry, CSV bank statement import, a full bank reconciliation module (including draft persistence, provisional matching/unmatching capabilities, and history viewing), an enhanced dashboard displaying AR/AP aging summaries and current ratio KPIs, alongside comprehensive system administration for Users, Roles, Permissions, and Audit Log viewing. The application emphasizes data integrity, compliance with local accounting standards, user-friendliness, and robust auditability.
+SG Bookkeeper is a cross-platform desktop application engineered with Python, utilizing PySide6 for its graphical user interface and PostgreSQL for robust data storage. It is designed to provide comprehensive accounting solutions for Singaporean Small to Medium-sized Businesses (SMBs). Key features include a full double-entry bookkeeping system, Singapore-specific GST management (including F5 return preparation with detailed export), interactive financial reporting, modules for managing essential business operations (Customers, Vendors, Products/Services, full Sales & Purchase Invoicing lifecycle, Payments with allocations), Bank Account management with manual transaction entry, CSV bank statement import, a full bank reconciliation module with draft persistence, provisional matching/unmatching capabilities, and history viewing. It also features an enhanced dashboard displaying AR/AP aging summaries and current ratio KPIs, alongside comprehensive system administration for Users, Roles, Permissions, and Audit Log viewing. The application emphasizes data integrity, compliance with local accounting standards, user-friendliness, and robust auditability.
 
 ### 1.5 Current Implementation Status
 As of version 16.0 (reflecting schema v1.0.5):
@@ -54,45 +54,39 @@ As of version 16.0 (reflecting schema v1.0.5):
 
 ### 2.1 High-Level Architecture
 
-```mermaid
-graph TD
-    subgraph UI Layer
-        A[Presentation (app/ui)]
-    end
-    
-    subgraph Logic Layer
-        B[Business Logic (app/business_logic, app/accounting, etc.)]
-    end
-
-    subgraph Data Layer
-        C[Services / DAL (app/services)]
-        E[Database (PostgreSQL)]
-    end
-
-    subgraph Core
-        F[Application Core (app/core/application_core)]
-        D[Database Manager (app/core/database_manager)]
-        G[Utilities & Common (app/utils, app/common)]
-    end
-
-    A -->|User Actions & DTOs| B;
-    B -->|Service Calls| C;
-    C -->|SQLAlchemy & asyncpg| D;
-    D <--> E;
-
-    B -->|Accesses shared services via| F;
-    A -->|Schedules tasks via| F;
-    C -->|Uses DB sessions from| F;
-    B -->|Uses| G;
-    A -->|Uses| G;
-    
-    style A fill:#cde4ff,stroke:#333,stroke-width:2px
-    style B fill:#d5e8d4,stroke:#333,stroke-width:2px
-    style C fill:#ffe6cc,stroke:#333,stroke-width:2px
-    style D fill:#f8cecc,stroke:#333,stroke-width:2px
-    style E fill:#dae8fc,stroke:#333,stroke-width:2px
-    style F fill:#e1d5e7,stroke:#333,stroke-width:2px
-    style G fill:#fff2cc,stroke:#333,stroke-width:2px
+```
++-----------------------------------------------------------------+
+|                       Presentation Layer (UI)                   |
+| (PySide6: MainWindow, Module Widgets, Dialogs, TableModels)   |
+| Handles User Interaction, Displays Data, Qt Signals/Slots       |
++-----------------------------------------------------------------+
+      ^                         | (schedule_task_from_qt for async calls)
+      | (UI Events, Pydantic DTOs) | (Results/Updates via QMetaObject.invokeMethod)
+      v                         v
++-----------------------------------------------------------------+
+|                  Business Logic Layer (Managers)                |
+| (ApplicationCore, *Manager classes e.g., SalesInvoiceManager,  |
+|  PaymentManager, JournalEntryManager, BankTransactionManager)   |
+| Encapsulates Business Rules, Complex Workflows, Validation.     |
+| Orchestrates Services. Returns `Result` objects.                |
++-----------------------------------------------------------------+
+      ^                         | (Service Calls, SQLAlchemy ORM Objects/DTOs)
+      | (Service results/ORM Objects) | (SQLAlchemy Async Operations within Services)
+      v                         v
++-----------------------------------------------------------------+
+|                       Data Access Layer (Services)              |
+| (DatabaseManager, *Service classes e.g., AccountService,       |
+|  SalesInvoiceService, BankReconciliationService), SQLAlchemy Models|
+| Implements Repository Pattern. Abstracts Database Interactions. |
+| Manages ORM query logic.                                        |
++-----------------------------------------------------------------+
+                                | (asyncpg DB Driver)
+                                v
++-----------------------------------------------------------------+
+|                          Database Layer                         |
+| (PostgreSQL: Schemas [core, accounting, business, audit],      |
+|  Tables, Views, Functions, Triggers, Constraints)               |
++-----------------------------------------------------------------+
 ```
 
 ### 2.2 Component Architecture (Updates for Reconciliation Drafts & Dashboard KPIs)
@@ -150,7 +144,7 @@ The application's components are organized into core functionalities, data acces
 -   **Programming Language**: Python 3.9+ (up to 3.12 supported)
 -   **UI Framework**: PySide6 6.9.0+ (Qt 6 bindings)
 -   **Database**: PostgreSQL 14+
--   **ORM**: SQLAlchemy 2.0+ (Asynchronous ORM with `asyncpg`)
+-   **ORM**: SQLAlchemy 2.0+ (Asynchronous ORM)
 -   **Async DB Driver**: `asyncpg`
 -   **Data Validation (DTOs)**: Pydantic V2 (with `email-validator`)
 -   **Password Hashing**: `bcrypt`
@@ -244,9 +238,9 @@ Interface definitions for services are updated to reflect new functionalities:
 -   **Customer, Vendor, Product/Service Management**: Full CRUD and list views.
     -   Managers: `CustomerManager`, `VendorManager`, `ProductManager`. Services: `CustomerService`, `VendorService`, `ProductService`. UI: `CustomersWidget`, `VendorsWidget`, `ProductsWidget`, respective dialogs.
 -   **Sales Invoicing Module**: Full lifecycle.
-    -   Manager: `SalesInvoiceManager` (validation, calculations, draft CRUD, posting with financial JE & inventory (WAC) JE creation, "Save & Approve" in dialog, advanced product search). Service: `SalesInvoiceService`. UI: `SalesInvoicesWidget`, `SalesInvoiceDialog`.
+    -   Manager: `SalesInvoiceManager` (validation, calculations, draft CRUD, posting with financial & inventory JEs). Service: `SalesInvoiceService`. UI: `SalesInvoicesWidget`, `SalesInvoiceDialog`.
 -   **Purchase Invoicing Module**: Full lifecycle.
-    -   Manager: `PurchaseInvoiceManager` (validation, calculations, draft CRUD, posting with financial JE & inventory (WAC based on purchase cost) JE creation, Dialog with advanced product search). Service: `PurchaseInvoiceService`. UI: `PurchaseInvoicesWidget`, `PurchaseInvoiceDialog`.
+    -   Manager: `PurchaseInvoiceManager` (validation, calculations, draft CRUD, posting with financial & inventory JEs). Service: `PurchaseInvoiceService`. UI: `PurchaseInvoicesWidget`, `PurchaseInvoiceDialog`.
 
 ### 4.4 System Administration Modules (`app/core/security_manager.py`, `app/ui/settings/`, `app/ui/audit/`)
 -   **User Management**:
@@ -351,7 +345,7 @@ Interface definitions for services are updated to reflect new functionalities:
     *   Calls `JournalEntryManager.create_and_post_journal_entry()` for COGS JE.
     *   `InventoryMovement` records are also created.
 6.  **Invoice Status Update (Service: `SalesInvoiceService`)**:
-    *   `SalesInvoiceManager` calls `SalesInvoiceService` to update the invoice's status to "Posted" (or similar) and links it to the main financial JE ID.
+    *   `SalesInvoiceManager` calls `SalesInvoiceService` to update the invoice's status to "Posted" (or similar) and links the main financial JE ID.
 7.  **UI Feedback**: Success message. Sales invoice list view updates.
 
 ### 9.2 Data Flow Example: Bank Reconciliation Process (Refined)
@@ -386,5 +380,8 @@ Interface definitions for services are updated to reflect new functionalities:
 8.  **UI Feedback**: Success/error message. The UI typically clears the current reconciliation workspace or resets for a new one. The "Reconciliation History" list is refreshed.
 
 ## 10. Conclusion (Updated)
-Version 16 of SG Bookkeeper significantly refines the Bank Reconciliation module by introducing persistent draft sessions with provisional matching and unmatching capabilities, leading to a more robust and user-friendly reconciliation experience. The Dashboard has been enhanced with crucial AR/AP Aging summaries and the Current Ratio, providing deeper financial insights at a glance. Continuous architectural improvements, such as the resolution of circular import dependencies, strengthen the codebase's maintainability and stability. These features further solidify SG Bookkeeper as a comprehensive accounting tool for SMBs. Future work will focus on expanding automated test coverage, potentially handling more complex reconciliation matching scenarios (e.g., many-to-one), and further enriching dashboard and reporting functionalities based on user feedback and evolving business needs.
+Version 15 of SG Bookkeeper significantly refines the Bank Reconciliation module by introducing persistent draft sessions with provisional matching and unmatching capabilities, leading to a more robust and user-friendly reconciliation experience. The Dashboard has been enhanced with crucial AR/AP Aging summaries and the Current Ratio, providing deeper financial insights at a glance. Continuous architectural improvements, such as the resolution of circular import dependencies, strengthen the codebase's maintainability and stability. These features further solidify SG Bookkeeper as a comprehensive accounting tool for SMBs. Future work will focus on expanding automated test coverage, potentially handling more complex reconciliation matching scenarios (e.g., many-to-one), and further enriching dashboard and reporting functionalities based on user feedback and evolving business needs.
+
+---
+https://drive.google.com/file/d/160xDsKvPVAoauLYynWiBe9NHBnZdTL8J/view?usp=sharing, https://drive.google.com/file/d/18TtNiuwMgTDNao0zAFm09n-jytG2YUGz/view?usp=sharing, https://aistudio.google.com/app/prompts?state=%7B%22ids%22:%5B%221C3YLnRKPRGzPZnYLR1QTk7UWEwAsh3Nz%22%5D,%22action%22:%22open%22,%22userId%22:%22103961307342447084491%22,%22resourceKeys%22:%7B%7D%7D&usp=sharing, https://drive.google.com/file/d/1Ca9966PXKMDnjAxCsyT8OmVM2CPRlb-7/view?usp=sharing, https://drive.google.com/file/d/1JQqsPW16CEQ_KOYug004UPmNUP8BkdJ-/view?usp=sharing, https://drive.google.com/file/d/1Uej9gO7t12EkmldGnw5jk_V_fDjhTJMw/view?usp=sharing, https://drive.google.com/file/d/1ZsmOW6huYvGv9eyPviU1VZzh2YZqtxgW/view?usp=sharing, https://drive.google.com/file/d/1azUf7bWoZO_Niu3T7P81Vg8osVNEAvdG/view?usp=sharing, https://drive.google.com/file/d/1bI33CCtQPwhzoEUl854m3V002dxflsWg/view?usp=sharing, https://drive.google.com/file/d/1eFLuD4rI0YIctcHcXtE_aGXdEI19KS7A/view?usp=sharing, https://drive.google.com/file/d/1i0d3rPoQdMDESiN3d1xl0HwlhxsW8IKA/view?usp=sharing, https://drive.google.com/file/d/1peEbFNwTqJse_rI4-Cr6AHJC5VkdMEyJ/view?usp=sharing, https://drive.google.com/file/d/1wiAxnIzKK89xeuNXnUIwze7jX3IRpmh0/view?usp=sharing, https://drive.google.com/file/d/1z8Ad5AKfM2zETmgHi_8lWviUGZCQl1bF/view?usp=sharing
 
