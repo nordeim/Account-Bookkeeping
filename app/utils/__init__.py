@@ -22,8 +22,9 @@ from .pydantic_models import (
     PaymentAllocationBaseData, PaymentBaseData, PaymentCreateData, PaymentSummaryData,
     AuditLogEntryData, DataChangeHistoryEntryData,
     BankReconciliationBaseData, BankReconciliationCreateData, BankReconciliationData,
-    BankReconciliationSummaryData, # New DTO export
-    DashboardKPIData
+    BankReconciliationSummaryData,
+    DashboardKPIData,
+    CSVImportErrorData # New DTO export
 )
 from .result import Result
 from .sequence_generator import SequenceGenerator
@@ -51,7 +52,8 @@ __all__ = [
     "PaymentAllocationBaseData", "PaymentBaseData", "PaymentCreateData", "PaymentSummaryData",
     "AuditLogEntryData", "DataChangeHistoryEntryData",
     "BankReconciliationBaseData", "BankReconciliationCreateData", "BankReconciliationData",
-    "BankReconciliationSummaryData", # New DTO export
+    "BankReconciliationSummaryData",
     "DashboardKPIData",
+    "CSVImportErrorData", # New DTO export
     "Result", "SequenceGenerator", "is_valid_uen"
 ]

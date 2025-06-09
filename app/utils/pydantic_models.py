@@ -371,7 +371,6 @@ class BankReconciliationSummaryData(AppBaseModel):
     reconciliation_date: datetime
     created_by_username: Optional[str] = None
 
-
 # --- Dashboard DTOs ---
 class DashboardKPIData(AppBaseModel):
     kpi_period_description: str
@@ -386,12 +385,12 @@ class DashboardKPIData(AppBaseModel):
     total_ap_overdue: Decimal = Field(Decimal(0))
     # Fields for AR/AP Aging
     ar_aging_current: Decimal = Field(Decimal(0)) 
-    ar_aging_1_30: Decimal = Field(Decimal(0))      # ADDED
+    ar_aging_1_30: Decimal = Field(Decimal(0))
     ar_aging_31_60: Decimal = Field(Decimal(0))
     ar_aging_61_90: Decimal = Field(Decimal(0))
     ar_aging_91_plus: Decimal = Field(Decimal(0))
     ap_aging_current: Decimal = Field(Decimal(0)) 
-    ap_aging_1_30: Decimal = Field(Decimal(0))      # ADDED
+    ap_aging_1_30: Decimal = Field(Decimal(0))
     ap_aging_31_60: Decimal = Field(Decimal(0))
     ap_aging_61_90: Decimal = Field(Decimal(0))
     ap_aging_91_plus: Decimal = Field(Decimal(0))
@@ -399,3 +398,9 @@ class DashboardKPIData(AppBaseModel):
     total_current_assets: Decimal = Field(Decimal(0))
     total_current_liabilities: Decimal = Field(Decimal(0))
     current_ratio: Optional[Decimal] = None
+
+# --- CSV Import DTOs ---
+class CSVImportErrorData(AppBaseModel):
+    row_number: int
+    row_data: List[str]
+    error_message: str
