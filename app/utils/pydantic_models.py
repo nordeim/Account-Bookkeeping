@@ -305,7 +305,16 @@ class BankTransactionBaseData(AppBaseModel):
             if amount > Decimal(0): raise ValueError(f"{txn_type.value} amount must be negative or zero.")
         return values
 class BankTransactionCreateData(BankTransactionBaseData, UserAuditData): pass
-class BankTransactionSummaryData(AppBaseModel): id: int; transaction_date: date; value_date: Optional[date] = None; transaction_type: BankTransactionTypeEnum; description: str; reference: Optional[str] = None; amount: Decimal; is_reconciled: bool = False
+class BankTransactionSummaryData(AppBaseModel): 
+    id: int
+    transaction_date: date
+    value_date: Optional[date] = None
+    transaction_type: BankTransactionTypeEnum
+    description: str
+    reference: Optional[str] = None
+    amount: Decimal
+    is_reconciled: bool = False
+    updated_at: datetime # Added for reconciliation grouping
 
 # --- Payment DTOs ---
 class PaymentAllocationBaseData(AppBaseModel):

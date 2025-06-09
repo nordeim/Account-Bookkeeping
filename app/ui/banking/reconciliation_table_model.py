@@ -1,5 +1,6 @@
 # File: app/ui/banking/reconciliation_table_model.py
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt, Signal
+from PySide6.QtGui import QColor # New import for background role
 from typing import List, Dict, Any, Optional, Tuple
 from decimal import Decimal, InvalidOperation
 from datetime import date as python_date
@@ -12,8 +13,8 @@ class ReconciliationTableModel(QAbstractTableModel):
     def __init__(self, data: Optional[List[BankTransactionSummaryData]] = None, parent=None):
         super().__init__(parent)
         self._headers = ["Select", "Txn Date", "Description", "Reference", "Amount"]
-        # Store data as a list of tuples: (original_dto, current_check_state)
         self._table_data: List[Tuple[BankTransactionSummaryData, Qt.CheckState]] = []
+        self._row_colors: Dict[int, QColor] = {}
         if data:
             self.update_data(data)
 
@@ -65,13 +66,16 @@ class ReconciliationTableModel(QAbstractTableModel):
             if col == 0: # "Select" column
                 return check_state
         
-        elif role == Qt.ItemDataRole.UserRole: # Store original DTO if needed for full data access
+        elif role == Qt.ItemDataRole.BackgroundRole: # New handler for background color
+            return self._row_colors.get(row)
+
+        elif role == Qt.ItemDataRole.UserRole:
             return transaction_summary
 
         elif role == Qt.ItemDataRole.TextAlignmentRole:
             if self._headers[col] == "Amount":
                 return Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-            if self._headers[col] in ["Txn Date", "Select"]: # Also center checkbox
+            if self._headers[col] in ["Txn Date", "Select"]:
                 return Qt.AlignmentFlag.AlignCenter
         
         return None
@@ -98,33 +102,31 @@ class ReconciliationTableModel(QAbstractTableModel):
             return Qt.ItemFlag.NoItemFlags
         
         flags = super().flags(index)
-        if index.column() == 0: # "Select" column
+        if index.column() == 0:
             flags |= Qt.ItemFlag.ItemIsUserCheckable
-        # Make other columns non-editable by default for this model if needed
-        # else:
-        #    flags &= ~Qt.ItemFlag.ItemIsEditable
         return flags
 
     def get_item_data_at_row(self, row: int) -> Optional[BankTransactionSummaryData]:
         if 0 <= row < len(self._table_data):
-            return self._table_data[row][0] # Return the DTO
+            return self._table_data[row][0]
         return None
         
     def get_row_check_state(self, row: int) -> Optional[Qt.CheckState]:
         if 0 <= row < len(self._table_data):
-            return self._table_data[row][1] # Return the check state
+            return self._table_data[row][1]
         return None
 
     def get_checked_item_data(self) -> List[BankTransactionSummaryData]:
         return [dto for dto, state in self._table_data if state == Qt.CheckState.Checked]
 
-    def update_data(self, new_data: List[BankTransactionSummaryData]):
+    def update_data(self, new_data: List[BankTransactionSummaryData], row_colors: Optional[Dict[int, QColor]] = None):
         self.beginResetModel()
         self._table_data = [(dto, Qt.CheckState.Unchecked) for dto in new_data]
+        self._row_colors = row_colors if row_colors is not None else {}
         self.endResetModel()
         
     def uncheck_all(self):
-        self.beginResetModel() # More efficient to reset model if many rows change
+        self.beginResetModel()
         self._table_data = [(dto, Qt.CheckState.Unchecked) for dto, _ in self._table_data]
         self.endResetModel()
 
@@ -133,17 +135,10 @@ class ReconciliationTableModel(QAbstractTableModel):
         for row, (dto, check_state) in enumerate(self._table_data):
             if dto.id in ids_to_uncheck and check_state == Qt.CheckState.Checked:
                 self._table_data[row] = (dto, Qt.CheckState.Unchecked)
-                changed_indexes.append(self.index(row, 0)) # Emit for checkbox column
+                changed_indexes.append(self.index(row, 0))
 
         if changed_indexes:
-            # Emit dataChanged for each affected row's checkbox column
-            # More targeted than beginResetModel/endResetModel if only a few change
             for idx in changed_indexes:
                 self.dataChanged.emit(idx, idx, [Qt.ItemDataRole.CheckStateRole])
-            # Trigger recalculation by emitting a signal that the widget can connect to
-            # For simplicity, assume external recalculation after this.
-            # Example: self.item_check_state_changed.emit(changed_indexes[0].row(), Qt.CheckState.Unchecked)
-            # if you want to signal that *some* check state changed. This would require the slot
-            # to re-evaluate all.
-            if changed_indexes: # Signal one representative change
+            if changed_indexes:
                  self.item_check_state_changed.emit(changed_indexes[0].row(), Qt.CheckState.Unchecked)

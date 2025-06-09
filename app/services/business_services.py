@@ -217,8 +217,6 @@ class VendorService(IVendorRepository):
         
         return {k: v.quantize(Decimal("0.01")) for k, v in aging_summary.items()}
 
-# ProductService, SalesInvoiceService, PurchaseInvoiceService, InventoryMovementService, BankAccountService, BankTransactionService, PaymentService, BankReconciliationService
-# ... (These services are preserved as they were previously)
 class ProductService(IProductRepository): 
     def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
         self.db_manager = db_manager; self.app_core = app_core
@@ -372,7 +370,6 @@ class PurchaseInvoiceService(IPurchaseInvoiceRepository):
             result = await session.execute(stmt)
             return list(result.scalars().all())
 
-
 class InventoryMovementService(IInventoryMovementRepository):
     def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
         self.db_manager = db_manager; self.app_core = app_core
@@ -441,7 +438,6 @@ class BankAccountService(IBankAccountRepository):
             result = await session.execute(stmt)
             return result.scalars().first()
 
-
 class BankTransactionService(IBankTransactionRepository):
     def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
         self.db_manager = db_manager; self.app_core = app_core
@@ -467,7 +463,7 @@ class BankTransactionService(IBankTransactionRepository):
             result = await session.execute(stmt); txns_orm = result.scalars().all()
             summaries: List[BankTransactionSummaryData] = []
             for txn in txns_orm:
-                summaries.append(BankTransactionSummaryData(id=txn.id,transaction_date=txn.transaction_date,value_date=txn.value_date,transaction_type=BankTransactionTypeEnum(txn.transaction_type), description=txn.description,reference=txn.reference,amount=txn.amount, is_reconciled=txn.is_reconciled))
+                summaries.append(BankTransactionSummaryData(id=txn.id,transaction_date=txn.transaction_date,value_date=txn.value_date,transaction_type=BankTransactionTypeEnum(txn.transaction_type), description=txn.description,reference=txn.reference,amount=txn.amount, is_reconciled=txn.is_reconciled, updated_at=txn.updated_at))
             return summaries
     async def save(self, entity: BankTransaction, session: Optional[AsyncSession] = None) -> BankTransaction:
         async def _save_logic(current_session: AsyncSession):
@@ -560,7 +556,7 @@ class BankReconciliationService(IBankReconciliationRepository):
 
     async def delete(self, id_val: int) -> bool:
         self.logger.warning(f"Deletion of BankReconciliation ID {id_val} attempted. This operation un-reconciles linked transactions.")
-        async with self.db_manager.session() as session:
+        async with self.db_manager.session() as session: 
             async with session.begin(): 
                 update_stmt = (
                     sqlalchemy_update(BankTransaction)
@@ -704,7 +700,6 @@ class BankReconciliationService(IBankReconciliationRepository):
         self.logger.info(f"Unreconciled {result.rowcount} transactions.")
         return result.rowcount == len(transaction_ids)
 
-
     async def get_reconciliations_for_account(
         self, 
         bank_account_id: int, 
@@ -748,7 +743,7 @@ class BankReconciliationService(IBankReconciliationRepository):
         async with self.db_manager.session() as session:
             stmt = select(BankTransaction)\
                 .where(BankTransaction.reconciled_bank_reconciliation_id == reconciliation_id)\
-                .order_by(BankTransaction.transaction_date, BankTransaction.id) 
+                .order_by(BankTransaction.updated_at.desc(), BankTransaction.id) 
             
             result = await session.execute(stmt)
             all_txns_orm = result.scalars().all()
@@ -761,7 +756,8 @@ class BankReconciliationService(IBankReconciliationRepository):
                     id=txn_orm.id, transaction_date=txn_orm.transaction_date,
                     value_date=txn_orm.value_date, transaction_type=BankTransactionTypeEnum(txn_orm.transaction_type),
                     description=txn_orm.description, reference=txn_orm.reference,
-                    amount=txn_orm.amount, is_reconciled=txn_orm.is_reconciled 
+                    amount=txn_orm.amount, is_reconciled=txn_orm.is_reconciled, 
+                    updated_at=txn_orm.updated_at
                 )
                 if txn_orm.is_from_statement:
                     statement_items.append(summary_dto)
