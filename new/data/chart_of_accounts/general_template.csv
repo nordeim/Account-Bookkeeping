@@ -1,0 +1,38 @@
+Code,Name,AccountType,SubType,TaxTreatment,GSTApplicable,CashFlowCategory,ParentCode,ReportGroup,IsControlAccount,IsBankAccount,OpeningBalance,OpeningBalanceDate
+1000,ASSETS,Asset,,,,,,,,,,
+1100,Current Assets,Asset,,,,1000,CURRENT_ASSETS,FALSE,FALSE,,
+1110,Cash and Bank,Asset,"Cash and Cash Equivalents",,FALSE,Operating,1100,CASH_BANK,FALSE,TRUE,,
+1111,Main Bank Account SGD,Asset,"Cash and Cash Equivalents",Non-Taxable,FALSE,Operating,1110,CASH_BANK,FALSE,TRUE,1000.00,2023-01-01
+1112,Petty Cash,Asset,"Cash and Cash Equivalents",Non-Taxable,FALSE,Operating,1110,CASH_BANK,FALSE,FALSE,100.00,2023-01-01
+1120,Accounts Receivable,Asset,"Accounts Receivable",,TRUE,Operating,1100,ACCOUNTS_RECEIVABLE,TRUE,FALSE,500.00,2023-01-01
+1130,Inventory,Asset,Inventory,,TRUE,Operating,1100,INVENTORY,TRUE,FALSE,0.00,
+1200,Non-Current Assets,Asset,,,,1000,NON_CURRENT_ASSETS,FALSE,FALSE,,
+1210,Property, Plant & Equipment,Asset,"Fixed Asset",,Investing,1200,PPE,FALSE,FALSE,,
+1211,Office Equipment,Asset,"Fixed Asset",,TRUE,Investing,1210,PPE,FALSE,FALSE,5000.00,2023-01-01
+1212,Accumulated Depreciation - Office Equipment,Asset,"Accumulated Depreciation",,FALSE,Operating,1210,PPE_ACCUM_DEPR,FALSE,FALSE,-500.00,2023-01-01
+2000,LIABILITIES,Liability,,,,,,,,,,
+2100,Current Liabilities,Liability,,,,2000,CURRENT_LIABILITIES,FALSE,FALSE,,
+2110,Accounts Payable,Liability,"Accounts Payable",,TRUE,Operating,2100,ACCOUNTS_PAYABLE,TRUE,FALSE,,
+2120,GST Payable,Liability,"GST Payable",,TRUE,Operating,2100,TAX_LIABILITIES,FALSE,FALSE,,
+2130,Withholding Tax Payable,Liability,"Current Liability",,FALSE,Operating,2100,TAX_LIABILITIES,FALSE,FALSE,,
+2200,Non-Current Liabilities,Liability,,,,2000,NON_CURRENT_LIABILITIES,FALSE,FALSE,,
+2210,Bank Loan (Long Term),Liability,"Long-term Liability",,FALSE,Financing,2200,LOANS_PAYABLE,FALSE,FALSE,,
+3000,EQUITY,Equity,,,,,,,,,,
+3100,Owner's Capital,Equity,"Owner's Equity",,FALSE,Financing,3000,OWNERS_EQUITY,FALSE,FALSE,,
+3200,Retained Earnings,Equity,"Retained Earnings",,FALSE,Financing,3000,RETAINED_EARNINGS,FALSE,FALSE,,SYS-RETAINED-EARNINGS
+4000,REVENUE,Revenue,,,,,,,,,,
+4100,Sales Revenue,Revenue,Sales,Taxable,TRUE,Operating,4000,OPERATING_REVENUE,FALSE,FALSE,,
+4200,Service Revenue,Revenue,Services,Taxable,TRUE,Operating,4000,OPERATING_REVENUE,FALSE,FALSE,,
+5000,COST OF SALES,Expense,,,,,,,,,,
+5100,Cost of Goods Sold,Expense,"Cost of Sales",Taxable,TRUE,Operating,5000,COST_OF_SALES,FALSE,FALSE,,
+6000,OPERATING EXPENSES,Expense,,,,,,,,,,
+6100,Salaries & Wages,Expense,"Operating Expenses",Non-Taxable,FALSE,Operating,6000,SALARIES,FALSE,FALSE,,
+6110,Rent Expense,Expense,"Operating Expenses",Taxable,TRUE,Operating,6000,RENT,FALSE,FALSE,,
+6120,Utilities Expense,Expense,"Operating Expenses",Taxable,TRUE,Operating,6000,UTILITIES,FALSE,FALSE,,
+6130,Depreciation Expense,Expense,"Depreciation",Non-Deductible,FALSE,Operating,6000,DEPRECIATION,FALSE,FALSE,,
+7000,OTHER INCOME,Revenue,,,,,,,,,,
+7100,Interest Income,Revenue,"Other Income",Taxable,FALSE,Investing,7000,INTEREST_INCOME,FALSE,FALSE,,
+7200,Foreign Exchange Gain,Revenue,"Other Income",Taxable,FALSE,Operating,7000,FOREX,FALSE,FALSE,,
+8000,OTHER EXPENSES,Expense,,,,,,,,,,
+8100,Bank Charges,Expense,"Other Expenses",Non-Deductible,TRUE,Operating,8000,BANK_CHARGES,FALSE,FALSE,,
+8200,Foreign Exchange Loss,Expense,"Other Expenses",Non-Deductible,FALSE,Operating,8000,FOREX,FALSE,FALSE,,

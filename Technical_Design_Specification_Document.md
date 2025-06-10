@@ -1,197 +1,182 @@
 # Technical Design Specification Document: SG Bookkeeper (v17)
 
 **Version:** 17.0
-**Date:** 2025-06-10
+**Date:** 2025-06-11
 
 ## 1. Introduction
 
 ### 1.1 Purpose
-This Technical Design Specification (TDS) document, version **17.0**, provides a detailed and up-to-date overview of the SG Bookkeeper application's technical design and implementation. It reflects the current state of the project, incorporating architectural decisions, component structures, and functionalities up to schema version **1.0.6**.
+This Technical Design Specification (TDS) document, version **17.0**, provides a detailed and up-to-date overview of the SG Bookkeeper application's technical design and implementation. It reflects the current state of the project, incorporating architectural decisions, component structures, and functionalities up to schema version **1.0.7**.
 
-This version specifically details significant enhancements to the application, building upon the previously established multi-company architecture:
-*   **Enhanced Bank Reconciliation Module**: The UI/UX for bank reconciliation has been overhauled with real-time feedback and visual aids, including color-coded grouping of matched transactions and live calculation of selection totals.
-*   **Graphical Dashboard KPIs**: The dashboard has been transformed from a static text display into a dynamic and interactive view featuring graphical bar charts for AR/AP Aging summaries and the inclusion of advanced financial ratios (Quick Ratio, Debt-to-Equity). Users can now analyze KPIs for any chosen date.
-*   **Robust CSV Import Error Reporting**: The CSV import process now provides detailed, row-by-row error feedback in a dedicated dialog, greatly improving the user's ability to diagnose and fix import issues.
-*   **New Financial Reports**: An "Income Tax Computation" report has been added to the reporting suite.
+This version specifically details major new features and enhancements:
+*   **Full Multi-Currency Support**: Implementation of foreign exchange gain/loss calculations on payments.
+*   **Withholding Tax (WHT) Management**: A complete workflow for applying WHT on vendor payments, including automated liability tracking through the journal.
+*   **Cash Flow Statement Reporting**: A new, comprehensive Statement of Cash Flows generated using the indirect method, supported by a new account-tagging system.
+
+These features build upon the previously implemented multi-company architecture, advanced bank reconciliation module, and interactive KPI dashboard.
 
 ### 1.2 Scope
 This TDS covers the following aspects of the SG Bookkeeper application:
--   **System Architecture**: The multi-company model, UI, business logic, data access layers, and asynchronous processing.
--   **Database Schema**: Details and organization as defined in `scripts/schema.sql` (v1.0.6), which includes the new `CorpTaxRate_Default` configuration.
--   **Key UI Implementation Patterns**: `PySide6` interactions, particularly the use of `QtCharts` for the dashboard, visual state management in the bank reconciliation UI, and the new error reporting dialogs.
--   **Core Business Logic**: Component structures and interactions for the enhanced `DashboardManager`, `BankTransactionManager` (for CSV import), and `FinancialStatementGenerator` (for tax computation).
--   **Data Models & DTOs**: Updates to Pydantic models like `DashboardKPIData` and the new `CSVImportErrorData`.
+-   **System Architecture**: The layered architecture and its support for advanced accounting workflows like multi-currency and WHT.
+-   **Database Schema**: Details and organization as defined in `scripts/schema.sql` (v1.0.7), including the new `cash_flow_category` field in the `accounts` table and new system accounts.
+-   **Key UI Implementation Patterns**: Changes to the `PaymentDialog` and `AccountDialog` to support the new features.
+-   **Core Business Logic**: Detailed explanation of the logic within `PaymentManager` for handling Forex and WHT, and the new `FinancialStatementGenerator` logic for the Cash Flow Statement.
+-   **Data Models & DTOs**: Structure and purpose of updated ORM models and Pydantic DTOs.
+-   **Security & Data Isolation**: How the application ensures data separation between companies.
 
 ### 1.3 Intended Audience
--   Software Developers: For implementation, feature development, and understanding system design.
--   QA Engineers: For comprehending system behavior, designing effective test cases, and validation.
--   System Administrators: For deployment strategies, database setup, and maintenance.
--   Technical Project Managers: For project oversight, planning, and resource allocation.
+-   **Software Developers**: For implementation, feature development, and understanding system design.
+-   **QA Engineers**: For comprehending system behavior, designing effective test cases, and validation.
+-   **System Administrators**: For deployment strategies, database setup, and maintenance.
+-   **Technical Project Managers**: For project oversight, planning, and resource allocation.
 
 ### 1.4 System Overview
-SG Bookkeeper is a cross-platform desktop application engineered with Python, utilizing PySide6 for its GUI and PostgreSQL for robust data storage. Its architecture now supports a **multi-company environment**, where each company's data is securely isolated in its own dedicated PostgreSQL database. The application provides a user-friendly interface to create new company databases and switch between them seamlessly.
+SG Bookkeeper is a cross-platform desktop application engineered with Python, utilizing PySide6 for its GUI and PostgreSQL for robust data storage. Its architecture supports a **multi-company environment**, where each company's data is securely isolated in its own dedicated PostgreSQL database.
 
-Its core functionality includes a full double-entry bookkeeping system, Singapore-specific GST management, interactive financial reporting, and modules for managing Customers, Vendors, Products, Sales/Purchase Invoices, and Payments. The advanced Bank Reconciliation module features CSV import with robust error handling, persistent draft states, and visual aids for complex transaction matching. An interactive dashboard provides at-a-glance KPIs, including graphical aging summaries and key financial ratios, calculated for any user-selected date. The system is built with data integrity, security, and auditability as top priorities.
+Its core functionality includes a full double-entry bookkeeping system, Singapore-specific GST and Withholding Tax management, and a suite of interactive financial reports, including a Statement of Cash Flows. Core business operations are fully supported with multi-currency capabilities, including the automatic calculation of realized foreign exchange gains and losses. The application's focus on user experience is evident in its interactive dashboard with graphical KPIs and its advanced bank reconciliation module with draft persistence and visual matching aids.
 
 ### 1.5 Current Implementation Status
-As of version 17.0 (reflecting schema v1.0.6):
+As of version 17.0 (reflecting schema v1.0.7):
+*   **Multi-Currency Support**: Fully implemented. The system now correctly calculates and posts realized foreign exchange gains or losses when foreign currency invoices are settled.
+*   **Withholding Tax Management**: Fully implemented. The `PaymentDialog` supports the application of WHT for applicable vendors, automatically creating the correct JE to record the liability.
+*   **Cash Flow Statement**: Implemented. A new report generates a Statement of Cash Flows using the indirect method, based on a new account tagging system.
 *   **Multi-Company Architecture**: Fully functional, allowing creation and switching between company databases.
-*   **Bank Reconciliation Module (Enhanced)**:
-    *   **Visual Grouping**: Provisionally matched items are now visually grouped using background colors based on their matching timestamp, making it easy to see which items were matched together.
-    *   **Real-time Balancing Feedback**: The UI now displays the running totals of selected statement and system items, with color-coding to instantly show if the selection is balanced.
-    *   Draft persistence, un-matching, and finalization workflows are stable.
-*   **Dashboard KPIs (Enhanced)**:
-    *   **Graphical Charts**: AR and AP Aging summaries are now displayed as `QBarChart`s for better visualization.
-    *   **New Ratios**: Quick Ratio and Debt-to-Equity Ratio are now calculated and displayed.
-    *   **"As of Date" Selector**: All KPIs can be recalculated for a user-selected historical date.
-*   **CSV Import (Enhanced)**:
-    *   The `BankTransactionManager` now captures detailed, row-level parsing and validation errors.
-    *   A new `CSVImportErrorsDialog` is displayed after an import with errors, showing each failed row and the specific reason for failure in a clear table format.
-*   **Reporting (Enhanced)**:
-    *   A new "Income Tax Computation" report is available, providing a preliminary calculation based on P&L and configurable adjustments.
-*   **Database**: Schema is at v1.0.6, which includes a new default corporate tax rate in the `core.configuration` table.
+*   **Bank Reconciliation Module**: Fully functional with draft persistence, visual grouping of matched items, and history viewing.
+*   **Dashboard KPIs**: Fully functional with an "As of Date" selector, graphical aging charts, and key financial ratios.
+*   **Database**: Schema is at v1.0.7, supporting all current features.
 
 ## 2. System Architecture
 
 ### 2.1 High-Level Architecture
-The application maintains its robust layered architecture, now operating within a context defined by the currently selected company database. The core logic remains abstracted from the specific database it is connected to.
+The application maintains its robust layered architecture, now enhanced to support more complex financial transactions.
 
 ```mermaid
 graph TD
-    subgraph User Interaction
-        A[UI Layer (app/ui)]
-        I[Company Dialogs (app/ui/company)]
+    subgraph UI Layer
+        A[Presentation (app/ui)]
+    end
+    
+    subgraph Logic Layer
+        B[Business Logic (Managers)]
     end
 
-    subgraph Business & Core Logic
-        B[Logic Layer (Managers in app/business_logic, etc.)]
-        F[Application Core (app/core/application_core)]
-        J[Company Manager (app/core/company_manager)]
+    subgraph Data Layer
+        C[Services / DAL (app/services)]
+        E[Database (PostgreSQL)]
     end
 
-    subgraph Data & Persistence
-        C[Service Layer / DAL (app/services)]
-        D[Database Manager (app/core/database_manager)]
-        K[Company Registry (companies.json)]
-        E[PostgreSQL Databases (One per Company)]
+    subgraph Core
+        F[Application Core (app/core)]
+        D[Database Manager (app/core)]
+        G[Utilities & Common (app/utils, app/common)]
     end
 
-    A -->|User Actions| B;
-    I -->|User Actions| F;
-    F -->|Restart App| A;
-    F -->|Creates DB via| D;
-    B -->|Uses Services| C;
-    C -->|Uses Sessions from| D;
+    A -->|User Actions & DTOs| B;
+    B -->|Service Calls| C;
+    C -->|SQLAlchemy & asyncpg| D;
     D <--> E;
-    F -->|Uses| J;
-    J <--> K;
+
+    B -->|Accesses shared services via| F;
+    A -->|Schedules tasks via| F;
+    C -->|Uses DB sessions from| F;
+    B -->|Uses| G;
+    A -->|Uses| G;
 ```
 
 ### 2.2 Component Architecture (Updates for New Features)
-The recent enhancements build upon the existing component structure, primarily by adding new UI elements and expanding the logic within existing Managers and DTOs.
 
-#### 2.2.1 Services (Data Access Layer - `app/services/`)
-*   **`BankTransactionService` (`business_services.py`)**: The `get_all_for_bank_account` method now returns the `updated_at` timestamp in its DTO, which is crucial for the visual grouping feature in the bank reconciliation UI.
-*   **`BankReconciliationService` (`business_services.py`)**: `get_transactions_for_reconciliation` now sorts the results by `updated_at` to facilitate grouping of items matched at the same time.
+#### 2.2.1 Core Components (`app/core/`)
+*   No significant changes to the core components. They continue to provide the foundational services (DB connections, configuration, security) that the new features rely upon.
 
-#### 2.2.2 Managers (Business Logic Layer)
-*   **`DashboardManager` (`app/reporting/dashboard_manager.py`)**:
-    *   `get_dashboard_kpis()` method is now parameterized with an `as_of_date`.
-    *   It now calculates Total Inventory, Total Liabilities, and Total Equity to support new ratio calculations.
-    *   It computes the Quick Ratio `((Current Assets - Inventory) / Current Liabilities)` and Debt-to-Equity Ratio `(Total Liabilities / Total Equity)`.
-    *   These new values are populated into the expanded `DashboardKPIData` DTO.
-*   **`BankTransactionManager` (`app/business_logic/bank_transaction_manager.py`)**:
-    *   The `import_bank_statement_csv` method has been significantly refactored. It now captures specific error messages for each failed row and returns them in a `detailed_errors` list within the `Result` object. This provides rich data for the new error reporting UI.
+#### 2.2.2 Services (Data Access Layer - `app/services/`)
+*   **`AccountService` (`account_service.py`)**: A new method, `get_accounts_by_tax_treatment`, was added to fetch accounts tagged for specific purposes (e.g., 'Non-Deductible'), which is used by the Income Tax Computation report.
+*   Other services remain largely unchanged, as the new logic is primarily orchestrated at the manager level.
+
+#### 2.2.3 Managers (Business Logic Layer)
+*   **`PaymentManager` (`app/business_logic/payment_manager.py`)**: This manager has undergone the most significant refactoring. Its `create_payment` method is now a sophisticated transaction processor that correctly handles:
+    1.  Standard (base currency) payments.
+    2.  Foreign currency payments, calculating and posting realized forex gain/loss.
+    3.  Vendor payments with withholding tax deductions.
+    4.  A combination of foreign currency and withholding tax on the same payment.
+    The journal entry creation logic within this manager is now highly complex to ensure all these scenarios result in a balanced, compliant JE.
 *   **`FinancialStatementGenerator` (`app/reporting/financial_statement_generator.py`)**:
-    *   A new public method, `generate_income_tax_computation`, has been added. It orchestrates calls to generate a P&L, then fetches accounts with specific tax treatments (e.g., "Non-Deductible") to calculate the chargeable income and estimated tax. It uses a new `CorpTaxRate_Default` value from `ConfigurationService`.
+    *   A new public method, `generate_cash_flow_statement`, has been implemented. It uses the indirect method, starting with net income and making adjustments based on the new `cash_flow_category` tag on accounts.
+    *   The `generate_income_tax_computation` method has been fleshed out from a stub to a functional implementation.
+*   **`WithholdingTaxManager` (`app/tax/withholding_tax_manager.py`)**: The stub has been updated with a foundational implementation for `generate_s45_form_data`, demonstrating how data from a payment transaction can be mapped to a tax form structure.
 
-#### 2.2.3 User Interface (Presentation Layer - `app/ui/`)
-*   **`DashboardWidget` (`app/ui/dashboard/dashboard_widget.py`)**:
-    *   Now uses the `QtCharts` module.
-    *   The static `QFormLayout` for aging summaries has been replaced with two `QChartView` widgets (`ar_aging_chart_view`, `ap_aging_chart_view`).
-    *   A new private method, `_update_aging_chart`, takes a `QChartView` and KPI data to dynamically build and render a `QBarSeries` chart.
-    *   Adds `QLabel`s for the new Quick Ratio and Debt-to-Equity Ratio KPIs.
-    *   An "As of Date" `QDateEdit` control allows the user to select a date and trigger a full refresh of all KPIs for that specific date.
-*   **`BankReconciliationWidget` (`app/ui/banking/bank_reconciliation_widget.py`)**:
-    *   Introduces `_current_stmt_selection_total` and `_current_sys_selection_total` to track the sum of selected items in real-time.
-    *   A new `_update_selection_totals` slot is connected to the `item_check_state_changed` signal of the unreconciled table models. It updates dedicated `QLabel`s and color-codes them green if the debit/credit totals of the selected items match.
-    *   The `_update_draft_matched_tables_slot` now calls a helper, `_get_group_colors`, which uses transaction `updated_at` timestamps to assign background colors to rows, visually grouping items that were matched together in the same operation.
-    *   The `ReconciliationTableModel` is updated to handle the `Qt.ItemDataRole.BackgroundRole` to display these colors.
-*   **`CSVImportConfigDialog` (`app/ui/banking/csv_import_config_dialog.py`)**:
-    *   The `_handle_import_result_slot` is updated to check the `Result` object for a `detailed_errors` list. If errors are present, it now instantiates and opens the new `CSVImportErrorsDialog`, passing the error data to it.
-*   **`CSVImportErrorsDialog` (`app/ui/banking/csv_import_errors_dialog.py`) - NEW**:
-    *   A new modal dialog designed to show CSV import failures in a clear, tabular format.
-    *   Uses a `QTableView` with the new `CSVImportErrorsTableModel` to display the row number, the specific error message, and the original, unprocessed data from that row of the CSV file.
+#### 2.2.4 User Interface (Presentation Layer - `app/ui/`)
+*   **`AccountDialog` (`app/ui/accounting/account_dialog.py`)**: A `QComboBox` for "Cash Flow Category" has been added, allowing users to tag accounts as Operating, Investing, or Financing.
+*   **`PaymentDialog` (`app/ui/payments/payment_dialog.py`)**:
+    *   A new "Withholding Tax" section with a checkbox (`self.apply_wht_check`) and display labels dynamically appears for applicable vendor payments.
+    *   The dialog's internal logic updates the display to show the calculated WHT amount and net payment when the feature is enabled.
 *   **`ReportsWidget` (`app/ui/reports/reports_widget.py`)**:
-    *   The report type combo box now includes "Income Tax Computation".
-    *   The UI logic in `_on_fs_report_type_changed` is updated to show/hide the correct date/parameter controls for the new report type (e.g., a "Fiscal Year" selector).
-    *   `_display_financial_report` now handles the new report title and calls `_populate_tax_computation_model` to render the data in a `QTreeView`.
-
-### 2.3 Technology Stack
--   **Programming Language**: Python 3.9+ (up to 3.12)
--   **UI Framework**: PySide6 6.9.0+ (including `QtCharts`)
--   **Database**: PostgreSQL 14+
--   **ORM**: SQLAlchemy 2.0+ (Asynchronous ORM with `asyncpg`)
--   **Async DB Driver**: `asyncpg`
--   **Data Validation (DTOs)**: Pydantic V2
--   **Password Hashing**: `bcrypt`
--   **Reporting Libraries**: `reportlab` (PDF), `openpyxl` (Excel)
--   **Dependency Management**: Poetry
+    *   The "Report Type" dropdown now includes "Cash Flow Statement" and "Income Tax Computation".
+    *   The UI dynamically adjusts the available parameter fields based on the selected report.
+    *   New `QTreeView` displays have been added to the internal `QStackedWidget` to render these new hierarchical reports.
 
 ## 3. Data Architecture
-The data architecture consists of a central company registry and individual, isolated company databases.
 
-### 3.1. Company Registry
-*   **File:** `companies.json`
-*   **Location:** The application's user configuration directory (e.g., `~/.config/SGBookkeeper/`).
-*   **Structure:** A JSON array of objects, where each object contains a `display_name` for the UI and a `database_name` for the connection.
+### 3.1. Company Registry & Database Isolation
+*   A central `companies.json` file, managed by `CompanyManager`, stores the list of available company databases.
+*   Each company operates in a completely separate PostgreSQL database, created from the same master `schema.sql` file, ensuring total data segregation.
 
-### 3.2. Company Database Schema
-*   Each company database is at version **1.0.6**.
-*   The only change from v1.0.5 is the addition of a new default key in `core.configuration`: `('CorpTaxRate_Default', '17.00', 'Default Corporate Tax Rate (%)', 1)`. This supports the new Income Tax Computation report.
-*   No table structures were altered in this version.
+### 3.2. Database Schema (v1.0.7)
+*   **`accounting.accounts` table**: The schema has been updated to include a `cash_flow_category VARCHAR(20)` column. This nullable field has a `CHECK` constraint to allow only 'Operating', 'Investing', or 'Financing', and is the cornerstone of the automated Cash Flow Statement generation.
+*   **Initial Data**: `scripts/initial_data.sql` has been updated to include new system accounts for WHT Payable (`2130`), Foreign Exchange Gain (`7200`), and Foreign Exchange Loss (`8200`), along with their corresponding entries in the `core.configuration` table.
 
 ### 3.3 Data Transfer Objects (DTOs - `app/utils/pydantic_models.py`)
-*   **`DashboardKPIData`**: Extended to include new fields:
-    *   `total_inventory: Decimal`
-    *   `total_liabilities: Decimal`
-    *   `total_equity: Decimal`
-    *   `quick_ratio: Optional[Decimal]`
-    *   `debt_to_equity_ratio: Optional[Decimal]`
-*   **`BankTransactionSummaryData`**: Now includes `updated_at: datetime` to support visual grouping of matched transactions in the reconciliation UI.
-*   **`CSVImportErrorData`**: A new DTO to structure row-level error information from CSV imports for display in the new error dialog. It contains `row_number`, `row_data` (as a list of strings), and `error_message`.
+*   **`AccountCreateData` / `AccountUpdateData`**: These DTOs now include the optional `cash_flow_category: Optional[str]` field.
+*   **`PaymentCreateData`**: This DTO is now extended with `apply_withholding_tax: bool` and `withholding_tax_amount: Optional[Decimal]` to transport WHT information from the UI to the business logic layer.
+*   All other DTOs remain stable, with their usage patterns consistent with previous versions.
 
-## 4. Detailed Module Specifications (New & Enhanced)
+## 4. Detailed Feature Implementation
 
-### 4.1. Dashboard Module (`app/reporting/dashboard_manager.py`, `app/ui/dashboard/`)
--   **Purpose**: Provide a quick, visual overview of key financial metrics as of a user-specified date.
--   **Manager (`DashboardManager`)**:
-    *   The `get_dashboard_kpis` method is now the central aggregator for all dashboard data. It accepts an `as_of_date` parameter.
-    *   It calculates financial ratios by first fetching all active asset, liability, and equity accounts, then summing their balances as of the `as_of_date` to get the required totals (Total Current Assets, Total Current Liabilities, Total Inventory, Total Liabilities, Total Equity).
--   **UI (`DashboardWidget`)**:
-    *   Uses `QChartView` from `PySide6.QtCharts` to display AR and AP aging data.
-    *   The `_update_aging_chart` method dynamically creates a `QBarSeries` with a `QBarSet`, populates it with the aging bucket data from the `DashboardKPIData` DTO, and attaches it to the chart view. It also configures the X (category) and Y (value) axes.
+### 4.1. Multi-Currency Workflow
+1.  **Invoice Posting**: A foreign currency (FC) invoice (e.g., for 1,000 USD) is created. At the invoice date exchange rate (e.g., 1.35), the system posts a JE debiting AR for 1,350 SGD and crediting Revenue for 1,350 SGD. The AR sub-ledger tracks both the 1,000 USD and the 1,350 SGD amounts.
+2.  **Payment Receipt**: The customer pays 1,000 USD. The payment is received on a later date when the exchange rate is 1.32. The actual cash received in the bank (after conversion) is 1,320 SGD.
+3.  **Forex Calculation (`PaymentManager`)**:
+    *   The manager sees a payment of 1,000 USD applied to an invoice of 1,000 USD.
+    *   It calculates the value of the payment in base currency: `1000 USD * 1.32 = 1320 SGD`.
+    *   It looks up the original invoice and sees it was booked to AR at 1,350 SGD.
+    *   It calculates the difference: `1350 SGD (original AR) - 1320 SGD (cash received) = 30 SGD`.
+    *   Since less base currency was received than expected for an asset, this is a **Realized Foreign Exchange Loss**.
+4.  **Journal Entry (`PaymentManager`)**: A single, balanced JE is created:
+    *   `Dr Bank Account: 1320 SGD`
+    *   `Dr Foreign Exchange Loss: 30 SGD`
+    *   `Cr Accounts Receivable: 1350 SGD`
+5.  This process correctly clears the AR in the base currency and recognizes the forex loss in the P&L. The logic is reversed for vendor payments.
 
-### 4.2. Banking Module (`app/business_logic/`, `app/ui/banking/`)
--   **Bank Reconciliation UX Enhancements (`BankReconciliationWidget`)**:
-    *   **Selection Totals**: The `_update_selection_totals` slot is triggered whenever a checkbox in either of the unreconciled tables is toggled. It recalculates the sum of selected debit/credit amounts for each table and updates the `statement_selection_total_label` and `system_selection_total_label`. Crucially, it compares these totals and applies a green or red stylesheet to the labels to provide instant visual feedback on whether the current selection is balanced.
-    *   **Visual Grouping**: The `_get_group_colors` method is called when populating the "Provisionally Matched" tables. It iterates through the transactions (which are pre-sorted by their match timestamp), detects when the time gap between consecutive transactions is significant (more than a few seconds), and assigns a new background color to the new group. This results in items matched in the same "click" having the same color.
--   **CSV Import Error Handling**:
-    *   The `BankTransactionManager.import_bank_statement_csv` method now uses a `try...except` block within its main loop. Any validation error (e.g., invalid date format, invalid number) for a specific row is caught, a `CSVImportErrorData` object is created with the row number and original data, and the loop continues to the next row.
-    *   The `CSVImportConfigDialog` receives the `Result` object containing both the summary counts and the list of detailed errors. If the error list is not empty, it instantiates and shows the `CSVImportErrorsDialog` before displaying the final summary message.
+### 4.2. Withholding Tax Workflow
+1.  **Setup**: A vendor is marked as `withholding_tax_applicable` with a rate of 15% in `VendorDialog`. A `WHT Payable` liability account (`2130`) exists.
+2.  **Payment Creation (`PaymentDialog`)**: A user creates a payment for a $1,000 invoice from this vendor.
+    *   The `PaymentDialog` detects the vendor is WHT-applicable and displays the "Apply Withholding Tax" checkbox.
+    *   The user checks the box. The UI displays "WHT Rate: 15.00%" and "WHT Amount: 150.00".
+    *   The net amount paid to the vendor is implied to be $850.
+3.  **Manager Logic (`PaymentManager`)**: The `PaymentCreateData` DTO received by the manager includes `apply_withholding_tax=True`.
+    *   The manager calculates the WHT amount: `1000 * 15% = 150`.
+    *   It calculates the net cash paid: `1000 - 150 = 850`.
+    *   It creates the following balanced JE:
+        *   `Dr Accounts Payable: 1000.00` (Clears the full invoice liability)
+        *   `Cr Bank Account: 850.00` (Reflects actual cash outflow)
+        *   `Cr WHT Payable: 150.00` (Recognizes the liability to the tax authority)
+4.  **Reporting**: The `WHT Payable` account balance will appear on the Balance Sheet until it is cleared by a separate payment to IRAS. The `WithholdingTaxManager` can be used to generate supporting documentation.
 
-### 4.3. Reporting Module (`app/reporting/financial_statement_generator.py`)
--   **Income Tax Computation**:
-    *   The new `generate_income_tax_computation` method in `FinancialStatementGenerator` takes a `FiscalYear` DTO as input.
-    *   It begins by calling `generate_profit_loss` for the given fiscal year to get the Net Profit Before Tax.
-    *   It then queries for all accounts with a `tax_treatment` of 'Non-Deductible' and 'Non-Taxable Income'.
-    *   It sums the period activity for these accounts to get total add-backs and subtractions.
-    *   It calculates the Chargeable Income and applies the default corporate tax rate (from `ConfigurationService`) to arrive at an estimated tax payable.
-    *   The results are structured into a dictionary that the `ReportsWidget` and `ReportEngine` can use for display and export.
+### 4.3. Cash Flow Statement Generation
+1.  **User Setup (`AccountDialog`)**: The user (or an initial setup script) must tag relevant balance sheet accounts with a `cash_flow_category`. For example:
+    *   Accounts Receivable -> `Operating`
+    *   Inventory -> `Operating`
+    *   Property, Plant & Equipment -> `Investing`
+    *   Bank Loans -> `Financing`
+    *   Share Capital -> `Financing`
+2.  **Report Generation (`FinancialStatementGenerator`)**:
+    *   **Start with Net Income**: Fetches the net profit for the period from the P&L.
+    *   **Adjust for Non-Cash Items**: Identifies depreciation accounts (by `sub_type` convention) and adds back the depreciation expense for the period (calculated as the change in the accumulated depreciation account balance).
+    *   **Adjust for Working Capital**: For each account tagged as `Operating`, it calculates the change in its balance between the start and end dates. An increase in an operating asset (like AR) is a *use* of cash (subtracted), while an increase in an operating liability (like AP) is a *source* of cash (added).
+    *   **Calculate CFI & CFF**: It calculates the change in balance for all accounts tagged as `Investing` or `Financing` and lists these changes directly in their respective sections.
+    *   **Reconcile**: The net increase/decrease in cash is calculated. This is reconciled against the actual change in the cash and bank account balances over the period to ensure accuracy.
 
 ## 5. Conclusion
-Version 17.0 of SG Bookkeeper introduces significant enhancements to user experience and functionality. The transformation of the dashboard into a dynamic, graphical, and more insightful tool provides immediate value. The refined bank reconciliation workflow, with its real-time feedback and visual aids, greatly simplifies one of the most complex bookkeeping tasks. Furthermore, the addition of robust, user-friendly error reporting for CSV imports and the new tax computation report elevates the application's professional capabilities. These updates demonstrate a commitment to creating a powerful, intuitive, and comprehensive accounting solution.
+Version 17.0 of SG Bookkeeper introduces significant enhancements to its accounting capabilities, moving it closer to a professional-grade financial management tool. The implementation of full multi-currency transaction handling, integrated withholding tax management, and an automated Statement of Cash Flows provides immense value for businesses operating in a global and regulated environment like Singapore. These features are built upon a stable, layered, and multi-company architecture, ensuring that complexity is managed effectively and the system remains robust and maintainable.
 
 ---
 https://drive.google.com/file/d/13a54HCe719DE9LvoTL2G3fufXVAZ68s9/view?usp=sharing, https://drive.google.com/file/d/16sEyvS8ZfOJFIHl3N-L34xQnhEo5XPcI/view?usp=sharing, https://drive.google.com/file/d/17Lx6TxeEQJauqxEwWQIjL_Vounz-OOuU/view?usp=sharing, https://drive.google.com/file/d/17M3-d4q02eUhkRMgogRQMxwSbiDkCJow/view?usp=sharing, https://drive.google.com/file/d/1MxP_SNNW86u44e2wupzz6i2gb0ibGeUE/view?usp=sharing, https://drive.google.com/file/d/1QsDwk2m_1Nh4JHOshQw4zjEI3x1mgGkM/view?usp=sharing, https://drive.google.com/file/d/1RkrdC_e7A_-nbzKVAiL_fX48uib6mu1T/view?usp=sharing, https://drive.google.com/file/d/1Wvi2CiVPY0EL2kErW2muu_LbMy4J_sRF/view?usp=sharing, https://drive.google.com/file/d/1XPEV3rOOikcWVvhB7GwX0raI__osRg-Z/view?usp=sharing, https://drive.google.com/file/d/1Z0gGlgu698IMIFg56GxD60l4xKNg1fIt/view?usp=sharing, https://drive.google.com/file/d/1cJjbc9s6IGkKHeAhk-dh7ey9i7ArJMJe/view?usp=sharing, https://drive.google.com/file/d/1jNlP9TOSJtMzQMeLH1RoqmU2Hx7iwQkJ/view?usp=sharing, https://drive.google.com/file/d/1q3W6Cs4WVx7dLwL1XGN9aQ6bb-hyHmWS/view?usp=sharing, https://drive.google.com/file/d/1qYszGazA6Zm1-3YGdaKdDlPEr3HipU5k/view?usp=sharing, https://drive.google.com/file/d/1uYEc0AZDEBE2A4qrR5O1OFcFVHJsCtds/view?usp=sharing, https://aistudio.google.com/app/prompts?state=%7B%22ids%22:%5B%221v7mZ4CEkZueuPt-aoH1XmYRmOooNELC3%22%5D,%22action%22:%22open%22,%22userId%22:%22103961307342447084491%22,%22resourceKeys%22:%7B%7D%7D&usp=sharing
-

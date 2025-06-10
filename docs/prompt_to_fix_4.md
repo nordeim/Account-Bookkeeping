@@ -92,6 +92,9 @@ Next, help me create a *complete* updated replacement file for "Project Architec
 Please carefully review the attached documents containing or describing the latest changes to the codebase. Then re-generate a *complete* updated *replacement* file version for `README.md` and `Technical Design Specification Document.md` incorporating the latest changes to the codebase. *IMPORTANT*, the updated replacment `README.md` and `Technical Design Specification Document.md` must be complete in itself, without containing any references to older versions or other documents.
 
 ---
+excellent understanding! now help me to carefully review my codebase line by line to gain a complete and deep understanding (grounding) of the project's goals and current state and structure. then help me to create a detailed `Project Architecture Document.md` in markdown format. Make sure you do a careful review and validation of the application codebase attached in the files listed below. Use line by line review to get a good grounding of the purpose of the application and its codebase. Use at least 6000 words for the document that accurately describes the codebase in detail, use a clear diagram to show the codebase relationship. Include a section to describe the file structure and the purpose of each folder and key files, start with a diagram.
+
+---
 Awesome response! Now help me to carefully review and validate the application codebase attached in the files listed below. Use line by line review to get a good grounding of the purpose of the application and its codebase, then create for me a detailed architecture overview document in markdown and named `Project Architecture Overview Document.md`.
 
 Next, carefully review the application database schema creation and data initialization scripts, and compare scripts/initial_data.sql (current) versus scripts/initial_data.sql-v1.0.4 (previous), and scripts/schema.sql (current) versus scripts/schema.sql-v1.0.4 (previous) to double-check and validate that the current version (v1.0.5) of the respective files did not accidentally omit the original lines in the previous (v1.0.4) verion of the files except for the database changes shown in the database update sql script `schema_update_patch.sql`.
@@ -113,3 +116,12 @@ Awesome job! Now, help me to carefully and systematically do a careful review an
 ---
 you stopped halfway generating updated `Technical_Design_Specification_Document.md`. please continue to complete your generation according to your excellent plan.
 
+---
+awesome job again! now use the same rigorous and meticulous approach to help me carefully review and validated the latest changes to the codebase in the attached new file sets. you will do line by line comparison between the new files shared against their original version using the "diff" command, to understand deeply what the changes are about and whether these changes are valid and error free. most importantly, I want you to make sure the changes do not introduce regression errors by accidentally omitting some original features and functions.
+
+The give me a detailed report in markdown format within ```md and ``` tags, on your assessment of the code change quality and suitability to enhance the current codebase without introducing unecessary errors or regressions. Please be very, very careful and thorough in your code review to make sure the next release of the application is enhanced without loosing any features or functions. I trust you as my expert coding assistant and expert to do the correct review process. thank you and good luck!
+
+---
+Please do a line by line review of the changes to `scripts/schema.sql` and `scripts/initial_data.sql` using the diff outputs shared in the `project_codebase_updated_files_set-new.md` shared earlier. Give me a line by line report on each diff output sections with your assessment. Then create a sql patch file to update an existing database to the latest level (v1.0.7). Hopefully I don't have to recreate a database in use already. 
+
+So I need your detailed and thorough review and assessment report on the database changes as well as a schema patch file in sql. make sure you think carefully, double check and validate to not miss any intended changes in the patch sql file within ```sql and ``` tags.

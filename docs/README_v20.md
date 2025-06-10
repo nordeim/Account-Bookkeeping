@@ -2,6 +2,7 @@
 
 <div align="center">
 
+<!-- Replace with actual logo if available -->
 <img src="https://raw.githubusercontent.com/nordeim/SG-Bookkeeper/refs/heads/main/home_screen.png" alt="SG Bookkeeper Logo" width="600"/>
 
 **Singapore-Focused Small Business Accounting Software**
@@ -16,7 +17,7 @@
 [![Tests: Pytest](https://img.shields.io/badge/tests-pytest-yellowgreen)](https://pytest.org)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
 
-[Key Features](#key-features) • [Technology Stack](#technology-stack) • [Installation](#installation) • [Usage](#usage-guide) • [Project Structure](#project-structure) • [Testing](#testing) • [Contributing](#contributing) • [Roadmap](#roadmap) • [License](#license)
+[Key Features](#key-features) • [Technology Stack](#technology-stack) • [Installation](#installation) • [Usage](#usage-guide) • [Project Structure](#project-structure) • [Testing](#testing) • [Roadmap](#roadmap) • [License](#license)
 
 </div>
 
@@ -31,57 +32,61 @@ The application features a full multi-company architecture, a double-entry accou
 -   **Multi-Company Support**: Manage multiple distinct businesses from a single installation, with each company's data securely isolated in its own database.
 -   **Singapore-Centric**: Designed with Singapore Financial Reporting Standards (SFRS), GST regulations (including the 9% rate), and IRAS compliance considerations at its core.
 -   **Professional Grade**: Implements a full double-entry system, detailed audit trails (via database triggers and viewable UI), and robust data validation using Pydantic DTOs.
--   **Handles Complexity**: Natively supports multi-currency transactions, automatically calculating realized gains/losses on payments, and manages Withholding Tax (WHT) obligations during the vendor payment process.
 -   **User-Friendly Interface**: Aims for an intuitive experience for users who may not be accounting experts, while providing depth for professionals. Features include an interactive dashboard, visual reconciliation aids, and detailed error reporting.
 -   **Open Source & Local First**: Transparent development. Your financial data stays on your local machine or private server, ensuring privacy and control. No subscription fees.
 -   **Modern & Performant**: Utilizes asynchronous operations for a responsive UI and efficient database interactions, with a dedicated asyncio event loop.
 
 ## Key Features
 
+*(Status: **Implemented**, **Foundational** (DB/Models ready but UI/Logic is a stub), **Planned**)*
+
 ### Core Accounting & System
--   **Multi-Company Management**: Create new company databases and switch between them seamlessly via an application restart.
--   **Comprehensive Double-Entry Bookkeeping**: The core of the application, ensuring all transactions are properly accounted for.
--   **Customizable Hierarchical Chart of Accounts**: Full CRUD UI for managing accounts, including tagging for Cash Flow Statement categories.
--   **General Ledger**: Detailed transaction history with dimension filtering and export options.
--   **Journal Entry System**: UI for manual JEs (CRUD, post, reverse) and auto-generation from source documents.
--   **Multi-Currency Accounting**: Full support for transactions in foreign currencies, with automatic calculation and posting of realized foreign exchange gains and losses at the time of payment settlement.
--   **Fiscal Year and Period Management**: UI for creating fiscal years and auto-generating monthly or quarterly accounting periods.
+-   **Multi-Company Management**: Create new company databases and switch between them. (**Implemented**)
+-   **Comprehensive Double-Entry Bookkeeping**: The core of the application. (**Implemented**)
+-   **Customizable Hierarchical Chart of Accounts**: Full CRUD UI for managing accounts. (**Implemented**)
+-   **General Ledger**: Detailed transaction history with dimension filtering and export options. (**Implemented**)
+-   **Journal Entry System**: UI for manual JEs (CRUD, post, reverse) and auto-generation from source documents. (**Implemented**)
+-   **Multi-Currency Support**: Foundational models exist; transaction forms support multiple currencies. (**Foundational**)
+-   **Fiscal Year and Period Management**: UI for creating fiscal years and auto-generating periods. (**Implemented**)
 
 ### Singapore Tax Compliance
--   **GST Tracking and Calculation**: Based on configurable tax codes (SR, ZR, ES, TX, etc.).
--   **GST F5 Return Data Preparation**: UI to prepare, save drafts, and finalize GST F5 returns with settlement JEs. Includes detailed Excel export for all box lines.
--   **Income Tax Computation Report**: Generates a preliminary tax computation based on P&L and accounts tagged as non-deductible or non-taxable.
--   **Withholding Tax (WHT) Management**: Apply WHT to vendor payments directly in the payment dialog, automatically creating the `WHT Payable` liability.
+-   **GST Tracking and Calculation**: Based on configurable tax codes. (**Implemented**)
+-   **GST F5 Return Data Preparation**: UI to prepare, save drafts, and finalize GST F5 returns with settlement JEs. Includes detailed Excel export. (**Implemented**)
+-   **Income Tax Computation Report**: Generates a preliminary tax computation based on P&L and non-deductible/non-taxable accounts. (**Implemented**)
+-   **Withholding Tax Management**: DB models and manager stubs exist. (**Foundational**)
 
 ### Business Operations
--   **Customer, Vendor, Product/Service Management**: Full CRUD and list views with filtering for all core business entities.
--   **Sales & Purchase Invoicing**: Full lifecycle from draft to posting, with inventory and financial JEs created automatically. Includes support for foreign currency invoices.
--   **Payment Processing**: Record customer receipts and vendor payments with allocation to multiple invoices. Natively handles multi-currency payments, Forex Gain/Loss, and WHT.
--   **Inventory Control (Weighted Average Cost)**: `InventoryMovement` records are created on posting documents for 'Inventory' type products.
+-   **Customer, Vendor, Product/Service Management**: Full CRUD and list views with filtering. (**Implemented**)
+-   **Sales & Purchase Invoicing**: Full lifecycle from draft to posting, with inventory and financial JEs created automatically. (**Implemented**)
+-   **Payment Processing**: Record customer receipts and vendor payments with allocation to multiple invoices. (**Implemented**)
+-   **Inventory Control (Weighted Average Cost)**: `InventoryMovement` records created on posting documents. (**Implemented**)
 
 ### Banking
--   **Bank Account Management**: Full CRUD and listing UI, with linkage to a GL account.
--   **Bank Transaction Management**: Manual entry and CSV bank statement import with configurable column mapping and robust, row-level error reporting.
+-   **Bank Account Management**: Full CRUD and listing UI, with linkage to a GL account. (**Implemented**)
+-   **Bank Transaction Management**: Manual entry and CSV bank statement import with robust, row-level error reporting dialog. (**Implemented**)
 -   **Bank Reconciliation Module**:
-    -   Persistent draft reconciliations that can be saved and resumed.
-    -   Interactive, real-time feedback for matching transactions with live-updating selection totals.
-    -   Visual grouping of provisionally matched items using background colors.
-    *   "Unmatch" functionality for provisionally matched items within a draft session.
-    *   Creation of adjustment Journal Entries directly from the reconciliation screen.
-    *   Finalization of balanced reconciliations and viewing of paginated history.
-    *   Automatic creation of system `BankTransaction` records from relevant Journal Entries.
+    -   Persistent draft reconciliations. (**Implemented**)
+    -   Interactive real-time feedback for matching transactions. (**Implemented**)
+    -   Visual grouping of provisionally matched items. (**Implemented**)
+    -   "Unmatch" functionality for provisionally matched items. (**Implemented**)
+    -   Creation of adjustment JEs directly from the reconciliation screen. (**Implemented**)
+    -   Finalization of balanced reconciliations and viewing of history. (**Implemented**)
+    -   Automatic creation of system `BankTransaction` records from relevant Journal Entries. (**Implemented**)
 
 ### Reporting & Analytics
--   **Standard Financial Statements**: Balance Sheet, Profit & Loss, Trial Balance, and a new Statement of Cash Flows (Indirect Method). All are viewable and exportable to PDF/Excel.
+-   **Standard Financial Statements**: Balance Sheet, P&L, Trial Balance, and General Ledger. All viewable and exportable to PDF/Excel. (**Implemented**)
 -   **Dashboard with KPIs**:
-    -   KPIs calculated as of a user-selectable date.
-    *   Key metrics: YTD P&L, Cash Balance, AR/AP totals.
-    *   Financial Ratios: Current Ratio, Quick Ratio, Debt-to-Equity Ratio.
-    *   Graphical AR & AP Aging summary bar charts.
+    -   KPIs calculated as of a user-selectable date. (**Implemented**)
+    *   Key metrics: YTD P&L, Cash Balance, AR/AP totals. (**Implemented**)
+    *   Financial Ratios: Current Ratio, Quick Ratio, Debt-to-Equity Ratio. (**Implemented**)
+    *   Graphical AR & AP Aging summary bar charts. (**Implemented**)
+-   **Cash Flow Statement** (Planned)
+-   **GST Reports** (Implemented - See GST F5.)
+-   **Customizable Reporting Engine** (Foundational)
 
 ### System & Security
--   **User Authentication & RBAC**: Full UI for managing users, roles, and granular permissions.
--   **Comprehensive Audit Trails**: Database triggers log all data changes. UI in the Settings tab provides a paginated and filterable view of both high-level actions and detailed field-level changes.
+-   **User Authentication & RBAC**: Full UI for managing users, roles, and permissions. (**Implemented**)
+-   **Comprehensive Audit Trails**: Database triggers log all data changes. UI in Settings tab provides a paginated and filterable view of both high-level actions and detailed field-level changes. (**Implemented**)
 
 ## Technology Stack
 -   **Programming Language**: Python 3.9+ (up to 3.12)
@@ -151,8 +156,8 @@ This guide is for developers setting up the application from source.
 -   **Dashboard Tab**: View key financial indicators. Use the "As Of Date" selector and "Refresh KPIs" button to analyze your financial position on any given day.
 -   **Banking Tab**: Manage bank accounts and transactions. The "Bank Reconciliation" sub-tab is the primary tool for reconciling your accounts.
 -   **Other Modules**: Explore the tabs for `Accounting`, `Sales`, `Purchases`, `Payments`, `Customers`, `Vendors`, and `Products` to manage all aspects of your business operations.
--   **Settings Tab**: Configure Company Information, manage Fiscal Years/Periods, Users (CRUD, password changes, role assignment), Roles & Permissions (CRUD, assign permissions to roles), and view Audit Logs (Action Log, Data Change History with filtering).
--   **Reports Tab**: Generate GST F5 Returns, standard financial statements (BS, P&L, TB, GL, Cash Flow), and an Income Tax Computation report. All reports are exportable to PDF/Excel.
+-   **Settings Tab**: Configure company details, manage fiscal years, users, roles, and view detailed audit logs.
+-   **Reports Tab**: Generate GST F5 Returns, standard financial statements (BS, P&L, TB, GL), and an Income Tax Computation report. All reports are exportable to PDF/Excel.
 
 ## Project Structure
 The project uses a layered architecture, with the source code organized as follows:
@@ -165,34 +170,26 @@ The project uses a layered architecture, with the source code organized as follo
 -   `scripts/`: Database setup scripts (`schema.sql`, `initial_data.sql`, `db_init.py`).
 -   `tests/`: All automated tests.
 
-## Database Schema
-The PostgreSQL database schema is at version **1.0.7**. It includes tables for core system functions, detailed accounting, business operations, and comprehensive audit trails. A key feature is the `cash_flow_category` column in the `accounting.accounts` table, which enables automated generation of the Statement of Cash Flows. Refer to `scripts/schema.sql` for full details.
-
 ## Testing
-Automated tests are implemented using Pytest to ensure code quality and prevent regressions.
--   **Unit Tests**: Located in `tests/unit/`, these verify individual components by mocking dependencies.
--   **Running Tests**:
-    *   To run all tests: `poetry run pytest`
-    *   To generate a coverage report: `poetry run pytest --cov=app` (requires `pytest-cov` plugin)
+Automated tests using Pytest ensure code quality. A comprehensive suite of unit tests covers services, managers, and utilities.
+-   **Run all tests**: `poetry run pytest`
+-   **Generate a coverage report**: `poetry run pytest --cov=app` (requires `pytest-cov` plugin)
 
 ## Contributing
-Contributions are welcome! Please fork the repository, create a feature branch, make your changes, add relevant tests, and submit a pull request. Adherence to the existing architecture and coding standards is required.
+Contributions are welcome. Please fork the repository, create a feature branch, make your changes, add tests, and submit a pull request. Adherence to the existing architecture and coding standards is required.
 
 ## Roadmap
 
-### Recently Completed
--   **Multi-Company Architecture**: The application now fully supports managing multiple, isolated company databases.
--   **Advanced Bank Reconciliation**: The module now includes persistent drafts, provisional matching/unmatching, and visual grouping aids.
--   **Enhanced Dashboard**: The dashboard is now interactive with graphical charts and new financial ratios (Quick Ratio, Debt-to-Equity).
--   **Multi-Currency Accounting**: The system now handles realized foreign exchange gains and losses on payments.
--   **Withholding Tax Management**: WHT can be applied during vendor payments, creating the necessary liability postings.
--   **Statement of Cash Flows**: A new report generates a full Statement of Cash Flows using the indirect method.
-
 ### Current Focus / Next Steps
--   **Unrealized Forex Gains/Losses**: Implement a period-end process to revalue open foreign currency AR and AP balances.
--   **WHT Reporting**: Create UI and reports for managing and filing withheld taxes (e.g., generating Form S45).
--   **Automated Testing**: Expand unit test coverage and begin implementing integration tests for key end-to-end workflows.
--   **User Experience Refinements**: Polish existing UIs based on usability feedback.
+-   **Automated Testing (CRITICAL)**:
+    *   Expand unit test coverage to achieve higher percentages for all managers and remaining service methods.
+    *   Begin setup and implementation of integration tests for core workflows (e.g., invoice posting and payment allocation cycle, full bank reconciliation save-and-finalize cycle).
+-   **Bank Reconciliation Enhancements**:
+    *   Implement logic for handling more complex matches (e.g., one-to-many with different amounts but a shared reference, requiring a write-off JE).
+    *   UI improvements for visually linking matched items within the "Provisionally Matched" tables.
+-   **Dashboard Enhancements**:
+    *   Allow user customization of the dashboard layout or choice of KPIs to display.
+    *   Implement period-over-period comparisons (e.g., This Month vs. Last Month).
 
 ### Long-term
 -   Advanced reporting and analytics (e.g., customizable report builder, trend analysis).

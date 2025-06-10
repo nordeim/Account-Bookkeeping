@@ -1,6 +1,6 @@
 # Project Test Guide: SG Bookkeeper
 
-This guide provides instructions on how to set up the testing environment and run the automated tests for the SG Bookkeeper application. A comprehensive test suite is crucial for maintaining code quality, ensuring correctness of business logic, and preventing regressions.
+This guide provides instructions on how to set up the testing environment and run the automated tests for the SG Bookkeeper application.
 
 ## 1. Prerequisites
 
@@ -9,29 +9,37 @@ This guide provides instructions on how to set up the testing environment and ru
 
 ## 2. Test Structure
 
-The tests are organized within the `tests/` root directory, mirroring the application's structure to facilitate navigation and maintenance.
+The tests are organized as follows within the `tests/` root directory:
 
 *   **`tests/conftest.py`**:
     *   This file is used for project-wide pytest fixtures and configuration. It might contain shared setup/teardown logic or helper fixtures accessible by all tests.
+    *   Example content (from the project):
+        ```python
+        # File: tests/conftest.py
+        import pytest
+
+        # Example of a fixture if needed later:
+        # @pytest.fixture(scope="session")
+        # def db_url():
+        #     return "postgresql+asyncpg://testuser:testpass@localhost/test_db"
+        ```
 
 *   **`tests/unit/`**:
-    *   Contains unit tests designed to test individual modules, classes, or functions in isolation. These tests heavily utilize mocks for external dependencies (like services or the database) to ensure the component's logic is tested independently.
+    *   Contains unit tests designed to test individual modules, classes, or functions in isolation, often using mocks for external dependencies.
     *   Subdirectories further organize these tests by application module:
-        *   `core/`: Unit tests for critical core components, such as the `SecurityManager`.
-        *   `accounting/`: Unit tests for accounting-related business logic managers, like the `JournalEntryManager`.
-        *   `business_logic/`: Unit tests for core business process orchestrators, such as the `CustomerManager`.
         *   `tax/`: Unit tests for tax-related components (e.g., `TaxCalculator`, `GSTManager`).
-        *   `utils/`: Unit tests for utility classes (e.g., `SequenceGenerator`) and validation rules in Pydantic models.
-        *   `services/`: A comprehensive suite of tests for the data access layer classes (e.g., `AccountService`, `BankReconciliationService`, `CustomerService`, etc.).
+        *   `utils/`: Unit tests for utility classes (e.g., `SequenceGenerator`) and Pydantic models.
+        *   `services/`: Unit tests for service layer classes (e.g., `AccountService`, `BankReconciliationService`, `CustomerService`, etc.). This directory contains a comprehensive suite of tests for various data access and business support services.
         *   `reporting/`: Unit tests for reporting logic components (e.g., `DashboardManager`, `FinancialStatementGenerator`).
+        *   Other directories like `accounting/`, `business_logic/`, `core/` are placeholders for future unit tests related to those specific manager layers or core components if not covered under services or other categories.
 
 *   **`tests/integration/`**:
     *   Contains integration tests that verify interactions between multiple components. These tests might involve a real (test) database to ensure components work together correctly.
-    *   Currently, a basic structure exists, with more comprehensive integration tests planned.
+    *   Currently, a basic structure (`__init__.py`, `test_example_integration.py`) exists, with more comprehensive integration tests planned.
 
 *   **`tests/ui/`**:
     *   Intended for UI-level functional tests, likely using frameworks like `pytest-qt`.
-    *   Currently, a basic structure exists, with UI test implementation planned for the future.
+    *   Currently, a basic structure (`__init__.py`, `test_example_ui.py`) exists, with UI test implementation planned for the future.
 
 ## 3. Running Tests
 
@@ -44,9 +52,7 @@ To run all discovered tests (unit, integration, UI):
 ```bash
 poetry run pytest
 ```
-
 Or, if your Poetry shell is activated:
-
 ```bash
 pytest
 ```
@@ -65,7 +71,7 @@ You can target specific parts of the test suite:
     ```
 *   Run a specific test function within a file using `::test_function_name`:
     ```bash
-    poetry run pytest tests/unit/core/test_security_manager.py::test_authenticate_user_success
+    poetry run pytest tests/unit/tax/test_tax_calculator.py::test_calculate_line_tax_gst_standard_rate
     ```
 *   Run tests based on markers (if defined in tests, e.g., `@pytest.mark.slow`):
     ```bash
@@ -101,7 +107,7 @@ To generate a test coverage report (requires the `pytest-cov` plugin, which is i
 
 ### 3.5. Running Asynchronous Tests
 
-Tests involving `async def` functions are automatically discovered and run by `pytest` when `pytest-asyncio` is installed (it is a dev dependency). `pytest-asyncio` is configured with `asyncio_mode = auto` in `pyproject.toml`, which handles most asynchronous test cases seamlessly.
+Tests involving `async def` functions are automatically discovered and run by `pytest` when `pytest-asyncio` is installed (it is a dev dependency). Typically, `pytest-asyncio` is configured with `asyncio_mode = auto` (often set in `pyproject.toml` or `pytest.ini`, or as a default), which handles most asynchronous test cases seamlessly.
 
 ## 4. Viewing Test Results
 
@@ -116,21 +122,23 @@ For `F` and `E` results, pytest will print detailed information, including trace
 
 ## 5. Writing New Tests
 
-When adding new tests, adhere to the following conventions to maintain consistency and quality.
+When adding new tests, adhere to the following conventions:
 
 *   **Location**:
-    *   Place new unit tests in the appropriate subdirectory under `tests/unit/`.
+    *   Place new unit tests in the appropriate subdirectory under `tests/unit/` (e.g., a new service test in `tests/unit/services/`).
     *   Integration tests go into `tests/integration/`.
     *   UI tests go into `tests/ui/`.
-*   **File Naming**: Test files must start with `test_` (e.g., `test_my_new_feature.py`).
-*   **Function Naming**: Test functions must start with `test_` (e.g., `def test_specific_behavior():`).
-*   **Class Naming**: If using classes to group tests, class names must start with `Test` (e.g., `class TestMyComponent:`).
-*   **Fixtures**: Utilize `pytest` fixtures (defined in `conftest.py` or locally in test files) for setting up test preconditions and managing resources. This is the preferred way to provide mocked objects to tests.
-*   **Mocking Strategy**:
-    *   For **Service Layer** tests, mock the database session (`AsyncSession`) and its methods (`get`, `execute`, etc.).
-    *   For **Manager Layer** tests, mock the *Service Layer* dependencies. Do not mock the database directly. The goal is to test the manager's orchestration and business logic in isolation from the data access implementation.
+*   **File Naming**: Test files should start with `test_` (e.g., `test_my_new_feature.py`).
+*   **Function Naming**: Test functions should start with `test_` (e.g., `def test_specific_behavior():`).
+*   **Class Naming**: If using classes to group tests, class names should start with `Test` (e.g., `class TestMyComponent:`).
+*   **Fixtures**: Utilize `pytest` fixtures (defined in `conftest.py` or locally in test files) for setting up test preconditions and managing resources.
 *   **Assertions**: Use standard Python `assert` statements for checks.
 *   **Expected Exceptions**: To test for expected exceptions, use `with pytest.raises(ExceptionType):`.
-*   **Asynchronous Tests**: For testing asynchronous code, define test functions with `async def`. Use `AsyncMock` from `unittest.mock` for mocking coroutines.
+*   **Asynchronous Tests**: For testing asynchronous code, define test functions with `async def`.
+*   **Mocking**: For unit tests, isolate the component under test by mocking its external dependencies. The `unittest.mock` library (providing `Mock`, `MagicMock`, `AsyncMock`, `patch`) is commonly used for this.
 
 By following these guidelines, we aim to build and maintain a comprehensive and robust suite of automated tests, ensuring the quality and stability of the SG Bookkeeper application.
+
+---
+https://drive.google.com/file/d/160xDsKvPVAoauLYynWiBe9NHBnZdTL8J/view?usp=sharing, https://drive.google.com/file/d/18TtNiuwMgTDNao0zAFm09n-jytG2YUGz/view?usp=sharing, https://aistudio.google.com/app/prompts?state=%7B%22ids%22:%5B%221C3YLnRKPRGzPZnYLR1QTk7UWEwAsh3Nz%22%5D,%22action%22:%22open%22,%22userId%22:%22103961307342447084491%22,%22resourceKeys%22:%7B%7D%7D&usp=sharing, https://drive.google.com/file/d/1Ca9966PXKMDnjAxCsyT8OmVM2CPRlb-7/view?usp=sharing, https://drive.google.com/file/d/1JQqsPW16CEQ_KOYug004UPmNUP8BkdJ-/view?usp=sharing, https://drive.google.com/file/d/1Uej9gO7t12EkmldGnw5jk_V_fDjhTJMw/view?usp=sharing, https://drive.google.com/file/d/1ZsmOW6huYvGv9eyPviU1VZzh2YZqtxgW/view?usp=sharing, https://drive.google.com/file/d/1azUf7bWoZO_Niu3T7P81Vg8osVNEAvdG/view?usp=sharing, https://drive.google.com/file/d/1bI33CCtQPwhzoEUl854m3V002dxflsWg/view?usp=sharing, https://drive.google.com/file/d/1eFLuD4rI0YIctcHcXtE_aGXdEI19KS7A/view?usp=sharing, https://drive.google.com/file/d/1i0d3rPoQdMDESiN3d1xl0HwlhxsW8IKA/view?usp=sharing, https://drive.google.com/file/d/1peEbFNwTqJse_rI4-Cr6AHJC5VkdMEyJ/view?usp=sharing, https://drive.google.com/file/d/1wiAxnIzKK89xeuNXnUIwze7jX3IRpmh0/view?usp=sharing, https://drive.google.com/file/d/1y5m17YgZHBbDTW-m13LysnRiD55hfuaG/view?usp=sharing, https://drive.google.com/file/d/1z8Ad5AKfM2zETmgHi_8lWviUGZCQl1bF/view?usp=sharing
+

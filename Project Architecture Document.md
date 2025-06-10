@@ -1,429 +1,298 @@
-# Project Architecture Overview Document: SG Bookkeeper
+# SG Bookkeeper - Project Architecture Document
 
 ## 1. Introduction
 
-### 1.1. Project Vision
+### 1.1. Purpose
 
-SG Bookkeeper is a desktop application designed to provide a comprehensive, modern, and user-friendly accounting solution for small to medium-sized enterprises (SMEs) in Singapore. The primary goal is to simplify complex bookkeeping tasks, including GST compliance, financial reporting, and daily transaction management, through an intuitive graphical user interface (GUI).
+This document provides a comprehensive architectural overview of the SG Bookkeeper application. Its goal is to serve as a foundational guide for current and future developers, ensuring a clear and shared understanding of the system's design, principles, and components. By detailing the structure, patterns, and data flows, this document aims to facilitate maintenance, debugging, and the strategic implementation of new features while preserving the architectural integrity of the codebase.
 
-The project's philosophy is rooted in creating a robust, maintainable, and scalable application. It leverages a professional software architecture to ensure a clear separation of concerns, which facilitates testing, debugging, and future feature development. Key features include detailed financial reporting (Balance Sheet, P&L, Tax Computations), a visual dashboard with key performance indicators (KPIs), and a stateful bank reconciliation module.
+### 1.2. High-Level Overview
 
-### 1.2. Target Audience
+SG Bookkeeper is a desktop accounting application designed specifically for small-to-medium-sized enterprises (SMEs) operating in Singapore. It is built using Python and the PySide6 framework for its graphical user interface (GUI). The application provides a robust suite of bookkeeping functionalities, including chart of accounts management, journal entries, sales and purchase invoicing, customer and vendor relationship management, product/service tracking, banking and reconciliation, and financial reporting.
 
-The application is built for business owners, accountants, and bookkeepers who require a reliable tool to manage financial data locally. It prioritizes data integrity, user experience, and performance.
+At its core, the application is engineered to be a responsive, database-driven system. It leverages an asynchronous programming model to interact with its PostgreSQL database, ensuring the user interface remains fluid and non-blocking even during intensive data operations. The architecture is deliberately layered to separate concerns, promoting maintainability, testability, and scalability.
 
-### 1.3. Core Technologies
+## 2. Core Architectural Principles
 
--   **Backend Language:** Python (>=3.9)
--   **GUI Framework:** PySide6 (The official Python bindings for the Qt framework), including the `QtCharts` module for data visualization.
--   **Database:** PostgreSQL
--   **ORM (Object-Relational Mapper):** SQLAlchemy 2.0 (with async support via `asyncpg`)
--   **Data Validation:** Pydantic
--   **Dependency Management:** Poetry
+The architecture of SG Bookkeeper is founded on several key principles that guide its design and development.
 
-## 2. High-Level Architecture: A Layered Approach
+*   **Layered Architecture:** The system is distinctly partitioned into four primary layers: **Presentation (UI)**, **Business Logic (Managers)**, **Data Access (Services)**, and **Data Persistence (Database)**. This separation of concerns ensures that changes in one layer have minimal impact on others, making the system easier to develop, test, and maintain.
 
-The application is architected using a classic multi-layered approach. This design separates the application into logical groups of functionality, where each layer has a specific responsibility and communicates only with adjacent layers. This reduces coupling and makes the system significantly easier to understand and evolve.
+*   **Asynchronous Core for UI Responsiveness:** To provide a smooth user experience befitting a modern desktop application, the core operations (especially database interactions) are asynchronous. The application runs a dedicated `asyncio` event loop in a background thread, while the Qt event loop manages the UI in the main thread. A carefully designed bridge allows the UI to schedule and await results from asynchronous tasks without freezing.
+
+*   **Model-View-Presenter (MVP) / Model-View-Controller (MVC) Pattern:** The UI layer loosely follows the MVP/MVC pattern.
+    *   **View:** `QWidget` and `QDialog` subclasses (`CustomersWidget`, `SalesInvoiceDialog`) are responsible for rendering the user interface and capturing user input.
+    *   **Model:** `QAbstractTableModel` subclasses (`CustomerTableModel`) and Pydantic DTOs act as the data model for the views, defining the structure of the data to be displayed.
+    *   **Presenter/Controller:** The "Manager" classes in the Business Logic layer (`CustomerManager`, `SalesInvoiceManager`) serve as the Presenters. They are invoked by the Views, process user requests, interact with the data layer, and prepare data for the View to display.
+
+*   **Service-Repository Pattern:** The Data Access Layer is implemented using "Service" classes (`CustomerService`, `AccountService`). These services act as repositories, abstracting the details of data persistence. They are the sole components responsible for direct interaction with the SQLAlchemy ORM and the `DatabaseManager`. This isolates data query logic and makes it reusable.
+
+*   **Data Transfer Objects (DTOs):** The application makes extensive use of Pydantic models as DTOs. These objects define clear, validated data contracts for passing information between layers (e.g., from a UI dialog to a Manager, or from a Manager to a Service). This improves type safety, provides automatic data validation, and decouples the application's internal logic from the specific structure of the database models.
+
+*   **Centralized Core & Dependency Management:** The `ApplicationCore` class acts as a central service locator and container for all major components (Managers and Services). It is instantiated once at startup and passed throughout the application, providing a single, consistent point of access to shared resources and business logic, simplifying dependency management.
+
+*   **Database-Driven Logic:** Key business constraints, sequences, and audit trails are enforced at the database level through `CHECK` constraints, custom functions (e.g., `get_next_sequence_value`), and triggers. This ensures data integrity and a single source of truth, regardless of how the data is accessed.
+
+## 3. Architectural Diagram
+
+The following diagram illustrates the high-level, layered architecture of the SG Bookkeeper application, showing the flow of control and data between the major components.
 
 ```mermaid
 graph TD
-    A[UI Layer (app/ui)] -->|Calls methods on| B(Business Logic Layer (app/business_logic, app/accounting));
-    B -->|Uses| C(Service Layer / DAL (app/services));
-    C -->|Executes queries via| D(Database Manager (app/core/database_manager));
-    D <--> E[PostgreSQL Database];
-    
-    subgraph "Core & Utilities"
-        F[Application Core (app/core/application_core)]
-        G[Utility Modules (app/utils)]
-        H[Shared Enums (app/common)]
+    subgraph "Presentation Layer (app/ui)"
+        A[UI Widgets & Dialogs <br/> e.g., SalesInvoicesWidget]
+        B[Qt Models <br/> e.g., SalesInvoiceTableModel]
+    end
+
+    subgraph "Business Logic Layer"
+        C[Managers <br/> e.g., SalesInvoiceManager, JournalEntryManager]
     end
     
-    B --> F;
-    A --> F;
-    C --> F;
-    F --> D;
+    subgraph "Central Orchestrator"
+        D{ApplicationCore}
+    end
 
-    style A fill:#cde4ff,stroke:#333,stroke-width:2px
-    style B fill:#d5e8d4,stroke:#333,stroke-width:2px
-    style C fill:#ffe6cc,stroke:#333,stroke-width:2px
-    style D fill:#f8cecc,stroke:#333,stroke-width:2px
-    style E fill:#dae8fc,stroke:#333,stroke-width:2px
-    style F fill:#e1d5e7,stroke:#333,stroke-width:2px
-    style G fill:#fff2cc,stroke:#333,stroke-width:2px
-    style H fill:#fff2cc,stroke:#333,stroke-width:2px
+    subgraph "Data Access Layer (app/services)"
+        E[Services (Repositories) <br/> e.g., SalesInvoiceService, AccountService]
+    end
+
+    subgraph "Data Persistence Layer"
+        F[Database Manager <br/> (SQLAlchemy Core/ORM)]
+        G[(PostgreSQL Database <br/> with Schemas & Triggers)]
+    end
+
+    subgraph "Supporting Components"
+        H[Utilities <br/> (DTOs, Result Class, Helpers)]
+        I[AsyncIO Event Loop <br/> (Background Thread)]
+    end
+
+    A -- User Interaction --> C
+    A -- Displays Data From --> B
+    C -- Uses --> E
+    C -- Updates --> B
+    D -- Provides Access To --> C
+    D -- Provides Access To --> E
+    A -- Accesses Managers via --> D
+    E -- Uses --> F
+    F -- Manages Connections To --> G
+    C -- Uses --> H
+    A -- Signals Task To --> I
+    I -- Runs Async DB Operations via --> F
+    I -- Returns Result To --> A
 ```
 
-### 2.1. Presentation (UI) Layer
+**Flow Explanation:**
 
--   **Location:** `app/ui/`
--   **Responsibility:** All user interaction, data display, and input capturing. This layer is built with **PySide6**. It is intentionally kept "thin," meaning it contains minimal business logic. Its primary role is to present data to the user and delegate user actions to the Business Logic Layer.
--   **Key Components:**
-    -   **Widgets (`*_widget.py`):** Main views for each module (e.g., `CustomersWidget`, `DashboardWidget`). These typically contain a `QTableView` or `QTreeView` to display data lists, `QToolBar` for actions, and various filter controls.
-    -   **Dialogs (`*_dialog.py`):** Forms for creating and editing records (e.g., `CustomerDialog`, `JournalEntryDialog`). They are responsible for input validation at the field level and collecting data into DTOs.
-    -   **Models (`*_table_model.py`):** Subclasses of `QAbstractTableModel` that act as an intermediary between the raw data (a list of DTOs) and the `QTableView`, handling data formatting and display logic.
+1.  A user interacts with a **UI Widget** (A).
+2.  The UI Widget calls a method on a **Manager** (C) via the central `ApplicationCore` (D).
+3.  The Manager (C) processes the business logic. It may use **Utilities** like DTOs (H) to validate data.
+4.  The Manager (C) calls one or more methods on **Services** (E) to fetch or save data.
+5.  The Service (E) constructs a database query using SQLAlchemy ORM and executes it via the **Database Manager** (F).
+6.  The Database Manager (F) manages the connection pool and executes the query against the **PostgreSQL Database** (G). For long-running queries, this happens on the `asyncio` event loop thread (I).
+7.  Data flows back up the chain. The UI is updated, either directly or via a Qt Model (B), often through signals and slots to handle the asynchronous nature of the operation.
 
--   **Example Snippet (`app/ui/dashboard/dashboard_widget.py`):** This snippet shows how the widget initiates data loading. It calls `schedule_task_from_qt` to run the `_fetch_kpis_data` coroutine on the background thread, ensuring the UI remains responsive. The result is then passed back to `_update_kpi_display_slot` on the UI thread for rendering.
+## 4. Component Breakdown
 
-    ```python
-    # In DashboardWidget class
-    @Slot()
-    def _request_kpi_load(self):
-        # ... reset UI labels to "Loading..." ...
-        self.refresh_button.setEnabled(False)
+### 4.1. Application Entry Point & Core (`app/main.py`, `app/core/`)
 
-        as_of_date = self.as_of_date_edit.date().toPython()
-        future = schedule_task_from_qt(self._fetch_kpis_data(as_of_date))
-        if future:
-            future.add_done_callback(
-                lambda res: QMetaObject.invokeMethod(self.refresh_button, "setEnabled", Qt.ConnectionType.QueuedConnection, Q_ARG(bool, True))
-            )
+This is the foundation of the application, responsible for initialization, lifecycle management, and providing central services.
 
-    async def _fetch_kpis_data(self, as_of_date: python_date):
-        # ...
-        kpi_data_result = await self.app_core.dashboard_manager.get_dashboard_kpis(as_of_date=as_of_date)
-        json_payload = kpi_data_result.model_dump_json() if kpi_data_result else ""
-        QMetaObject.invokeMethod(self, "_update_kpi_display_slot", 
-                                 Qt.ConnectionType.QueuedConnection, 
-                                 Q_ARG(str, json_payload))
+*   **`app/main.py`**:
+    *   **Role**: The main entry point of the application.
+    *   **Key Responsibilities**:
+        1.  **Asyncio/Qt Integration**: It establishes the critical asynchronous architecture. An `asyncio` event loop is started in a separate, dedicated background thread (`_ASYNC_LOOP_THREAD`). This prevents any database or long-running operations from blocking the Qt GUI event loop in the main thread.
+        2.  **Scheduling Bridge**: The `schedule_task_from_qt` function is the vital bridge that allows the Qt (main) thread to safely schedule a coroutine to run on the `asyncio` thread and get a `Future` object back to await the result.
+        3.  **Application Initialization**: It instantiates the `Application` class, which shows a splash screen and triggers the asynchronous `initialize_app` method. This method, running in the `asyncio` thread, sets up the `ConfigManager`, `DatabaseManager`, and `ApplicationCore`.
+        4.  **Signal/Slot for Initialization**: Upon successful async initialization, a Qt signal (`initialization_done_signal`) is emitted back to the main thread. The corresponding slot (`_on_initialization_done`) then creates the `MainWindow`, passes it the fully initialized `ApplicationCore` instance, and hides the splash screen. This is a textbook example of safe cross-thread communication.
+        5.  **Shutdown Sequence**: It connects the application's `aboutToQuit` signal to a robust `actual_shutdown_sequence` method, ensuring the `ApplicationCore` and the `asyncio` event loop are gracefully shut down.
 
-    @Slot(str)
-    def _update_kpi_display_slot(self, kpi_data_json_str: str):
-        # ... deserialize JSON to DTO ...
-        # ... update labels and charts with data from DTO ...
-    ```
+*   **`app/core/`**: This directory contains the singleton-like objects that form the application's backbone.
+    *   **`application_core.py` (ApplicationCore)**: The central nervous system of the application. It acts as a service locator or dependency injection container. On startup, it instantiates all **Service** and **Manager** classes, making them available as properties (e.g., `app_core.customer_manager`). This provides a single, consistent way for different parts of the application (especially the UI) to access business logic and data services without needing to manage object lifecycles themselves.
+    *   **`database_manager.py` (DatabaseManager)**: This class abstracts all direct interaction with the database. It uses the settings from `ConfigManager` to create a SQLAlchemy `async_engine` and an `async_sessionmaker`. Its primary feature is the `session()` async context manager, which provides a transactional `AsyncSession` to the service layer. Crucially, it sets the `app.current_user_id` session variable for the database, which is used by the audit triggers.
+    *   **`config_manager.py` (ConfigManager)**: A simple and effective class for managing user-specific configuration. It creates and reads a `config.ini` file in the appropriate user configuration directory for the host OS (e.g., `~/.config/SGBookkeeper` on Linux). It provides typed access to database connection details and application settings like the last-opened company.
+    *   **`security_manager.py` (SecurityManager)**: Handles all aspects of user authentication and authorization. It manages hashing and verifying passwords (using `bcrypt`), authenticating users against the database, tracking the `current_user` for the session, and providing a `has_permission` method for role-based access control (RBAC).
 
-### 2.2. Business Logic Layer
+### 4.2. Data Model Layer (`app/models/`)
 
--   **Location:** `app/business_logic/`, `app/accounting/`, `app/tax/`, `app/reporting/`
--   **Responsibility:** This is the core of the application's functionality. It contains "Manager" classes (e.g., `CustomerManager`, `SalesInvoiceManager`, `DashboardManager`) that orchestrate business processes.
--   **Key Actions:**
-    -   Receives high-level requests from the UI (e.g., "create a new customer", "get dashboard KPIs").
-    -   Uses Pydantic DTOs to validate incoming data structures.
-    -   Performs business-specific validation (e.g., "Does a customer with this code already exist?").
-    -   Coordinates operations across one or more **Services** from the layer below. For example, creating a Sales Invoice might involve the `SalesInvoiceService`, `ProductService` (to check stock), and `JournalEntryManager`.
-    -   Returns a `Result` object to the caller, encapsulating the success or failure of the operation.
+This layer defines the application's data structure using SQLAlchemy's Declarative ORM. It provides an object-oriented interface to the database tables.
 
--   **Example Snippet (`app/reporting/dashboard_manager.py`):** This method demonstrates the manager's orchestration role. It calls multiple services to aggregate data from different domains (customers, vendors, accounting) to construct a single, cohesive DTO for the UI.
+*   **Schema Organization**: A key architectural decision is the organization of models into sub-packages that mirror the database schemas: `core`, `accounting`, `business`, and `audit`. This keeps the model layer clean and reflects the logical domains of the data.
+*   **Base and Mixins (`base.py`)**:
+    *   `Base`: The declarative base for all ORM models.
+    *   `TimestampMixin`: Provides `created_at` and `updated_at` columns with automatic timestamping, promoting consistency across all tables that inherit it.
+    *   `UserAuditMixin`: Provides `created_by` and `updated_by` columns, linking records to the user who created or last modified them. This is fundamental for auditing.
+*   **Models**: Each file (e.g., `customer.py`, `sales_invoice.py`) defines a Python class that maps to a database table. These classes include:
+    *   Column definitions using `Mapped` and `mapped_column`, specifying types, constraints, and foreign keys.
+    *   Relationships between models using `relationship()`, defining how entities like `Customer` and `SalesInvoice` are linked. The use of `back_populates` ensures these relationships are bi-directional and managed correctly by SQLAlchemy.
+    *   `CHECK` constraints defined in `__table_args__` to enforce enum-like behavior at the database level for fields like `status`.
 
-    ```python
-    # In DashboardManager class
-    async def get_dashboard_kpis(self, as_of_date: Optional[date] = None) -> Optional[DashboardKPIData]:
-        # ... determine fiscal year dates ...
-        pl_data = await self.app_core.financial_statement_generator.generate_profit_loss(...)
+### 4.3. Data Access Layer (`app/services/`)
 
-        # --- Aggregate data from multiple services ---
-        current_cash_balance = await self._get_total_cash_balance(...)
-        total_outstanding_ar = await self.app_core.customer_service.get_total_outstanding_balance()
-        total_outstanding_ap = await self.app_core.vendor_service.get_total_outstanding_balance()
-        ar_aging_summary = await self.app_core.customer_service.get_ar_aging_summary(...)
-        
-        # ... calculate financial ratios by fetching accounts and their balances ...
-        all_active_accounts: List[Account] = await self.app_core.account_service.get_all_active()
-        for acc in all_active_accounts:
-            balance = await self.app_core.journal_service.get_account_balance(acc.id, effective_date)
-            # ... logic to sum assets and liabilities ...
-            
-        # --- Construct and return the final DTO ---
-        return DashboardKPIData(
-            # ... all aggregated and calculated fields ...
-        )
-    ```
+This layer acts as a classic **Repository Pattern**. Each service is responsible for the data persistence logic for a specific model or a closely related group of models.
 
-### 2.3. Service (Data Access) Layer
+*   **Abstraction**: Services abstract the database away from the business logic. A Manager doesn't know *how* a customer is saved; it just calls `customer_service.save(customer_orm)`.
+*   **SQLAlchemy Interaction**: This is the only layer (besides `DatabaseManager`) that directly interacts with SQLAlchemy sessions and ORM objects. It uses the `db_manager.session()` context manager to perform queries.
+*   **Methods**: Services typically provide CRUD (Create, Read, Update, Delete) methods (`get_by_id`, `get_all`, `save`, `delete`) as well as more specific query methods (e.g., `get_all_summary`, `get_outstanding_invoices_for_customer`).
+*   **Data Return**: Services return ORM model instances or lists of instances to the calling Manager.
 
--   **Location:** `app/services/`
--   **Responsibility:** This layer forms the Data Access Layer (DAL). It completely abstracts the database from the rest of the application. Each service implements the **Repository Pattern**, providing a clean API for CRUD (Create, Read, Update, Delete) operations on a specific database entity.
--   **Key Characteristics:**
-    -   Contains no business logic. Its methods map directly to database operations (e.g., `SELECT`, `INSERT`, `UPDATE`).
-    -   Uses SQLAlchemy Core and ORM to construct and execute queries.
-    -   Returns ORM models or primitive data types. It does *not* return `Result` objects; error handling at this level is typically done via exceptions, which are caught and converted to `Result` objects by the Business Logic Layer.
-    -   Interfaces for each repository are defined in `app/services/__init__.py` (e.g., `ICustomerRepository`), allowing for dependency inversion and easier testing.
+### 4.4. Business Logic Layer (`app/business_logic/` & `app/accounting/` managers)
 
--   **Example Snippet (`app/services/business_services.py`):** This method shows a typical service implementation. It builds a SQLAlchemy query, executes it within a session context, and returns the result.
+This is the application's brain. The "Manager" classes encapsulate all business rules, processes, and orchestrations.
 
-    ```python
-    # In CustomerService class (implements ICustomerRepository)
-    async def get_total_outstanding_balance(self) -> Decimal:
-        async with self.db_manager.session() as session:
-            # Uses a pre-defined database VIEW for efficiency
-            stmt = select(func.sum(customer_balances_view_table.c.outstanding_balance))
-            result = await session.execute(stmt)
-            total_outstanding = result.scalar_one_or_none()
-            return total_outstanding if total_outstanding is not None else Decimal(0)
-    ```
+*   **Orchestration**: Managers coordinate multiple services to fulfill a single business operation. For example, `SalesInvoiceManager.post_invoice()` doesn't just update an invoice status; it creates a journal entry (via `JournalEntryManager`), creates inventory movements (via `InventoryMovementService`), and then updates the invoice status (via `SalesInvoiceService`).
+*   **Validation**: Managers are responsible for validating business rules before persisting data. For instance, `PaymentManager` validates that the total allocated amount does not exceed the payment amount. It also validates that the selected invoices belong to the correct entity.
+*   **Data Transformation**: Managers take DTOs (`Pydantic Models`) from the UI layer, process them, and convert them into ORM models to be passed to the Service layer. They also take ORM models back from services and can transform them into DTOs or other formats for the UI.
+*   **Result Object**: They consistently use the `Result` class to return outcomes. This provides a clear, standardized way to signal success (with a value) or failure (with a list of error messages) to the UI layer, which can then display appropriate feedback to the user.
+*   **Separation**: The logic is separated by domain into `business_logic` (for core business entities like customers, invoices) and `accounting` (for core accounting processes like journal entries, fiscal periods).
 
-### 2.4. Data Model Layer
+### 4.5. Presentation Layer (`app/ui/`)
 
--   **Location:** `app/models/`
--   **Responsibility:** Defines the application's data structures using **SQLAlchemy ORM classes**. Each class maps to a database table and defines its columns and relationships.
--   **Key Characteristics:**
-    -   Organized into sub-packages that mirror the database schemas (`core`, `accounting`, `business`, `audit`).
-    -   Uses `TimestampMixin` and `UserAuditMixin` from `app/models/base.py` to consistently add `created_at`/`updated_at` and `created_by`/`updated_by` fields.
-    -   Defines relationships between tables (e.g., one-to-many, many-to-many) using `relationship()` and `ForeignKey`.
+This layer is responsible for everything the user sees and interacts with. It's built with **PySide6** and follows a consistent, modular pattern.
 
--   **Example Snippet (`app/models/business/bank_reconciliation.py`):** This shows the definition for the new bank reconciliation entity, including its table arguments for constraints and its relationship to `BankTransaction`.
+*   **Structure**: The UI is organized into sub-packages by feature (`customers`, `sales_invoices`, `settings`, etc.), mirroring the application's modular design.
+*   **Component Pattern**: Each module typically consists of three key components:
+    1.  **`...Widget.py`**: The main view for the module (e.g., `CustomersWidget`). It contains the toolbar, filter/search controls, and the main data table (`QTableView`). It's responsible for orchestrating the user experience within that module.
+    2.  **`...TableModel.py`**: A subclass of `QAbstractTableModel` (e.g., `CustomerTableModel`). It serves as the bridge between the list of data DTOs and the `QTableView`, telling the view how to display the data. It's a pure data presentation component.
+    3.  **`...Dialog.py`**: A `QDialog` subclass for creating or editing a single entity (e.g., `CustomerDialog`). It contains the input form fields, validation logic (client-side), and communicates with the appropriate Manager to save data.
+*   **Asynchronous Communication**: The UI layer heavily relies on the `schedule_task_from_qt` bridge. User actions (like clicking "Refresh" or "Save") trigger slots that schedule an asynchronous manager method. `Future.add_done_callback()` or signal/slot mechanisms are used to receive the result back on the main thread and update the UI (e.g., repopulating a table or showing a success/error `QMessageBox`).
+*   **DTOs for UI-Logic Communication**: Dialogs collect user input and package it into a Pydantic DTO (e.g., `CustomerCreateData`) before sending it to the Business Logic layer. This ensures that the data sent from the UI is already in a structured and partially validated format.
+*   **Resource Management (`resources.qrc`, `resources_rc.py`)**: Icons and images are managed via a Qt Resource File (`.qrc`). This file is compiled into a Python module (`resources_rc.py`), which bundles the assets directly into the application, making deployment easier and eliminating issues with relative paths.
 
-    ```python
-    # In app/models/business/bank_reconciliation.py
-    class BankReconciliation(Base, TimestampMixin):
-        __tablename__ = 'bank_reconciliations'
-        __table_args__ = (
-            UniqueConstraint('bank_account_id', 'statement_date', name='uq_bank_reconciliation_account_statement_date'),
-            CheckConstraint("status IN ('Draft', 'Finalized')", name='ck_bank_reconciliations_status'),
-            {'schema': 'business'}
-        )
-    
-        id: Mapped[int] = mapped_column(Integer, primary_key=True)
-        # ... other columns ...
-        status: Mapped[str] = mapped_column(String(20), default='Draft', nullable=False)
-    
-        # Relationships
-        bank_account: Mapped["BankAccount"] = relationship("BankAccount", back_populates="reconciliations")
-        reconciled_transactions: Mapped[List["BankTransaction"]] = relationship(
-            "BankTransaction", 
-            back_populates="reconciliation_instance"
-        )
-    ```
+### 4.6. Utilities and Common Code (`app/utils/`, `app/common/`)
 
-## 3. Codebase Directory Structure and Purpose
+*   **`app/utils/`**: This package contains cross-cutting concerns and helper modules.
+    *   **`pydantic_models.py`**: One of the most critical files. It defines all the DTOs used for data transfer between layers. This enforces data contracts and provides powerful validation.
+    *   **`result.py`**: Defines the `Result` class, a simple but powerful wrapper for returning success/failure states from the business logic layer.
+    *   **`json_helpers.py`**: Provides custom JSON encoders/decoders to handle `Decimal` and `datetime` objects, which are essential for communicating complex data between the async and Qt threads via JSON serialization.
+    *   **`sequence_generator.py`**: An abstraction for generating sequential numbers (e.g., invoice numbers), which cleverly attempts to use a more robust database function first and falls back to Python-based logic if necessary.
+*   **`app/common/`**:
+    *   **`enums.py`**: Centralizes all application-specific enumerations (e.g., `InvoiceStatusEnum`, `ProductTypeEnum`). This improves code readability and maintainability by avoiding "magic strings."
 
-The project follows a standard Python package structure that clearly separates concerns into different modules and sub-packages.
+## 5. Database Schema
+
+The choice of **PostgreSQL** provides a powerful, transactional, and extensible foundation for the application. The schema is well-organized and leverages advanced database features to ensure data integrity.
+
+*   **Logical Schemas**: The database is organized into four distinct schemas:
+    1.  `core`: For fundamental application data like users, roles, permissions, and configuration.
+    2.  `accounting`: For all core accounting tables, including the chart of accounts, journal entries, fiscal periods, and tax information.
+    3.  `business`: For operational data related to business activities, such as customers, vendors, invoices, and bank transactions.
+    4.  `audit`: For logging and history tables, separating audit concerns from operational data.
+    This separation makes the database easier to navigate, manage, and secure.
+
+*   **Triggers and Functions**:
+    *   **`update_timestamp_trigger_func`**: Automatically updates the `updated_at` column on any row update, ensuring audit timestamps are always current without application-level intervention.
+    *   **`log_data_change_trigger_func`**: This is a powerful audit trigger. It captures every `INSERT`, `UPDATE`, and `DELETE` operation on key tables. It records *who* made the change (via the `app.current_user_id` session variable), *what* changed (a JSONB diff of the old and new row), and *when*. It also populates the `data_change_history` table with a field-by-field breakdown of changes. This provides an exceptionally detailed and robust audit trail.
+    *   **`update_bank_account_balance_trigger_func`**: This trigger automatically maintains the `current_balance` on the `bank_accounts` table whenever a new transaction is inserted, updated, or deleted in `bank_transactions`. This denormalization improves performance for frequently accessed balance information.
+    *   **`get_next_sequence_value`**: A PostgreSQL function that provides a transaction-safe, robust way to generate the next number in a sequence (e.g., `INV-000001`), avoiding race conditions that could occur with a pure Python implementation.
+
+*   **Data Integrity**: The schema uses `FOREIGN KEY` constraints extensively to maintain relational integrity. `CHECK` constraints are used to enforce enum-like value restrictions at the database level, and `UNIQUE` constraints (including a GIST index on `fiscal_years` for date range exclusion) prevent duplicate or invalid data.
+
+## 6. Project File Structure
+
+The project's file structure is logical and directly reflects the layered architecture described above.
 
 ```
 SG-Bookkeeper/
-├── app/                      # Main application source code package
-│   ├── accounting/           # Managers for accounting-specific logic (CoA, JEs)
-│   ├── business_logic/       # Managers for business entities (Customers, Invoices)
-│   ├── common/               # Shared Enum definitions
-│   ├── core/                 # Core application components (Core, DB, Security)
-│   ├── models/               # SQLAlchemy ORM models, organized by schema
-│   ├── reporting/            # Logic for generating reports and KPIs
-│   ├── services/             # Data Access Layer (Repositories)
-│   ├── tax/                  # Managers and calculators for tax logic (GST)
-│   ├── ui/                   # GUI components (Widgets, Dialogs, Models)
-│   └── utils/                # Utility functions and Pydantic DTOs
-├── data/                     # Data files for initialization or templates
-├── resources/                # Source assets for the UI
-├── scripts/                  # Database scripts
-├── tests/                    # All automated tests
-├── pyproject.toml            # Poetry project definition and dependencies
+├── app/                  # Main application source code
+│   ├── __init__.py
+│   ├── main.py           # Application entry point, Qt/Asyncio setup
+│   ├── accounting/       # Accounting-specific business logic managers
+│   ├── business_logic/   # General business logic managers
+│   ├── common/           # Shared code, primarily enums
+│   ├── core/             # Core application components (AppCore, DBManager, etc.)
+│   ├── models/           # SQLAlchemy ORM models, organized by schema
+│   │   ├── core/
+│   │   ├── accounting/
+│   │   ├── business/
+│   │   └── audit/
+│   ├── reporting/        # Logic for generating reports
+│   ├── services/         # Data Access Layer (Repositories)
+│   ├── tax/              # Tax calculation and management logic
+│   ├── ui/               # All GUI components (Widgets, Dialogs, Models)
+│   │   ├── accounting/
+│   │   ├── audit/
+│   │   ├── banking/
+│   │   ├── customers/
+│   │   ├── dashboard/
+│   │   ├── payments/
+│   │   ├── products/
+│   │   ├── purchase_invoices/
+│   │   ├── reports/
+│   │   ├── sales_invoices/
+│   │   ├── settings/
+│   │   ├── shared/
+│   │   └── main_window.py
+│   └── utils/            # Utility modules (DTOs, Result class, helpers)
+├── data/                 # Static data files, templates
+│   ├── chart_of_accounts/
+│   ├── report_templates/
+│   └── tax_codes/
+├── resources/            # UI resources like icons and images
+│   ├── icons/
+│   └── images/
+├── scripts/              # Standalone scripts for DB initialization, etc.
+│   ├── db_init.py
+│   ├── schema.sql
+│   └── initial_data.sql
+├── tests/                # All application tests
+│   ├── unit/
+│   └── integration/
+├── pyproject.toml        # Project metadata and dependencies (Poetry)
 └── README.md
 ```
 
-### Directory Purpose Breakdown
+### Folder and File Purposes
 
--   **`app/`**: The main Python package for the application. All application logic resides here.
-    -   **`app/core/`**: The heart of the application's backend. `application_core.py` acts as the central service container, instantiating and providing access to all managers and services. `database_manager.py` handles all database connections and sessions. `security_manager.py` deals with authentication and permissions.
-    -   **`app/accounting/`, `app/business_logic/`, `app/tax/`, `app/reporting/`**: These directories form the **Business Logic Layer**. They contain "Manager" classes responsible for orchestrating complex operations. They are separated by domain to keep the logic organized (e.g., `JournalEntryManager` in `accounting/`, `CustomerManager` in `business_logic/`, `DashboardManager` in `reporting/`).
-    -   **`app/common/`**: Contains `enums.py`, providing centralized, strongly-typed enumerations (e.g., `InvoiceStatusEnum`, `ProductTypeEnum`). Using enums prevents "magic strings," improves code clarity, and reduces bugs.
-    -   **`app/models/`**: The **Data Model Layer**. It defines the application's database schema using SQLAlchemy ORM classes. The subdirectories (`accounting/`, `business/`, `core/`, `audit/`) mirror the PostgreSQL schemas, ensuring a clear mapping from code to database structure.
-    -   **`app/services/`**: The **Data Access Layer (DAL)**. Contains service classes that implement the Repository Pattern, isolating all database query logic. `__init__.py` defines the interfaces for these services, which promotes loose coupling and simplifies testing by allowing mocks to be injected.
-    -   **`app/ui/`**: The **Presentation Layer**. All `PySide6` code resides here, organized into sub-packages for each major application module (e.g., `app/ui/customers/`, `app/ui/banking/`). This separation makes finding and updating UI components straightforward.
-    -   **`app/utils/`**: A collection of cross-cutting utilities. `pydantic_models.py` is one of the most critical files, defining the DTOs that serve as validated data contracts between layers. `result.py` defines the `Result` object for standardized error handling.
-    -   **`app/main.py`**: The application's executable entry point. Its most crucial role is setting up the hybrid threading model (the main Qt GUI thread and the background `asyncio` event loop thread) and launching the `MainWindow`.
--   **`data/`**: Static data files used for setup or as templates, such as default charts of accounts (`.csv`) and report templates (`.json`).
--   **`resources/`**: Raw UI assets like icons (`.svg`) and images (`.png`). The `resources.qrc` file lists these assets so they can be compiled into a single Python file (`resources_rc.py`) for easy distribution within the application package.
--   **`scripts/`**: Essential database setup tools. `schema.sql` is the single source of truth for the database structure. `db_init.py` is a command-line utility that uses this file to create and initialize a fresh database. `initial_data.sql` populates the database with necessary default data like user roles, permissions, and system accounts.
--   **`tests/`**: Contains all automated tests, separated into `unit` and `integration` tests, mirroring the `app` package structure to make tests easy to locate.
+*   **`app/`**: Contains all the application's Python source code.
+    *   `main.py`: The executable entry point. Initializes the Qt Application and the core components.
+    *   `accounting/` & `business_logic/`: The **Business Logic Layer**. Contains "Manager" classes that orchestrate application workflows and enforce business rules.
+    *   `core/`: The heart of the application, containing the `ApplicationCore` orchestrator and other essential, singleton-like managers (`DatabaseManager`, `SecurityManager`).
+    *   `models/`: The **Data Model Layer**. Contains all SQLAlchemy ORM class definitions, organized into sub-packages mirroring the database schema.
+    *   `services/`: The **Data Access Layer**. Contains "Service" classes that act as repositories, handling all database query logic.
+    *   `ui/`: The **Presentation Layer**. Contains all PySide6 widgets, dialogs, and table models, organized by functional module.
+    *   `utils/`: Houses cross-cutting utility code, most importantly the Pydantic DTOs (`pydantic_models.py`), which are fundamental to the application's data contracts.
+*   **`data/`**: Stores static data files like CSV templates for the initial Chart of Accounts or JSON templates for reports.
+*   **`resources/`**: Contains static assets for the UI, such as `.svg` icons and `.png` images. The `.qrc` file is used to compile these into a Python module for easy distribution.
+*   **`scripts/`**: Holds utility scripts that are run outside the main application loop.
+    *   `db_init.py`: A crucial script to initialize a new database from scratch.
+    *   `schema.sql`: The single source of truth for the database schema definition.
+    *   `initial_data.sql`: Populates the database with essential starting data, such as default currencies, roles, permissions, and system accounts.
+*   **`tests/`**: Contains all automated tests, separated into `unit` and `integration` tests.
+*   **`pyproject.toml`**: The Poetry project definition file, managing dependencies, scripts, and project metadata.
 
-## 4. Application Flow and Module Interaction
+## 7. Data Flow Example: Creating and Posting a Sales Invoice
 
-Understanding how the layers and modules interact is key to understanding the application. A user action in the UI triggers a cascade of events through the different layers.
+To illustrate how these components interact, let's trace the process of creating and posting a sales invoice.
 
-### 4.1. Case Study 1: Creating and Posting a Sales Invoice
+1.  **User Action (UI Layer)**: The user is in the `SalesInvoicesWidget` and clicks the "New Invoice" `QAction`.
+2.  **Dialog Opening (UI Layer)**: The widget's slot opens a `SalesInvoiceDialog`. The dialog's `__init__` method schedules an async task (`_load_initial_combo_data`) to fetch necessary data (customers, products, tax codes) from their respective managers via the `app_core`.
+3.  **Data Entry (UI Layer)**: The user fills out the invoice details (customer, dates, line items). The dialog's UI elements (like `QDoubleSpinBox` and `QComboBox`) and table delegate (`LineItemNumericDelegate`) provide immediate input validation and formatting. As the user adds/edits lines, the `_calculate_line_item_totals` and `_update_invoice_totals` methods are triggered to update the UI in real-time.
+4.  **Save & Approve (UI -> Logic)**: The user clicks "Save & Approve". The dialog's `on_save_and_approve` slot is called.
+5.  **Data Collection (UI -> DTO)**: The `_collect_data` method in the dialog gathers all the data from the form fields and table into a `SalesInvoiceCreateData` Pydantic DTO. This DTO is validated upon instantiation.
+6.  **Scheduling the Task (UI -> Core)**: The dialog calls `schedule_task_from_qt(self._perform_save(dto, post_invoice_after=True))`. This hands off the operation to the `asyncio` thread. The UI remains responsive.
+7.  **Manager Orchestration (Business Logic Layer)**:
+    *   `SalesInvoiceManager._perform_save` is now running in the background.
+    *   It first calls `_validate_and_prepare_invoice_data` to perform server-side validation (e.g., checking if the customer is active).
+    *   It calls `sequence_service.next_sequence` to get a new invoice number.
+    *   It creates a `SalesInvoice` ORM object and saves it as a "Draft" via `sales_invoice_service.save()`. This commits the initial draft to the database.
+    *   Because `post_after_save` is `True`, it immediately calls `self.post_invoice(saved_invoice.id, user_id)`.
+8.  **Posting Logic (Business Logic -> Service -> DB)**:
+    *   `SalesInvoiceManager.post_invoice` is a complex transactional method. It fetches the draft invoice and all related data (customer, lines, products).
+    *   It constructs a `JournalEntryData` DTO for the financial posting (Debiting A/R, Crediting Sales Revenue, Crediting GST Output).
+    *   It calls `journal_entry_manager.create_journal_entry` and then `journal_entry_manager.post_journal_entry`.
+    *   For each "Inventory" type product on the invoice, it creates an `InventoryMovement` record via `inventory_movement_service`. It may also create a corresponding COGS journal entry.
+    *   Finally, it updates the `SalesInvoice` status to "Approved" and links it to the created journal entry, saving it via `sales_invoice_service.save()`.
+9.  **Result Handling (Logic -> UI)**:
+    *   The `_perform_save` coroutine finishes and returns a `Result` object.
+    *   The `done_callback` attached to the future in the UI layer is triggered back on the Qt main thread.
+    *   The callback inspects the `Result` object. If successful, it shows a `QMessageBox.information` and closes the dialog. If it failed, it shows a `QMessageBox.warning` with the errors. The main `SalesInvoicesWidget` then refreshes its list to show the new, posted invoice.
 
-This fundamental workflow illustrates the interaction between all major layers of the application.
+## 8. Conclusion
 
-```mermaid
-sequenceDiagram
-    participant User
-    participant SIDialog as SalesInvoiceDialog (UI)
-    participant SIManager as SalesInvoiceManager (Business Logic)
-    participant Core as ApplicationCore
-    participant DB as DatabaseManager
-    participant JEManager as JournalEntryManager
+The SG Bookkeeper application is built upon a modern, robust, and well-structured architecture. The clear separation of layers, the asynchronous core, and the consistent use of patterns like DTOs and Service-Repositories make the codebase highly maintainable and extensible. The database schema is intelligently designed with data integrity and auditing as primary concerns.
 
-    User->>SIDialog: Fills out invoice details & clicks "Save & Approve"
-    SIDialog->>SIDialog: _collect_data() - Creates SalesInvoiceCreateData DTO
-    SIDialog->>Core: schedule_task_from_qt(_perform_save(dto, post_invoice_after=True))
-    
-    Note over Core, SIManager: Now on Asyncio Thread
-    Core->>SIManager: _perform_save(dto, post_invoice_after=True)
-    SIManager->>SIManager: _validate_and_prepare_invoice_data(dto)
-    SIManager->>Core: Calls customer_service, product_service, tax_calculator
-    Core-->>SIManager: Returns validation results and calculated values
-    
-    alt Validation Fails
-        SIManager-->>Core: Result.failure(errors)
-        Core-->>SIDialog: Future returns failure result
-        SIDialog->>User: Shows QMessageBox with errors
-    else Validation Succeeds
-        SIManager->>Core: sequence_service.get_next_sequence_value()
-        Core->>DB: Executes SELECT core.get_next_sequence_value()
-        DB-->>Core: Returns new Invoice No.
-        Core-->>SIManager: Returns "INV-00123"
-        SIManager->>Core: sales_invoice_service.save(invoice_orm)
-        Core->>DB: INSERT into sales_invoices, sales_invoice_lines
-        DB-->>Core: Returns saved Invoice ORM with ID
-        Core-->>SIManager: Returns saved Invoice ORM
-        
-        Note over SIManager: Invoice now exists in DB with 'Draft' status
-        
-        SIManager->>SIManager: post_invoice(invoice_id, user_id)
-        SIManager->>JEManager: create_journal_entry(je_dto)
-        JEManager->>DB: INSERT into journal_entries, journal_entry_lines
-        JEManager-->>SIManager: Result.success(JE)
-        
-        SIManager->>JEManager: post_journal_entry(je_id)
-        JEManager->>DB: UPDATE journal_entries SET is_posted=TRUE
-        JEManager-->>SIManager: Result.success()
-        
-        SIManager->>DB: UPDATE sales_invoices SET status='Approved', journal_entry_id=...
-        DB-->>SIManager: Success
-        
-        SIManager-->>Core: Result.success(final_invoice_orm)
-        Core-->>SIDialog: Future returns success result
-        
-        Note over SIDialog, User: Back on Qt Main Thread
-        SIDialog->>User: Shows success message
-        SIDialog->>SIDialog: Closes dialog
-        SIDialog->>Core: Emits signal to refresh invoice list
-    end
-```
-
-### 4.2. Case Study 2: State-aware Bank Reconciliation
-
-The bank reconciliation module demonstrates a more complex state management workflow. Unlike a simple CRUD operation, it involves a "draft" state that persists across user sessions.
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant ReconWidget as BankReconciliationWidget (UI)
-    participant ReconService as BankReconciliationService (Service)
-    participant Core as ApplicationCore
-    participant DB as DatabaseManager
-
-    User->>ReconWidget: Selects bank account, enters date & balance, clicks "Load"
-    ReconWidget->>Core: schedule_task_from_qt(_fetch_and_populate_transactions(...))
-    
-    Note over Core, ReconService: Now on Asyncio Thread
-    Core->>ReconService: get_or_create_draft_reconciliation(...)
-    ReconService->>DB: SELECT or INSERT into bank_reconciliations
-    DB-->>ReconService: Returns Draft Reconciliation ORM (ID: 5)
-    ReconService-->>Core: Returns Draft Recon ORM
-    
-    Core->>Core: bank_transaction_manager.get_unreconciled_transactions(...)
-    Core-->>ReconWidget: Returns unreconciled txns via slot
-    Core->>ReconService: get_transactions_for_reconciliation(ID: 5)
-    ReconService->>DB: SELECT txns WHERE reconciliation_id = 5
-    DB-->>ReconService: Returns previously matched txns
-    ReconService-->>Core: Returns matched txns
-    Core-->>ReconWidget: Returns matched txns via slot
-    
-    Note over ReconWidget: UI tables are populated
-    
-    User->>ReconWidget: Selects matching transactions from both unreconciled tables
-    ReconWidget->>ReconWidget: _on_match_selected_clicked()
-    ReconWidget->>Core: schedule_task_from_qt(_perform_provisional_match(txn_ids))
-    
-    Note over Core, ReconService: Now on Asyncio Thread
-    Core->>ReconService: mark_transactions_as_provisionally_reconciled(recon_id=5, ...)
-    ReconService->>DB: UPDATE bank_transactions SET reconciliation_id=5 WHERE id IN (...)
-    DB-->>ReconService: Success
-    ReconService-->>Core: Returns true
-    
-    Core-->>ReconWidget: Future completes, triggers UI reload
-    ReconWidget->>User: Shows "Items Matched" message and reloads tables
-```
-
-### 4.3. Case Study 3: Dashboard KPI Generation
-
-The dashboard showcases how the Business Logic Layer orchestrates data from multiple domains to create a unified view for the user.
-
-```mermaid
-graph TD
-    subgraph UI Layer
-        A[DashboardWidget]
-    end
-    subgraph Business Logic Layer
-        B[DashboardManager]
-        C[FinancialStatementGenerator]
-    end
-    subgraph Service Layer
-        D[CustomerService]
-        E[VendorService]
-        F[BankAccountService]
-        G[JournalService]
-        H[AccountService]
-        I[FiscalYearService]
-        J[CompanySettingsService]
-    end
-    
-    A -->|"1. _request_kpi_load()"| B
-    B -->|"2. get_dashboard_kpis()"| I
-    B -->|"3. Calls helper"| C
-    C -->|"4. Aggregates data from"| G
-    C -->|"5. " | H
-    B -->|"6. Aggregates data from"| D
-    B -->|"7. "| E
-    B -->|"8. "| F
-    B -->|"9. "| J
-    B -->|"10. Constructs DashboardKPIData DTO"| B
-    B -->|"11. Returns DTO"| A
-    A -->|"12. _update_kpi_display_slot()"| A
-```
-
-**Flow Description:**
-1.  The `DashboardWidget` requests a KPI refresh for a specific date.
-2.  The request is passed to the `DashboardManager`.
-3.  The `DashboardManager` first determines the relevant fiscal year by calling the `FiscalYearService`.
-4.  It then calls the `FinancialStatementGenerator` to get YTD Profit & Loss figures.
-5.  Simultaneously, it makes parallel calls to various services to gather specific metrics:
-    -   `CustomerService` for AR aging and outstanding balances.
-    -   `VendorService` for AP aging and outstanding balances.
-    -   `BankAccountService` and `JournalService` to calculate the total cash balance.
-    -   `AccountService` to get all accounts needed to calculate financial ratios like the Current Ratio.
-6.  Once all data is retrieved, the `DashboardManager` performs the final ratio calculations and aggregates all the data into a single `DashboardKPIData` DTO.
-7.  This DTO is returned to the `DashboardWidget`, which then populates all its labels and updates its charts with the new, comprehensive data.
-
-## 5. Database Schema Overview
-
-The database is structured into four logical schemas: `core`, `accounting`, `business`, and `audit`. This separation mirrors the application's domain structure and improves organization and security.
-
--   **`core` schema:** Contains fundamental tables for application operation, such as `users`, `roles`, `permissions`, `company_settings`, and `sequences`. These are entities that underpin the entire system.
--   **`accounting` schema:** Holds all purely financial and accounting-related tables. This includes the `accounts` (Chart of Accounts), `journal_entries`, `fiscal_years`, `tax_codes`, and `currencies`.
--   **`business` schema:** Contains tables related to operational business entities and documents, such as `customers`, `vendors`, `products`, `sales_invoices`, `purchase_invoices`, and the new `bank_reconciliations`. These are the day-to-day documents that drive the accounting entries.
--   **`audit` schema:** Contains tables for logging and history, specifically `audit_log` (for high-level actions) and `data_change_history` (for field-level changes), primarily populated by database triggers.
-
-This structure allows for clear foreign key relationships (e.g., a `business.sales_invoices` record links to an `accounting.journal_entries` record) while maintaining logical separation.
-
-## 6. Getting Started for New Developers
-
-1.  **Environment Setup:**
-    -   Install Python (>=3.9).
-    -   Install Poetry (`pip install poetry`).
-    -   Run `poetry install` in the project root. This creates a virtual environment and installs all dependencies listed in `pyproject.toml`, including development tools like `pytest` and `black`.
-    -   Set up a PostgreSQL server locally or have connection details for a remote one.
-
-2.  **Database Initialization:**
-    -   Create a `config.ini` file in the appropriate user configuration directory (`~/.config/SGBookkeeper/` on Linux, `%APPDATA%/SGBookkeeper/` on Windows). You can run the app once (`poetry run python app/main.py`) to have it generate a default `config.ini` for you to edit.
-    -   Update the `[Database]` section in `config.ini` with your PostgreSQL credentials.
-    -   Run the database initialization script from the project root: `poetry run python scripts/db_init.py`.
-    -   Use the `--drop-existing` flag if you need to completely wipe and recreate the database (e.g., `poetry run python scripts/db_init.py --drop-existing`). This script will create the database, all schemas, tables, views, functions, and populate the initial required data from `schema.sql` and `initial_data.sql`.
-
-3.  **Running the Application:**
-    -   Compile the Qt resources. This bundles icons and images into the application: `pyside6-rcc resources/resources.qrc -o app/resources_rc.py`.
-    -   Run the main application: `poetry run python app/main.py`.
-    -   The default login is `admin` / `password`. You will be prompted to change this on first login.
-
-4.  **Key Files to Study First:**
-    -   `app/core/application_core.py`: To understand how all managers and services are instantiated and connected.
-    -   `app/main.py`: To understand the core concurrency model (Qt + Asyncio).
-    -   `app/business_logic/sales_invoice_manager.py`: A great example of a complex business process orchestration.
-    -   `app/ui/sales_invoices/sales_invoice_dialog.py`: A good example of a complex data entry form.
-    -   `app/utils/pydantic_models.py`: To understand the data contracts (DTOs) used throughout the app.
-    -   `scripts/schema.sql`: The definitive source for the database structure.
+This architecture provides a solid foundation for future development. By understanding and adhering to these principles, developers can confidently add new features and modules while ensuring the long-term health and stability of the application.
 
 ---
-https://drive.google.com/file/d/13a54HCe719DE9LvoTL2G3fufXVAZ68s9/view?usp=sharing, https://drive.google.com/file/d/16sEyvS8ZfOJFIHl3N-L34xQnhEo5XPcI/view?usp=sharing, https://drive.google.com/file/d/17Lx6TxeEQJauqxEwWQIjL_Vounz-OOuU/view?usp=sharing, https://drive.google.com/file/d/1MxP_SNNW86u44e2wupzz6i2gb0ibGeUE/view?usp=sharing, https://drive.google.com/file/d/1QsDwk2m_1Nh4JHOshQw4zjEI3x1mgGkM/view?usp=sharing, https://drive.google.com/file/d/1XPEV3rOOikcWVvhB7GwX0raI__osRg-Z/view?usp=sharing, https://drive.google.com/file/d/1cJjbc9s6IGkKHeAhk-dh7ey9i7ArJMJe/view?usp=sharing, https://drive.google.com/file/d/1jNlP9TOSJtMzQMeLH1RoqmU2Hx7iwQkJ/view?usp=sharing, https://drive.google.com/file/d/1q3W6Cs4WVx7dLwL1XGN9aQ6bb-hyHmWS/view?usp=sharing, https://drive.google.com/file/d/1qYszGazA6Zm1-3YGdaKdDlPEr3HipU5k/view?usp=sharing, https://drive.google.com/file/d/1uYEc0AZDEBE2A4qrR5O1OFcFVHJsCtds/view?usp=sharing, https://aistudio.google.com/app/prompts?state=%7B%22ids%22:%5B%221v7mZ4CEkZueuPt-aoH1XmYRmOooNELC3%22%5D,%22action%22:%22open%22,%22userId%22:%22103961307342447084491%22,%22resourceKeys%22:%7B%7D%7D&usp=sharing
+https://drive.google.com/file/d/14GI0Jpi1ZCxjckpC0WPEG7YNdf3D-Vfp/view?usp=sharing, https://drive.google.com/file/d/1FmPfEv5XKMhn3JaojHSvp_wmUe9jH_kz/view?usp=sharing, https://drive.google.com/file/d/1GTT2tW3WV4H-8oDTeYEbFnpHsHKleBnA/view?usp=sharing, https://drive.google.com/file/d/1GVnNEvV_JL-RfhiLcilpuTGpE_L2EVSB/view?usp=sharing, https://drive.google.com/file/d/1GWA2Cy5so8LafVd3hrehbWlnZtZCu96l/view?usp=sharing, https://drive.google.com/file/d/1Nc73m3B6VqapO6fKmQhZsz0XqBRC6qLx/view?usp=sharing, https://drive.google.com/file/d/1OFECl1W0TBgualvPFvzb1QC7TjbeS63t/view?usp=sharing, https://drive.google.com/file/d/1c3LTmRz47pvqw6MkqE5akustMqGG384E/view?usp=sharing, https://drive.google.com/file/d/1fVRlxEjtkFpTafU6-MrRkTNhJ8ROqHRS/view?usp=sharing, https://aistudio.google.com/app/prompts?state=%7B%22ids%22:%5B%221ky-GUobTN6gjyn85sXTPYJRKdg4YATwW%22%5D,%22action%22:%22open%22,%22userId%22:%22108686197475781557359%22,%22resourceKeys%22:%7B%7D%7D&usp=sharing, https://drive.google.com/file/d/1t_7xdLQGnvDNwIDz9JRwAlVdm0OjPIVR/view?usp=sharing
 
