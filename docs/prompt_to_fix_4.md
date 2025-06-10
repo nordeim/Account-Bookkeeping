@@ -110,3 +110,6 @@ Awesome job! Now, help me to carefully and systematically do a careful review an
 
 *IMPORTANT*, the updated replacment `README.md` and `Technical Design Specification Document.md` must be complete in itself, without containing any references to older versions or other documents.
 
+---
+you stopped halfway generating updated `Technical_Design_Specification_Document.md`. please continue to complete your generation according to your excellent plan.
+

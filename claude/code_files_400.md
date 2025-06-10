@@ -1,3 +1,58 @@
+<think>
+The user is right. I stopped mid-generation for the `Technical_Design_Specification_Document.md` file. The plan was to provide all 30 updated files in a single response, but it seems I was interrupted. I must now complete the generation of the `Technical_Design_Specification_Document.md` and the final missing file (`README.md`).
+
+My internal plan was to cover these three major feature implementations:
+1.  **Multi-Currency Support**: Foundational feature.
+2.  **Withholding Tax (WHT) Management**: Self-contained compliance feature.
+3.  **Cash Flow Statement**: Major reporting feature.
+
+I need to ensure the `Technical_Design_Specification_Document.md` fully details the implementation of all three, including database changes, DTO updates, business logic in managers, and UI modifications. Then, I need to generate the updated `README.md` which provides a high-level summary of these new features for end-users and contributors.
+
+**Plan for `Technical_Design_Specification_Document.md` (continuation)**
+
+1.  **Resume from where I left off:** The previous response stopped in the middle of the "Purpose" section. I will rewrite it from the beginning to ensure it's complete and coherent.
+2.  **Structure**:
+    *   **Introduction**: Update the purpose, scope, and status to reflect the three new features. Schema version is now 1.0.7 (due to the `cash_flow_category` column).
+    *   **System Architecture**: The high-level diagram and layered approach description are still valid. I'll focus on updating the **Component Architecture** section to detail the specific changes.
+    *   **Component Architecture (`2.2`)**:
+        *   `app/services`: Detail the new `get_accounts_by_tax_treatment` method in `IAccountRepository` / `AccountService`.
+        *   `app/business_logic`: This is a major change area.
+            *   Detail the heavily refactored `PaymentManager`, explaining its new role in calculating forex gain/loss and handling WHT. I should include a small pseudo-code or logic explanation for the JE creation.
+            *   Explain the new `WithholdingTaxManager`'s role.
+        *   `app/ui`:
+            *   Describe the new `cash_flow_category` `QComboBox` in the `AccountDialog`.
+            *   Describe the new `QCheckBox` and display labels for WHT in the `PaymentDialog`.
+            *   Describe the new "Cash Flow Statement" option in the `ReportsWidget` and its corresponding `QTreeView` for display.
+    *   **Data Architecture (`3`)**:
+        *   `Database Schema`: Explicitly state the addition of the `cash_flow_category` column to the `accounts` table (schema v1.0.7). Mention the new configuration keys for Forex and WHT accounts.
+        *   `ORM Models`: Detail the change to `app/models/accounting/account.py`.
+        *   `DTOs`: Detail the changes to `AccountCreateData`/`AccountUpdateData` and `PaymentCreateData` DTOs in `app/utils/pydantic_models.py`.
+    *   **Module and Component Specifications (`4`)**: This is where I'll go into depth.
+        *   Create a new sub-section for **Multi-Currency Workflow**. Explain the end-to-end flow from invoice to payment, detailing the Forex gain/loss calculation.
+        *   Create a new sub-section for **Withholding Tax Workflow**. Explain how it's triggered from the `PaymentDialog` and how the JE is constructed.
+        *   Create a new sub-section for **Cash Flow Statement Generation**. Explain the "indirect method" implementation, the role of `cash_flow_category` tagging, and the final reconciliation step.
+    *   **Data Flow Examples (`9`)**:
+        *   Add a new data flow example specifically for a **Foreign Currency Payment with WHT**. This will be a complex but highly illustrative example combining two of the new features. It will show the interaction between the UI, `PaymentManager`, services, and `JournalEntryManager`.
+    *   **Conclusion & Roadmap (`10`)**: Update the roadmap to reflect these features as "Implemented" and outline the next logical steps (e.g., Unrealized Forex Gains/Losses, WHT reporting UI).
+
+**Plan for `README.md`**
+
+1.  **Rewrite from previous state:** I will take the last good version of the README and enhance it.
+2.  **Update Overview/Why SG Bookkeeper**: Add a point about the newly implemented features making it more robust for international trade and compliance.
+3.  **Update Key Features Section**:
+    *   Change "Multi-Currency Support" status from "Foundational" to "**Implemented**", adding a note about "Realized Forex Gain/Loss on Payments".
+    *   Change "Withholding Tax Management" from "Foundational" to "**Implemented**", noting the integration into vendor payments.
+    *   Change "Cash Flow Statement" from "Planned" to "**Implemented**", mentioning the indirect method and its availability in the reports module.
+4.  **Update Installation/Usage**: No major changes needed here, as the core setup process is the same.
+5.  **Update Roadmap**: Move the three implemented features to a "Recently Completed" section. Re-evaluate the "Current Focus / Next Steps" based on what remains. Unrealized Forex Gain/Loss would be a good candidate for the next steps.
+
+This detailed plan ensures I cover all aspects of the user's request thoroughly and systematically. I will now proceed to generate the two complete files.Of course. I apologize for the incomplete response. I will now provide the complete, updated versions of the `README.md` and `Technical_Design_Specification_Document.md` files, incorporating the new features as planned. I will follow the rigorous process outlined, ensuring each file is complete and validated before presenting the final result.
+
+---
+
+### **File 1 of 2: `Technical_Design_Specification_Document.md`**
+
+```markdown
 # Technical Design Specification Document: SG Bookkeeper (v17)
 
 **Version:** 17.0
@@ -183,6 +238,7 @@ graph TD
 
 ## 5. Conclusion
 Version 17.0 represents a significant leap in functionality, moving SG Bookkeeper from a solid foundational tool to a more mature accounting application capable of handling complex, real-world business scenarios. The introduction of robust multi-currency accounting, integrated WHT management, and a compliant Cash Flow Statement drastically increases the application's value proposition for its target audience. The architectural enhancements, particularly the account tagging system and the complex logic encapsulated within the `PaymentManager`, have been implemented in a maintainable way that builds upon the existing layered design.
+```
 
 ---
 https://drive.google.com/file/d/13a54HCe719DE9LvoTL2G3fufXVAZ68s9/view?usp=sharing, https://drive.google.com/file/d/16sEyvS8ZfOJFIHl3N-L34xQnhEo5XPcI/view?usp=sharing, https://drive.google.com/file/d/17Lx6TxeEQJauqxEwWQIjL_Vounz-OOuU/view?usp=sharing, https://drive.google.com/file/d/17M3-d4q02eUhkRMgogRQMxwSbiDkCJow/view?usp=sharing, https://drive.google.com/file/d/1MxP_SNNW86u44e2wupzz6i2gb0ibGeUE/view?usp=sharing, https://drive.google.com/file/d/1QsDwk2m_1Nh4JHOshQw4zjEI3x1mgGkM/view?usp=sharing, https://drive.google.com/file/d/1RkrdC_e7A_-nbzKVAiL_fX48uib6mu1T/view?usp=sharing, https://drive.google.com/file/d/1Wvi2CiVPY0EL2kErW2muu_LbMy4J_sRF/view?usp=sharing, https://drive.google.com/file/d/1XPEV3rOOikcWVvhB7GwX0raI__osRg-Z/view?usp=sharing, https://drive.google.com/file/d/1Z0gGlgu698IMIFg56GxD60l4xKNg1fIt/view?usp=sharing, https://drive.google.com/file/d/1cJjbc9s6IGkKHeAhk-dh7ey9i7ArJMJe/view?usp=sharing, https://drive.google.com/file/d/1jNlP9TOSJtMzQMeLH1RoqmU2Hx7iwQkJ/view?usp=sharing, https://drive.google.com/file/d/1q3W6Cs4WVx7dLwL1XGN9aQ6bb-hyHmWS/view?usp=sharing, https://drive.google.com/file/d/1qYszGazA6Zm1-3YGdaKdDlPEr3HipU5k/view?usp=sharing, https://drive.google.com/file/d/1uYEc0AZDEBE2A4qrR5O1OFcFVHJsCtds/view?usp=sharing, https://aistudio.google.com/app/prompts?state=%7B%22ids%22:%5B%221v7mZ4CEkZueuPt-aoH1XmYRmOooNELC3%22%5D,%22action%22:%22open%22,%22userId%22:%22103961307342447084491%22,%22resourceKeys%22:%7B%7D%7D&usp=sharing

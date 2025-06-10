@@ -102,8 +102,9 @@ from .pydantic_models import (
     PaymentAllocationBaseData, PaymentBaseData, PaymentCreateData, PaymentSummaryData,
     AuditLogEntryData, DataChangeHistoryEntryData,
     BankReconciliationBaseData, BankReconciliationCreateData, BankReconciliationData,
-    BankReconciliationSummaryData, # New DTO export
-    DashboardKPIData
+    BankReconciliationSummaryData,
+    DashboardKPIData,
+    CSVImportErrorData
 )
 from .result import Result
 from .sequence_generator import SequenceGenerator
@@ -131,8 +132,9 @@ __all__ = [
     "PaymentAllocationBaseData", "PaymentBaseData", "PaymentCreateData", "PaymentSummaryData",
     "AuditLogEntryData", "DataChangeHistoryEntryData",
     "BankReconciliationBaseData", "BankReconciliationCreateData", "BankReconciliationData",
-    "BankReconciliationSummaryData", # New DTO export
+    "BankReconciliationSummaryData",
     "DashboardKPIData",
+    "CSVImportErrorData",
     "Result", "SequenceGenerator", "is_valid_uen"
 ]
 
@@ -447,7 +449,16 @@ class BankTransactionBaseData(AppBaseModel):
             if amount > Decimal(0): raise ValueError(f"{txn_type.value} amount must be negative or zero.")
         return values
 class BankTransactionCreateData(BankTransactionBaseData, UserAuditData): pass
-class BankTransactionSummaryData(AppBaseModel): id: int; transaction_date: date; value_date: Optional[date] = None; transaction_type: BankTransactionTypeEnum; description: str; reference: Optional[str] = None; amount: Decimal; is_reconciled: bool = False
+class BankTransactionSummaryData(AppBaseModel): 
+    id: int
+    transaction_date: date
+    value_date: Optional[date] = None
+    transaction_type: BankTransactionTypeEnum
+    description: str
+    reference: Optional[str] = None
+    amount: Decimal
+    is_reconciled: bool = False
+    updated_at: datetime
 
 # --- Payment DTOs ---
 class PaymentAllocationBaseData(AppBaseModel):
@@ -504,6 +515,11 @@ class BankReconciliationSummaryData(AppBaseModel):
     reconciliation_date: datetime
     created_by_username: Optional[str] = None
 
+# --- CSV Import DTOs ---
+class CSVImportErrorData(AppBaseModel):
+    row_number: int
+    row_data: List[str]
+    error_message: str
 
 # --- Dashboard DTOs ---
 class DashboardKPIData(AppBaseModel):
@@ -517,21 +533,24 @@ class DashboardKPIData(AppBaseModel):
     total_outstanding_ap: Decimal = Field(Decimal(0))
     total_ar_overdue: Decimal = Field(Decimal(0)) 
     total_ap_overdue: Decimal = Field(Decimal(0))
-    # Fields for AR/AP Aging
     ar_aging_current: Decimal = Field(Decimal(0)) 
-    ar_aging_1_30: Decimal = Field(Decimal(0))      # ADDED
+    ar_aging_1_30: Decimal = Field(Decimal(0))
     ar_aging_31_60: Decimal = Field(Decimal(0))
     ar_aging_61_90: Decimal = Field(Decimal(0))
     ar_aging_91_plus: Decimal = Field(Decimal(0))
     ap_aging_current: Decimal = Field(Decimal(0)) 
-    ap_aging_1_30: Decimal = Field(Decimal(0))      # ADDED
+    ap_aging_1_30: Decimal = Field(Decimal(0))
     ap_aging_31_60: Decimal = Field(Decimal(0))
     ap_aging_61_90: Decimal = Field(Decimal(0))
     ap_aging_91_plus: Decimal = Field(Decimal(0))
-    # Fields for Current Ratio
     total_current_assets: Decimal = Field(Decimal(0))
     total_current_liabilities: Decimal = Field(Decimal(0))
+    total_inventory: Decimal = Field(Decimal(0))
+    total_liabilities: Decimal = Field(Decimal(0))
+    total_equity: Decimal = Field(Decimal(0))
     current_ratio: Optional[Decimal] = None
+    quick_ratio: Optional[Decimal] = None
+    debt_to_equity_ratio: Optional[Decimal] = None
 
 ```
 
@@ -2429,8 +2448,6 @@ class VendorService(IVendorRepository):
         
         return {k: v.quantize(Decimal("0.01")) for k, v in aging_summary.items()}
 
-# ProductService, SalesInvoiceService, PurchaseInvoiceService, InventoryMovementService, BankAccountService, BankTransactionService, PaymentService, BankReconciliationService
-# ... (These services are preserved as they were previously)
 class ProductService(IProductRepository): 
     def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
         self.db_manager = db_manager; self.app_core = app_core
@@ -2584,7 +2601,6 @@ class PurchaseInvoiceService(IPurchaseInvoiceRepository):
             result = await session.execute(stmt)
             return list(result.scalars().all())
 
-
 class InventoryMovementService(IInventoryMovementRepository):
     def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
         self.db_manager = db_manager; self.app_core = app_core
@@ -2653,7 +2669,6 @@ class BankAccountService(IBankAccountRepository):
             result = await session.execute(stmt)
             return result.scalars().first()
 
-
 class BankTransactionService(IBankTransactionRepository):
     def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
         self.db_manager = db_manager; self.app_core = app_core
@@ -2679,7 +2694,7 @@ class BankTransactionService(IBankTransactionRepository):
             result = await session.execute(stmt); txns_orm = result.scalars().all()
             summaries: List[BankTransactionSummaryData] = []
             for txn in txns_orm:
-                summaries.append(BankTransactionSummaryData(id=txn.id,transaction_date=txn.transaction_date,value_date=txn.value_date,transaction_type=BankTransactionTypeEnum(txn.transaction_type), description=txn.description,reference=txn.reference,amount=txn.amount, is_reconciled=txn.is_reconciled))
+                summaries.append(BankTransactionSummaryData(id=txn.id,transaction_date=txn.transaction_date,value_date=txn.value_date,transaction_type=BankTransactionTypeEnum(txn.transaction_type), description=txn.description,reference=txn.reference,amount=txn.amount, is_reconciled=txn.is_reconciled, updated_at=txn.updated_at))
             return summaries
     async def save(self, entity: BankTransaction, session: Optional[AsyncSession] = None) -> BankTransaction:
         async def _save_logic(current_session: AsyncSession):
@@ -2772,7 +2787,7 @@ class BankReconciliationService(IBankReconciliationRepository):
 
     async def delete(self, id_val: int) -> bool:
         self.logger.warning(f"Deletion of BankReconciliation ID {id_val} attempted. This operation un-reconciles linked transactions.")
-        async with self.db_manager.session() as session:
+        async with self.db_manager.session() as session: 
             async with session.begin(): 
                 update_stmt = (
                     sqlalchemy_update(BankTransaction)
@@ -2916,7 +2931,6 @@ class BankReconciliationService(IBankReconciliationRepository):
         self.logger.info(f"Unreconciled {result.rowcount} transactions.")
         return result.rowcount == len(transaction_ids)
 
-
     async def get_reconciliations_for_account(
         self, 
         bank_account_id: int, 
@@ -2960,7 +2974,7 @@ class BankReconciliationService(IBankReconciliationRepository):
         async with self.db_manager.session() as session:
             stmt = select(BankTransaction)\
                 .where(BankTransaction.reconciled_bank_reconciliation_id == reconciliation_id)\
-                .order_by(BankTransaction.transaction_date, BankTransaction.id) 
+                .order_by(BankTransaction.updated_at.desc(), BankTransaction.id) 
             
             result = await session.execute(stmt)
             all_txns_orm = result.scalars().all()
@@ -2973,7 +2987,8 @@ class BankReconciliationService(IBankReconciliationRepository):
                     id=txn_orm.id, transaction_date=txn_orm.transaction_date,
                     value_date=txn_orm.value_date, transaction_type=BankTransactionTypeEnum(txn_orm.transaction_type),
                     description=txn_orm.description, reference=txn_orm.reference,
-                    amount=txn_orm.amount, is_reconciled=txn_orm.is_reconciled 
+                    amount=txn_orm.amount, is_reconciled=txn_orm.is_reconciled, 
+                    updated_at=txn_orm.updated_at
                 )
                 if txn_orm.is_from_statement:
                     statement_items.append(summary_dto)

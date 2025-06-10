@@ -54,13 +54,16 @@ app/ui/banking/__init__.py
 app/ui/banking/banking_widget.py
 app/ui/banking/bank_transaction_table_model.py
 app/ui/banking/bank_account_dialog.py
+app/ui/banking/csv_import_errors_dialog.py
 app/ui/banking/bank_accounts_widget.py
 app/ui/banking/bank_transaction_dialog.py
+app/ui/banking/csv_import_errors_table_model.py
 app/ui/banking/bank_transactions_widget.py
 app/ui/banking/reconciliation_table_model.py
 app/ui/banking/bank_reconciliation_widget.py
 app/ui/banking/bank_reconciliation_widget.py-previous
 app/ui/banking/__pycache__/bank_transactions_widget.cpython-312.pyc
+app/ui/banking/__pycache__/csv_import_errors_dialog.cpython-312.pyc
 app/ui/banking/__pycache__/__init__.cpython-312.pyc
 app/ui/banking/__pycache__/bank_transaction_dialog.cpython-312.pyc
 app/ui/banking/__pycache__/bank_reconciliation_widget.cpython-312.pyc
@@ -72,6 +75,7 @@ app/ui/banking/__pycache__/bank_account_table_model.cpython-312.pyc
 app/ui/banking/__pycache__/bank_accounts_widget.cpython-312.pyc
 app/ui/banking/__pycache__/bank_transaction_table_model.cpython-312.pyc
 app/ui/banking/__pycache__/banking_widget.cpython-312.pyc
+app/ui/banking/__pycache__/csv_import_errors_table_model.cpython-312.pyc
 app/ui/banking/csv_import_config_dialog.py
 app/ui/banking/bank_account_table_model.py
 app/ui/products/__init__.py
@@ -319,7 +323,6 @@ scripts/initial_data.sql
 scripts/db_init.py
 scripts/__pycache__/db_init.cpython-312.pyc
 scripts/schema.sql
-scripts/schema.sql.bak
 resources/icons/banking.svg
 resources/icons/vendors.svg
 resources/icons/deactivate.svg
@@ -390,7 +393,6 @@ tests/unit/services/test_gst_return_service.py
 tests/unit/services/test_sequence_service.py
 tests/unit/services/test_fiscal_year_service.py
 tests/unit/reporting/test_dashboard_manager.py
-tests/unit/reporting/test_financial_statement_generator.py.bak
 tests/unit/reporting/test_financial_statement_generator.py
 tests/unit/test_example_unit.py
 README.md

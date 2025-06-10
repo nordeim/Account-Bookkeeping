@@ -35,12 +35,6 @@ from typing import List, Dict, Any, Optional, TYPE_CHECKING
 from datetime import date, timedelta 
 from decimal import Decimal
 
-# REMOVED: from app.services.account_service import AccountService
-# REMOVED: from app.services.journal_service import JournalService
-# REMOVED: from app.services.fiscal_period_service import FiscalPeriodService
-# REMOVED: from app.services.tax_service import TaxCodeService 
-# REMOVED: from app.services.core_services import CompanySettingsService 
-# REMOVED: from app.services.accounting_services import AccountTypeService, DimensionService 
 from app.models.accounting.account import Account 
 from app.models.accounting.fiscal_year import FiscalYear
 from app.models.accounting.account_type import AccountType 
@@ -48,12 +42,12 @@ from app.models.accounting.journal_entry import JournalEntryLine
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore 
-    from app.services.account_service import AccountService # ADDED
-    from app.services.journal_service import JournalService # ADDED
-    from app.services.fiscal_period_service import FiscalPeriodService # ADDED
-    from app.services.tax_service import TaxCodeService # ADDED
-    from app.services.core_services import CompanySettingsService # ADDED
-    from app.services.accounting_services import AccountTypeService, DimensionService # ADDED
+    from app.services.account_service import AccountService
+    from app.services.journal_service import JournalService
+    from app.services.fiscal_period_service import FiscalPeriodService
+    from app.services.tax_service import TaxCodeService
+    from app.services.core_services import CompanySettingsService, ConfigurationService
+    from app.services.accounting_services import AccountTypeService, DimensionService
 
 
 class FinancialStatementGenerator:
@@ -64,7 +58,8 @@ class FinancialStatementGenerator:
                  account_type_service: "AccountTypeService", 
                  tax_code_service: Optional["TaxCodeService"] = None, 
                  company_settings_service: Optional["CompanySettingsService"] = None,
-                 dimension_service: Optional["DimensionService"] = None 
+                 dimension_service: Optional["DimensionService"] = None,
+                 configuration_service: Optional["ConfigurationService"] = None
                  ):
         self.account_service = account_service
         self.journal_service = journal_service
@@ -73,6 +68,7 @@ class FinancialStatementGenerator:
         self.tax_code_service = tax_code_service
         self.company_settings_service = company_settings_service
         self.dimension_service = dimension_service 
+        self.configuration_service = configuration_service
         self._account_type_map_cache: Optional[Dict[str, AccountType]] = None
 
 
@@ -140,21 +136,59 @@ class FinancialStatementGenerator:
         debit_accounts_list.sort(key=lambda a: a['code']); credit_accounts_list.sort(key=lambda a: a['code'])
         return {'title': 'Trial Balance', 'report_date_description': f"As of {as_of_date.strftime('%d %b %Y')}",'as_of_date': as_of_date,'debit_accounts': debit_accounts_list, 'credit_accounts': credit_accounts_list,'total_debits': total_debits_val, 'total_credits': total_credits_val,'is_balanced': abs(total_debits_val - total_credits_val) < Decimal("0.01")}
 
-    async def generate_income_tax_computation(self, year_int_value: int) -> Dict[str, Any]: 
-        fiscal_year_obj: Optional[FiscalYear] = await self.fiscal_period_service.get_fiscal_year(year_int_value) 
-        if not fiscal_year_obj: raise ValueError(f"Fiscal year definition for {year_int_value} not found.")
-        start_date, end_date = fiscal_year_obj.start_date, fiscal_year_obj.end_date
-        pl_data = await self.generate_profit_loss(start_date, end_date); net_profit = pl_data['net_profit']
-        adjustments = []; tax_effect = Decimal(0)
-        tax_adj_accounts = await self.account_service.get_accounts_by_tax_treatment('Tax Adjustment')
-        for account in tax_adj_accounts:
+    async def generate_income_tax_computation(self, fiscal_year: FiscalYear) -> Dict[str, Any]:
+        if not self.configuration_service:
+            raise RuntimeError("ConfigurationService not available for tax computation.")
+            
+        start_date, end_date = fiscal_year.start_date, fiscal_year.end_date
+        
+        pl_data = await self.generate_profit_loss(start_date, end_date)
+        net_profit_before_tax = pl_data.get('net_profit', Decimal(0))
+
+        add_back_adjustments: List[Dict[str, Any]] = []
+        less_adjustments: List[Dict[str, Any]] = []
+        total_add_back = Decimal(0)
+        total_less = Decimal(0)
+
+        non_deductible_accounts = await self.account_service.get_accounts_by_tax_treatment('Non-Deductible')
+        for account in non_deductible_accounts:
             activity = await self.journal_service.get_account_balance_for_period(account.id, start_date, end_date)
-            if abs(activity) < Decimal("0.01"): continue
-            adj_is_addition = activity > Decimal(0) if account.account_type == 'Expense' else activity < Decimal(0)
-            adjustments.append({'id': account.id, 'code': account.code, 'name': account.name, 'amount': activity, 'is_addition': adj_is_addition})
-            tax_effect += activity 
-        taxable_income = net_profit + tax_effect
-        return {'title': f'Income Tax Computation for Year of Assessment {year_int_value + 1}', 'report_date_description': f"For Financial Year Ended {fiscal_year_obj.end_date.strftime('%d %b %Y')}",'year': year_int_value, 'fiscal_year_start': start_date, 'fiscal_year_end': end_date,'net_profit': net_profit, 'adjustments': adjustments, 'tax_effect': tax_effect, 'taxable_income': taxable_income}
+            if activity != Decimal(0):
+                add_back_adjustments.append({'name': f"{account.code} - {account.name}", 'amount': activity})
+                total_add_back += activity
+
+        non_taxable_accounts = await self.account_service.get_accounts_by_tax_treatment('Non-Taxable Income')
+        for account in non_taxable_accounts:
+            activity = await self.journal_service.get_account_balance_for_period(account.id, start_date, end_date)
+            if activity != Decimal(0):
+                # Revenue has negative balance, so activity is negative. We subtract a negative -> add.
+                # To show it as a subtraction, we use the absolute value.
+                less_adjustments.append({'name': f"{account.code} - {account.name}", 'amount': abs(activity)})
+                total_less += abs(activity)
+        
+        chargeable_income = net_profit_before_tax + total_add_back - total_less
+        
+        tax_rate_str = await self.configuration_service.get_config_value("CorpTaxRate_Default", "17.0")
+        tax_rate = Decimal(tax_rate_str if tax_rate_str else "17.0")
+        
+        # Note: This is a simplified calculation. Real tax computation involves capital allowances, PTE, etc.
+        estimated_tax = chargeable_income * (tax_rate / Decimal(100))
+        if estimated_tax < 0:
+            estimated_tax = Decimal(0)
+
+        return {
+            'title': 'Income Tax Computation',
+            'report_date_description': f"For Financial Year Ended {fiscal_year.end_date.strftime('%d %b %Y')}",
+            'fiscal_year_name': fiscal_year.year_name,
+            'net_profit_before_tax': net_profit_before_tax,
+            'add_back_adjustments': add_back_adjustments,
+            'total_add_back': total_add_back,
+            'less_adjustments': less_adjustments,
+            'total_less': total_less,
+            'chargeable_income': chargeable_income,
+            'tax_rate': tax_rate,
+            'estimated_tax': estimated_tax
+        }
 
     async def generate_gst_f5(self, start_date: date, end_date: date) -> Dict[str, Any]:
         if not self.company_settings_service or not self.tax_code_service: raise RuntimeError("TaxCodeService and CompanySettingsService are required for GST F5.")
@@ -216,7 +250,6 @@ class FinancialStatementGenerator:
             dim2 = await self.dimension_service.get_by_id(dimension2_id)
             if dim2: report_desc += f" (Dim2: {dim2.dimension_type}-{dim2.code})"
 
-
         return {
             "title": "General Ledger", "report_date_description": report_desc,
             "account_code": account_orm.code, "account_name": account_orm.name,
@@ -247,173 +280,113 @@ __all__ = [
 # app/reporting/dashboard_manager.py
 ```py
 # File: app/reporting/dashboard_manager.py
-from typing import Optional, TYPE_CHECKING, List, Dict # Added Dict
+from typing import Optional, TYPE_CHECKING, List, Dict
 from datetime import date
 from decimal import Decimal
 
 from app.utils.pydantic_models import DashboardKPIData
 from app.models.accounting.fiscal_year import FiscalYear 
-from app.models.accounting.account import Account # For type hinting
+from app.models.accounting.account import Account
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore
 
-# Define standard "current" account subtypes. These should ideally match common usage or be configurable.
-# These are based on typical Chart of Accounts structures like the general_template.csv.
-CURRENT_ASSET_SUBTYPES = [
-    "Cash and Cash Equivalents", 
-    "Accounts Receivable", 
-    "Inventory", 
-    "Prepaid Expenses",
-    "Other Current Assets", # A generic category
-    "Current Asset" # Another generic category often used as a sub_type directly
-]
-CURRENT_LIABILITY_SUBTYPES = [
-    "Accounts Payable", 
-    "Accrued Liabilities", 
-    "Short-Term Loans", # Assuming "Loans Payable" might be split or if a specific ST Loan subtype exists
-    "Current Portion of Long-Term Debt", # If such a subtype exists
-    "GST Payable", # Typically current
-    "Other Current Liabilities",
-    "Current Liability"
-]
-
+CURRENT_ASSET_SUBTYPES = ["Cash and Cash Equivalents", "Accounts Receivable", "Inventory", "Prepaid Expenses", "Other Current Assets", "Current Asset"]
+CURRENT_LIABILITY_SUBTYPES = ["Accounts Payable", "Accrued Liabilities", "Short-Term Loans", "Current Portion of Long-Term Debt", "GST Payable", "Other Current Liabilities", "Current Liability"]
+NON_CURRENT_LIABILITY_SUBTYPES = ["Long-term Liability", "Long-Term Loans"]
 
 class DashboardManager:
     def __init__(self, app_core: "ApplicationCore"):
         self.app_core = app_core
         self.logger = app_core.logger
 
-    async def get_dashboard_kpis(self) -> Optional[DashboardKPIData]:
+    async def get_dashboard_kpis(self, as_of_date: Optional[date] = None) -> Optional[DashboardKPIData]:
         try:
-            self.logger.info("Fetching dashboard KPIs...")
-            today = date.today()
+            effective_date = as_of_date if as_of_date is not None else date.today()
+            self.logger.info(f"Fetching dashboard KPIs as of {effective_date}...")
             
             company_settings = await self.app_core.company_settings_service.get_company_settings()
-            if not company_settings:
-                self.logger.error("Company settings not found, cannot determine base currency for KPIs.")
-                return None
+            if not company_settings: self.logger.error("Company settings not found."); return None
             base_currency = company_settings.base_currency
 
             all_fiscal_years_orm: List[FiscalYear] = await self.app_core.fiscal_year_service.get_all()
-            current_fy: Optional[FiscalYear] = None
-            for fy_orm in sorted(all_fiscal_years_orm, key=lambda fy: fy.start_date, reverse=True):
-                if fy_orm.start_date <= today <= fy_orm.end_date and not fy_orm.is_closed:
-                    current_fy = fy_orm
-                    break
-            if not current_fy:
-                open_fys = [fy_orm for fy_orm in all_fiscal_years_orm if not fy_orm.is_closed]
-                if open_fys: current_fy = max(open_fys, key=lambda fy: fy.start_date)
-            if not current_fy and all_fiscal_years_orm:
-                current_fy = max(all_fiscal_years_orm, key=lambda fy: fy.start_date)
+            current_fy: Optional[FiscalYear] = next((fy for fy in sorted(all_fiscal_years_orm, key=lambda fy: fy.start_date, reverse=True) if fy.start_date <= effective_date <= fy.end_date and not fy.is_closed), None)
+            if not current_fy: current_fy = next((fy for fy in sorted(all_fiscal_years_orm, key=lambda fy: fy.start_date, reverse=True) if not fy.is_closed), None)
+            if not current_fy and all_fiscal_years_orm: current_fy = max(all_fiscal_years_orm, key=lambda fy: fy.start_date)
 
-            total_revenue_ytd = Decimal(0)
-            total_expenses_ytd = Decimal(0)
-            net_profit_ytd = Decimal(0)
-            kpi_period_description: str
-
-            if current_fy:
-                fy_start_date = current_fy.start_date
-                fy_end_date = current_fy.end_date
-                effective_end_date_for_ytd = min(today, fy_end_date)
+            total_revenue_ytd, total_expenses_ytd, net_profit_ytd = Decimal(0), Decimal(0), Decimal(0)
+            kpi_period_description = f"As of {effective_date.strftime('%d %b %Y')} (No active FY)"
+            if current_fy and effective_date >= current_fy.start_date:
+                effective_end_date_for_ytd = min(effective_date, current_fy.end_date)
                 kpi_period_description = f"YTD as of {effective_end_date_for_ytd.strftime('%d %b %Y')} (FY: {current_fy.year_name})"
-                if today >= fy_start_date: # Ensure we are within or past the start of the current FY
-                    pl_data = await self.app_core.financial_statement_generator.generate_profit_loss(
-                        start_date=fy_start_date,
-                        end_date=effective_end_date_for_ytd
-                    )
-                    if pl_data:
-                        total_revenue_ytd = pl_data.get('revenue', {}).get('total', Decimal(0))
-                        total_expenses_ytd = pl_data.get('expenses', {}).get('total', Decimal(0))
-                        net_profit_ytd = pl_data.get('net_profit', Decimal(0))
-            else:
-                self.logger.warning("No fiscal year found. Cannot calculate YTD KPIs.")
-                kpi_period_description = f"As of {today.strftime('%d %b %Y')} (No active FY)"
+                pl_data = await self.app_core.financial_statement_generator.generate_profit_loss(current_fy.start_date, effective_end_date_for_ytd)
+                if pl_data:
+                    total_revenue_ytd, total_expenses_ytd, net_profit_ytd = pl_data.get('revenue', {}).get('total', Decimal(0)), pl_data.get('expenses', {}).get('total', Decimal(0)), pl_data.get('net_profit', Decimal(0))
+            elif current_fy:
+                 kpi_period_description = f"As of {effective_date.strftime('%d %b %Y')} (FY: {current_fy.year_name} not started)"
 
-            current_cash_balance = await self._get_total_cash_balance(base_currency)
-            total_outstanding_ar = await self.app_core.customer_service.get_total_outstanding_balance()
-            total_outstanding_ap = await self.app_core.vendor_service.get_total_outstanding_balance()
-            total_ar_overdue = await self.app_core.customer_service.get_total_overdue_balance() 
-            total_ap_overdue = await self.app_core.vendor_service.get_total_overdue_balance() 
+            current_cash_balance = await self._get_total_cash_balance(base_currency, effective_date)
+            total_outstanding_ar = await self.app_core.customer_service.get_total_outstanding_balance(); total_outstanding_ap = await self.app_core.vendor_service.get_total_outstanding_balance()
+            total_ar_overdue = await self.app_core.customer_service.get_total_overdue_balance(); total_ap_overdue = await self.app_core.vendor_service.get_total_overdue_balance() 
+            ar_aging_summary = await self.app_core.customer_service.get_ar_aging_summary(effective_date); ap_aging_summary = await self.app_core.vendor_service.get_ap_aging_summary(effective_date)
 
-            # Fetch AR/AP Aging Summaries
-            ar_aging_summary = await self.app_core.customer_service.get_ar_aging_summary(as_of_date=today)
-            ap_aging_summary = await self.app_core.vendor_service.get_ap_aging_summary(as_of_date=today)
-
-            # Calculate Total Current Assets and Liabilities
-            total_current_assets = Decimal(0)
-            total_current_liabilities = Decimal(0)
+            # --- Ratio Calculations ---
+            total_current_assets, total_current_liabilities, total_non_current_liabilities, total_inventory, total_equity = (Decimal(0) for _ in range(5))
             all_active_accounts: List[Account] = await self.app_core.account_service.get_all_active()
 
             for acc in all_active_accounts:
-                balance = await self.app_core.journal_service.get_account_balance(acc.id, today)
-                if acc.account_type == "Asset" and acc.sub_type in CURRENT_ASSET_SUBTYPES:
-                    total_current_assets += balance
-                elif acc.account_type == "Liability" and acc.sub_type in CURRENT_LIABILITY_SUBTYPES:
-                    # JournalService.get_account_balance for liability accounts (credit nature)
-                    # returns a positive value if it's a credit balance. Summing these directly is correct.
-                    total_current_liabilities += balance 
-            
-            current_ratio: Optional[Decimal] = None
-            if total_current_liabilities > Decimal(0):
-                current_ratio = (total_current_assets / total_current_liabilities).quantize(Decimal("0.01"))
-            elif total_current_assets > Decimal(0) and total_current_liabilities == Decimal(0):
-                current_ratio = Decimal('Infinity') # Represent as None or a very large number for display
-                self.logger.warning("Current Liabilities are zero, Current Ratio is effectively infinite.")
+                balance = await self.app_core.journal_service.get_account_balance(acc.id, effective_date)
+                if acc.account_type == "Asset":
+                    if acc.sub_type in CURRENT_ASSET_SUBTYPES: total_current_assets += balance
+                    if acc.sub_type == "Inventory": total_inventory += balance
+                elif acc.account_type == "Liability":
+                    if acc.sub_type in CURRENT_LIABILITY_SUBTYPES: total_current_liabilities += balance
+                    elif acc.sub_type in NON_CURRENT_LIABILITY_SUBTYPES: total_non_current_liabilities += balance
+                elif acc.account_type == "Equity": total_equity += balance
 
+            total_liabilities = total_current_liabilities + total_non_current_liabilities
+            
+            quick_ratio: Optional[Decimal] = None
+            if total_current_liabilities > 0: quick_ratio = ((total_current_assets - total_inventory) / total_current_liabilities).quantize(Decimal("0.01"))
+            elif (total_current_assets - total_inventory) > 0: quick_ratio = Decimal('Infinity')
+
+            debt_to_equity_ratio: Optional[Decimal] = None
+            if total_equity > 0: debt_to_equity_ratio = (total_liabilities / total_equity).quantize(Decimal("0.01"))
+            elif total_liabilities > 0: debt_to_equity_ratio = Decimal('Infinity')
+
+            current_ratio: Optional[Decimal] = None
+            if total_current_liabilities > 0: current_ratio = (total_current_assets / total_current_liabilities).quantize(Decimal("0.01"))
+            elif total_current_assets > 0: current_ratio = Decimal('Infinity')
 
             return DashboardKPIData(
-                kpi_period_description=kpi_period_description,
-                base_currency=base_currency,
-                total_revenue_ytd=total_revenue_ytd,
-                total_expenses_ytd=total_expenses_ytd,
-                net_profit_ytd=net_profit_ytd,
-                current_cash_balance=current_cash_balance,
-                total_outstanding_ar=total_outstanding_ar,
-                total_outstanding_ap=total_outstanding_ap,
-                total_ar_overdue=total_ar_overdue, 
-                total_ap_overdue=total_ap_overdue,
-                ar_aging_current=ar_aging_summary.get("Current", Decimal(0)),
-                ar_aging_31_60=ar_aging_summary.get("31-60 Days", Decimal(0)),
-                ar_aging_61_90=ar_aging_summary.get("61-90 Days", Decimal(0)),
+                kpi_period_description=kpi_period_description, base_currency=base_currency,
+                total_revenue_ytd=total_revenue_ytd, total_expenses_ytd=total_expenses_ytd, net_profit_ytd=net_profit_ytd,
+                current_cash_balance=current_cash_balance, total_outstanding_ar=total_outstanding_ar, total_outstanding_ap=total_outstanding_ap,
+                total_ar_overdue=total_ar_overdue, total_ap_overdue=total_ap_overdue,
+                ar_aging_current=ar_aging_summary.get("Current", Decimal(0)), ar_aging_1_30=ar_aging_summary.get("1-30 Days", Decimal(0)),
+                ar_aging_31_60=ar_aging_summary.get("31-60 Days", Decimal(0)), ar_aging_61_90=ar_aging_summary.get("61-90 Days", Decimal(0)),
                 ar_aging_91_plus=ar_aging_summary.get("91+ Days", Decimal(0)),
-                # Adding 1-30 days for AR (ensure service provides this key or adjust)
-                ar_aging_1_30=ar_aging_summary.get("1-30 Days", Decimal(0)),
-                ap_aging_current=ap_aging_summary.get("Current", Decimal(0)),
-                ap_aging_31_60=ap_aging_summary.get("31-60 Days", Decimal(0)),
-                ap_aging_61_90=ap_aging_summary.get("61-90 Days", Decimal(0)),
+                ap_aging_current=ap_aging_summary.get("Current", Decimal(0)), ap_aging_1_30=ap_aging_summary.get("1-30 Days", Decimal(0)),
+                ap_aging_31_60=ap_aging_summary.get("31-60 Days", Decimal(0)), ap_aging_61_90=ap_aging_summary.get("61-90 Days", Decimal(0)),
                 ap_aging_91_plus=ap_aging_summary.get("91+ Days", Decimal(0)),
-                # Adding 1-30 days for AP
-                ap_aging_1_30=ap_aging_summary.get("1-30 Days", Decimal(0)),
-                total_current_assets=total_current_assets.quantize(Decimal("0.01")),
-                total_current_liabilities=total_current_liabilities.quantize(Decimal("0.01")),
-                current_ratio=current_ratio
+                total_current_assets=total_current_assets.quantize(Decimal("0.01")), total_current_liabilities=total_current_liabilities.quantize(Decimal("0.01")),
+                total_inventory=total_inventory.quantize(Decimal("0.01")), total_liabilities=total_liabilities.quantize(Decimal("0.01")), total_equity=total_equity.quantize(Decimal("0.01")),
+                current_ratio=current_ratio, quick_ratio=quick_ratio, debt_to_equity_ratio=debt_to_equity_ratio
             )
         except Exception as e:
             self.logger.error(f"Error fetching dashboard KPIs: {e}", exc_info=True)
             return None
 
-    async def _get_total_cash_balance(self, base_currency: str) -> Decimal:
-        active_bank_accounts_summary = await self.app_core.bank_account_service.get_all_summary(
-            active_only=True, 
-            currency_code=base_currency, # Only sum bank accounts in base currency for simplicity
-            page_size=-1 
-        )
-        total_cash = Decimal(0)
-        if active_bank_accounts_summary:
-            total_cash = sum(ba.current_balance for ba in active_bank_accounts_summary if ba.currency_code == base_currency and ba.current_balance is not None)
-        
-        # Optionally, add cash on hand GL account balance if distinct from bank GLs
+    async def _get_total_cash_balance(self, base_currency: str, as_of_date: date) -> Decimal:
+        active_bank_accounts_summary = await self.app_core.bank_account_service.get_all_summary(active_only=True, currency_code=base_currency, page_size=-1)
+        total_cash = sum(ba.current_balance for ba in active_bank_accounts_summary if ba.currency_code == base_currency and ba.current_balance is not None)
         cash_on_hand_code = await self.app_core.configuration_service.get_config_value("SysAcc_DefaultCash")
         if cash_on_hand_code:
             cash_on_hand_acc = await self.app_core.account_service.get_by_code(cash_on_hand_code)
             if cash_on_hand_acc and cash_on_hand_acc.is_active:
-                 # Check if this GL is NOT already linked to any bank account to avoid double counting
                 linked_bank_acc_check = await self.app_core.bank_account_service.get_by_gl_account_id(cash_on_hand_acc.id)
                 if not linked_bank_acc_check:
-                    cash_on_hand_balance = await self.app_core.journal_service.get_account_balance(cash_on_hand_acc.id, date.today())
-                    total_cash += cash_on_hand_balance
-
+                    total_cash += await self.app_core.journal_service.get_account_balance(cash_on_hand_acc.id, as_of_date)
         return total_cash.quantize(Decimal("0.01"))
 
 ```
@@ -421,7 +394,7 @@ class DashboardManager:
 # app/reporting/report_engine.py
 ```py
 # File: app/reporting/report_engine.py
-from typing import Dict, Any, Literal, List, Optional, TYPE_CHECKING 
+from typing import Dict, Any, Literal, List, Optional, TYPE_CHECKING, cast 
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, KeepInFrame
 from reportlab.platypus.flowables import KeepTogether
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle 
@@ -436,7 +409,7 @@ from openpyxl.utils import get_column_letter
 from decimal import Decimal, InvalidOperation
 from datetime import date
 
-from app.utils.pydantic_models import GSTReturnData, GSTTransactionLineDetail # Import new DTOs
+from app.utils.pydantic_models import GSTReturnData, GSTTransactionLineDetail
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore 
@@ -461,10 +434,8 @@ class ReportEngine:
         self.styles.add(ParagraphStyle(name='NormalCenter', parent=self.styles['Normal'], alignment=TA_CENTER))
         self.styles.add(ParagraphStyle(name='GLAccountHeader', parent=self.styles['h3'], fontSize=10, spaceBefore=0.1*inch, spaceAfter=0.05*inch, alignment=TA_LEFT))
 
-
-    async def export_report(self, report_data: Dict[str, Any], format_type: Literal["pdf", "excel", "gst_excel_detail"]) -> bytes: # Added "gst_excel_detail"
+    async def export_report(self, report_data: Dict[str, Any], format_type: Literal["pdf", "excel", "gst_excel_detail"]) -> Optional[bytes]:
         title = report_data.get('title', "Financial Report")
-        # Special handling if report_data is GSTReturnData for detail export
         is_gst_detail_export = isinstance(report_data, GSTReturnData) and "gst_excel_detail" in format_type
 
         if format_type == "pdf":
@@ -472,18 +443,20 @@ class ReportEngine:
             elif title == "Profit & Loss Statement": return await self._export_profit_loss_to_pdf(report_data)
             elif title == "Trial Balance": return await self._export_trial_balance_to_pdf(report_data)
             elif title == "General Ledger": return await self._export_general_ledger_to_pdf(report_data)
+            elif title == "Income Tax Computation": return await self._export_tax_computation_to_pdf(report_data)
             else: return self._export_generic_table_to_pdf(report_data) 
         elif format_type == "excel":
             if title == "Balance Sheet": return await self._export_balance_sheet_to_excel(report_data)
             elif title == "Profit & Loss Statement": return await self._export_profit_loss_to_excel(report_data)
             elif title == "Trial Balance": return await self._export_trial_balance_to_excel(report_data)
             elif title == "General Ledger": return await self._export_general_ledger_to_excel(report_data)
+            elif title == "Income Tax Computation": return await self._export_tax_computation_to_excel(report_data)
             else: return self._export_generic_table_to_excel(report_data) 
-        elif is_gst_detail_export: # Check for specific GST detail export type
-            # Cast is safe here due to the check above
+        elif is_gst_detail_export:
             return await self._export_gst_f5_details_to_excel(cast(GSTReturnData, report_data))
         else:
-            raise ValueError(f"Unsupported report format or data type mismatch: {format_type}, type: {type(report_data)}")
+            self.app_core.logger.error(f"Unsupported report format or data type mismatch: {format_type}, type: {type(report_data)}")
+            return None
 
     def _format_decimal(self, value: Optional[Decimal], places: int = 2, show_blank_for_zero: bool = False) -> str:
         if value is None: return "" if show_blank_for_zero else self._format_decimal(Decimal(0), places) 
@@ -498,23 +471,16 @@ class ReportEngine:
         return settings.company_name if settings else "Your Company"
 
     def _add_pdf_header_footer(self, canvas, doc, company_name: str, report_title: str, date_desc: str):
-        canvas.saveState()
-        page_width = doc.width + doc.leftMargin + doc.rightMargin
-        header_y_start = doc.height + doc.topMargin - 0.5*inch
+        canvas.saveState(); page_width = doc.width + doc.leftMargin + doc.rightMargin; header_y_start = doc.height + doc.topMargin - 0.5*inch
         canvas.setFont('Helvetica-Bold', 14); canvas.drawCentredString(page_width/2, header_y_start, company_name)
         canvas.setFont('Helvetica-Bold', 12); canvas.drawCentredString(page_width/2, header_y_start - 0.25*inch, report_title)
         canvas.setFont('Helvetica', 10); canvas.drawCentredString(page_width/2, header_y_start - 0.5*inch, date_desc)
-        footer_y = 0.5*inch; canvas.setFont('Helvetica', 8)
-        canvas.drawString(doc.leftMargin, footer_y, f"Generated on: {date.today().strftime('%d %b %Y')}")
-        canvas.drawRightString(page_width - doc.rightMargin, footer_y, f"Page {doc.page}")
-        canvas.restoreState()
+        footer_y = 0.5*inch; canvas.setFont('Helvetica', 8); canvas.drawString(doc.leftMargin, footer_y, f"Generated on: {date.today().strftime('%d %b %Y')}"); canvas.drawRightString(page_width - doc.rightMargin, footer_y, f"Page {doc.page}"); canvas.restoreState()
 
-    # ... (Existing PDF export methods for BS, P&L, TB, GL, Generic - unchanged) ...
     async def _export_balance_sheet_to_pdf(self, report_data: Dict[str, Any]) -> bytes:
         buffer = BytesIO(); company_name = await self._get_company_name(); report_title = report_data.get('title', "Balance Sheet"); date_desc = report_data.get('report_date_description', "")
         doc = SimpleDocTemplate(buffer, pagesize=A4,rightMargin=0.75*inch, leftMargin=0.75*inch,topMargin=1.25*inch, bottomMargin=0.75*inch)
-        story: List[Any] = []; has_comparative = bool(report_data.get('comparative_date'))
-        col_widths = [3.5*inch, 1.5*inch]; 
+        story: List[Any] = []; has_comparative = bool(report_data.get('comparative_date')); col_widths = [3.5*inch, 1.5*inch]; 
         if has_comparative: col_widths.append(1.5*inch)
         header_texts = ["Description", "Current Period"]; 
         if has_comparative: header_texts.append("Comparative")
@@ -549,18 +515,17 @@ class ReportEngine:
     async def _export_profit_loss_to_pdf(self, report_data: Dict[str, Any]) -> bytes:
         buffer = BytesIO(); company_name = await self._get_company_name(); report_title = report_data.get('title', "Profit & Loss Statement"); date_desc = report_data.get('report_date_description', "")
         doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=0.75*inch, leftMargin=0.75*inch,topMargin=1.25*inch, bottomMargin=0.75*inch)
-        story: List[Any] = []; has_comparative = bool(report_data.get('comparative_start'))
-        col_widths = [3.5*inch, 1.5*inch]; 
+        story: List[Any] = []; has_comparative = bool(report_data.get('comparative_start')); comp_header_text = "Comparative"; 
+        if has_comparative and report_data.get('comparative_start') and report_data.get('comparative_end'): comp_start_str = report_data['comparative_start'].strftime('%d/%m/%y'); comp_end_str = report_data['comparative_end'].strftime('%d/%m/%y'); comp_header_text = f"Comp. ({comp_start_str}-{comp_end_str})"
+        headers = ["Description", "Amount"]; 
+        if has_comparative: headers.append(comp_header_text); 
+        table_header_row = [Paragraph(text, self.styles['TableHeader']) for text in headers]; col_widths = [3.5*inch, 1.5*inch]; 
         if has_comparative: col_widths.append(1.5*inch)
-        header_texts = ["Description", "Current Period"]; 
-        if has_comparative: header_texts.append("Comparative")
-        table_header_row = [Paragraph(text, self.styles['TableHeader']) for text in header_texts]
         def build_pl_section_data(section_key: str, title: str, is_subtraction: bool = False):
             data: List[List[Any]] = []; section = report_data.get(section_key, {})
             data.append([Paragraph(title, self.styles['SectionHeader'])] + (["", ""] if has_comparative else [""]))
             for acc in section.get('accounts', []):
-                balance = acc['balance']
-                row = [Paragraph(f"{acc['code']} - {acc['name']}", self.styles['AccountName']), Paragraph(self._format_decimal(balance), self.styles['Amount'])]
+                balance = acc['balance']; row = [Paragraph(f"  {acc['code']} - {acc['name']}", self.styles['AccountName']), Paragraph(self._format_decimal(balance), self.styles['Amount'])]
                 if has_comparative:
                     comp_bal_str = ""; 
                     if section.get('comparative_accounts'):
@@ -571,8 +536,7 @@ class ReportEngine:
             total = section.get('total'); total_row = [Paragraph(f"Total {title}", self.styles['AccountNameBold']), Paragraph(self._format_decimal(total), self.styles['AmountBold'])]
             if has_comparative: comp_total = section.get('comparative_total'); total_row.append(Paragraph(self._format_decimal(comp_total), self.styles['AmountBold']))
             data.append(total_row); data.append([Spacer(1, 0.1*inch)] * len(col_widths)); return data, total, section.get('comparative_total') if has_comparative else None
-        pl_data: List[List[Any]] = [table_header_row]
-        rev_data, total_revenue, comp_total_revenue = build_pl_section_data('revenue', 'Revenue'); pl_data.extend(rev_data)
+        pl_data: List[List[Any]] = [table_header_row]; rev_data, total_revenue, comp_total_revenue = build_pl_section_data('revenue', 'Revenue'); pl_data.extend(rev_data)
         exp_data, total_expenses, comp_total_expenses = build_pl_section_data('expenses', 'Operating Expenses', is_subtraction=True); pl_data.extend(exp_data)
         net_profit = report_data.get('net_profit', Decimal(0)); comp_net_profit = report_data.get('comparative_net_profit')
         net_profit_row = [Paragraph("Net Profit / (Loss)", self.styles['AccountNameBold']), Paragraph(self._format_decimal(net_profit), self.styles['AmountBold'])]
@@ -610,6 +574,23 @@ class ReportEngine:
         gl_table = Table(gl_data, colWidths=col_widths_gl); style = TableStyle([('GRID', (0,0), (-1,-1), 0.5, colors.grey), ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#4F81BD")), ('VALIGN', (0,0), (-1,-1), 'MIDDLE'), ('ALIGN', (0,1), (1,-1), 'CENTER'), ('ALIGN', (4,1), (6,-1), 'RIGHT'),]); gl_table.setStyle(style); story.append(gl_table); story.append(Spacer(1, 0.1*inch)); story.append(Paragraph(f"Closing Balance: {self._format_decimal(report_data.get('closing_balance'))}", self.styles['AmountBold']))
         doc.build(story, onFirstPage=lambda c, d: self._add_pdf_header_footer(c, d, company_name, report_title, date_desc), onLaterPages=lambda c, d: self._add_pdf_header_footer(c, d, company_name, report_title, date_desc)); return buffer.getvalue()
 
+    async def _export_tax_computation_to_pdf(self, report_data: Dict[str, Any]) -> bytes:
+        buffer = BytesIO(); company_name = await self._get_company_name(); report_title = report_data.get('title', "Tax Computation"); date_desc = report_data.get('report_date_description', "")
+        doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=0.75*inch, leftMargin=0.75*inch, topMargin=1.25*inch, bottomMargin=0.75*inch)
+        story: List[Any] = []; col_widths = [5*inch, 1.5*inch]; table_header_row = [Paragraph("Description", self.styles['TableHeader']), Paragraph("Amount", self.styles['TableHeader'])]; data: List[List[Any]] = [table_header_row]
+        data.append([Paragraph("Net Profit Before Tax", self.styles['AccountNameBold']), Paragraph(self._format_decimal(report_data.get('net_profit_before_tax')), self.styles['AmountBold'])])
+        data.append([Paragraph("Add: Non-Deductible Expenses", self.styles['SectionHeader']), ""]); 
+        for adj in report_data.get('add_back_adjustments', []): data.append([Paragraph(f"  {adj['name']}", self.styles['AccountName']), Paragraph(self._format_decimal(adj['amount']), self.styles['Amount'])])
+        data.append([Paragraph("Less: Non-Taxable Income", self.styles['SectionHeader']), ""])
+        for adj in report_data.get('less_adjustments', []): data.append([Paragraph(f"  {adj['name']}", self.styles['AccountName']), Paragraph(f"({self._format_decimal(adj['amount'])})", self.styles['Amount'])])
+        data.append([Paragraph("Chargeable Income", self.styles['AccountNameBold']), Paragraph(self._format_decimal(report_data.get('chargeable_income')), self.styles['AmountBold'])])
+        data.append([Paragraph(f"Estimated Tax @ {report_data.get('tax_rate', 0):.2f}%", self.styles['AccountNameBold']), Paragraph(self._format_decimal(report_data.get('estimated_tax')), self.styles['AmountBold'])])
+        table = Table(data, colWidths=col_widths)
+        style = TableStyle([('GRID', (0,0), (-1,-1), 0.5, colors.grey), ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#4F81BD")), ('VALIGN', (0,0), (-1,-1), 'MIDDLE'), ('LINEABOVE', (1, -1), (1,-1), 1, colors.black), ('LINEBELOW', (1, -1), (1, -1), 1, colors.black, None, (2,2), 0, 1),])
+        style.add('SPAN', (0, 2), (1, 2)); style.add('SPAN', (0, len(data)-5), (1, len(data)-5)); 
+        table.setStyle(style); story.append(table)
+        doc.build(story, onFirstPage=lambda c, d: self._add_pdf_header_footer(c, d, company_name, report_title, date_desc), onLaterPages=lambda c, d: self._add_pdf_header_footer(c, d, company_name, report_title, date_desc)); return buffer.getvalue()
+
     def _export_generic_table_to_pdf(self, report_data: Dict[str, Any]) -> bytes:
         self.app_core.logger.warning(f"Using generic PDF export for report: {report_data.get('title')}")
         buffer = BytesIO(); doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=0.5*inch, leftMargin=0.5*inch, topMargin=0.5*inch, bottomMargin=0.5*inch)
@@ -624,8 +605,6 @@ class ReportEngine:
         else: story.append(Paragraph("No data or headers provided for generic export.", self.styles['Normal']))
         doc.build(story); return buffer.getvalue()
 
-    # --- Excel Export Methods ---
-    # ... ( _apply_excel_header_style, _apply_excel_amount_style, _export_balance_sheet_to_excel, _export_profit_loss_to_excel, _export_trial_balance_to_excel, _export_general_ledger_to_excel, _export_generic_table_to_excel - unchanged)
     def _apply_excel_header_style(self, cell, bold=True, size=12, alignment='center', fill_color: Optional[str]=None):
         cell.font = Font(bold=bold, size=size, color="FFFFFF" if fill_color else "000000")
         if alignment == 'center': cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
@@ -742,94 +721,53 @@ class ReportEngine:
         for i in [5,6,7]: ws.column_dimensions[get_column_letter(i)].width = 18
         excel_bytes_io = BytesIO(); wb.save(excel_bytes_io); return excel_bytes_io.getvalue()
 
-    # --- New GST F5 Detail Excel Export ---
+    async def _export_tax_computation_to_excel(self, report_data: Dict[str, Any]) -> bytes:
+        wb = openpyxl.Workbook(); ws = wb.active; ws.title = "Tax Computation"; company_name = await self._get_company_name(); row_num = 1
+        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=2); self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=company_name), size=14, alignment='center'); row_num += 1
+        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=2); self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=report_data.get('title')), size=12, alignment='center'); row_num += 1
+        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=2); self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=report_data.get('report_date_description')), size=10, bold=False, alignment='center'); row_num += 2
+        for col, header_text in enumerate(["Description", "Amount"], 1): self._apply_excel_header_style(ws.cell(row=row_num, column=col, value=header_text), fill_color="4F81BD")
+        row_num +=1
+        ws.cell(row=row_num, column=1, value="Net Profit Before Tax").font = Font(bold=True); self._apply_excel_amount_style(ws.cell(row=row_num, column=2, value=float(report_data.get('net_profit_before_tax',0))), bold=True); row_num += 2
+        ws.cell(row=row_num, column=1, value="Add: Non-Deductible Expenses").font = Font(bold=True, color="2F5496"); row_num +=1
+        for adj in report_data.get('add_back_adjustments', []): ws.cell(row=row_num, column=1, value=f"  {adj['name']}"); self._apply_excel_amount_style(ws.cell(row=row_num, column=2, value=float(adj['amount']))); row_num += 1
+        ws.cell(row=row_num, column=1, value="Less: Non-Taxable Income").font = Font(bold=True, color="2F5496"); row_num +=1
+        for adj in report_data.get('less_adjustments', []): ws.cell(row=row_num, column=1, value=f"  {adj['name']}"); self._apply_excel_amount_style(ws.cell(row=row_num, column=2, value=float(adj['amount']))); row_num += 1
+        row_num += 1; ws.cell(row=row_num, column=1, value="Chargeable Income").font = Font(bold=True); self._apply_excel_amount_style(ws.cell(row=row_num, column=2, value=float(report_data.get('chargeable_income',0))), bold=True, underline="thin"); row_num += 2
+        ws.cell(row=row_num, column=1, value=f"Estimated Tax @ {report_data.get('tax_rate', 0):.2f}%").font = Font(bold=True); self._apply_excel_amount_style(ws.cell(row=row_num, column=2, value=float(report_data.get('estimated_tax',0))), bold=True, underline="double");
+        ws.column_dimensions[get_column_letter(1)].width = 60; ws.column_dimensions[get_column_letter(2)].width = 20
+        excel_bytes_io = BytesIO(); wb.save(excel_bytes_io); return excel_bytes_io.getvalue()
+        
     async def _export_gst_f5_details_to_excel(self, report_data: GSTReturnData) -> bytes:
         wb = openpyxl.Workbook()
-        
-        # Summary Sheet
-        ws_summary = wb.active
-        ws_summary.title = "GST F5 Summary"
-        company_name = await self._get_company_name()
-        row_num = 1
-        ws_summary.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3)
-        self._apply_excel_header_style(ws_summary.cell(row=row_num, column=1, value=company_name), size=14)
-        row_num += 1
-        ws_summary.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3)
-        self._apply_excel_header_style(ws_summary.cell(row=row_num, column=1, value="GST F5 Return"), size=12)
-        row_num += 1
-        ws_summary.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3)
-        date_desc = f"For period: {report_data.start_date.strftime('%d %b %Y')} to {report_data.end_date.strftime('%d %b %Y')}"
-        self._apply_excel_header_style(ws_summary.cell(row=row_num, column=1, value=date_desc), size=10, bold=False)
-        row_num += 2
-
-        f5_boxes = [
-            ("1. Standard-Rated Supplies", report_data.standard_rated_supplies),
-            ("2. Zero-Rated Supplies", report_data.zero_rated_supplies),
-            ("3. Exempt Supplies", report_data.exempt_supplies),
-            ("4. Total Supplies (1+2+3)", report_data.total_supplies, True), # Bold
-            ("5. Taxable Purchases", report_data.taxable_purchases),
-            ("6. Output Tax Due", report_data.output_tax),
-            ("7. Input Tax and Refunds Claimed", report_data.input_tax),
-            ("8. GST Adjustments (e.g. Bad Debt Relief)", report_data.tax_adjustments),
-            ("9. Net GST Payable / (Claimable)", report_data.tax_payable, True) # Bold
-        ]
-        for desc, val, *is_bold in f5_boxes:
-            ws_summary.cell(row=row_num, column=1, value=desc).font = Font(bold=bool(is_bold and is_bold[0]))
-            self._apply_excel_amount_style(ws_summary.cell(row=row_num, column=2, value=float(val)), bold=bool(is_bold and is_bold[0]))
-            row_num +=1
-        
-        ws_summary.column_dimensions['A'].width = 45
-        ws_summary.column_dimensions['B'].width = 20
-        
-        # Detail Sheets
+        ws_summary = wb.active; ws_summary.title = "GST F5 Summary"; company_name = await self._get_company_name(); row_num = 1
+        ws_summary.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3); self._apply_excel_header_style(ws_summary.cell(row=row_num, column=1, value=company_name), size=14); row_num += 1
+        ws_summary.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3); self._apply_excel_header_style(ws_summary.cell(row=row_num, column=1, value="GST F5 Return"), size=12); row_num += 1
+        ws_summary.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3); date_desc = f"For period: {report_data.start_date.strftime('%d %b %Y')} to {report_data.end_date.strftime('%d %b %Y')}"; self._apply_excel_header_style(ws_summary.cell(row=row_num, column=1, value=date_desc), size=10, bold=False); row_num += 2
+        f5_boxes = [("1. Standard-Rated Supplies", report_data.standard_rated_supplies),("2. Zero-Rated Supplies", report_data.zero_rated_supplies),("3. Exempt Supplies", report_data.exempt_supplies),("4. Total Supplies (1+2+3)", report_data.total_supplies, True),("5. Taxable Purchases", report_data.taxable_purchases),("6. Output Tax Due", report_data.output_tax),("7. Input Tax and Refunds Claimed", report_data.input_tax),("8. GST Adjustments (e.g. Bad Debt Relief)", report_data.tax_adjustments),("9. Net GST Payable / (Claimable)", report_data.tax_payable, True)]
+        for desc, val, *is_bold in f5_boxes: ws_summary.cell(row=row_num, column=1, value=desc).font = Font(bold=bool(is_bold and is_bold[0])); self._apply_excel_amount_style(ws_summary.cell(row=row_num, column=2, value=float(val)), bold=bool(is_bold and is_bold[0])); row_num +=1
+        ws_summary.column_dimensions['A'].width = 45; ws_summary.column_dimensions['B'].width = 20
         detail_headers = ["Date", "Doc No.", "Entity", "Description", "GL Code", "GL Name", "Net Amount", "GST Amount", "Tax Code"]
-        
-        box_map_to_detail_key = {
-            "Box 1: Std Supplies": "box1_standard_rated_supplies",
-            "Box 2: Zero Supplies": "box2_zero_rated_supplies",
-            "Box 3: Exempt Supplies": "box3_exempt_supplies",
-            "Box 5: Taxable Purchases": "box5_taxable_purchases",
-            "Box 6: Output Tax": "box6_output_tax_details", # Transactions where GST was charged
-            "Box 7: Input Tax": "box7_input_tax_details",   # Transactions where GST was claimed
-        }
-
+        box_map_to_detail_key = {"Box 1: Std Supplies": "box1_standard_rated_supplies","Box 2: Zero Supplies": "box2_zero_rated_supplies","Box 3: Exempt Supplies": "box3_exempt_supplies","Box 5: Taxable Purchases": "box5_taxable_purchases","Box 6: Output Tax": "box6_output_tax_details","Box 7: Input Tax": "box7_input_tax_details"}
         if report_data.detailed_breakdown:
             for sheet_title_prefix, detail_key in box_map_to_detail_key.items():
                 transactions: List[GSTTransactionLineDetail] = report_data.detailed_breakdown.get(detail_key, [])
-                if not transactions: continue # Skip sheet if no details
-                
-                ws_detail = wb.create_sheet(title=sheet_title_prefix[:30]) # Max 31 chars for sheet title
-                row_num_detail = 1
-                for col, header_text in enumerate(detail_headers, 1):
-                    self._apply_excel_header_style(ws_detail.cell(row=row_num_detail, column=col, value=header_text), fill_color="4F81BD")
+                if not transactions: continue
+                ws_detail = wb.create_sheet(title=sheet_title_prefix[:30]); row_num_detail = 1
+                for col, header_text in enumerate(detail_headers, 1): self._apply_excel_header_style(ws_detail.cell(row=row_num_detail, column=col, value=header_text), fill_color="4F81BD")
                 row_num_detail +=1
-                
                 for txn in transactions:
-                    ws_detail.cell(row=row_num_detail, column=1, value=txn.transaction_date.strftime('%d/%m/%Y') if txn.transaction_date else None)
-                    ws_detail.cell(row=row_num_detail, column=2, value=txn.document_no)
-                    ws_detail.cell(row=row_num_detail, column=3, value=txn.entity_name)
-                    ws_detail.cell(row=row_num_detail, column=4, value=txn.description)
-                    ws_detail.cell(row=row_num_detail, column=5, value=txn.account_code)
-                    ws_detail.cell(row=row_num_detail, column=6, value=txn.account_name)
-                    self._apply_excel_amount_style(ws_detail.cell(row=row_num_detail, column=7, value=float(txn.net_amount)))
-                    self._apply_excel_amount_style(ws_detail.cell(row=row_num_detail, column=8, value=float(txn.gst_amount)))
-                    ws_detail.cell(row=row_num_detail, column=9, value=txn.tax_code_applied)
-                    row_num_detail += 1
-                
+                    ws_detail.cell(row=row_num_detail, column=1, value=txn.transaction_date.strftime('%d/%m/%Y') if txn.transaction_date else None); ws_detail.cell(row=row_num_detail, column=2, value=txn.document_no); ws_detail.cell(row=row_num_detail, column=3, value=txn.entity_name); ws_detail.cell(row=row_num_detail, column=4, value=txn.description); ws_detail.cell(row=row_num_detail, column=5, value=txn.account_code); ws_detail.cell(row=row_num_detail, column=6, value=txn.account_name); self._apply_excel_amount_style(ws_detail.cell(row=row_num_detail, column=7, value=float(txn.net_amount))); self._apply_excel_amount_style(ws_detail.cell(row=row_num_detail, column=8, value=float(txn.gst_amount))); ws_detail.cell(row=row_num_detail, column=9, value=txn.tax_code_applied); row_num_detail += 1
                 for i, col_letter in enumerate([get_column_letter(j+1) for j in range(len(detail_headers))]):
-                    if i in [0,1,8]: ws_detail.column_dimensions[col_letter].width = 15 # Date, Doc No, Tax Code
-                    elif i in [2,3,4,5]: ws_detail.column_dimensions[col_letter].width = 30 # Entity, Desc, GL Code, GL Name
-                    else: ws_detail.column_dimensions[col_letter].width = 18 # Amounts
-
-        excel_bytes_io = BytesIO()
-        wb.save(excel_bytes_io)
-        return excel_bytes_io.getvalue()
+                    if i in [0,1,8]: ws_detail.column_dimensions[col_letter].width = 15
+                    elif i in [2,3,4,5]: ws_detail.column_dimensions[col_letter].width = 30
+                    else: ws_detail.column_dimensions[col_letter].width = 18
+        excel_bytes_io = BytesIO(); wb.save(excel_bytes_io); return excel_bytes_io.getvalue()
         
     def _export_generic_table_to_excel(self, report_data: Dict[str, Any]) -> bytes:
         self.app_core.logger.warning(f"Using generic Excel export for report: {report_data.get('title')}")
         wb = openpyxl.Workbook(); ws = wb.active; ws.title = report_data.get('title', "Report")[:30] # type: ignore
-        row_num = 1
-        ws.cell(row=row_num, column=1, value=report_data.get('title')).font = Font(bold=True, size=14); row_num += 1 # type: ignore
+        row_num = 1; ws.cell(row=row_num, column=1, value=report_data.get('title')).font = Font(bold=True, size=14); row_num += 1 # type: ignore
         if report_data.get('report_date_description'): ws.cell(row=row_num, column=1, value=report_data.get('report_date_description')).font = Font(italic=True); row_num += 1 # type: ignore
         row_num += 1; headers = report_data.get('headers', []); data_rows = report_data.get('data_rows', []) 
         if headers:
@@ -2305,17 +2243,16 @@ from typing import List, Optional, Dict, Any, TYPE_CHECKING, Union, cast, Tuple
 from sqlalchemy import select 
 
 from app.models.business.bank_transaction import BankTransaction
-# REMOVED: from app.services.business_services import BankTransactionService, BankAccountService
 from app.utils.result import Result
 from app.utils.pydantic_models import (
-    BankTransactionCreateData, BankTransactionSummaryData
+    BankTransactionCreateData, BankTransactionSummaryData, CSVImportErrorData
 )
 from app.common.enums import BankTransactionTypeEnum
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore
     from sqlalchemy.ext.asyncio import AsyncSession
-    from app.services.business_services import BankTransactionService, BankAccountService # ADDED
+    from app.services.business_services import BankTransactionService, BankAccountService
 
 class BankTransactionManager:
     def __init__(self,
@@ -2410,12 +2347,14 @@ class BankTransactionManager:
         user_id: int,
         column_mapping: Dict[str, Any], 
         import_options: Dict[str, Any]
-    ) -> Result[Dict[str, int]]:
-        imported_count = 0; skipped_duplicates_count = 0; failed_rows_count = 0; zero_amount_skipped_count = 0; total_rows_processed = 0
+    ) -> Result[Dict[str, Any]]:
+        imported_count = 0; skipped_duplicates_count = 0; zero_amount_skipped_count = 0; total_rows_processed = 0
+        detailed_errors: List[CSVImportErrorData] = []
         date_format_str = import_options.get("date_format_str", "%d/%m/%Y"); skip_header = import_options.get("skip_header", True)
         use_single_amount_col = import_options.get("use_single_amount_column", False); debit_is_negative = import_options.get("debit_is_negative_in_single_col", False)
         bank_account = await self.bank_account_service.get_by_id(bank_account_id)
         if not bank_account or not bank_account.is_active: return Result.failure([f"Bank Account ID {bank_account_id} not found or is inactive."])
+        
         try:
             with open(csv_file_path, 'r', encoding='utf-8-sig') as csvfile:
                 using_header_names = any(isinstance(v, str) for v in column_mapping.values()); reader: Any
@@ -2424,10 +2363,17 @@ class BankTransactionManager:
                 if skip_header and not using_header_names: 
                     try: next(reader) 
                     except StopIteration: return Result.failure(["CSV file is empty or only contains a header."])
+                
                 async with self.app_core.db_manager.session() as session:
                     start_row_num = 2 if skip_header else 1
                     for row_num, raw_row_data in enumerate(reader, start=start_row_num):
-                        total_rows_processed += 1; raw_row_dict_for_json: Dict[str, str] = {}
+                        total_rows_processed += 1
+                        original_row_list = list(raw_row_data.values()) if isinstance(raw_row_data, dict) else raw_row_data
+                        
+                        def add_error(msg: str):
+                            nonlocal detailed_errors
+                            detailed_errors.append(CSVImportErrorData(row_number=row_num, row_data=original_row_list, error_message=msg))
+
                         try:
                             def get_field_value(field_key: str) -> Optional[str]:
                                 specifier = column_mapping.get(field_key); 
@@ -2436,45 +2382,48 @@ class BankTransactionManager:
                                 elif not using_header_names and isinstance(raw_row_data, list) and isinstance(specifier, int):
                                     if 0 <= specifier < len(raw_row_data): val = raw_row_data[specifier]
                                 return val.strip() if val else None
-                            if using_header_names and isinstance(raw_row_data, dict): raw_row_dict_for_json = {k: str(v) for k,v in raw_row_data.items()}
-                            elif isinstance(raw_row_data, list): raw_row_dict_for_json = {f"column_{i}": str(val) for i, val in enumerate(raw_row_data)}
-                            else: raw_row_dict_for_json = {"error": "Unknown row format"}
+                            
+                            raw_row_dict_for_json: Dict[str, str] = {k: str(v) for k,v in raw_row_data.items()} if isinstance(raw_row_data, dict) else {f"column_{i}": str(val) for i, val in enumerate(raw_row_data)}
+                            
                             transaction_date_str = get_field_value("date"); description_str = get_field_value("description")
-                            if not transaction_date_str or not description_str: self.logger.warning(f"CSV Import (Row {row_num}): Skipping due to missing date or description."); failed_rows_count += 1; continue
+                            if not transaction_date_str or not description_str: add_error("Skipping: Missing required Date or Description field."); continue
                             try: parsed_transaction_date = datetime.strptime(transaction_date_str, date_format_str).date()
-                            except ValueError: self.logger.warning(f"CSV Import (Row {row_num}): Invalid transaction date format '{transaction_date_str}'. Expected '{date_format_str}'. Skipping."); failed_rows_count += 1; continue
+                            except ValueError: add_error(f"Invalid transaction date format '{transaction_date_str}'. Expected '{date_format_str}'."); continue
+                            
                             value_date_str = get_field_value("value_date"); parsed_value_date: Optional[date] = None
                             if value_date_str:
                                 try: parsed_value_date = datetime.strptime(value_date_str, date_format_str).date()
-                                except ValueError: self.logger.warning(f"CSV Import (Row {row_num}): Invalid value date format '{value_date_str}'.")
+                                except ValueError: add_error(f"Invalid value date format '{value_date_str}'. Ignored.")
+                            
                             final_bt_amount = Decimal(0)
                             if use_single_amount_col:
                                 amount_str = get_field_value("amount")
-                                if not amount_str: self.logger.warning(f"CSV Import (Row {row_num}): Single amount column specified but value is missing. Skipping."); failed_rows_count += 1; continue
-                                try:
-                                    parsed_csv_amount = Decimal(amount_str.replace(',', ''))
-                                    if debit_is_negative: final_bt_amount = parsed_csv_amount
-                                    else: final_bt_amount = -parsed_csv_amount
-                                except InvalidOperation: self.logger.warning(f"CSV Import (Row {row_num}): Invalid amount '{amount_str}' in single amount column. Skipping."); failed_rows_count += 1; continue
+                                if not amount_str: add_error("Single amount column specified but value is missing."); continue
+                                try: parsed_csv_amount = Decimal(amount_str.replace(',', '')); final_bt_amount = -parsed_csv_amount if debit_is_negative else parsed_csv_amount
+                                except InvalidOperation: add_error(f"Invalid amount '{amount_str}' in single amount column."); continue
                             else:
                                 debit_str = get_field_value("debit"); credit_str = get_field_value("credit")
                                 try:
                                     parsed_debit = Decimal(debit_str.replace(',', '')) if debit_str else Decimal(0)
                                     parsed_credit = Decimal(credit_str.replace(',', '')) if credit_str else Decimal(0)
                                     final_bt_amount = parsed_credit - parsed_debit
-                                except InvalidOperation: self.logger.warning(f"CSV Import (Row {row_num}): Invalid debit '{debit_str}' or credit '{credit_str}' amount. Skipping."); failed_rows_count += 1; continue
-                            if abs(final_bt_amount) < Decimal("0.005"): self.logger.info(f"CSV Import (Row {row_num}): Skipping due to zero net amount."); zero_amount_skipped_count += 1; continue
+                                except InvalidOperation: add_error(f"Invalid debit '{debit_str}' or credit '{credit_str}' amount."); continue
+                            
+                            if abs(final_bt_amount) < Decimal("0.005"): zero_amount_skipped_count += 1; continue
+                            
                             reference_str = get_field_value("reference")
                             stmt_dup = select(BankTransaction).where(BankTransaction.bank_account_id == bank_account_id,BankTransaction.transaction_date == parsed_transaction_date,BankTransaction.amount == final_bt_amount,BankTransaction.description == description_str,BankTransaction.is_from_statement == True)
-                            existing_dup_res = await session.execute(stmt_dup)
-                            if existing_dup_res.scalars().first(): self.logger.info(f"CSV Import (Row {row_num}): Skipping as likely duplicate."); skipped_duplicates_count += 1; continue
+                            if (await session.execute(stmt_dup)).scalars().first(): skipped_duplicates_count += 1; continue
+                            
                             txn_type_enum = BankTransactionTypeEnum.DEPOSIT if final_bt_amount > 0 else BankTransactionTypeEnum.WITHDRAWAL
                             txn_orm = BankTransaction(bank_account_id=bank_account_id,transaction_date=parsed_transaction_date,value_date=parsed_value_date,transaction_type=txn_type_enum.value,description=description_str,reference=reference_str if reference_str else None,amount=final_bt_amount,is_reconciled=False,is_from_statement=True,raw_statement_data=raw_row_dict_for_json, created_by_user_id=user_id,updated_by_user_id=user_id)
                             session.add(txn_orm); imported_count += 1
-                        except Exception as e_row: self.logger.error(f"CSV Import (Row {row_num}): Unexpected error: {e_row}", exc_info=True); failed_rows_count += 1
-            summary = {"total_rows_in_file": total_rows_processed, "imported_count": imported_count, "skipped_duplicates_count": skipped_duplicates_count, "failed_rows_count": failed_rows_count, "zero_amount_skipped_count": zero_amount_skipped_count}
+                        except Exception as e_row: add_error(f"Unexpected error: {str(e_row)}")
+
+            summary = {"total_rows_processed": total_rows_processed, "imported_count": imported_count, "skipped_duplicates_count": skipped_duplicates_count, "failed_rows_count": len(detailed_errors), "zero_amount_skipped_count": zero_amount_skipped_count, "detailed_errors": detailed_errors}
             self.logger.info(f"Bank statement import complete for account ID {bank_account_id}: {summary}")
             return Result.success(summary)
+
         except FileNotFoundError: self.logger.error(f"CSV Import: File not found at path: {csv_file_path}"); return Result.failure([f"CSV file not found: {csv_file_path}"])
         except Exception as e: self.logger.error(f"CSV Import: General error for account ID {bank_account_id}: {e}", exc_info=True); return Result.failure([f"General error during CSV import: {str(e)}"])
 
@@ -2484,33 +2433,22 @@ class BankTransactionManager:
         statement_end_date: date,
         page_size_override: int = -1 
     ) -> Result[Tuple[List[BankTransactionSummaryData], List[BankTransactionSummaryData]]]:
-        
         try:
             statement_items_result = await self.get_transactions_for_bank_account(
-                bank_account_id=bank_account_id,
-                end_date=statement_end_date, 
-                is_reconciled=False,
-                is_from_statement_filter=True,
-                page=1, page_size=page_size_override 
+                bank_account_id=bank_account_id, end_date=statement_end_date, 
+                is_reconciled=False, is_from_statement_filter=True, page=1, page_size=page_size_override 
             )
             if not statement_items_result.is_success:
                 return Result.failure(["Failed to fetch statement items for reconciliation."] + (statement_items_result.errors or []))
             
-            statement_lines = statement_items_result.value or []
-
             system_items_result = await self.get_transactions_for_bank_account(
-                bank_account_id=bank_account_id,
-                end_date=statement_end_date, 
-                is_reconciled=False,
-                is_from_statement_filter=False,
-                page=1, page_size=page_size_override
+                bank_account_id=bank_account_id, end_date=statement_end_date, 
+                is_reconciled=False, is_from_statement_filter=False, page=1, page_size=page_size_override
             )
             if not system_items_result.is_success:
                 return Result.failure(["Failed to fetch system transactions for reconciliation."] + (system_items_result.errors or []))
             
-            system_txns = system_items_result.value or []
-            
-            return Result.success((statement_lines, system_txns))
+            return Result.success((statement_items_result.value or [], system_items_result.value or []))
 
         except Exception as e:
             self.logger.error(f"Error fetching transactions for matching UI (Account ID: {bank_account_id}): {e}", exc_info=True)
