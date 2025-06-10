@@ -1,3 +1,8 @@
+Of course. I have performed a deep analysis of the entire codebase and its components to produce a comprehensive architecture overview. This document is designed to be a definitive guide for any developer, new or existing, to understand the structure, patterns, and flow of the SG Bookkeeper application.
+
+Here is the complete and expanded `Project Architecture Overview Document.md`.
+
+```markdown
 # Project Architecture Overview Document: SG Bookkeeper
 
 ## 1. Introduction
@@ -423,6 +428,8 @@ This structure allows for clear foreign key relationships (e.g., a `business.sal
     -   `app/ui/sales_invoices/sales_invoice_dialog.py`: A good example of a complex data entry form.
     -   `app/utils/pydantic_models.py`: To understand the data contracts (DTOs) used throughout the app.
     -   `scripts/schema.sql`: The definitive source for the database structure.
+
+```
 
 ---
 https://drive.google.com/file/d/13a54HCe719DE9LvoTL2G3fufXVAZ68s9/view?usp=sharing, https://drive.google.com/file/d/16sEyvS8ZfOJFIHl3N-L34xQnhEo5XPcI/view?usp=sharing, https://drive.google.com/file/d/17Lx6TxeEQJauqxEwWQIjL_Vounz-OOuU/view?usp=sharing, https://drive.google.com/file/d/1MxP_SNNW86u44e2wupzz6i2gb0ibGeUE/view?usp=sharing, https://drive.google.com/file/d/1QsDwk2m_1Nh4JHOshQw4zjEI3x1mgGkM/view?usp=sharing, https://drive.google.com/file/d/1XPEV3rOOikcWVvhB7GwX0raI__osRg-Z/view?usp=sharing, https://drive.google.com/file/d/1cJjbc9s6IGkKHeAhk-dh7ey9i7ArJMJe/view?usp=sharing, https://drive.google.com/file/d/1jNlP9TOSJtMzQMeLH1RoqmU2Hx7iwQkJ/view?usp=sharing, https://drive.google.com/file/d/1q3W6Cs4WVx7dLwL1XGN9aQ6bb-hyHmWS/view?usp=sharing, https://drive.google.com/file/d/1qYszGazA6Zm1-3YGdaKdDlPEr3HipU5k/view?usp=sharing, https://drive.google.com/file/d/1uYEc0AZDEBE2A4qrR5O1OFcFVHJsCtds/view?usp=sharing, https://aistudio.google.com/app/prompts?state=%7B%22ids%22:%5B%221v7mZ4CEkZueuPt-aoH1XmYRmOooNELC3%22%5D,%22action%22:%22open%22,%22userId%22:%22103961307342447084491%22,%22resourceKeys%22:%7B%7D%7D&usp=sharing

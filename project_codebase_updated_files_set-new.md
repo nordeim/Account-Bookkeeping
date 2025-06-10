@@ -1,403 +1,382 @@
-# app/tax/income_tax_manager.py
-```py
-# File: app/tax/income_tax_manager.py
-from typing import TYPE_CHECKING 
-# REMOVED: from app.services.account_service import AccountService
-# REMOVED: from app.services.fiscal_period_service import FiscalPeriodService
+# pyproject.toml
+```toml
+# pyproject.toml
+[tool.poetry]
+name = "sg-bookkeeper"
+version = "1.0.0"
+description = "Singapore small business bookkeeping application"
+authors = ["Your Name <your.email@example.com>"]
+license = "MIT"
+readme = "README.md"
+homepage = "https://github.com/yourusername/sg_bookkeeper"
+repository = "https://github.com/yourusername/sg_bookkeeper"
+keywords = ["accounting", "bookkeeping", "singapore", "gst", "tax"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12", 
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Office/Business :: Financial :: Accounting",
+]
+packages = [{include = "app", from = "."}]
 
-if TYPE_CHECKING:
-    from app.core.application_core import ApplicationCore 
-    from app.services.journal_service import JournalService 
-    from app.services.account_service import AccountService # ADDED
-    from app.services.fiscal_period_service import FiscalPeriodService # ADDED
+[tool.poetry.dependencies]
+python = ">=3.9,<3.13" 
+PySide6 = "^6.9.0"   # The QtCharts module from this package is used for the dashboard
+SQLAlchemy = {extras = ["asyncio"], version = ">=2.0.0"}
+asyncpg = ">=0.25.0"
+alembic = ">=1.7.5"
+pydantic = {version = "^2.0", extras = ["email"]}
+reportlab = ">=3.6.6"
+openpyxl = ">=3.0.9"
+python-dateutil = ">=2.8.2"
+bcrypt = ">=3.2.0"
 
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.0"
+pytest-cov = "^4.0"
+flake8 = "^6.0"
+black = "^24.0" 
+mypy = "^1.0" 
+pre-commit = "^3.0"
+pytest-qt = "^4.0"
+pytest-asyncio = "^0.21.0" 
 
-class IncomeTaxManager:
-    def __init__(self, app_core: "ApplicationCore"): 
-        self.app_core = app_core
-        self.account_service: "AccountService" = app_core.account_service # type: ignore
-        self.journal_service: "JournalService" = app_core.journal_service # type: ignore 
-        self.fiscal_period_service: "FiscalPeriodService" = app_core.fiscal_period_service # type: ignore
-        print("IncomeTaxManager initialized (stub).")
-    
-    async def calculate_provisional_tax(self, fiscal_year_id: int):
-        print(f"Calculating provisional tax for fiscal year ID {fiscal_year_id} (stub).")
-        return {"provisional_tax_payable": 0.00}
+[tool.poetry.scripts]
+sg_bookkeeper = "app.main:main"
+sg_bookkeeper_db_init = "scripts.db_init:main"
 
-    async def get_form_cs_data(self, fiscal_year_id: int):
-        print(f"Fetching data for Form C-S for fiscal year ID {fiscal_year_id} (stub).")
-        return {"company_name": "Example Pte Ltd", "revenue": 100000.00, "profit_before_tax": 20000.00}
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 88
+target-version = ['py39', 'py310', 'py311', 'py312']
+
+[tool.pytest.ini_options]
+python_files = "test_*.py tests.py" 
+python_classes = "Test*"
+python_functions = "test_*"
+asyncio_mode = "auto"
+
 
 ```
 
-# app/tax/gst_manager.py
+# app/ui/banking/__init__.py
 ```py
-# File: app/tax/gst_manager.py
-from typing import Optional, Any, TYPE_CHECKING, List, Dict
-from datetime import date, timedelta
-from dateutil.relativedelta import relativedelta 
-from decimal import Decimal
+# File: app/ui/banking/__init__.py
+from .banking_widget import BankingWidget
+from .bank_account_table_model import BankAccountTableModel 
+from .bank_account_dialog import BankAccountDialog 
+from .bank_accounts_widget import BankAccountsWidget 
+from .bank_transaction_table_model import BankTransactionTableModel
+from .bank_transaction_dialog import BankTransactionDialog
+from .bank_transactions_widget import BankTransactionsWidget
+from .csv_import_config_dialog import CSVImportConfigDialog
+from .bank_reconciliation_widget import BankReconciliationWidget
+from .reconciliation_table_model import ReconciliationTableModel
+from .reconciliation_history_table_model import ReconciliationHistoryTableModel
+from .csv_import_errors_dialog import CSVImportErrorsDialog # New Import
+from .csv_import_errors_table_model import CSVImportErrorsTableModel # New Import
 
-# REMOVED: from app.services.tax_service import TaxCodeService, GSTReturnService 
-# REMOVED: from app.services.account_service import AccountService
-# REMOVED: from app.services.fiscal_period_service import FiscalPeriodService
-# REMOVED: from app.services.core_services import CompanySettingsService 
-from app.utils.result import Result
-from app.utils.pydantic_models import GSTReturnData, JournalEntryData, JournalEntryLineData, GSTTransactionLineDetail
-from app.models.accounting.gst_return import GSTReturn 
-from app.models.accounting.journal_entry import JournalEntry, JournalEntryLine # Keep specific model imports
-from app.models.accounting.account import Account
-from app.models.accounting.tax_code import TaxCode
-from app.common.enums import GSTReturnStatusEnum 
+__all__ = [
+    "BankingWidget",
+    "BankAccountTableModel", 
+    "BankAccountDialog", 
+    "BankAccountsWidget", 
+    "BankTransactionTableModel",
+    "BankTransactionDialog",
+    "BankTransactionsWidget",
+    "CSVImportConfigDialog",
+    "BankReconciliationWidget",
+    "ReconciliationTableModel",
+    "ReconciliationHistoryTableModel",
+    "CSVImportErrorsDialog", # New Export
+    "CSVImportErrorsTableModel", # New Export
+]
+
+```
+
+# app/ui/banking/csv_import_errors_dialog.py
+```py
+# File: app/ui/banking/csv_import_errors_dialog.py
+from PySide6.QtWidgets import (
+    QDialog, QVBoxLayout, QLabel, QDialogButtonBox,
+    QTableView, QHeaderView, QAbstractItemView
+)
+from PySide6.QtCore import Qt
+from typing import Optional, List, TYPE_CHECKING
+
+from app.ui.banking.csv_import_errors_table_model import CSVImportErrorsTableModel
+from app.utils.pydantic_models import CSVImportErrorData
 
 if TYPE_CHECKING:
-    from app.core.application_core import ApplicationCore 
-    from app.services.journal_service import JournalService 
-    from app.utils.sequence_generator import SequenceGenerator
-    from app.services.tax_service import TaxCodeService, GSTReturnService # ADDED
-    from app.services.account_service import AccountService # ADDED
-    from app.services.fiscal_period_service import FiscalPeriodService # ADDED
-    from app.services.core_services import CompanySettingsService # ADDED
+    from PySide6.QtGui import QPaintDevice
 
+class CSVImportErrorsDialog(QDialog):
+    def __init__(self, errors: List[CSVImportErrorData], parent: Optional["QWidget"] = None):
+        super().__init__(parent)
+        self.setWindowTitle("CSV Import Errors")
+        self.setMinimumSize(800, 400)
+        self.setModal(True)
 
-class GSTManager:
-    def __init__(self, 
-                 tax_code_service: "TaxCodeService", 
-                 journal_service: "JournalService", 
-                 company_settings_service: "CompanySettingsService", 
-                 gst_return_service: "GSTReturnService",
-                 account_service: "AccountService", 
-                 fiscal_period_service: "FiscalPeriodService", 
-                 sequence_generator: "SequenceGenerator", 
-                 app_core: "ApplicationCore"): 
-        self.tax_code_service = tax_code_service
-        self.journal_service = journal_service
-        self.company_settings_service = company_settings_service
-        self.gst_return_service = gst_return_service
-        self.account_service = account_service 
-        self.fiscal_period_service = fiscal_period_service 
-        self.sequence_generator = sequence_generator
-        self.app_core = app_core
+        self._init_ui(errors)
 
-    async def prepare_gst_return_data(self, start_date: date, end_date: date, user_id: int) -> Result[GSTReturnData]:
-        company_settings = await self.company_settings_service.get_company_settings()
-        if not company_settings:
-            return Result.failure(["Company settings not found."])
+    def _init_ui(self, errors: List[CSVImportErrorData]):
+        main_layout = QVBoxLayout(self)
 
-        std_rated_supplies = Decimal('0.00') 
-        zero_rated_supplies = Decimal('0.00')  
-        exempt_supplies = Decimal('0.00')     
-        taxable_purchases = Decimal('0.00')   
-        output_tax_calc = Decimal('0.00') 
-        input_tax_calc = Decimal('0.00')  
-        
-        detailed_breakdown: Dict[str, List[GSTTransactionLineDetail]] = {
-            "box1_standard_rated_supplies": [], "box2_zero_rated_supplies": [],
-            "box3_exempt_supplies": [], "box5_taxable_purchases": [],
-            "box6_output_tax_details": [], "box7_input_tax_details": []
-        }
-        
-        posted_entries: List[JournalEntry] = await self.journal_service.get_posted_entries_by_date_range(start_date, end_date)
-
-        for entry in posted_entries:
-            for line in entry.lines:
-                if not line.account or not line.tax_code_obj: continue
-
-                account_orm: Account = line.account
-                tax_code_orm: TaxCode = line.tax_code_obj
-                
-                line_net_value_for_gst_box: Decimal = Decimal('0.00')
-                if account_orm.account_type == 'Revenue':
-                    line_net_value_for_gst_box = line.credit_amount - line.debit_amount 
-                elif account_orm.account_type in ['Expense', 'Asset']:
-                    line_net_value_for_gst_box = line.debit_amount - line.credit_amount 
-
-                if tax_code_orm.tax_type != 'GST' or abs(line_net_value_for_gst_box) < Decimal('0.01') and abs(line.tax_amount) < Decimal('0.01'):
-                    continue
-
-                transaction_detail = GSTTransactionLineDetail(
-                    transaction_date=entry.entry_date,
-                    document_no=entry.reference or entry.entry_no, 
-                    entity_name=None, 
-                    description=line.description or entry.description or "N/A",
-                    account_code=account_orm.code,
-                    account_name=account_orm.name,
-                    net_amount=line_net_value_for_gst_box.quantize(Decimal("0.01")),
-                    gst_amount=line.tax_amount.quantize(Decimal("0.01")),
-                    tax_code_applied=tax_code_orm.code
-                )
-
-                if account_orm.account_type == 'Revenue':
-                    if tax_code_orm.code == 'SR': 
-                        std_rated_supplies += line_net_value_for_gst_box
-                        output_tax_calc += line.tax_amount
-                        detailed_breakdown["box1_standard_rated_supplies"].append(transaction_detail)
-                        if line.tax_amount != Decimal(0):
-                             detailed_breakdown["box6_output_tax_details"].append(transaction_detail)
-                    elif tax_code_orm.code == 'ZR': 
-                        zero_rated_supplies += line_net_value_for_gst_box
-                        detailed_breakdown["box2_zero_rated_supplies"].append(transaction_detail)
-                    elif tax_code_orm.code == 'ES': 
-                        exempt_supplies += line_net_value_for_gst_box
-                        detailed_breakdown["box3_exempt_supplies"].append(transaction_detail)
-                    
-                elif account_orm.account_type in ['Expense', 'Asset']:
-                    if tax_code_orm.code == 'TX': 
-                        taxable_purchases += line_net_value_for_gst_box
-                        input_tax_calc += line.tax_amount
-                        detailed_breakdown["box5_taxable_purchases"].append(transaction_detail)
-                        if line.tax_amount != Decimal(0):
-                            detailed_breakdown["box7_input_tax_details"].append(transaction_detail)
-                    elif tax_code_orm.code == 'BL': 
-                        taxable_purchases += line_net_value_for_gst_box
-                        detailed_breakdown["box5_taxable_purchases"].append(transaction_detail)
-        
-        total_supplies = std_rated_supplies + zero_rated_supplies + exempt_supplies
-        tax_payable = output_tax_calc - input_tax_calc 
-
-        temp_due_date = end_date + relativedelta(months=1)
-        filing_due_date = temp_due_date + relativedelta(day=31) 
-
-        return_data = GSTReturnData(
-            return_period=f"{start_date.strftime('%d%m%Y')}-{end_date.strftime('%d%m%Y')}",
-            start_date=start_date, end_date=end_date,
-            filing_due_date=filing_due_date,
-            standard_rated_supplies=std_rated_supplies.quantize(Decimal("0.01")),
-            zero_rated_supplies=zero_rated_supplies.quantize(Decimal("0.01")),
-            exempt_supplies=exempt_supplies.quantize(Decimal("0.01")),
-            total_supplies=total_supplies.quantize(Decimal("0.01")), 
-            taxable_purchases=taxable_purchases.quantize(Decimal("0.01")), 
-            output_tax=output_tax_calc.quantize(Decimal("0.01")), 
-            input_tax=input_tax_calc.quantize(Decimal("0.01")),   
-            tax_adjustments=Decimal(0),
-            tax_payable=tax_payable.quantize(Decimal("0.01")), 
-            status=GSTReturnStatusEnum.DRAFT.value,
-            user_id=user_id,
-            detailed_breakdown=detailed_breakdown
+        info_label = QLabel(
+            "The CSV import completed, but some rows could not be processed.\n"
+            "Please review the errors below, correct them in your source file, and try importing again."
         )
-        return Result.success(return_data)
+        info_label.setWordWrap(True)
+        main_layout.addWidget(info_label)
 
-    async def save_gst_return(self, gst_return_data: GSTReturnData) -> Result[GSTReturn]:
-        current_user_id = gst_return_data.user_id
-        orm_return: GSTReturn
-        core_data_dict = gst_return_data.model_dump(exclude={'id', 'user_id', 'detailed_breakdown'}, exclude_none=True)
+        self.errors_table = QTableView()
+        self.errors_table.setAlternatingRowColors(True)
+        self.errors_table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self.errors_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.errors_table.setSortingEnabled(True)
 
-        if gst_return_data.id: 
-            existing_return = await self.gst_return_service.get_by_id(gst_return_data.id)
-            if not existing_return:
-                return Result.failure([f"GST Return with ID {gst_return_data.id} not found for update."])
-            orm_return = existing_return
-            for key, value in core_data_dict.items():
-                if hasattr(orm_return, key):
-                    setattr(orm_return, key, value)
-            orm_return.updated_by_user_id = current_user_id
-        else: 
-            orm_return = GSTReturn(
-                **core_data_dict,
-                created_by_user_id=current_user_id,
-                updated_by_user_id=current_user_id
-            )
-            if not orm_return.filing_due_date and orm_return.end_date: 
-                 temp_due_date = orm_return.end_date + relativedelta(months=1)
-                 orm_return.filing_due_date = temp_due_date + relativedelta(day=31)
+        self.table_model = CSVImportErrorsTableModel(data=errors)
+        self.errors_table.setModel(self.table_model)
+
+        header = self.errors_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents) # Row #
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch) # Error Message
+        for i in range(2, self.table_model.columnCount()):
+            header.setSectionResizeMode(i, QHeaderView.ResizeMode.Interactive)
+            self.errors_table.setColumnWidth(i, 120)
+
+        main_layout.addWidget(self.errors_table)
+
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        button_box.rejected.connect(self.reject)
+        main_layout.addWidget(button_box)
+
+        self.setLayout(main_layout)
+
+```
+
+# app/ui/banking/csv_import_errors_table_model.py
+```py
+# File: app/ui/banking/csv_import_errors_table_model.py
+from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
+from typing import List, Dict, Any, Optional
+
+from app.utils.pydantic_models import CSVImportErrorData
+
+class CSVImportErrorsTableModel(QAbstractTableModel):
+    def __init__(self, data: Optional[List[CSVImportErrorData]] = None, parent=None):
+        super().__init__(parent)
+        self._data: List[CSVImportErrorData] = data or []
+        
+        self._headers = ["Row #", "Error Message"]
+        if self._data and self._data[0].row_data:
+            # Dynamically create headers for the original data columns
+            num_data_cols = len(self._data[0].row_data)
+            self._headers.extend([f"Original Col {i+1}" for i in range(num_data_cols)])
+
+    def rowCount(self, parent=QModelIndex()) -> int:
+        return len(self._data)
+
+    def columnCount(self, parent=QModelIndex()) -> int:
+        return len(self._headers)
+
+    def headerData(self, section: int, orientation: Qt.Orientation, role=Qt.ItemDataRole.DisplayRole) -> Optional[str]:
+        if role == Qt.ItemDataRole.DisplayRole and orientation == Qt.Orientation.Horizontal:
+            if 0 <= section < len(self._headers):
+                return self._headers[section]
+        return None
+
+    def data(self, index: QModelIndex, role=Qt.ItemDataRole.DisplayRole) -> Any:
+        if not index.isValid() or role != Qt.ItemDataRole.DisplayRole:
+            return None
+        
+        row = index.row()
+        col = index.column()
+
+        if not (0 <= row < len(self._data)):
+            return None
+            
+        error_entry: CSVImportErrorData = self._data[row]
+
+        if col == 0:
+            return str(error_entry.row_number)
+        elif col == 1:
+            return error_entry.error_message
+        else:
+            # Display original row data
+            data_col_index = col - 2
+            if 0 <= data_col_index < len(error_entry.row_data):
+                return error_entry.row_data[data_col_index]
+            return ""
+        
+        return None
+
+    def update_data(self, new_data: List[CSVImportErrorData]):
+        self.beginResetModel()
+        self._data = new_data or []
+        self._headers = ["Row #", "Error Message"]
+        if self._data and self._data[0].row_data:
+            num_data_cols = len(self._data[0].row_data)
+            self._headers.extend([f"Original Col {i+1}" for i in range(num_data_cols)])
+        self.endResetModel()
+
+```
+
+# app/ui/banking/reconciliation_table_model.py
+```py
+# File: app/ui/banking/reconciliation_table_model.py
+from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt, Signal
+from PySide6.QtGui import QColor # New import for background role
+from typing import List, Dict, Any, Optional, Tuple
+from decimal import Decimal, InvalidOperation
+from datetime import date as python_date
+
+from app.utils.pydantic_models import BankTransactionSummaryData
+
+class ReconciliationTableModel(QAbstractTableModel):
+    item_check_state_changed = Signal(int, Qt.CheckState) # row, check_state
+
+    def __init__(self, data: Optional[List[BankTransactionSummaryData]] = None, parent=None):
+        super().__init__(parent)
+        self._headers = ["Select", "Txn Date", "Description", "Reference", "Amount"]
+        self._table_data: List[Tuple[BankTransactionSummaryData, Qt.CheckState]] = []
+        self._row_colors: Dict[int, QColor] = {}
+        if data:
+            self.update_data(data)
+
+    def rowCount(self, parent=QModelIndex()) -> int:
+        if parent.isValid():
+            return 0
+        return len(self._table_data)
+
+    def columnCount(self, parent=QModelIndex()) -> int:
+        return len(self._headers)
+
+    def headerData(self, section: int, orientation: Qt.Orientation, role=Qt.ItemDataRole.DisplayRole) -> Optional[str]:
+        if role == Qt.ItemDataRole.DisplayRole and orientation == Qt.Orientation.Horizontal:
+            if 0 <= section < len(self._headers):
+                return self._headers[section]
+        return None
+
+    def _format_decimal_for_table(self, value: Optional[Decimal]) -> str:
+        if value is None: 
+            return "0.00"
         try:
-            saved_return = await self.gst_return_service.save_gst_return(orm_return)
-            return Result.success(saved_return)
-        except Exception as e:
-            self.app_core.logger.error(f"Failed to save GST return: {e}", exc_info=True) # type: ignore
-            return Result.failure([f"Failed to save GST return: {str(e)}"])
+            return f"{Decimal(str(value)):,.2f}"
+        except (InvalidOperation, TypeError):
+            return str(value) 
 
-    async def finalize_gst_return(self, return_id: int, submission_reference: str, submission_date: date, user_id: int) -> Result[GSTReturn]:
-        gst_return = await self.gst_return_service.get_by_id(return_id)
-        if not gst_return:
-            return Result.failure([f"GST Return ID {return_id} not found."])
-        if gst_return.status != GSTReturnStatusEnum.DRAFT.value:
-            return Result.failure([f"GST Return must be in Draft status to be finalized. Current status: {gst_return.status}"])
+    def data(self, index: QModelIndex, role=Qt.ItemDataRole.DisplayRole) -> Any:
+        if not index.isValid():
+            return None
+        
+        row = index.row()
+        col = index.column()
 
-        gst_return.status = GSTReturnStatusEnum.SUBMITTED.value
-        gst_return.submission_date = submission_date
-        gst_return.submission_reference = submission_reference
-        gst_return.updated_by_user_id = user_id
-
-        if gst_return.tax_payable != Decimal(0):
-            gst_output_tax_acc_code = await self.app_core.configuration_service.get_config_value("SysAcc_DefaultGSTOutput", "SYS-GST-OUTPUT")
-            gst_input_tax_acc_code = await self.app_core.configuration_service.get_config_value("SysAcc_DefaultGSTInput", "SYS-GST-INPUT")
-            gst_control_acc_code = await self.app_core.configuration_service.get_config_value("SysAcc_GSTControl", "SYS-GST-CONTROL")
+        if not (0 <= row < len(self._table_data)):
+            return None
             
-            output_tax_acc = await self.account_service.get_by_code(gst_output_tax_acc_code) # type: ignore
-            input_tax_acc = await self.account_service.get_by_code(gst_input_tax_acc_code) # type: ignore
-            control_acc = await self.account_service.get_by_code(gst_control_acc_code) if gst_control_acc_code else None # type: ignore
+        transaction_summary, check_state = self._table_data[row]
 
-            if not (output_tax_acc and input_tax_acc and control_acc):
-                missing_accs = []
-                if not output_tax_acc: missing_accs.append(str(gst_output_tax_acc_code))
-                if not input_tax_acc: missing_accs.append(str(gst_input_tax_acc_code))
-                if not control_acc: missing_accs.append(str(gst_control_acc_code))
-                error_msg = f"Essential GST GL accounts not found: {', '.join(missing_accs)}. Cannot create settlement journal entry."
-                self.app_core.logger.error(error_msg) # type: ignore
-                try:
-                    updated_return_no_je = await self.gst_return_service.save_gst_return(gst_return)
-                    return Result.failure([f"GST Return finalized (ID: {updated_return_no_je.id}), but JE creation failed: " + error_msg])
-                except Exception as e_save:
-                    return Result.failure([f"Failed to finalize GST return and also failed to save it before JE creation: {str(e_save)}"] + [error_msg])
-
-            lines: List[JournalEntryLineData] = []
-            desc_period = f"GST for period {gst_return.start_date.strftime('%d/%m/%y')}-{gst_return.end_date.strftime('%d/%m/%y')}"
-            
-            if gst_return.output_tax != Decimal(0):
-                 lines.append(JournalEntryLineData(account_id=output_tax_acc.id, debit_amount=gst_return.output_tax, credit_amount=Decimal(0), description=f"Clear Output Tax - {desc_period}"))
-            if gst_return.input_tax != Decimal(0):
-                 lines.append(JournalEntryLineData(account_id=input_tax_acc.id, debit_amount=Decimal(0), credit_amount=gst_return.input_tax, description=f"Clear Input Tax - {desc_period}"))
-            
-            if gst_return.tax_payable > Decimal(0): 
-                lines.append(JournalEntryLineData(account_id=control_acc.id, debit_amount=Decimal(0), credit_amount=gst_return.tax_payable, description=f"GST Payable - {desc_period}"))
-            elif gst_return.tax_payable < Decimal(0): 
-                lines.append(JournalEntryLineData(account_id=control_acc.id, debit_amount=abs(gst_return.tax_payable), credit_amount=Decimal(0), description=f"GST Refundable - {desc_period}"))
-            
-            if lines:
-                if not hasattr(self.app_core, 'journal_entry_manager') or not self.app_core.journal_entry_manager:
-                    return Result.failure(["Journal Entry Manager not available in Application Core. Cannot create GST settlement JE."])
-
-                je_data = JournalEntryData(
-                    journal_type="General", entry_date=submission_date, 
-                    description=f"GST Settlement for period {gst_return.return_period}",
-                    reference=f"GST F5 Finalized: {gst_return.submission_reference or gst_return.return_period}", 
-                    user_id=user_id, lines=lines,
-                    source_type="GSTReturnSettlement", source_id=gst_return.id
-                )
-                je_result: Result[JournalEntry] = await self.app_core.journal_entry_manager.create_journal_entry(je_data) 
-                if not je_result.is_success:
-                    try:
-                        updated_return_je_fail = await self.gst_return_service.save_gst_return(gst_return)
-                        return Result.failure([f"GST Return finalized and saved (ID: {updated_return_je_fail.id}) but settlement JE creation failed."] + (je_result.errors or []))
-                    except Exception as e_save_2:
-                         return Result.failure([f"Failed to finalize GST return and also failed during JE creation and subsequent save: {str(e_save_2)}"] + (je_result.errors or []))
-                else:
-                    assert je_result.value is not None
-                    gst_return.journal_entry_id = je_result.value.id
-                    post_result: Result[JournalEntry] = await self.app_core.journal_entry_manager.post_journal_entry(je_result.value.id, user_id)
-                    if not post_result.is_success:
-                        self.app_core.logger.warning(f"GST Settlement JE (ID: {je_result.value.id}) created but failed to auto-post: {post_result.errors}") # type: ignore
-        try:
-            updated_return = await self.gst_return_service.save_gst_return(gst_return)
-            return Result.success(updated_return)
-        except Exception as e:
-            self.app_core.logger.error(f"Failed to save finalized GST return: {e}", exc_info=True) # type: ignore
-            return Result.failure([f"Failed to save finalized GST return: {str(e)}"])
-
-```
-
-# app/tax/withholding_tax_manager.py
-```py
-# File: app/tax/withholding_tax_manager.py
-from typing import TYPE_CHECKING
-# REMOVED: from app.services.tax_service import TaxCodeService
-
-if TYPE_CHECKING:
-    from app.core.application_core import ApplicationCore 
-    from app.services.journal_service import JournalService 
-    from app.services.tax_service import TaxCodeService # ADDED
-
-class WithholdingTaxManager:
-    def __init__(self, app_core: "ApplicationCore"): 
-        self.app_core = app_core
-        self.tax_code_service: "TaxCodeService" = app_core.tax_code_service # type: ignore
-        self.journal_service: "JournalService" = app_core.journal_service # type: ignore 
-        print("WithholdingTaxManager initialized (stub).")
-
-    async def generate_s45_form_data(self, wht_certificate_id: int):
-        print(f"Generating S45 form data for WHT certificate ID {wht_certificate_id} (stub).")
-        return {"s45_field_1": "data", "s45_field_2": "more_data"}
-
-    async def record_wht_payment(self, certificate_id: int, payment_date: str, reference: str):
-        print(f"Recording WHT payment for certificate {certificate_id} (stub).")
-        return True
-
-```
-
-# app/tax/tax_calculator.py
-```py
-# File: app/tax/tax_calculator.py
-from decimal import Decimal
-from typing import List, Optional, Any, TYPE_CHECKING
-
-# REMOVED: from app.services.tax_service import TaxCodeService 
-from app.utils.pydantic_models import TaxCalculationResultData, TransactionTaxData, TransactionLineTaxData
-from app.models.accounting.tax_code import TaxCode as TaxCodeModel
-
-if TYPE_CHECKING:
-    from app.services.tax_service import TaxCodeService # ADDED
-
-class TaxCalculator:
-    def __init__(self, tax_code_service: "TaxCodeService"):
-        self.tax_code_service = tax_code_service
-    
-    async def calculate_transaction_taxes(self, transaction_data: TransactionTaxData) -> List[dict]:
-        results = []
-        for line in transaction_data.lines:
-            tax_result: TaxCalculationResultData = await self.calculate_line_tax(
-                line.amount,
-                line.tax_code,
-                transaction_data.transaction_type,
-                line.account_id 
-            )
-            results.append({ 
-                'line_index': line.index,
-                'tax_amount': tax_result.tax_amount,
-                'tax_account_id': tax_result.tax_account_id,
-                'taxable_amount': tax_result.taxable_amount
-            })
-        return results
-    
-    async def calculate_line_tax(self, amount: Decimal, tax_code_str: Optional[str], 
-                                 transaction_type: str, account_id: Optional[int] = None) -> TaxCalculationResultData:
-        result = TaxCalculationResultData(
-            tax_amount=Decimal(0),
-            tax_account_id=None,
-            taxable_amount=amount
-        )
+        if role == Qt.ItemDataRole.DisplayRole:
+            if col == 0: return "" # Checkbox column, no display text
+            if col == 1: # Txn Date
+                txn_date = transaction_summary.transaction_date
+                return txn_date.strftime('%d/%m/%Y') if isinstance(txn_date, python_date) else str(txn_date)
+            if col == 2: return transaction_summary.description
+            if col == 3: return transaction_summary.reference or ""
+            if col == 4: return self._format_decimal_for_table(transaction_summary.amount)
+            return ""
         
-        if not tax_code_str or abs(amount) < Decimal("0.01"):
-            return result
+        elif role == Qt.ItemDataRole.CheckStateRole:
+            if col == 0: # "Select" column
+                return check_state
         
-        tax_code_info: Optional[TaxCodeModel] = await self.tax_code_service.get_tax_code(tax_code_str) # Use TYPE_CHECKING for TaxCodeModel
-        if not tax_code_info:
-            return result 
+        elif role == Qt.ItemDataRole.BackgroundRole: # New handler for background color
+            return self._row_colors.get(row)
+
+        elif role == Qt.ItemDataRole.UserRole:
+            return transaction_summary
+
+        elif role == Qt.ItemDataRole.TextAlignmentRole:
+            if self._headers[col] == "Amount":
+                return Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            if self._headers[col] in ["Txn Date", "Select"]:
+                return Qt.AlignmentFlag.AlignCenter
         
-        if tax_code_info.tax_type == 'GST':
-            return await self._calculate_gst(amount, tax_code_info, transaction_type)
-        elif tax_code_info.tax_type == 'Withholding Tax':
-            return await self._calculate_withholding_tax(amount, tax_code_info, transaction_type)
-        return result
-    
-    async def _calculate_gst(self, amount: Decimal, tax_code_info: TaxCodeModel, transaction_type: str) -> TaxCalculationResultData:
-        tax_rate = Decimal(str(tax_code_info.rate))
-        net_amount = amount 
-        tax_amount = net_amount * tax_rate / Decimal(100)
-        tax_amount = tax_amount.quantize(Decimal("0.01"))
+        return None
+
+    def setData(self, index: QModelIndex, value: Any, role: int = Qt.ItemDataRole.EditRole) -> bool:
+        if not index.isValid():
+            return False
+
+        row = index.row()
+        col = index.column()
+
+        if role == Qt.ItemDataRole.CheckStateRole and col == 0:
+            if 0 <= row < len(self._table_data):
+                current_dto, _ = self._table_data[row]
+                new_check_state = Qt.CheckState(value)
+                self._table_data[row] = (current_dto, new_check_state)
+                self.dataChanged.emit(index, index, [role])
+                self.item_check_state_changed.emit(row, new_check_state)
+                return True
+        return False
+
+    def flags(self, index: QModelIndex) -> Qt.ItemFlag:
+        if not index.isValid():
+            return Qt.ItemFlag.NoItemFlags
         
-        return TaxCalculationResultData(
-            tax_amount=tax_amount,
-            tax_account_id=tax_code_info.affects_account_id,
-            taxable_amount=net_amount
-        )
-    
-    async def _calculate_withholding_tax(self, amount: Decimal, tax_code_info: TaxCodeModel, transaction_type: str) -> TaxCalculationResultData:
-        applicable_transaction_types = ['Purchase Payment', 'Expense Payment'] 
-        if transaction_type not in applicable_transaction_types:
-            return TaxCalculationResultData(
-                tax_amount=Decimal(0), tax_account_id=None, taxable_amount=amount
-            )
+        flags = super().flags(index)
+        if index.column() == 0:
+            flags |= Qt.ItemFlag.ItemIsUserCheckable
+        return flags
+
+    def get_item_data_at_row(self, row: int) -> Optional[BankTransactionSummaryData]:
+        if 0 <= row < len(self._table_data):
+            return self._table_data[row][0]
+        return None
         
-        tax_rate = Decimal(str(tax_code_info.rate))
-        tax_amount = amount * tax_rate / Decimal(100)
-        tax_amount = tax_amount.quantize(Decimal("0.01"))
+    def get_row_check_state(self, row: int) -> Optional[Qt.CheckState]:
+        if 0 <= row < len(self._table_data):
+            return self._table_data[row][1]
+        return None
+
+    def get_checked_item_data(self) -> List[BankTransactionSummaryData]:
+        return [dto for dto, state in self._table_data if state == Qt.CheckState.Checked]
+
+    def update_data(self, new_data: List[BankTransactionSummaryData], row_colors: Optional[Dict[int, QColor]] = None):
+        self.beginResetModel()
+        self._table_data = [(dto, Qt.CheckState.Unchecked) for dto in new_data]
+        self._row_colors = row_colors if row_colors is not None else {}
+        self.endResetModel()
         
-        return TaxCalculationResultData(
-            tax_amount=tax_amount,
-            tax_account_id=tax_code_info.affects_account_id,
-            taxable_amount=amount
-        )
+    def uncheck_all(self):
+        self.beginResetModel()
+        self._table_data = [(dto, Qt.CheckState.Unchecked) for dto, _ in self._table_data]
+        self.endResetModel()
+
+    def uncheck_items_by_id(self, ids_to_uncheck: List[int]):
+        changed_indexes: List[QModelIndex] = []
+        for row, (dto, check_state) in enumerate(self._table_data):
+            if dto.id in ids_to_uncheck and check_state == Qt.CheckState.Checked:
+                self._table_data[row] = (dto, Qt.CheckState.Unchecked)
+                changed_indexes.append(self.index(row, 0))
+
+        if changed_indexes:
+            for idx in changed_indexes:
+                self.dataChanged.emit(idx, idx, [Qt.ItemDataRole.CheckStateRole])
+            if changed_indexes:
+                 self.item_check_state_changed.emit(changed_indexes[0].row(), Qt.CheckState.Unchecked)
 
 ```
 
@@ -415,7 +394,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Slot, QTimer, QMetaObject, Q_ARG, QModelIndex, QDate, QSize, Signal
 from PySide6.QtGui import QIcon, QFont, QColor
 
-from datetime import date as python_date, datetime
+from datetime import date as python_date, datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 
 from app.core.application_core import ApplicationCore
@@ -462,6 +441,9 @@ class BankReconciliationWidget(QWidget):
         self._outstanding_system_withdrawals = Decimal(0) 
         self._difference = Decimal(0)
 
+        self._current_stmt_selection_total = Decimal(0) # For tracking selection totals
+        self._current_sys_selection_total = Decimal(0)  # For tracking selection totals
+
         self._current_draft_reconciliation_id: Optional[int] = None 
         self._current_history_page = 1
         self._total_history_records = 0
@@ -470,14 +452,15 @@ class BankReconciliationWidget(QWidget):
         self.icon_path_prefix = "resources/icons/"
         try: import app.resources_rc; self.icon_path_prefix = ":/icons/"
         except ImportError: pass
+        
+        self._group_colors = [QColor("#EAF3F9"), QColor("#F9F9EA"), QColor("#F9EAEA")]
 
         self._init_ui()
         QTimer.singleShot(0, lambda: schedule_task_from_qt(self._load_bank_accounts_for_combo()))
 
     def _init_ui(self):
-        self.main_layout = QVBoxLayout(self); self.main_layout.setContentsMargins(5,5,5,5) # Reduced margins slightly
+        self.main_layout = QVBoxLayout(self); self.main_layout.setContentsMargins(5,5,5,5)
         
-        # --- Top Controls (Bank Account, Date, Balance, Load Button) ---
         header_controls_group = QGroupBox("Reconciliation Setup"); header_layout = QGridLayout(header_controls_group)
         header_layout.addWidget(QLabel("Bank Account*:"), 0, 0); self.bank_account_combo = QComboBox(); self.bank_account_combo.setMinimumWidth(250); header_layout.addWidget(self.bank_account_combo, 0, 1)
         header_layout.addWidget(QLabel("Statement End Date*:"), 0, 2); self.statement_date_edit = QDateEdit(QDate.currentDate()); self.statement_date_edit.setCalendarPopup(True); self.statement_date_edit.setDisplayFormat("dd/MM/yyyy"); header_layout.addWidget(self.statement_date_edit, 0, 3)
@@ -485,18 +468,14 @@ class BankReconciliationWidget(QWidget):
         self.load_transactions_button = QPushButton(QIcon(self.icon_path_prefix + "refresh.svg"), "Load / Refresh Transactions"); header_layout.addWidget(self.load_transactions_button, 1, 3)
         header_layout.setColumnStretch(2,1); self.main_layout.addWidget(header_controls_group)
 
-        # --- Main Vertical Splitter for Current Rec vs History ---
         self.overall_splitter = QSplitter(Qt.Orientation.Vertical)
-        self.main_layout.addWidget(self.overall_splitter, 1) # Give more space to splitter
+        self.main_layout.addWidget(self.overall_splitter, 1)
 
-        # --- Current Reconciliation Work Area (Top part of overall_splitter) ---
         current_recon_work_area_widget = QWidget()
         current_recon_work_area_layout = QVBoxLayout(current_recon_work_area_widget)
         current_recon_work_area_layout.setContentsMargins(0,0,0,0)
 
-        # Reconciliation Summary Group (Stays at the top of current work area)
         summary_group = QGroupBox("Reconciliation Summary"); summary_layout = QFormLayout(summary_group); summary_layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-        # ... (Summary labels unchanged, already present in previous versions) ...
         self.book_balance_gl_label = QLabel("0.00"); summary_layout.addRow("Book Balance (per GL):", self.book_balance_gl_label)
         self.adj_interest_earned_label = QLabel("0.00"); summary_layout.addRow("Add: Interest / Credits (on Stmt, not Book):", self.adj_interest_earned_label)
         self.adj_bank_charges_label = QLabel("0.00"); summary_layout.addRow("Less: Bank Charges / Debits (on Stmt, not Book):", self.adj_bank_charges_label)
@@ -508,15 +487,11 @@ class BankReconciliationWidget(QWidget):
         summary_layout.addRow(QLabel("---")); self.difference_label = QLabel("0.00"); font_diff = self.difference_label.font(); font_diff.setBold(True); font_diff.setPointSize(font_diff.pointSize()+1); self.difference_label.setFont(font_diff)
         summary_layout.addRow("Difference:", self.difference_label); current_recon_work_area_layout.addWidget(summary_group)
 
-        # Splitter for Unreconciled vs Provisionally Matched Items
         self.current_recon_tables_splitter = QSplitter(Qt.Orientation.Vertical)
-        current_recon_work_area_layout.addWidget(self.current_recon_tables_splitter, 1) # Stretch this splitter
+        current_recon_work_area_layout.addWidget(self.current_recon_tables_splitter, 1)
 
-        # Unreconciled Items Area
-        unreconciled_area_widget = QWidget()
-        unreconciled_layout = QVBoxLayout(unreconciled_area_widget)
-        unreconciled_layout.setContentsMargins(0,0,0,0)
-        self.tables_splitter = QSplitter(Qt.Orientation.Horizontal) # For Statement vs System (Unreconciled)
+        unreconciled_area_widget = QWidget(); unreconciled_layout = QVBoxLayout(unreconciled_area_widget); unreconciled_layout.setContentsMargins(0,0,0,0)
+        self.tables_splitter = QSplitter(Qt.Orientation.Horizontal)
         statement_items_group = QGroupBox("Bank Statement Items (Unreconciled)"); statement_layout = QVBoxLayout(statement_items_group)
         self.statement_lines_table = QTableView(); self.statement_lines_model = ReconciliationTableModel()
         self._configure_recon_table(self.statement_lines_table, self.statement_lines_model, is_statement_table=True)
@@ -526,13 +501,17 @@ class BankReconciliationWidget(QWidget):
         self._configure_recon_table(self.system_txns_table, self.system_txns_model, is_statement_table=False)
         system_layout.addWidget(self.system_txns_table); self.tables_splitter.addWidget(system_txns_group)
         self.tables_splitter.setSizes([self.width() // 2, self.width() // 2])
-        unreconciled_layout.addWidget(self.tables_splitter, 1) # Stretch tables
+        unreconciled_layout.addWidget(self.tables_splitter, 1)
+        
+        selection_totals_layout = QHBoxLayout(); selection_totals_layout.setContentsMargins(5,5,5,5)
+        self.statement_selection_total_label = QLabel("Statement Selected: 0.00"); self.system_selection_total_label = QLabel("System Selected: 0.00")
+        selection_font = self.statement_selection_total_label.font(); selection_font.setBold(True); self.statement_selection_total_label.setFont(selection_font); self.system_selection_total_label.setFont(selection_font)
+        selection_totals_layout.addWidget(QLabel("<b>Selection Totals:</b>")); selection_totals_layout.addStretch(); selection_totals_layout.addWidget(self.statement_selection_total_label); selection_totals_layout.addWidget(QLabel(" | ")); selection_totals_layout.addWidget(self.system_selection_total_label); selection_totals_layout.addStretch()
+        unreconciled_layout.addLayout(selection_totals_layout)
+        
         self.current_recon_tables_splitter.addWidget(unreconciled_area_widget)
         
-        # Provisionally Matched Items Area (New)
-        draft_matched_area_widget = QWidget()
-        draft_matched_layout = QVBoxLayout(draft_matched_area_widget)
-        draft_matched_layout.setContentsMargins(0,5,0,0) # Add some top margin
+        draft_matched_area_widget = QWidget(); draft_matched_layout = QVBoxLayout(draft_matched_area_widget); draft_matched_layout.setContentsMargins(0,5,0,0)
         self.tables_splitter_draft_matched = QSplitter(Qt.Orientation.Horizontal)
         draft_stmt_items_group = QGroupBox("Provisionally Matched Statement Items (This Session)"); draft_stmt_layout = QVBoxLayout(draft_stmt_items_group)
         self.draft_matched_statement_table = QTableView(); self.draft_matched_statement_model = ReconciliationTableModel()
@@ -545,34 +524,26 @@ class BankReconciliationWidget(QWidget):
         self.tables_splitter_draft_matched.setSizes([self.width() // 2, self.width() // 2])
         draft_matched_layout.addWidget(self.tables_splitter_draft_matched, 1)
         self.current_recon_tables_splitter.addWidget(draft_matched_area_widget)
-        self.current_recon_tables_splitter.setSizes([self.height() * 2 // 3, self.height() // 3]) # Initial sizing
+        self.current_recon_tables_splitter.setSizes([int(self.height() * 0.7), int(self.height() * 0.3)])
 
-        # Action Buttons for Current Reconciliation
         action_layout = QHBoxLayout()
         self.match_selected_button = QPushButton(QIcon(self.icon_path_prefix + "post.svg"), "Match Selected"); self.match_selected_button.setEnabled(False)
-        self.unmatch_button = QPushButton(QIcon(self.icon_path_prefix + "reverse.svg"), "Unmatch Selected"); self.unmatch_button.setEnabled(False) # New Button
+        self.unmatch_button = QPushButton(QIcon(self.icon_path_prefix + "reverse.svg"), "Unmatch Selected"); self.unmatch_button.setEnabled(False)
         self.create_je_button = QPushButton(QIcon(self.icon_path_prefix + "add.svg"), "Add Journal Entry"); self.create_je_button.setEnabled(False) 
         self.save_reconciliation_button = QPushButton(QIcon(self.icon_path_prefix + "backup.svg"), "Save Final Reconciliation"); self.save_reconciliation_button.setEnabled(False); self.save_reconciliation_button.setObjectName("SaveReconButton")
         action_layout.addStretch(); action_layout.addWidget(self.match_selected_button); action_layout.addWidget(self.unmatch_button); action_layout.addWidget(self.create_je_button); action_layout.addStretch(); action_layout.addWidget(self.save_reconciliation_button)
         current_recon_work_area_layout.addLayout(action_layout)
         self.overall_splitter.addWidget(current_recon_work_area_widget)
 
-        # --- Reconciliation History Area (Bottom Pane of Overall Splitter) ---
-        history_outer_group = QGroupBox("Reconciliation History")
-        history_outer_layout = QVBoxLayout(history_outer_group)
-        # ... (History table, pagination, detail group, and tables are unchanged from previous implementation) ...
+        history_outer_group = QGroupBox("Reconciliation History"); history_outer_layout = QVBoxLayout(history_outer_group)
         self.history_table = QTableView(); self.history_table_model = ReconciliationHistoryTableModel()
         self.history_table.setModel(self.history_table_model)
         self.history_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.history_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.history_table.horizontalHeader().setStretchLastSection(False); self.history_table.setSortingEnabled(True)
-        if "ID" in self.history_table_model._headers:
-            id_col_idx_hist = self.history_table_model._headers.index("ID")
-            self.history_table.setColumnHidden(id_col_idx_hist, True)
+        if "ID" in self.history_table_model._headers: self.history_table.setColumnHidden(self.history_table_model._headers.index("ID"), True)
         for i in range(self.history_table_model.columnCount()): 
-            if not self.history_table.isColumnHidden(i):
-                self.history_table.horizontalHeader().setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
-        if "Statement Date" in self.history_table_model._headers and not self.history_table.isColumnHidden(self.history_table_model._headers.index("Statement Date")):
-            self.history_table.horizontalHeader().setSectionResizeMode(self.history_table_model._headers.index("Statement Date"), QHeaderView.ResizeMode.Stretch)
+            if not self.history_table.isColumnHidden(i): self.history_table.horizontalHeader().setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
+        if "Statement Date" in self.history_table_model._headers and not self.history_table.isColumnHidden(self.history_table_model._headers.index("Statement Date")): self.history_table.horizontalHeader().setSectionResizeMode(self.history_table_model._headers.index("Statement Date"), QHeaderView.ResizeMode.Stretch)
         history_outer_layout.addWidget(self.history_table)
         history_pagination_layout = QHBoxLayout()
         self.prev_history_button = QPushButton("<< Previous Page"); self.prev_history_button.setEnabled(False)
@@ -591,21 +562,18 @@ class BankReconciliationWidget(QWidget):
         self._configure_readonly_detail_table(self.history_system_txns_table, self.history_system_txns_model)
         hist_sys_layout.addWidget(self.history_system_txns_table); history_details_splitter.addWidget(hist_sys_group)
         history_details_layout.addWidget(history_details_splitter); history_outer_layout.addWidget(self.history_details_group)
-        self.history_details_group.setVisible(False) # Initially hidden
+        self.history_details_group.setVisible(False)
         self.overall_splitter.addWidget(history_outer_group)
-        self.overall_splitter.setSizes([int(self.height() * 0.6), int(self.height() * 0.4)]) # Adjust initial sizing
+        self.overall_splitter.setSizes([int(self.height() * 0.65), int(self.height() * 0.35)])
         
         self.setLayout(self.main_layout)
         self._connect_signals()
 
     def _configure_readonly_detail_table(self, table_view: QTableView, table_model: BankTransactionTableModel):
-        # ... (Unchanged from previous implementation)
-        table_view.setModel(table_model)
-        table_view.setAlternatingRowColors(True)
+        table_view.setModel(table_model); table_view.setAlternatingRowColors(True)
         table_view.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         table_view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        table_view.horizontalHeader().setStretchLastSection(False)
-        table_view.setSortingEnabled(True)
+        table_view.horizontalHeader().setStretchLastSection(False); table_view.setSortingEnabled(True)
         if "ID" in table_model._headers: table_view.setColumnHidden(table_model._headers.index("ID"), True)
         if "Reconciled" in table_model._headers: table_view.setColumnHidden(table_model._headers.index("Reconciled"), True)
         for i in range(table_model.columnCount()):
@@ -614,12 +582,10 @@ class BankReconciliationWidget(QWidget):
         if "Description" in table_model._headers and not table_view.isColumnHidden(desc_col_idx):
             table_view.horizontalHeader().setSectionResizeMode(desc_col_idx, QHeaderView.ResizeMode.Stretch)
 
-
     def _configure_recon_table(self, table_view: QTableView, table_model: ReconciliationTableModel, is_statement_table: bool):
-        # ... (Unchanged from previous implementation)
         table_view.setModel(table_model); table_view.setAlternatingRowColors(True)
         table_view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows) 
-        table_view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers) # Will change if inline edit is added
+        table_view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         table_view.horizontalHeader().setStretchLastSection(False); table_view.setSortingEnabled(True)
         header = table_view.horizontalHeader(); visible_columns = ["Select", "Txn Date", "Description", "Amount"]
         if not is_statement_table: visible_columns.append("Reference")
@@ -637,16 +603,14 @@ class BankReconciliationWidget(QWidget):
         self.statement_balance_spin.valueChanged.connect(self._on_statement_balance_changed)
         self.load_transactions_button.clicked.connect(self._on_load_transactions_clicked)
         
-        # For unreconciled tables
-        self.statement_lines_model.item_check_state_changed.connect(self._on_transaction_selection_changed)
-        self.system_txns_model.item_check_state_changed.connect(self._on_transaction_selection_changed)
+        self.statement_lines_model.item_check_state_changed.connect(self._update_selection_totals)
+        self.system_txns_model.item_check_state_changed.connect(self._update_selection_totals)
         
-        # For provisionally matched tables (new)
         self.draft_matched_statement_model.item_check_state_changed.connect(self._update_unmatch_button_state)
         self.draft_matched_system_model.item_check_state_changed.connect(self._update_unmatch_button_state)
 
         self.match_selected_button.clicked.connect(self._on_match_selected_clicked)
-        self.unmatch_button.clicked.connect(self._on_unmatch_selected_clicked) # New connection
+        self.unmatch_button.clicked.connect(self._on_unmatch_selected_clicked)
         self.create_je_button.clicked.connect(self._on_create_je_for_statement_item_clicked)
         self.save_reconciliation_button.clicked.connect(self._on_save_reconciliation_clicked)
         
@@ -655,7 +619,6 @@ class BankReconciliationWidget(QWidget):
         self.next_history_button.clicked.connect(lambda: self._load_reconciliation_history(self._current_history_page + 1))
 
     async def _load_bank_accounts_for_combo(self):
-        # ... (Unchanged from previous implementation)
         if not self.app_core.bank_account_manager: return
         try:
             result = await self.app_core.bank_account_manager.get_bank_accounts_for_listing(active_only=True, page_size=-1)
@@ -665,10 +628,8 @@ class BankReconciliationWidget(QWidget):
                 QMetaObject.invokeMethod(self, "_populate_bank_accounts_combo_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, items_json))
         except Exception as e: self.app_core.logger.error(f"Error loading bank accounts for reconciliation: {e}", exc_info=True)
 
-
     @Slot(str)
     def _populate_bank_accounts_combo_slot(self, items_json: str):
-        # ... (Unchanged from previous implementation)
         self.bank_account_combo.clear(); self.bank_account_combo.addItem("-- Select Bank Account --", 0)
         try:
             items = json.loads(items_json, object_hook=json_date_hook)
@@ -680,8 +641,7 @@ class BankReconciliationWidget(QWidget):
     def _on_bank_account_changed(self, index: int):
         new_bank_account_id = self.bank_account_combo.itemData(index)
         self._current_bank_account_id = int(new_bank_account_id) if new_bank_account_id and int(new_bank_account_id) != 0 else None
-        self._current_bank_account_gl_id = None
-        self._current_bank_account_currency = "SGD" 
+        self._current_bank_account_gl_id = None; self._current_bank_account_currency = "SGD" 
         self._current_draft_reconciliation_id = None 
 
         if self._current_bank_account_id:
@@ -691,24 +651,20 @@ class BankReconciliationWidget(QWidget):
                 self.statement_balance_spin.setSuffix(f" {selected_ba_dto.currency_code}")
         
         self.statement_lines_model.update_data([]); self.system_txns_model.update_data([])
-        self.draft_matched_statement_model.update_data([]); self.draft_matched_system_model.update_data([]) # Clear new tables
+        self.draft_matched_statement_model.update_data([]); self.draft_matched_system_model.update_data([])
         self._reset_summary_figures(); self._calculate_and_display_balances() 
+        self._update_selection_totals()
         self._load_reconciliation_history(1) 
         self.history_details_group.setVisible(False)
         self._history_statement_txns_model.update_data([])
         self._history_system_txns_model.update_data([])
-        self.match_selected_button.setEnabled(False)
-        self._update_unmatch_button_state() # Update state for unmatch button
-
 
     @Slot(float)
     def _on_statement_balance_changed(self, value: float):
-        # ... (Unchanged from previous implementation)
         self._statement_ending_balance = Decimal(str(value)); self._calculate_and_display_balances()
 
     @Slot()
     def _on_load_transactions_clicked(self):
-        # ... (Logic preserved, current_user check already there)
         if not self._current_bank_account_id: QMessageBox.warning(self, "Selection Required", "Please select a bank account."); return
         if not self.app_core.current_user: QMessageBox.warning(self, "Auth Error", "No user logged in."); return
 
@@ -726,40 +682,23 @@ class BankReconciliationWidget(QWidget):
         )
         self._load_reconciliation_history(1) 
 
-    async def _fetch_and_populate_transactions(self, bank_account_id: int, statement_date: python_date,
-                                               statement_ending_balance: Decimal, user_id: int):
+    async def _fetch_and_populate_transactions(self, bank_account_id: int, statement_date: python_date, statement_ending_balance: Decimal, user_id: int):
         self.load_transactions_button.setEnabled(True); self.load_transactions_button.setText("Load / Refresh Transactions")
-        self.match_selected_button.setEnabled(False) 
-        self._update_unmatch_button_state()
-        if not self.app_core.bank_reconciliation_service or \
-           not self.app_core.bank_transaction_manager or \
-           not self.app_core.account_service or \
-           not self.app_core.journal_service or \
-           not self.app_core.bank_account_service:
-            self.app_core.logger.error("One or more required services are not available for reconciliation.")
-            return
-
+        self.match_selected_button.setEnabled(False); self._update_unmatch_button_state()
+        if not all([self.app_core.bank_reconciliation_service, self.app_core.bank_transaction_manager, self.app_core.account_service, self.app_core.journal_service, self.app_core.bank_account_service]):
+            self.app_core.logger.error("One or more required services are not available for reconciliation."); return
         try:
             async with self.app_core.db_manager.session() as session: 
-                draft_recon_orm = await self.app_core.bank_reconciliation_service.get_or_create_draft_reconciliation(
-                    bank_account_id=bank_account_id, statement_date=statement_date,
-                    statement_ending_balance=statement_ending_balance, user_id=user_id, session=session
-                )
+                draft_recon_orm = await self.app_core.bank_reconciliation_service.get_or_create_draft_reconciliation(bank_account_id, statement_date, statement_ending_balance, user_id, session)
                 if not draft_recon_orm or not draft_recon_orm.id:
-                    QMessageBox.critical(self, "Error", "Could not get or create a draft reconciliation record.")
-                    return
+                    QMessageBox.critical(self, "Error", "Could not get or create a draft reconciliation record."); return
                 self._current_draft_reconciliation_id = draft_recon_orm.id
                 QMetaObject.invokeMethod(self.statement_balance_spin, "setValue", Qt.ConnectionType.QueuedConnection, Q_ARG(float, float(draft_recon_orm.statement_ending_balance)))
-                
                 selected_bank_account_orm = await self.app_core.bank_account_service.get_by_id(bank_account_id)
                 if not selected_bank_account_orm or not selected_bank_account_orm.gl_account_id:
                     QMessageBox.critical(self, "Error", "Selected bank account or its GL link is invalid."); return
-                self._current_bank_account_gl_id = selected_bank_account_orm.gl_account_id
-                self._current_bank_account_currency = selected_bank_account_orm.currency_code
-                
+                self._current_bank_account_gl_id = selected_bank_account_orm.gl_account_id; self._current_bank_account_currency = selected_bank_account_orm.currency_code
                 self._book_balance_gl = await self.app_core.journal_service.get_account_balance(selected_bank_account_orm.gl_account_id, statement_date)
-                
-                # Fetch Unreconciled Transactions
                 unreconciled_result = await self.app_core.bank_transaction_manager.get_unreconciled_transactions_for_matching(bank_account_id, statement_date)
                 if unreconciled_result.is_success and unreconciled_result.value:
                     self._all_loaded_statement_lines, self._all_loaded_system_transactions = unreconciled_result.value
@@ -767,64 +706,74 @@ class BankReconciliationWidget(QWidget):
                     sys_txns_json = json.dumps([s.model_dump(mode='json') for s in self._all_loaded_system_transactions], default=json_converter)
                     QMetaObject.invokeMethod(self, "_update_transaction_tables_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, stmt_lines_json), Q_ARG(str, sys_txns_json))
                 else:
-                    QMessageBox.warning(self, "Load Error", f"Failed to load unreconciled transactions: {', '.join(unreconciled_result.errors if unreconciled_result.errors else ['Unknown error'])}")
-                    self.statement_lines_model.update_data([]); self.system_txns_model.update_data([])
-
-                # Fetch Provisionally Matched Transactions for this draft
+                    QMessageBox.warning(self, "Load Error", f"Failed to load unreconciled transactions: {', '.join(unreconciled_result.errors if unreconciled_result.errors else ['Unknown error'])}"); self.statement_lines_model.update_data([]); self.system_txns_model.update_data([])
                 draft_stmt_items, draft_sys_items = await self.app_core.bank_reconciliation_service.get_transactions_for_reconciliation(self._current_draft_reconciliation_id)
-                draft_stmt_json = json.dumps([s.model_dump(mode='json') for s in draft_stmt_items], default=json_converter)
-                draft_sys_json = json.dumps([s.model_dump(mode='json') for s in draft_sys_items], default=json_converter)
+                draft_stmt_json = json.dumps([s.model_dump(mode='json') for s in draft_stmt_items], default=json_converter); draft_sys_json = json.dumps([s.model_dump(mode='json') for s in draft_sys_items], default=json_converter)
                 QMetaObject.invokeMethod(self, "_update_draft_matched_tables_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, draft_stmt_json), Q_ARG(str, draft_sys_json))
-                
-            self._reset_summary_figures(); self._calculate_and_display_balances()
-            self._update_match_button_state(); self._update_unmatch_button_state()
-
+            self._reset_summary_figures(); self._calculate_and_display_balances(); self._update_selection_totals()
         except Exception as e:
-            self.app_core.logger.error(f"Error during _fetch_and_populate_transactions: {e}", exc_info=True)
-            QMessageBox.critical(self, "Error", f"An unexpected error occurred while loading reconciliation data: {e}")
-            self._current_draft_reconciliation_id = None 
-            self._update_match_button_state(); self._update_unmatch_button_state()
+            self.app_core.logger.error(f"Error during _fetch_and_populate_transactions: {e}", exc_info=True); QMessageBox.critical(self, "Error", f"An unexpected error occurred while loading reconciliation data: {e}")
+            self._current_draft_reconciliation_id = None; self._update_match_button_state(); self._update_unmatch_button_state()
 
-    @Slot(str) # New Slot for provisionally matched items
+    @Slot(str)
     def _update_draft_matched_tables_slot(self, draft_stmt_json: str, draft_sys_json: str):
         try:
-            draft_stmt_list_dict = json.loads(draft_stmt_json, object_hook=json_date_hook)
-            self._current_draft_statement_lines = [BankTransactionSummaryData.model_validate(d) for d in draft_stmt_list_dict]
-            self.draft_matched_statement_model.update_data(self._current_draft_statement_lines)
+            draft_stmt_list_dict = json.loads(draft_stmt_json, object_hook=json_date_hook); self._current_draft_statement_lines = [BankTransactionSummaryData.model_validate(d) for d in draft_stmt_list_dict]
             
-            draft_sys_list_dict = json.loads(draft_sys_json, object_hook=json_date_hook)
-            self._current_draft_system_transactions = [BankTransactionSummaryData.model_validate(d) for d in draft_sys_list_dict]
-            self.draft_matched_system_model.update_data(self._current_draft_system_transactions)
-        except Exception as e:
-            QMessageBox.critical(self, "Data Error", f"Failed to parse provisionally matched transaction data: {str(e)}")
+            stmt_row_colors = self._get_group_colors(self._current_draft_statement_lines)
+            self.draft_matched_statement_model.update_data(self._current_draft_statement_lines, stmt_row_colors)
+            
+            draft_sys_list_dict = json.loads(draft_sys_json, object_hook=json_date_hook); self._current_draft_system_transactions = [BankTransactionSummaryData.model_validate(d) for d in draft_sys_list_dict]
+            
+            sys_row_colors = self._get_group_colors(self._current_draft_system_transactions)
+            self.draft_matched_system_model.update_data(self._current_draft_system_transactions, sys_row_colors)
+        except Exception as e: QMessageBox.critical(self, "Data Error", f"Failed to parse provisionally matched transaction data: {str(e)}")
 
+    def _get_group_colors(self, transactions: List[BankTransactionSummaryData]) -> Dict[int, QColor]:
+        """Analyzes sorted transactions and returns a dictionary mapping row index to group color."""
+        row_colors: Dict[int, QColor] = {}
+        if not transactions:
+            return row_colors
+            
+        last_timestamp: Optional[datetime] = None
+        color_index = 0
+        time_delta_threshold = timedelta(seconds=2)
+
+        # The transactions list is already sorted by updated_at desc from the service
+        for row, txn in enumerate(transactions):
+            if last_timestamp is None or (last_timestamp - txn.updated_at) > time_delta_threshold:
+                color_index += 1 # New group detected
+            
+            row_colors[row] = self._group_colors[color_index % len(self._group_colors)]
+            last_timestamp = txn.updated_at
+            
+        return row_colors
 
     @Slot(str, str)
     def _update_transaction_tables_slot(self, stmt_lines_json: str, sys_txns_json: str):
-        # ... (Unchanged from previous implementation)
         try:
-            stmt_list_dict = json.loads(stmt_lines_json, object_hook=json_date_hook)
-            self._all_loaded_statement_lines = [BankTransactionSummaryData.model_validate(d) for d in stmt_list_dict]
-            self.statement_lines_model.update_data(self._all_loaded_statement_lines)
-            sys_list_dict = json.loads(sys_txns_json, object_hook=json_date_hook)
-            self._all_loaded_system_transactions = [BankTransactionSummaryData.model_validate(d) for d in sys_list_dict]
-            self.system_txns_model.update_data(self._all_loaded_system_transactions)
+            stmt_list_dict = json.loads(stmt_lines_json, object_hook=json_date_hook); self._all_loaded_statement_lines = [BankTransactionSummaryData.model_validate(d) for d in stmt_list_dict]; self.statement_lines_model.update_data(self._all_loaded_statement_lines)
+            sys_list_dict = json.loads(sys_txns_json, object_hook=json_date_hook); self._all_loaded_system_transactions = [BankTransactionSummaryData.model_validate(d) for d in sys_list_dict]; self.system_txns_model.update_data(self._all_loaded_system_transactions)
         except Exception as e: QMessageBox.critical(self, "Data Error", f"Failed to parse transaction data: {str(e)}")
 
-    @Slot(int, Qt.CheckState)
-    def _on_transaction_selection_changed(self, row: int, check_state: Qt.CheckState):
-        # ... (Unchanged from previous implementation)
-        self._calculate_and_display_balances(); self._update_match_button_state()
+    @Slot()
+    def _update_selection_totals(self):
+        stmt_items = self.statement_lines_model.get_checked_item_data(); self._current_stmt_selection_total = sum(item.amount for item in stmt_items)
+        sys_items = self.system_txns_model.get_checked_item_data(); self._current_sys_selection_total = sum(item.amount for item in sys_items)
+        self.statement_selection_total_label.setText(f"Statement Selected: {self._format_decimal(self._current_stmt_selection_total)}")
+        self.system_selection_total_label.setText(f"System Selected: {self._format_decimal(self._current_sys_selection_total)}")
+        is_match = abs(self._current_stmt_selection_total - self._current_sys_selection_total) < Decimal("0.01")
+        color = "green" if is_match and (self._current_stmt_selection_total != 0 or self._current_sys_selection_total != 0) else "red"
+        style = f"font-weight: bold; color: {color};"
+        if not stmt_items and not sys_items: style = "font-weight: bold;" # Default color if nothing selected
+        self.statement_selection_total_label.setStyleSheet(style); self.system_selection_total_label.setStyleSheet(style)
+        self._update_match_button_state(); self._calculate_and_display_balances()
 
     def _reset_summary_figures(self):
-        # ... (Unchanged from previous implementation)
-        self._interest_earned_on_statement_not_in_book = Decimal(0)
-        self._bank_charges_on_statement_not_in_book = Decimal(0)
-        self._outstanding_system_deposits = Decimal(0) 
-        self._outstanding_system_withdrawals = Decimal(0) 
+        self._interest_earned_on_statement_not_in_book = Decimal(0); self._bank_charges_on_statement_not_in_book = Decimal(0)
+        self._outstanding_system_deposits = Decimal(0); self._outstanding_system_withdrawals = Decimal(0)
 
     def _calculate_and_display_balances(self):
-        # ... (Unchanged from previous implementation)
         self._reset_summary_figures() 
         for i in range(self.statement_lines_model.rowCount()):
             if self.statement_lines_model.get_row_check_state(i) == Qt.CheckState.Unchecked:
@@ -851,121 +800,67 @@ class BankReconciliationWidget(QWidget):
         self._difference = reconciled_bank_balance - reconciled_book_balance
         self.difference_label.setText(f"{self._difference:,.2f}")
         if abs(self._difference) < Decimal("0.01"): 
-            self.difference_label.setStyleSheet("font-weight: bold; color: green;"); 
-            self.save_reconciliation_button.setEnabled(self._current_draft_reconciliation_id is not None)
+            self.difference_label.setStyleSheet("font-weight: bold; color: green;"); self.save_reconciliation_button.setEnabled(self._current_draft_reconciliation_id is not None)
         else: 
-            self.difference_label.setStyleSheet("font-weight: bold; color: red;"); 
-            self.save_reconciliation_button.setEnabled(False)
+            self.difference_label.setStyleSheet("font-weight: bold; color: red;"); self.save_reconciliation_button.setEnabled(False)
         self.create_je_button.setEnabled(self._interest_earned_on_statement_not_in_book > 0 or self._bank_charges_on_statement_not_in_book > 0 or len(self.statement_lines_model.get_checked_item_data()) > 0)
 
     def _update_match_button_state(self):
-        # ... (Unchanged from previous implementation, but added draft ID check)
         stmt_checked_count = len(self.statement_lines_model.get_checked_item_data())
         sys_checked_count = len(self.system_txns_model.get_checked_item_data())
-        self.match_selected_button.setEnabled(stmt_checked_count > 0 and sys_checked_count > 0 and self._current_draft_reconciliation_id is not None)
+        totals_match = abs(self._current_stmt_selection_total - self._current_sys_selection_total) < Decimal("0.01")
+        self.match_selected_button.setEnabled(stmt_checked_count > 0 and sys_checked_count > 0 and totals_match and self._current_draft_reconciliation_id is not None)
         self.create_je_button.setEnabled(stmt_checked_count > 0 or self._interest_earned_on_statement_not_in_book > 0 or self._bank_charges_on_statement_not_in_book > 0)
 
-    def _update_unmatch_button_state(self): # New method
+    def _update_unmatch_button_state(self):
         draft_stmt_checked_count = len(self.draft_matched_statement_model.get_checked_item_data())
         draft_sys_checked_count = len(self.draft_matched_system_model.get_checked_item_data())
-        self.unmatch_button.setEnabled(
-            self._current_draft_reconciliation_id is not None and
-            (draft_stmt_checked_count > 0 or draft_sys_checked_count > 0)
-        )
+        self.unmatch_button.setEnabled(self._current_draft_reconciliation_id is not None and (draft_stmt_checked_count > 0 or draft_sys_checked_count > 0))
 
     @Slot()
     def _on_match_selected_clicked(self):
-        # ... (Modified as per plan)
-        if not self._current_draft_reconciliation_id:
-            QMessageBox.warning(self, "Error", "No active reconciliation draft. Please load transactions first.")
-            return
-
+        if not self._current_draft_reconciliation_id: QMessageBox.warning(self, "Error", "No active reconciliation draft. Please load transactions first."); return
         selected_statement_items = self.statement_lines_model.get_checked_item_data()
         selected_system_items = self.system_txns_model.get_checked_item_data()
-        if not selected_statement_items or not selected_system_items:
-            QMessageBox.information(self, "Selection Needed", "Please select items from both tables to match."); return
+        if not selected_statement_items or not selected_system_items: QMessageBox.information(self, "Selection Needed", "Please select items from both tables to match."); return
         
-        sum_stmt_amounts = sum(item.amount for item in selected_statement_items)
-        sum_sys_amounts = sum(item.amount for item in selected_system_items)
-
-        if abs(sum_stmt_amounts - sum_sys_amounts) > Decimal("0.01"): 
-            QMessageBox.warning(self, "Match Error",  
-                                f"Selected statement items total ({sum_stmt_amounts:,.2f}) and selected system items total ({sum_sys_amounts:,.2f}) do not match. "
-                                "Please ensure selections represent the same net financial event.")
+        if abs(self._current_stmt_selection_total - self._current_sys_selection_total) > Decimal("0.01"): 
+            QMessageBox.warning(self, "Match Error", f"Selected statement items total ({self._current_stmt_selection_total:,.2f}) and selected system items total ({self._current_sys_selection_total:,.2f}) do not match. Please ensure selections are balanced.")
             return
         
         all_selected_ids = [item.id for item in selected_statement_items] + [item.id for item in selected_system_items]
-        
-        self.match_selected_button.setEnabled(False) 
-        schedule_task_from_qt(self._perform_provisional_match(all_selected_ids))
+        self.match_selected_button.setEnabled(False); schedule_task_from_qt(self._perform_provisional_match(all_selected_ids))
 
     async def _perform_provisional_match(self, transaction_ids: List[int]):
-        # ... (New method as per plan)
         if self._current_draft_reconciliation_id is None: return 
         if not self.app_core.current_user: return
-
         try:
-            success = await self.app_core.bank_reconciliation_service.mark_transactions_as_provisionally_reconciled(
-                draft_reconciliation_id=self._current_draft_reconciliation_id,
-                transaction_ids=transaction_ids,
-                statement_date=self.statement_date_edit.date().toPython(),
-                user_id=self.app_core.current_user.id
-            )
-            if success:
-                QMessageBox.information(self, "Items Matched", f"{len(transaction_ids)} items marked as provisionally reconciled for this session.")
-                self._on_load_transactions_clicked() 
-            else:
-                QMessageBox.warning(self, "Match Error", "Failed to mark items as reconciled in the database.")
-        except Exception as e:
-            self.app_core.logger.error(f"Error during provisional match: {e}", exc_info=True)
-            QMessageBox.critical(self, "Error", f"An unexpected error occurred while matching: {e}")
-        finally:
-            self._update_match_button_state()
+            success = await self.app_core.bank_reconciliation_service.mark_transactions_as_provisionally_reconciled(self._current_draft_reconciliation_id, transaction_ids, self.statement_date_edit.date().toPython(), self.app_core.current_user.id)
+            if success: QMessageBox.information(self, "Items Matched", f"{len(transaction_ids)} items marked as provisionally reconciled for this session."); self._on_load_transactions_clicked() 
+            else: QMessageBox.warning(self, "Match Error", "Failed to mark items as reconciled in the database.")
+        except Exception as e: self.app_core.logger.error(f"Error during provisional match: {e}", exc_info=True); QMessageBox.critical(self, "Error", f"An unexpected error occurred while matching: {e}")
+        finally: self._update_match_button_state()
 
     @Slot()
-    def _on_unmatch_selected_clicked(self): # New Slot
-        if self._current_draft_reconciliation_id is None:
-            QMessageBox.information(self, "Info", "No active draft reconciliation to unmatch from.")
-            return
-        if not self.app_core.current_user:
-            QMessageBox.warning(self, "Auth Error", "No user logged in."); return
+    def _on_unmatch_selected_clicked(self):
+        if self._current_draft_reconciliation_id is None: QMessageBox.information(self, "Info", "No active draft reconciliation to unmatch from."); return
+        if not self.app_core.current_user: QMessageBox.warning(self, "Auth Error", "No user logged in."); return
+        selected_draft_stmt_items = self.draft_matched_statement_model.get_checked_item_data(); selected_draft_sys_items = self.draft_matched_system_model.get_checked_item_data()
+        all_ids_to_unmatch = [item.id for item in selected_draft_stmt_items] + [item.id for item in selected_draft_sys_items]
+        if not all_ids_to_unmatch: QMessageBox.information(self, "Selection Needed", "Please select items from the 'Provisionally Matched' tables to unmatch."); return
+        self.unmatch_button.setEnabled(False); schedule_task_from_qt(self._perform_unmatch(all_ids_to_unmatch))
 
-        selected_draft_stmt_items = self.draft_matched_statement_model.get_checked_item_data()
-        selected_draft_sys_items = self.draft_matched_system_model.get_checked_item_data()
-        
-        all_ids_to_unmatch = [item.id for item in selected_draft_stmt_items] + \
-                             [item.id for item in selected_draft_sys_items]
-
-        if not all_ids_to_unmatch:
-            QMessageBox.information(self, "Selection Needed", "Please select items from the 'Provisionally Matched' tables to unmatch.")
-            return
-
-        self.unmatch_button.setEnabled(False)
-        schedule_task_from_qt(self._perform_unmatch(all_ids_to_unmatch))
-
-    async def _perform_unmatch(self, transaction_ids: List[int]): # New async method
+    async def _perform_unmatch(self, transaction_ids: List[int]):
         if not self.app_core.current_user: return
         try:
-            success = await self.app_core.bank_reconciliation_service.unreconcile_transactions(
-                transaction_ids=transaction_ids,
-                user_id=self.app_core.current_user.id
-            )
-            if success:
-                QMessageBox.information(self, "Items Unmatched", f"{len(transaction_ids)} items have been unmarked and returned to the unreconciled lists.")
-                self._on_load_transactions_clicked() # Reload all lists
-            else:
-                QMessageBox.warning(self, "Unmatch Error", "Failed to unmatch items in the database.")
-        except Exception as e:
-            self.app_core.logger.error(f"Error during unmatch operation: {e}", exc_info=True)
-            QMessageBox.critical(self, "Error", f"An unexpected error occurred while unmatching: {e}")
-        finally:
-            self._update_unmatch_button_state() # Re-evaluate button state
-            self._update_match_button_state() # Also affects match button if selections changed
-
+            success = await self.app_core.bank_reconciliation_service.unreconcile_transactions(transaction_ids, self.app_core.current_user.id)
+            if success: QMessageBox.information(self, "Items Unmatched", f"{len(transaction_ids)} items have been unmarked and returned to the unreconciled lists."); self._on_load_transactions_clicked()
+            else: QMessageBox.warning(self, "Unmatch Error", "Failed to unmatch items in the database.")
+        except Exception as e: self.app_core.logger.error(f"Error during unmatch operation: {e}", exc_info=True); QMessageBox.critical(self, "Error", f"An unexpected error occurred while unmatching: {e}")
+        finally: self._update_unmatch_button_state(); self._update_match_button_state()
 
     @Slot()
     def _on_create_je_for_statement_item_clicked(self):
-        # ... (Unchanged from previous implementation)
         selected_statement_rows = [r for r in range(self.statement_lines_model.rowCount()) if self.statement_lines_model.get_row_check_state(r) == Qt.CheckState.Checked]
         if not selected_statement_rows: QMessageBox.information(self, "Selection Needed", "Please select a bank statement item to create a Journal Entry for."); return
         if len(selected_statement_rows) > 1: QMessageBox.information(self, "Selection Limit", "Please select only one statement item at a time to create a Journal Entry."); return
@@ -985,168 +880,277 @@ class BankReconciliationWidget(QWidget):
 
     @Slot(int, int)
     def _handle_je_created_for_statement_item(self, saved_je_id: int, original_statement_txn_id: int):
-        # ... (Unchanged from previous implementation)
-        self.app_core.logger.info(f"Journal Entry ID {saved_je_id} created for statement item ID {original_statement_txn_id}. Refreshing transactions...")
-        self._on_load_transactions_clicked() 
+        self.app_core.logger.info(f"Journal Entry ID {saved_je_id} created for statement item ID {original_statement_txn_id}. Refreshing transactions..."); self._on_load_transactions_clicked() 
 
     @Slot()
     def _on_save_reconciliation_clicked(self):
-        # ... (Modified to use _current_draft_reconciliation_id and call _perform_finalize_reconciliation)
-        if self._current_draft_reconciliation_id is None:
-            QMessageBox.warning(self, "Error", "No active reconciliation draft. Please load transactions first.")
-            return
-        if abs(self._difference) >= Decimal("0.01"):
-            QMessageBox.warning(self, "Cannot Save", "Reconciliation is not balanced.")
-            return
+        if self._current_draft_reconciliation_id is None: QMessageBox.warning(self, "Error", "No active reconciliation draft. Please load transactions first."); return
+        if abs(self._difference) >= Decimal("0.01"): QMessageBox.warning(self, "Cannot Save", "Reconciliation is not balanced."); return
         if not self.app_core.current_user: QMessageBox.warning(self, "Auth Error", "Please log in."); return
-        
-        self.save_reconciliation_button.setEnabled(False); self.save_reconciliation_button.setText("Saving...")
-        schedule_task_from_qt(self._perform_finalize_reconciliation())
+        self.save_reconciliation_button.setEnabled(False); self.save_reconciliation_button.setText("Saving..."); schedule_task_from_qt(self._perform_finalize_reconciliation())
 
     async def _perform_finalize_reconciliation(self):
-        # ... (Modified to call service.finalize_reconciliation)
         if not self.app_core.bank_reconciliation_service or self._current_draft_reconciliation_id is None:
-            QMessageBox.critical(self, "Error", "Reconciliation Service or Draft ID not set.")
-            self.save_reconciliation_button.setEnabled(abs(self._difference) < Decimal("0.01")); self.save_reconciliation_button.setText("Save Final Reconciliation"); return
-
-        statement_end_bal_dec = Decimal(str(self.statement_balance_spin.value()))
-        final_reconciled_book_balance_dec = self._book_balance_gl + self._interest_earned_on_statement_not_in_book - self._bank_charges_on_statement_not_in_book
-        
+            QMessageBox.critical(self, "Error", "Reconciliation Service or Draft ID not set."); self.save_reconciliation_button.setEnabled(abs(self._difference) < Decimal("0.01")); self.save_reconciliation_button.setText("Save Final Reconciliation"); return
+        statement_end_bal_dec = Decimal(str(self.statement_balance_spin.value())); final_reconciled_book_balance_dec = self._book_balance_gl + self._interest_earned_on_statement_not_in_book - self._bank_charges_on_statement_not_in_book
         try:
             async with self.app_core.db_manager.session() as session: 
-                result = await self.app_core.bank_reconciliation_service.finalize_reconciliation(
-                    draft_reconciliation_id=self._current_draft_reconciliation_id,
-                    statement_ending_balance=statement_end_bal_dec,
-                    calculated_book_balance=final_reconciled_book_balance_dec,
-                    reconciled_difference=self._difference,
-                    user_id=self.app_core.current_user.id,
-                    session=session 
-                )
-            
+                result = await self.app_core.bank_reconciliation_service.finalize_reconciliation(self._current_draft_reconciliation_id, statement_end_bal_dec, final_reconciled_book_balance_dec, self._difference, self.app_core.current_user.id, session=session)
             if result.is_success and result.value:
-                QMessageBox.information(self, "Success", f"Bank reconciliation finalized and saved successfully (ID: {result.value.id}).")
-                self.reconciliation_saved.emit(result.value.id)
-                self._current_draft_reconciliation_id = None 
-                self._on_load_transactions_clicked() 
-                self._load_reconciliation_history(1) 
-            else:
-                QMessageBox.warning(self, "Save Error", f"Failed to finalize reconciliation: {', '.join(result.errors if result.errors else ['Unknown error'])}")
-        except Exception as e:
-            self.app_core.logger.error(f"Error performing finalize reconciliation: {e}", exc_info=True)
-            QMessageBox.warning(self, "Save Error", f"Failed to finalize reconciliation: {str(e)}")
-        finally:
-            self.save_reconciliation_button.setEnabled(abs(self._difference) < Decimal("0.01") and self._current_draft_reconciliation_id is not None); 
-            self.save_reconciliation_button.setText("Save Final Reconciliation")
-
+                QMessageBox.information(self, "Success", f"Bank reconciliation finalized and saved successfully (ID: {result.value.id})."); self.reconciliation_saved.emit(result.value.id); self._current_draft_reconciliation_id = None; self._on_load_transactions_clicked(); self._load_reconciliation_history(1) 
+            else: QMessageBox.warning(self, "Save Error", f"Failed to finalize reconciliation: {', '.join(result.errors if result.errors else ['Unknown error'])}")
+        except Exception as e: self.app_core.logger.error(f"Error performing finalize reconciliation: {e}", exc_info=True); QMessageBox.warning(self, "Save Error", f"Failed to finalize reconciliation: {str(e)}")
+        finally: self.save_reconciliation_button.setEnabled(abs(self._difference) < Decimal("0.01") and self._current_draft_reconciliation_id is not None); self.save_reconciliation_button.setText("Save Final Reconciliation")
 
     def _load_reconciliation_history(self, page_number: int):
-        # ... (Unchanged from previous implementation)
-        if not self._current_bank_account_id:
-            self.history_table_model.update_data([])
-            self._update_history_pagination_controls(0, 0)
-            return
-        self._current_history_page = page_number
-        self.prev_history_button.setEnabled(False); self.next_history_button.setEnabled(False)
-        schedule_task_from_qt(self._fetch_reconciliation_history())
+        if not self._current_bank_account_id: self.history_table_model.update_data([]); self._update_history_pagination_controls(0, 0); return
+        self._current_history_page = page_number; self.prev_history_button.setEnabled(False); self.next_history_button.setEnabled(False); schedule_task_from_qt(self._fetch_reconciliation_history())
 
     async def _fetch_reconciliation_history(self):
-        # ... (Unchanged from previous implementation)
-        if not self.app_core.bank_reconciliation_service or self._current_bank_account_id is None: 
-            self._update_history_pagination_controls(0,0); return
-
-        history_data, total_records = await self.app_core.bank_reconciliation_service.get_reconciliations_for_account(
-            bank_account_id=self._current_bank_account_id,
-            page=self._current_history_page,
-            page_size=self._history_page_size
-        )
-        self._total_history_records = total_records
-        
-        history_json = json.dumps([h.model_dump(mode='json') for h in history_data], default=json_converter)
-        QMetaObject.invokeMethod(self, "_update_history_table_slot", Qt.ConnectionType.QueuedConnection,
-                                 Q_ARG(str, history_json))
+        if not self.app_core.bank_reconciliation_service or self._current_bank_account_id is None: self._update_history_pagination_controls(0,0); return
+        history_data, total_records = await self.app_core.bank_reconciliation_service.get_reconciliations_for_account(self._current_bank_account_id, page=self._current_history_page, page_size=self._history_page_size)
+        self._total_history_records = total_records; history_json = json.dumps([h.model_dump(mode='json') for h in history_data], default=json_converter)
+        QMetaObject.invokeMethod(self, "_update_history_table_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, history_json))
 
     @Slot(str)
     def _update_history_table_slot(self, history_json_str: str):
-        # ... (Unchanged from previous implementation)
         current_item_count = 0
         try:
             history_list_dict = json.loads(history_json_str, object_hook=json_date_hook)
-            history_summaries = [BankReconciliationSummaryData.model_validate(d) for d in history_list_dict]
-            self.history_table_model.update_data(history_summaries)
-            current_item_count = len(history_summaries)
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to display reconciliation history: {e}")
-        self.history_details_group.setVisible(False)
-        self._update_history_pagination_controls(current_item_count, self._total_history_records)
-
+            history_summaries = [BankReconciliationSummaryData.model_validate(d) for d in history_list_dict]; self.history_table_model.update_data(history_summaries); current_item_count = len(history_summaries)
+        except Exception as e: QMessageBox.critical(self, "Error", f"Failed to display reconciliation history: {e}")
+        self.history_details_group.setVisible(False); self._update_history_pagination_controls(current_item_count, self._total_history_records)
 
     def _update_history_pagination_controls(self, current_page_count: int, total_records: int):
-        # ... (Unchanged from previous implementation)
-        total_pages = (total_records + self._history_page_size - 1) // self._history_page_size
+        total_pages = (total_records + self._history_page_size - 1) // self._history_page_size;
         if total_pages == 0: total_pages = 1
         self.history_page_info_label.setText(f"Page {self._current_history_page} of {total_pages} ({total_records} Records)")
-        self.prev_history_button.setEnabled(self._current_history_page > 1)
-        self.next_history_button.setEnabled(self._current_history_page < total_pages)
+        self.prev_history_button.setEnabled(self._current_history_page > 1); self.next_history_button.setEnabled(self._current_history_page < total_pages)
 
     @Slot(QModelIndex, QModelIndex)
     def _on_history_selection_changed(self, current: QModelIndex, previous: QModelIndex):
-        # ... (Unchanged from previous implementation)
         if not current.isValid(): self.history_details_group.setVisible(False); return
-        selected_row = current.row()
-        reconciliation_id = self.history_table_model.get_reconciliation_id_at_row(selected_row)
-        if reconciliation_id is not None:
-            self.history_details_group.setTitle(f"Details for Reconciliation ID: {reconciliation_id}")
-            schedule_task_from_qt(self._load_historical_reconciliation_details(reconciliation_id))
-        else:
-            self.history_details_group.setVisible(False)
-            self._history_statement_txns_model.update_data([])
-            self._history_system_txns_model.update_data([])
+        selected_row = current.row(); reconciliation_id = self.history_table_model.get_reconciliation_id_at_row(selected_row)
+        if reconciliation_id is not None: self.history_details_group.setTitle(f"Details for Reconciliation ID: {reconciliation_id}"); schedule_task_from_qt(self._load_historical_reconciliation_details(reconciliation_id))
+        else: self.history_details_group.setVisible(False); self._history_statement_txns_model.update_data([]); self._history_system_txns_model.update_data([])
 
     async def _load_historical_reconciliation_details(self, reconciliation_id: int):
-        # ... (Unchanged from previous implementation)
         if not self.app_core.bank_reconciliation_service: return
         statement_txns, system_txns = await self.app_core.bank_reconciliation_service.get_transactions_for_reconciliation(reconciliation_id)
-        stmt_json = json.dumps([s.model_dump(mode='json') for s in statement_txns], default=json_converter)
-        sys_json = json.dumps([s.model_dump(mode='json') for s in system_txns], default=json_converter)
+        stmt_json = json.dumps([s.model_dump(mode='json') for s in statement_txns], default=json_converter); sys_json = json.dumps([s.model_dump(mode='json') for s in system_txns], default=json_converter)
         QMetaObject.invokeMethod(self, "_update_history_detail_tables_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, stmt_json), Q_ARG(str, sys_json))
 
     @Slot(str, str)
     def _update_history_detail_tables_slot(self, stmt_txns_json: str, sys_txns_json: str):
-        # ... (Unchanged from previous implementation)
         try:
-            stmt_list = json.loads(stmt_txns_json, object_hook=json_date_hook)
-            stmt_dtos = [BankTransactionSummaryData.model_validate(d) for d in stmt_list]
-            self._history_statement_txns_model.update_data(stmt_dtos)
-            sys_list = json.loads(sys_txns_json, object_hook=json_date_hook)
-            sys_dtos = [BankTransactionSummaryData.model_validate(d) for d in sys_list]
-            self._history_system_txns_model.update_data(sys_dtos)
+            stmt_list = json.loads(stmt_txns_json, object_hook=json_date_hook); stmt_dtos = [BankTransactionSummaryData.model_validate(d) for d in stmt_list]; self._history_statement_txns_model.update_data(stmt_dtos)
+            sys_list = json.loads(sys_txns_json, object_hook=json_date_hook); sys_dtos = [BankTransactionSummaryData.model_validate(d) for d in sys_list]; self._history_system_txns_model.update_data(sys_dtos)
             self.history_details_group.setVisible(True)
+        except Exception as e: QMessageBox.critical(self, "Error", f"Failed to display historical reconciliation details: {e}"); self.history_details_group.setVisible(False)
+
+    def _format_decimal(self, value: Optional[Decimal], show_blank_for_zero: bool = False) -> str:
+        if value is None: return "" if show_blank_for_zero else "0.00"
+        try:
+            d_val = Decimal(str(value))
+            if show_blank_for_zero and d_val.is_zero(): return ""
+            return f"{d_val:,.2f}"
+        except (InvalidOperation, TypeError): return "Error"
+
+```
+
+# app/ui/banking/csv_import_config_dialog.py
+```py
+# File: app/ui/banking/csv_import_config_dialog.py
+import os
+import json
+from typing import Optional, Dict, Any, TYPE_CHECKING, cast, Tuple, Union, List # Added List
+from PySide6.QtWidgets import (
+    QDialog, QVBoxLayout, QFormLayout, QLineEdit, QPushButton, QDialogButtonBox,
+    QMessageBox, QCheckBox, QFileDialog, QLabel, QSpinBox, QGroupBox, QHBoxLayout
+)
+from PySide6.QtCore import Qt, Slot, Signal, QTimer, QMetaObject, Q_ARG
+from PySide6.QtGui import QIcon
+
+from app.utils.result import Result
+from app.utils.json_helpers import json_converter
+from app.utils.pydantic_models import CSVImportErrorData
+from app.ui.banking.csv_import_errors_dialog import CSVImportErrorsDialog
+
+if TYPE_CHECKING:
+    from app.core.application_core import ApplicationCore
+    from PySide6.QtGui import QPaintDevice
+
+
+class CSVImportConfigDialog(QDialog):
+    statement_imported = Signal(dict)
+
+    FIELD_DATE = "date"; FIELD_DESCRIPTION = "description"; FIELD_DEBIT = "debit"; FIELD_CREDIT = "credit"; FIELD_AMOUNT = "amount"; FIELD_REFERENCE = "reference"; FIELD_VALUE_DATE = "value_date"
+    
+    FIELD_DISPLAY_NAMES = {
+        FIELD_DATE: "Transaction Date*", FIELD_DESCRIPTION: "Description*", FIELD_DEBIT: "Debit Amount Column", FIELD_CREDIT: "Credit Amount Column",
+        FIELD_AMOUNT: "Single Amount Column*", FIELD_REFERENCE: "Reference Column", FIELD_VALUE_DATE: "Value Date Column"
+    }
+
+    def __init__(self, app_core: "ApplicationCore", bank_account_id: int, current_user_id: int, parent: Optional["QWidget"] = None):
+        super().__init__(parent)
+        self.app_core = app_core; self.bank_account_id = bank_account_id; self.current_user_id = current_user_id
+        self.setWindowTitle("Import Bank Statement from CSV"); self.setMinimumWidth(600); self.setModal(True)
+        self.icon_path_prefix = "resources/icons/";
+        try: import app.resources_rc; self.icon_path_prefix = ":/icons/"
+        except ImportError: pass
+        self._column_mapping_inputs: Dict[str, QLineEdit] = {}; self._init_ui(); self._connect_signals(); self._update_ui_for_column_type()
+
+    def _init_ui(self):
+        main_layout = QVBoxLayout(self)
+        file_group = QGroupBox("CSV File"); file_layout = QHBoxLayout(file_group)
+        self.file_path_edit = QLineEdit(); self.file_path_edit.setReadOnly(True); self.file_path_edit.setPlaceholderText("Select CSV file to import...")
+        browse_button = QPushButton(QIcon(self.icon_path_prefix + "open_company.svg"), "Browse..."); browse_button.setObjectName("BrowseButton")
+        file_layout.addWidget(self.file_path_edit, 1); file_layout.addWidget(browse_button); main_layout.addWidget(file_group)
+        format_group = QGroupBox("CSV Format Options"); format_layout = QFormLayout(format_group)
+        self.has_header_check = QCheckBox("CSV file has a header row"); self.has_header_check.setChecked(True); format_layout.addRow(self.has_header_check)
+        self.date_format_edit = QLineEdit("%d/%m/%Y"); date_format_hint = QLabel("Common: <code>%d/%m/%Y</code>, <code>%Y-%m-%d</code>, <code>%m/%d/%y</code>, <code>%b %d %Y</code>. <a href='https://strftime.org/'>More...</a>"); date_format_hint.setOpenExternalLinks(True); format_layout.addRow("Date Format*:", self.date_format_edit); format_layout.addRow("", date_format_hint); main_layout.addWidget(format_group)
+        mapping_group = QGroupBox("Column Mapping (Enter column index or header name)"); self.mapping_form_layout = QFormLayout(mapping_group)
+        for field_key in [self.FIELD_DATE, self.FIELD_DESCRIPTION, self.FIELD_REFERENCE, self.FIELD_VALUE_DATE]: edit = QLineEdit(); self._column_mapping_inputs[field_key] = edit; self.mapping_form_layout.addRow(self.FIELD_DISPLAY_NAMES[field_key] + ":", edit)
+        self.use_single_amount_col_check = QCheckBox("Use a single column for Amount"); self.use_single_amount_col_check.setChecked(False); self.mapping_form_layout.addRow(self.use_single_amount_col_check)
+        self._column_mapping_inputs[self.FIELD_DEBIT] = QLineEdit(); self.debit_amount_label = QLabel(self.FIELD_DISPLAY_NAMES[self.FIELD_DEBIT] + ":"); self.mapping_form_layout.addRow(self.debit_amount_label, self._column_mapping_inputs[self.FIELD_DEBIT])
+        self._column_mapping_inputs[self.FIELD_CREDIT] = QLineEdit(); self.credit_amount_label = QLabel(self.FIELD_DISPLAY_NAMES[self.FIELD_CREDIT] + ":"); self.mapping_form_layout.addRow(self.credit_amount_label, self._column_mapping_inputs[self.FIELD_CREDIT])
+        self._column_mapping_inputs[self.FIELD_AMOUNT] = QLineEdit(); self.single_amount_label = QLabel(self.FIELD_DISPLAY_NAMES[self.FIELD_AMOUNT] + ":"); self.mapping_form_layout.addRow(self.single_amount_label, self._column_mapping_inputs[self.FIELD_AMOUNT])
+        self.debit_is_negative_check = QCheckBox("In single amount column, debits are negative values (credits are positive)"); self.debit_is_negative_check.setChecked(True); self.debit_negative_label = QLabel(); self.mapping_form_layout.addRow(self.debit_negative_label, self.debit_is_negative_check)
+        main_layout.addWidget(mapping_group)
+        self.button_box = QDialogButtonBox(); self.import_button = self.button_box.addButton("Import", QDialogButtonBox.ButtonRole.AcceptRole); self.button_box.addButton(QDialogButtonBox.StandardButton.Cancel); main_layout.addWidget(self.button_box)
+        self.setLayout(main_layout); self._on_has_header_changed(self.has_header_check.isChecked())
+
+    def _connect_signals(self):
+        browse_button = self.findChild(QPushButton, "BrowseButton");
+        if browse_button: browse_button.clicked.connect(self._browse_file)
+        self.has_header_check.stateChanged.connect(lambda state: self._on_has_header_changed(state == Qt.CheckState.Checked.value))
+        self.use_single_amount_col_check.stateChanged.connect(self._update_ui_for_column_type)
+        self.import_button.clicked.connect(self._collect_config_and_import)
+        cancel_button = self.button_box.button(QDialogButtonBox.StandardButton.Cancel)
+        if cancel_button: cancel_button.clicked.connect(self.reject)
+
+    @Slot()
+    def _browse_file(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "Select Bank Statement CSV", "", "CSV Files (*.csv);;All Files (*)");
+        if file_path: self.file_path_edit.setText(file_path)
+
+    @Slot(bool)
+    def _on_has_header_changed(self, checked: bool):
+        placeholder = "Header Name (e.g., Transaction Date)" if checked else "Column Index (e.g., 0)"
+        for edit_widget in self._column_mapping_inputs.values(): edit_widget.setPlaceholderText(placeholder)
+            
+    @Slot()
+    def _update_ui_for_column_type(self):
+        use_single_col = self.use_single_amount_col_check.isChecked()
+        self.debit_amount_label.setVisible(not use_single_col); self._column_mapping_inputs[self.FIELD_DEBIT].setVisible(not use_single_col); self._column_mapping_inputs[self.FIELD_DEBIT].setEnabled(not use_single_col)
+        self.credit_amount_label.setVisible(not use_single_col); self._column_mapping_inputs[self.FIELD_CREDIT].setVisible(not use_single_col); self._column_mapping_inputs[self.FIELD_CREDIT].setEnabled(not use_single_col)
+        self.single_amount_label.setVisible(use_single_col); self._column_mapping_inputs[self.FIELD_AMOUNT].setVisible(use_single_col); self._column_mapping_inputs[self.FIELD_AMOUNT].setEnabled(use_single_col)
+        self.debit_is_negative_check.setVisible(use_single_col); self.debit_negative_label.setVisible(use_single_col); self.debit_is_negative_check.setEnabled(use_single_col)
+
+    def _get_column_specifier(self, field_edit: QLineEdit) -> Optional[Union[str, int]]:
+        text = field_edit.text().strip()
+        if not text: return None
+        if self.has_header_check.isChecked(): return text 
+        else:
+            try: return int(text) 
+            except ValueError: return None 
+
+    @Slot()
+    def _collect_config_and_import(self):
+        file_path = self.file_path_edit.text().strip()
+        if not file_path: QMessageBox.warning(self, "Input Error", "Please select a CSV file."); return
+        if not os.path.exists(file_path): QMessageBox.warning(self, "Input Error", f"File not found: {file_path}"); return
+        date_format = self.date_format_edit.text().strip()
+        if not date_format: QMessageBox.warning(self, "Input Error", "Date format is required."); return
+        column_map: Dict[str, Any] = {}; errors: List[str] = []
+        date_spec = self._get_column_specifier(self._column_mapping_inputs[self.FIELD_DATE])
+        if date_spec is None: errors.append("Date column mapping is required.")
+        else: column_map[self.FIELD_DATE] = date_spec
+        desc_spec = self._get_column_specifier(self._column_mapping_inputs[self.FIELD_DESCRIPTION])
+        if desc_spec is None: errors.append("Description column mapping is required.")
+        else: column_map[self.FIELD_DESCRIPTION] = desc_spec
+        if self.use_single_amount_col_check.isChecked():
+            amount_spec = self._get_column_specifier(self._column_mapping_inputs[self.FIELD_AMOUNT])
+            if amount_spec is None: errors.append("Single Amount column mapping is required when selected.")
+            else: column_map[self.FIELD_AMOUNT] = amount_spec
+        else:
+            debit_spec = self._get_column_specifier(self._column_mapping_inputs[self.FIELD_DEBIT])
+            credit_spec = self._get_column_specifier(self._column_mapping_inputs[self.FIELD_CREDIT])
+            if debit_spec is None and credit_spec is None: errors.append("At least one of Debit or Credit Amount column mapping is required if not using single amount column.")
+            if debit_spec is not None: column_map[self.FIELD_DEBIT] = debit_spec
+            if credit_spec is not None: column_map[self.FIELD_CREDIT] = credit_spec
+        ref_spec = self._get_column_specifier(self._column_mapping_inputs[self.FIELD_REFERENCE]);
+        if ref_spec is not None: column_map[self.FIELD_REFERENCE] = ref_spec
+        val_date_spec = self._get_column_specifier(self._column_mapping_inputs[self.FIELD_VALUE_DATE]);
+        if val_date_spec is not None: column_map[self.FIELD_VALUE_DATE] = val_date_spec
+        if not self.has_header_check.isChecked():
+            for key, val in list(column_map.items()):
+                if val is not None and not isinstance(val, int): errors.append(f"Invalid column index for '{self.FIELD_DISPLAY_NAMES.get(key, key)}': '{val}'. Must be a number when not using headers.")
+        if errors: QMessageBox.warning(self, "Configuration Error", "\n".join(errors)); return
+        import_options = {"date_format_str": date_format, "skip_header": self.has_header_check.isChecked(), "debit_is_negative_in_single_col": self.debit_is_negative_check.isChecked() if self.use_single_amount_col_check.isChecked() else False, "use_single_amount_column": self.use_single_amount_col_check.isChecked()}
+        self.import_button.setEnabled(False); self.import_button.setText("Importing...")
+        future = schedule_task_from_qt(self.app_core.bank_transaction_manager.import_bank_statement_csv(self.bank_account_id, file_path, self.current_user_id, column_map, import_options))
+        if future: future.add_done_callback(lambda res: QMetaObject.invokeMethod(self, "_handle_import_result_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(object, future)))
+        else: self.app_core.logger.error("Failed to schedule bank statement import task."); self._handle_import_result_slot(None)
+
+    @Slot(object)
+    def _handle_import_result_slot(self, future_arg):
+        self.import_button.setEnabled(True); self.import_button.setText("Import")
+        if future_arg is None: QMessageBox.critical(self, "Task Error", "Failed to schedule import operation."); return
+        try:
+            result: Result[Dict[str, Any]] = future_arg.result()
+            if result.is_success and result.value:
+                summary = result.value
+                detailed_errors = summary.get("detailed_errors", [])
+                
+                summary_msg_parts = [
+                    f"Import Process Complete for Bank Account ID: {self.bank_account_id}",
+                    f"Total Rows Processed: {summary.get('total_rows_in_file', 0)}",
+                    f"Successfully Imported: {summary.get('imported_count', 0)}",
+                    f"Skipped (Duplicates): {summary.get('skipped_duplicates_count', 0)}",
+                    f"Skipped (Zero Amount): {summary.get('zero_amount_skipped_count', 0)}",
+                    f"Failed (Errors): {len(detailed_errors)}"
+                ]
+                
+                if detailed_errors:
+                    error_dialog = CSVImportErrorsDialog(detailed_errors, self)
+                    error_dialog.exec()
+                    # After reviewing errors, show the summary message box
+                    QMessageBox.warning(self, "Import Complete with Errors", "\n".join(summary_msg_parts))
+                else:
+                    QMessageBox.information(self, "Import Successful", "\n".join(summary_msg_parts))
+                
+                self.statement_imported.emit(summary) 
+                self.accept()
+            else:
+                QMessageBox.warning(self, "Import Failed", f"Failed to import statement:\n{', '.join(result.errors)}")
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to display historical reconciliation details: {e}")
-            self.history_details_group.setVisible(False)
+            self.app_core.logger.error(f"Exception handling import result: {e}", exc_info=True)
+            QMessageBox.critical(self, "Import Error", f"An unexpected error occurred: {str(e)}")
 
 ```
 
 # app/ui/dashboard/dashboard_widget.py
 ```py
-# File: app/ui/dashboard/dashboard_widget.py
+# app/ui/dashboard/dashboard_widget.py
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGridLayout, QGroupBox, QPushButton, QMessageBox,
-    QScrollArea, QFrame, QFormLayout
+    QScrollArea, QFrame, QFormLayout, QDateEdit
 )
-from PySide6.QtCore import Qt, Slot, QTimer, QMetaObject, Q_ARG
-from PySide6.QtGui import QFont, QIcon
+from PySide6.QtCore import Qt, Slot, QTimer, QMetaObject, Q_ARG, QMargins, QDate
+from PySide6.QtGui import QFont, QIcon, QPainter, QColor
+from PySide6.QtCharts import QChart, QChartView, QBarSet, QBarSeries, QBarCategoryAxis, QValueAxis
+
 from typing import Optional, TYPE_CHECKING, List, Dict 
 from decimal import Decimal, InvalidOperation 
-
 import json 
+from datetime import date as python_date, datetime, timedelta
 
 from app.utils.pydantic_models import DashboardKPIData
 from app.main import schedule_task_from_qt
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore 
-    # from PySide6.QtGui import QPaintDevice # QPaintDevice not directly used, can be removed
 
 class DashboardWidget(QWidget):
     def __init__(self, app_core: "ApplicationCore", parent: Optional[QWidget] = None): 
@@ -1160,6 +1164,8 @@ class DashboardWidget(QWidget):
             self.icon_path_prefix = ":/icons/"
         except ImportError:
             pass
+            
+        self._group_colors = [QColor("#4F81BD"), QColor("#C0504D"), QColor("#9BBB59")]
 
         self._init_ui()
         self.app_core.logger.info("DashboardWidget: Scheduling initial KPI load.")
@@ -1169,12 +1175,17 @@ class DashboardWidget(QWidget):
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        refresh_button_layout = QHBoxLayout()
+        top_controls_layout = QHBoxLayout()
+        top_controls_layout.addWidget(QLabel("<b>Dashboard As Of Date:</b>"))
+        self.as_of_date_edit = QDateEdit(QDate.currentDate())
+        self.as_of_date_edit.setCalendarPopup(True)
+        self.as_of_date_edit.setDisplayFormat("dd/MM/yyyy")
+        top_controls_layout.addWidget(self.as_of_date_edit)
+        top_controls_layout.addStretch()
         self.refresh_button = QPushButton(QIcon(self.icon_path_prefix + "refresh.svg"), "Refresh KPIs")
         self.refresh_button.clicked.connect(self._request_kpi_load)
-        refresh_button_layout.addStretch()
-        refresh_button_layout.addWidget(self.refresh_button)
-        self.main_layout.addLayout(refresh_button_layout)
+        top_controls_layout.addWidget(self.refresh_button)
+        self.main_layout.addLayout(top_controls_layout)
 
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
@@ -1194,9 +1205,8 @@ class DashboardWidget(QWidget):
         self.kpi_layout.setSpacing(10)
         self.kpi_layout.setColumnStretch(1, 1) 
         self.kpi_layout.setColumnStretch(3, 1) 
-        self.kpi_layout.setColumnMinimumWidth(0, 200) 
-        self.kpi_layout.setColumnMinimumWidth(2, 200) 
-
+        self.kpi_layout.setColumnMinimumWidth(0, 220) 
+        self.kpi_layout.setColumnMinimumWidth(2, 220) 
 
         def add_kpi_row(layout: QGridLayout, row: int, col_offset: int, title: str) -> QLabel:
             title_label = QLabel(title)
@@ -1225,7 +1235,11 @@ class DashboardWidget(QWidget):
         self.current_ratio_label = add_kpi_row(self.kpi_layout, current_row, 2, "Current Ratio:") 
         current_row += 1
         self.net_profit_value_label = add_kpi_row(self.kpi_layout, current_row, 0, "Net Profit / (Loss) (YTD):")
-        current_row += 1 
+        self.quick_ratio_label = add_kpi_row(self.kpi_layout, current_row, 2, "Quick Ratio (Acid Test):")
+        current_row += 1
+        
+        self.debt_to_equity_label = add_kpi_row(self.kpi_layout, current_row, 2, "Debt-to-Equity Ratio:")
+        current_row += 1
 
         self.kpi_layout.addWidget(QLabel("---"), current_row, 0, 1, 4) 
         current_row += 1
@@ -1236,40 +1250,42 @@ class DashboardWidget(QWidget):
         self.ap_overdue_value_label = add_kpi_row(self.kpi_layout, current_row, 2, "Total AP Overdue:")
         current_row += 1
         
-        ar_aging_group = QGroupBox("AR Aging Summary")
-        ar_aging_layout = QFormLayout(ar_aging_group) 
-        ar_aging_layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-        self.ar_aging_current_label = QLabel("Loading..."); ar_aging_layout.addRow("Current (Not Overdue):", self.ar_aging_current_label)
-        self.ar_aging_1_30_label = QLabel("Loading..."); ar_aging_layout.addRow("Overdue (1-30 days):", self.ar_aging_1_30_label)
-        self.ar_aging_31_60_label = QLabel("Loading..."); ar_aging_layout.addRow("Overdue (31-60 days):", self.ar_aging_31_60_label)
-        self.ar_aging_61_90_label = QLabel("Loading..."); ar_aging_layout.addRow("Overdue (61-90 days):", self.ar_aging_61_90_label)
-        self.ar_aging_91_plus_label = QLabel("Loading..."); ar_aging_layout.addRow("Overdue (91+ days):", self.ar_aging_91_plus_label)
-        self.kpi_layout.addWidget(ar_aging_group, current_row, 0, 1, 2) 
+        self.ar_aging_chart_view = self._create_aging_chart_view("AR Aging Summary")
+        self.kpi_layout.addWidget(self.ar_aging_chart_view, current_row, 0, 1, 2) 
 
-        ap_aging_group = QGroupBox("AP Aging Summary")
-        ap_aging_layout = QFormLayout(ap_aging_group) 
-        ap_aging_layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-        self.ap_aging_current_label = QLabel("Loading..."); ap_aging_layout.addRow("Current (Not Overdue):", self.ap_aging_current_label)
-        self.ap_aging_1_30_label = QLabel("Loading..."); ap_aging_layout.addRow("Overdue (1-30 days):", self.ap_aging_1_30_label)
-        self.ap_aging_31_60_label = QLabel("Loading..."); ap_aging_layout.addRow("Overdue (31-60 days):", self.ap_aging_31_60_label)
-        self.ap_aging_61_90_label = QLabel("Loading..."); ap_aging_layout.addRow("Overdue (61-90 days):", self.ap_aging_61_90_label)
-        self.ap_aging_91_plus_label = QLabel("Loading..."); ap_aging_layout.addRow("Overdue (91+ days):", self.ap_aging_91_plus_label)
-        self.kpi_layout.addWidget(ap_aging_group, current_row, 2, 1, 2) 
+        self.ap_aging_chart_view = self._create_aging_chart_view("AP Aging Summary")
+        self.kpi_layout.addWidget(self.ap_aging_chart_view, current_row, 2, 1, 2) 
         
         container_layout.addStretch() 
 
+    def _create_aging_chart_view(self, title: str) -> QChartView:
+        chart = QChart()
+        chart.setTitle(title)
+        chart.setAnimationOptions(QChart.AnimationOption.SeriesAnimations)
+        chart.legend().setVisible(False)
+        chart.setMargins(QMargins(0,0,0,0))
+        
+        chart_view = QChartView(chart)
+        chart_view.setRenderHint(QPainter.RenderHint.Antialiasing)
+        chart_view.setMinimumHeight(250)
+        return chart_view
 
     def _format_decimal_for_display(self, value: Optional[Decimal], currency_symbol: str = "") -> str:
-        if value is None:
-            return "N/A"
+        if value is None: return "N/A"
         prefix = f"{currency_symbol} " if currency_symbol else ""
         try:
             if not isinstance(value, Decimal) : value = Decimal(str(value))
             if not value.is_finite(): return "N/A (Infinite)" 
             return f"{prefix}{value:,.2f}"
-        except (TypeError, InvalidOperation): 
-            return f"{prefix}Error"
+        except (TypeError, InvalidOperation): return f"{prefix}Error"
 
+    def _format_ratio_for_display(self, value: Optional[Decimal]) -> str:
+        if value is None: return "N/A"
+        try:
+            if not isinstance(value, Decimal) : value = Decimal(str(value))
+            if not value.is_finite(): return "N/A (Infinite)" 
+            return f"{value:.2f} : 1"
+        except (TypeError, InvalidOperation): return "Error"
 
     @Slot()
     def _request_kpi_load(self):
@@ -1281,20 +1297,21 @@ class DashboardWidget(QWidget):
             self.revenue_value_label, self.expenses_value_label, self.net_profit_value_label,
             self.cash_balance_value_label, self.ar_value_label, self.ap_value_label,
             self.ar_overdue_value_label, self.ap_overdue_value_label,
-            self.ar_aging_current_label, self.ar_aging_1_30_label, self.ar_aging_31_60_label, 
-            self.ar_aging_61_90_label, self.ar_aging_91_plus_label,
-            self.ap_aging_current_label, self.ap_aging_1_30_label, self.ap_aging_31_60_label, 
-            self.ap_aging_61_90_label, self.ap_aging_91_plus_label,
-            self.current_ratio_label
+            self.current_ratio_label, self.quick_ratio_label, self.debt_to_equity_label
         ]
         for label in labels_to_reset:
             if hasattr(self, 'app_core') and self.app_core and hasattr(self.app_core, 'logger'): 
                  self.app_core.logger.debug(f"DashboardWidget: Resetting label to 'Loading...'")
             label.setText("Loading...")
+        
+        self.ar_aging_chart_view.chart().removeAllSeries()
+        self.ap_aging_chart_view.chart().removeAllSeries()
+
         self.period_label.setText("Period: Loading...")
         self.base_currency_label.setText("Currency: Loading...")
 
-        future = schedule_task_from_qt(self._fetch_kpis_data())
+        as_of_date = self.as_of_date_edit.date().toPython()
+        future = schedule_task_from_qt(self._fetch_kpis_data(as_of_date))
         if future:
             future.add_done_callback(
                 lambda res: QMetaObject.invokeMethod(self.refresh_button, "setEnabled", Qt.ConnectionType.QueuedConnection, Q_ARG(bool, True))
@@ -1303,27 +1320,25 @@ class DashboardWidget(QWidget):
             self.app_core.logger.error("DashboardWidget: Failed to schedule _fetch_kpis_data task.")
             self.refresh_button.setEnabled(True) 
 
-    async def _fetch_kpis_data(self):
+    async def _fetch_kpis_data(self, as_of_date: python_date):
         self.app_core.logger.info("DashboardWidget: _fetch_kpis_data started.")
-        kpi_data_result: Optional[DashboardKPIData] = None # This holds the DTO instance
+        kpi_data_result: Optional[DashboardKPIData] = None
         json_payload: Optional[str] = None
         try:
             if not self.app_core.dashboard_manager:
                 self.app_core.logger.error("DashboardWidget: Dashboard Manager not available in _fetch_kpis_data.")
             else:
-                kpi_data_result = await self.app_core.dashboard_manager.get_dashboard_kpis()
+                kpi_data_result = await self.app_core.dashboard_manager.get_dashboard_kpis(as_of_date=as_of_date)
                 if kpi_data_result:
                     self.app_core.logger.info(f"DashboardWidget: Fetched KPI data: Period='{kpi_data_result.kpi_period_description}', Revenue='{kpi_data_result.total_revenue_ytd}'")
-                    json_payload = kpi_data_result.model_dump_json() # Corrected: use kpi_data_result
+                    json_payload = kpi_data_result.model_dump_json()
                 else:
                     self.app_core.logger.warning("DashboardWidget: DashboardManager.get_dashboard_kpis returned None.")
         except Exception as e:
             self.app_core.logger.error(f"DashboardWidget: Exception in _fetch_kpis_data during manager call: {e}", exc_info=True)
         
         self.app_core.logger.info(f"DashboardWidget: Queuing _update_kpi_display_slot with payload: {'JSON string' if json_payload else 'None'}")
-        QMetaObject.invokeMethod(self, "_update_kpi_display_slot", 
-                                 Qt.ConnectionType.QueuedConnection, 
-                                 Q_ARG(str, json_payload if json_payload is not None else ""))
+        QMetaObject.invokeMethod(self, "_update_kpi_display_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, json_payload if json_payload is not None else ""))
 
     @Slot(str)
     def _update_kpi_display_slot(self, kpi_data_json_str: str):
@@ -1353,45 +1368,691 @@ class DashboardWidget(QWidget):
             self.ar_overdue_value_label.setText(self._format_decimal_for_display(kpi_data_dto.total_ar_overdue, bc_symbol)) 
             self.ap_overdue_value_label.setText(self._format_decimal_for_display(kpi_data_dto.total_ap_overdue, bc_symbol)) 
 
-            # AR Aging
-            self.ar_aging_current_label.setText(self._format_decimal_for_display(kpi_data_dto.ar_aging_current, bc_symbol))
-            self.ar_aging_1_30_label.setText(self._format_decimal_for_display(kpi_data_dto.ar_aging_1_30, bc_symbol)) 
-            self.ar_aging_31_60_label.setText(self._format_decimal_for_display(kpi_data_dto.ar_aging_31_60, bc_symbol))
-            self.ar_aging_61_90_label.setText(self._format_decimal_for_display(kpi_data_dto.ar_aging_61_90, bc_symbol))
-            self.ar_aging_91_plus_label.setText(self._format_decimal_for_display(kpi_data_dto.ar_aging_91_plus, bc_symbol))
-
-            # AP Aging
-            self.ap_aging_current_label.setText(self._format_decimal_for_display(kpi_data_dto.ap_aging_current, bc_symbol))
-            self.ap_aging_1_30_label.setText(self._format_decimal_for_display(kpi_data_dto.ap_aging_1_30, bc_symbol)) 
-            self.ap_aging_31_60_label.setText(self._format_decimal_for_display(kpi_data_dto.ap_aging_31_60, bc_symbol))
-            self.ap_aging_61_90_label.setText(self._format_decimal_for_display(kpi_data_dto.ap_aging_61_90, bc_symbol))
-            self.ap_aging_91_plus_label.setText(self._format_decimal_for_display(kpi_data_dto.ap_aging_91_plus, bc_symbol))
+            self._update_aging_chart(self.ar_aging_chart_view, kpi_data_dto, "ar")
+            self.ap_aging_chart_view.chart().setTitleFont(QFont(self.font().family(), -1, QFont.Weight.Bold))
+            self._update_aging_chart(self.ap_aging_chart_view, kpi_data_dto, "ap")
             
-            # Current Ratio
-            if kpi_data_dto.current_ratio is None:
-                self.current_ratio_label.setText("N/A")
-            elif not kpi_data_dto.current_ratio.is_finite(): 
-                self.current_ratio_label.setText("N/A (Infinite)")
-            else:
-                self.current_ratio_label.setText(f"{kpi_data_dto.current_ratio:.2f} : 1")
+            self.current_ratio_label.setText(self._format_ratio_for_display(kpi_data_dto.current_ratio))
+            self.quick_ratio_label.setText(self._format_ratio_for_display(kpi_data_dto.quick_ratio))
+            self.debt_to_equity_label.setText(self._format_ratio_for_display(kpi_data_dto.debt_to_equity_ratio))
 
-            self.app_core.logger.info("DashboardWidget: UI labels updated with KPI data.")
+            self.app_core.logger.info("DashboardWidget: UI labels and charts updated with KPI data.")
         else:
             self.app_core.logger.warning("DashboardWidget: _update_kpi_display_slot called with no valid DTO. Setting error text.")
             error_text = "N/A - Data unavailable"
-            self.period_label.setText("Period: N/A")
-            self.base_currency_label.setText("Currency: N/A")
             for label in [self.revenue_value_label, self.expenses_value_label, self.net_profit_value_label,
                           self.cash_balance_value_label, self.ar_value_label, self.ap_value_label,
                           self.ar_overdue_value_label, self.ap_overdue_value_label,
-                          self.ar_aging_current_label, self.ar_aging_1_30_label, self.ar_aging_31_60_label, 
-                          self.ar_aging_61_90_label, self.ar_aging_91_plus_label,
-                          self.ap_aging_current_label, self.ap_aging_1_30_label, self.ap_aging_31_60_label,
-                          self.ap_aging_61_90_label, self.ap_aging_91_plus_label,
-                          self.current_ratio_label]:
+                          self.current_ratio_label, self.quick_ratio_label, self.debt_to_equity_label]:
                 label.setText(error_text)
+            self.ar_aging_chart_view.chart().removeAllSeries()
+            self.ap_aging_chart_view.chart().removeAllSeries()
+            self.period_label.setText("Period: N/A")
+            self.base_currency_label.setText("Currency: N/A")
             if kpi_data_json_str: 
                  QMessageBox.warning(self, "Dashboard Data Error", "Could not process Key Performance Indicators data.")
+
+    def _update_aging_chart(self, chart_view: QChartView, kpi_data: DashboardKPIData, data_prefix: str):
+        chart = chart_view.chart()
+        chart.removeAllSeries()
+        for axis in chart.axes(): chart.removeAxis(axis)
+
+        bar_set = QBarSet("Amount")
+        bar_set.setColor(QColor("#4F81BD"))
+        
+        aging_data = [
+            kpi_data.ar_aging_current if data_prefix == "ar" else kpi_data.ap_aging_current,
+            kpi_data.ar_aging_1_30 if data_prefix == "ar" else kpi_data.ap_aging_1_30,
+            kpi_data.ar_aging_31_60 if data_prefix == "ar" else kpi_data.ap_aging_31_60,
+            kpi_data.ar_aging_61_90 if data_prefix == "ar" else kpi_data.ap_aging_61_90,
+            kpi_data.ar_aging_91_plus if data_prefix == "ar" else kpi_data.ap_aging_91_plus
+        ]
+        
+        max_val = 0
+        for val in aging_data:
+            float_val = float(val)
+            bar_set.append(float_val)
+            if float_val > max_val: max_val = float_val
+
+        series = QBarSeries()
+        series.append(bar_set)
+        series.setLabelsVisible(True)
+        series.setLabelsFormat("@value")
+        chart.addSeries(series)
+
+        categories = ["Current", "1-30", "31-60", "61-90", "91+"]
+        axis_x = QBarCategoryAxis()
+        axis_x.append(categories)
+        chart.addAxis(axis_x, Qt.AlignmentFlag.AlignBottom)
+        series.attachAxis(axis_x)
+
+        axis_y = QValueAxis()
+        axis_y.setLabelFormat("%'i")
+        axis_y.setRange(0, max_val * 1.15 if max_val > 0 else 100)
+        chart.addAxis(axis_y, Qt.AlignmentFlag.AlignLeft)
+        series.attachAxis(axis_y)
+
+```
+
+# app/ui/reports/reports_widget.py
+```py
+# File: app/ui/reports/reports_widget.py
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QLabel, QDateEdit, QPushButton, QFormLayout, 
+    QLineEdit, QGroupBox, QHBoxLayout, QMessageBox, QSpacerItem, QSizePolicy,
+    QTabWidget, QTextEdit, QComboBox, QFileDialog, QInputDialog, QCompleter,
+    QStackedWidget, QTreeView, QTableView, 
+    QAbstractItemView, QCheckBox 
+)
+from PySide6.QtCore import Qt, Slot, QDate, QTimer, QMetaObject, Q_ARG, QStandardPaths
+from PySide6.QtGui import QIcon, QStandardItemModel, QStandardItem, QFont, QColor
+from typing import Optional, Dict, Any, TYPE_CHECKING, List 
+
+import json
+from decimal import Decimal, InvalidOperation
+import os 
+from datetime import date as python_date, timedelta 
+
+from app.core.application_core import ApplicationCore
+from app.main import schedule_task_from_qt
+from app.utils.json_helpers import json_converter, json_date_hook
+from app.utils.pydantic_models import GSTReturnData, GSTTransactionLineDetail, FiscalYearData 
+from app.utils.result import Result 
+from app.models.accounting.gst_return import GSTReturn 
+from app.models.accounting.account import Account 
+from app.models.accounting.dimension import Dimension 
+from app.models.accounting.fiscal_year import FiscalYear
+
+from .trial_balance_table_model import TrialBalanceTableModel
+from .general_ledger_table_model import GeneralLedgerTableModel
+
+if TYPE_CHECKING:
+    from PySide6.QtGui import QPaintDevice 
+
+class ReportsWidget(QWidget):
+    def __init__(self, app_core: ApplicationCore, parent: Optional["QWidget"] = None):
+        super().__init__(parent)
+        self.app_core = app_core
+        self._prepared_gst_data: Optional[GSTReturnData] = None 
+        self._saved_draft_gst_return_orm: Optional[GSTReturn] = None 
+        self._current_financial_report_data: Optional[Dict[str, Any]] = None
+        self._gl_accounts_cache: List[Dict[str, Any]] = [] 
+        self._dimension_types_cache: List[str] = []
+        self._dimension_codes_cache: Dict[str, List[Dict[str, Any]]] = {} 
+        self._fiscal_years_cache: List[FiscalYearData] = []
+
+        self.icon_path_prefix = "resources/icons/" 
+        try:
+            import app.resources_rc 
+            self.icon_path_prefix = ":/icons/"
+        except ImportError:
+            pass
+
+        self.main_layout = QVBoxLayout(self)
+        
+        self.tab_widget = QTabWidget()
+        self.main_layout.addWidget(self.tab_widget)
+
+        self._create_gst_f5_tab()
+        self._create_financial_statements_tab()
+        
+        self.setLayout(self.main_layout)
+        # Load data required for filter combos
+        QTimer.singleShot(0, lambda: schedule_task_from_qt(self._load_fs_combo_data()))
+
+    def _format_decimal_for_display(self, value: Optional[Decimal], default_str: str = "0.00", show_blank_for_zero: bool = False) -> str:
+        if value is None: return default_str if not show_blank_for_zero else ""
+        try:
+            d_value = Decimal(str(value)); 
+            if show_blank_for_zero and d_value.is_zero(): return ""
+            return f"{d_value:,.2f}"
+        except (InvalidOperation, TypeError): return "Error" 
+
+    def _create_gst_f5_tab(self):
+        gst_f5_widget = QWidget(); gst_f5_main_layout = QVBoxLayout(gst_f5_widget); gst_f5_group = QGroupBox("GST F5 Return Data Preparation"); gst_f5_group_layout = QVBoxLayout(gst_f5_group) 
+        date_selection_layout = QHBoxLayout(); date_form = QFormLayout()
+        self.gst_start_date_edit = QDateEdit(QDate.currentDate().addMonths(-3).addDays(-QDate.currentDate().day()+1)); self.gst_start_date_edit.setCalendarPopup(True); self.gst_start_date_edit.setDisplayFormat("dd/MM/yyyy"); date_form.addRow("Period Start Date:", self.gst_start_date_edit)
+        self.gst_end_date_edit = QDateEdit(QDate.currentDate().addDays(-QDate.currentDate().day())); 
+        if self.gst_end_date_edit.date() < self.gst_start_date_edit.date(): self.gst_end_date_edit.setDate(self.gst_start_date_edit.date().addMonths(1).addDays(-1))
+        self.gst_end_date_edit.setCalendarPopup(True); self.gst_end_date_edit.setDisplayFormat("dd/MM/yyyy"); date_form.addRow("Period End Date:", self.gst_end_date_edit)
+        date_selection_layout.addLayout(date_form); prepare_button_layout = QVBoxLayout()
+        self.prepare_gst_button = QPushButton(QIcon(self.icon_path_prefix + "reports.svg"), "Prepare GST F5 Data"); self.prepare_gst_button.clicked.connect(self._on_prepare_gst_f5_clicked)
+        prepare_button_layout.addWidget(self.prepare_gst_button); prepare_button_layout.addStretch(); date_selection_layout.addLayout(prepare_button_layout); date_selection_layout.addStretch(1); gst_f5_group_layout.addLayout(date_selection_layout)
+        self.gst_display_form = QFormLayout(); self.gst_std_rated_supplies_display = QLineEdit(); self.gst_std_rated_supplies_display.setReadOnly(True); self.gst_zero_rated_supplies_display = QLineEdit(); self.gst_zero_rated_supplies_display.setReadOnly(True); self.gst_exempt_supplies_display = QLineEdit(); self.gst_exempt_supplies_display.setReadOnly(True); self.gst_total_supplies_display = QLineEdit(); self.gst_total_supplies_display.setReadOnly(True); self.gst_total_supplies_display.setStyleSheet("font-weight: bold;"); self.gst_taxable_purchases_display = QLineEdit(); self.gst_taxable_purchases_display.setReadOnly(True); self.gst_output_tax_display = QLineEdit(); self.gst_output_tax_display.setReadOnly(True); self.gst_input_tax_display = QLineEdit(); self.gst_input_tax_display.setReadOnly(True); self.gst_adjustments_display = QLineEdit("0.00"); self.gst_adjustments_display.setReadOnly(True); self.gst_net_payable_display = QLineEdit(); self.gst_net_payable_display.setReadOnly(True); self.gst_net_payable_display.setStyleSheet("font-weight: bold;"); self.gst_filing_due_date_display = QLineEdit(); self.gst_filing_due_date_display.setReadOnly(True)
+        self.gst_display_form.addRow("1. Standard-Rated Supplies:", self.gst_std_rated_supplies_display); self.gst_display_form.addRow("2. Zero-Rated Supplies:", self.gst_zero_rated_supplies_display); self.gst_display_form.addRow("3. Exempt Supplies:", self.gst_exempt_supplies_display); self.gst_display_form.addRow("4. Total Supplies (1+2+3):", self.gst_total_supplies_display); self.gst_display_form.addRow("5. Taxable Purchases:", self.gst_taxable_purchases_display); self.gst_display_form.addRow("6. Output Tax Due:", self.gst_output_tax_display); self.gst_display_form.addRow("7. Input Tax and Refunds Claimed:", self.gst_input_tax_display); self.gst_display_form.addRow("8. GST Adjustments:", self.gst_adjustments_display); self.gst_display_form.addRow("9. Net GST Payable / (Claimable):", self.gst_net_payable_display); self.gst_display_form.addRow("Filing Due Date:", self.gst_filing_due_date_display)
+        gst_f5_group_layout.addLayout(self.gst_display_form)
+        
+        gst_action_button_layout = QHBoxLayout()
+        self.save_draft_gst_button = QPushButton("Save Draft GST Return"); self.save_draft_gst_button.setEnabled(False); self.save_draft_gst_button.clicked.connect(self._on_save_draft_gst_return_clicked)
+        self.finalize_gst_button = QPushButton("Finalize GST Return"); self.finalize_gst_button.setEnabled(False); self.finalize_gst_button.clicked.connect(self._on_finalize_gst_return_clicked)
+        
+        self.export_gst_detail_excel_button = QPushButton("Export Details (Excel)"); self.export_gst_detail_excel_button.setEnabled(False)
+        self.export_gst_detail_excel_button.clicked.connect(self._on_export_gst_f5_details_excel_clicked)
+
+        gst_action_button_layout.addStretch()
+        gst_action_button_layout.addWidget(self.export_gst_detail_excel_button); gst_action_button_layout.addWidget(self.save_draft_gst_button); gst_action_button_layout.addWidget(self.finalize_gst_button)
+        gst_f5_group_layout.addLayout(gst_action_button_layout)
+
+        gst_f5_main_layout.addWidget(gst_f5_group); gst_f5_main_layout.addStretch(); self.tab_widget.addTab(gst_f5_widget, "GST F5 Preparation")
+
+    @Slot()
+    def _on_prepare_gst_f5_clicked(self):
+        start_date = self.gst_start_date_edit.date().toPython(); end_date = self.gst_end_date_edit.date().toPython()
+        if start_date > end_date: QMessageBox.warning(self, "Date Error", "Start date cannot be after end date."); return
+        if not self.app_core.current_user: QMessageBox.warning(self, "Authentication Error", "No user logged in."); return
+        if not self.app_core.gst_manager: QMessageBox.critical(self, "Error", "GST Manager not available."); return
+        self.prepare_gst_button.setEnabled(False); self.prepare_gst_button.setText("Preparing...")
+        self._saved_draft_gst_return_orm = None; self.finalize_gst_button.setEnabled(False); self.export_gst_detail_excel_button.setEnabled(False) 
+        future = schedule_task_from_qt(self.app_core.gst_manager.prepare_gst_return_data(start_date, end_date, self.app_core.current_user.id))
+        if future: future.add_done_callback(lambda res: QMetaObject.invokeMethod(self, "_safe_handle_prepare_gst_f5_result_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(object, future)))
+        else: self.app_core.logger.error("Failed to schedule GST data preparation task."); self._handle_prepare_gst_f5_result(None) 
+
+    @Slot(object)
+    def _safe_handle_prepare_gst_f5_result_slot(self, future_arg):
+        self._handle_prepare_gst_f5_result(future_arg)
+
+    def _handle_prepare_gst_f5_result(self, future):
+        self.prepare_gst_button.setEnabled(True); self.prepare_gst_button.setText("Prepare GST F5 Data"); self.export_gst_detail_excel_button.setEnabled(False) 
+        if future is None: QMessageBox.critical(self, "Task Error", "Failed to schedule GST data preparation."); self._clear_gst_display_fields(); self.save_draft_gst_button.setEnabled(False); self.finalize_gst_button.setEnabled(False); return
+        try:
+            result: Result[GSTReturnData] = future.result()
+            if result.is_success and result.value: 
+                self._prepared_gst_data = result.value; self._update_gst_f5_display(self._prepared_gst_data)
+                self.save_draft_gst_button.setEnabled(True); self.finalize_gst_button.setEnabled(False) 
+                if self._prepared_gst_data and self._prepared_gst_data.detailed_breakdown: self.export_gst_detail_excel_button.setEnabled(True)
+            else: self._clear_gst_display_fields(); self.save_draft_gst_button.setEnabled(False); self.finalize_gst_button.setEnabled(False); QMessageBox.warning(self, "GST Data Error", f"Failed to prepare GST data:\n{', '.join(result.errors)}")
+        except Exception as e: self._clear_gst_display_fields(); self.save_draft_gst_button.setEnabled(False); self.finalize_gst_button.setEnabled(False); self.app_core.logger.error(f"Exception handling GST F5 preparation result: {e}", exc_info=True); QMessageBox.critical(self, "GST Data Error", f"An unexpected error occurred: {str(e)}")
+
+    def _update_gst_f5_display(self, gst_data: GSTReturnData):
+        self.gst_std_rated_supplies_display.setText(self._format_decimal_for_display(gst_data.standard_rated_supplies)); self.gst_zero_rated_supplies_display.setText(self._format_decimal_for_display(gst_data.zero_rated_supplies)); self.gst_exempt_supplies_display.setText(self._format_decimal_for_display(gst_data.exempt_supplies)); self.gst_total_supplies_display.setText(self._format_decimal_for_display(gst_data.total_supplies)); self.gst_taxable_purchases_display.setText(self._format_decimal_for_display(gst_data.taxable_purchases)); self.gst_output_tax_display.setText(self._format_decimal_for_display(gst_data.output_tax)); self.gst_input_tax_display.setText(self._format_decimal_for_display(gst_data.input_tax)); self.gst_adjustments_display.setText(self._format_decimal_for_display(gst_data.tax_adjustments)); self.gst_net_payable_display.setText(self._format_decimal_for_display(gst_data.tax_payable)); self.gst_filing_due_date_display.setText(gst_data.filing_due_date.strftime('%d/%m/%Y') if gst_data.filing_due_date else "")
+    
+    def _clear_gst_display_fields(self):
+        for w in [self.gst_std_rated_supplies_display, self.gst_zero_rated_supplies_display, self.gst_exempt_supplies_display, self.gst_total_supplies_display, self.gst_taxable_purchases_display, self.gst_output_tax_display, self.gst_input_tax_display, self.gst_net_payable_display, self.gst_filing_due_date_display]: w.clear()
+        self.gst_adjustments_display.setText("0.00"); self._prepared_gst_data = None; self._saved_draft_gst_return_orm = None; self.export_gst_detail_excel_button.setEnabled(False) 
+    
+    @Slot()
+    def _on_save_draft_gst_return_clicked(self):
+        if not self._prepared_gst_data: QMessageBox.warning(self, "No Data", "Please prepare GST data first."); return
+        if not self.app_core.current_user: QMessageBox.warning(self, "Authentication Error", "No user logged in."); return
+        self._prepared_gst_data.user_id = self.app_core.current_user.id
+        if self._saved_draft_gst_return_orm and self._saved_draft_gst_return_orm.id: self._prepared_gst_data.id = self._saved_draft_gst_return_orm.id
+        self.save_draft_gst_button.setEnabled(False); self.save_draft_gst_button.setText("Saving Draft..."); self.finalize_gst_button.setEnabled(False)
+        future = schedule_task_from_qt(self.app_core.gst_manager.save_gst_return(self._prepared_gst_data))
+        if future: future.add_done_callback(lambda res: QMetaObject.invokeMethod(self, "_safe_handle_save_draft_gst_result_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(object, future)))
+        else: self.app_core.logger.error("Failed to schedule GST draft save task."); self._handle_save_draft_gst_result(None)
+
+    @Slot(object)
+    def _safe_handle_save_draft_gst_result_slot(self, future_arg):
+        self._handle_save_draft_gst_result(future_arg)
+
+    def _handle_save_draft_gst_result(self, future):
+        self.save_draft_gst_button.setEnabled(True); self.save_draft_gst_button.setText("Save Draft GST Return")
+        if future is None: QMessageBox.critical(self, "Task Error", "Failed to schedule GST draft save."); return
+        try:
+            result: Result[GSTReturn] = future.result()
+            if result.is_success and result.value: 
+                self._saved_draft_gst_return_orm = result.value
+                if self._prepared_gst_data: self._prepared_gst_data.id = result.value.id 
+                QMessageBox.information(self, "Success", f"GST Return draft saved successfully (ID: {result.value.id})."); self.finalize_gst_button.setEnabled(True); self.export_gst_detail_excel_button.setEnabled(bool(self._prepared_gst_data and self._prepared_gst_data.detailed_breakdown))
+            else: QMessageBox.warning(self, "Save Error", f"Failed to save GST Return draft:\n{', '.join(result.errors)}"); self.finalize_gst_button.setEnabled(False)
+        except Exception as e: self.app_core.logger.error(f"Exception handling save draft GST result: {e}", exc_info=True); QMessageBox.critical(self, "Save Error", f"An unexpected error occurred: {str(e)}"); self.finalize_gst_button.setEnabled(False)
+
+    @Slot()
+    def _on_finalize_gst_return_clicked(self):
+        if not self._saved_draft_gst_return_orm or not self._saved_draft_gst_return_orm.id: QMessageBox.warning(self, "No Draft", "Please prepare and save a draft GST return first."); return
+        if self._saved_draft_gst_return_orm.status != "Draft": QMessageBox.information(self, "Already Processed", f"This GST Return (ID: {self._saved_draft_gst_return_orm.id}) is already '{self._saved_draft_gst_return_orm.status}'."); return
+        if not self.app_core.current_user: QMessageBox.warning(self, "Authentication Error", "No user logged in."); return
+        submission_ref, ok_ref = QInputDialog.getText(self, "Finalize GST Return", "Enter Submission Reference No.:")
+        if not ok_ref or not submission_ref.strip(): QMessageBox.information(self, "Cancelled", "Submission reference not provided. Finalization cancelled."); return
+        submission_date_str, ok_date = QInputDialog.getText(self, "Finalize GST Return", "Enter Submission Date (YYYY-MM-DD):", text=python_date.today().isoformat())
+        if not ok_date or not submission_date_str.strip(): QMessageBox.information(self, "Cancelled", "Submission date not provided. Finalization cancelled."); return
+        try: parsed_submission_date = python_date.fromisoformat(submission_date_str)
+        except ValueError: QMessageBox.warning(self, "Invalid Date", "Submission date format is invalid. Please use YYYY-MM-DD."); return
+        self.finalize_gst_button.setEnabled(False); self.finalize_gst_button.setText("Finalizing..."); self.save_draft_gst_button.setEnabled(False); self.export_gst_detail_excel_button.setEnabled(False)
+        future = schedule_task_from_qt(self.app_core.gst_manager.finalize_gst_return(return_id=self._saved_draft_gst_return_orm.id, submission_reference=submission_ref.strip(), submission_date=parsed_submission_date, user_id=self.app_core.current_user.id))
+        if future: future.add_done_callback(lambda res: QMetaObject.invokeMethod(self, "_safe_handle_finalize_gst_result_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(object, future)))
+        else: self.app_core.logger.error("Failed to schedule GST finalization task."); self._handle_finalize_gst_result(None)
+
+    @Slot(object)
+    def _safe_handle_finalize_gst_result_slot(self, future_arg):
+        self._handle_finalize_gst_result(future_arg)
+
+    def _handle_finalize_gst_result(self, future): 
+        self.finalize_gst_button.setText("Finalize GST Return"); can_finalize_default = self._saved_draft_gst_return_orm and self._saved_draft_gst_return_orm.status == "Draft"; can_save_draft_default = self._prepared_gst_data is not None and (not self._saved_draft_gst_return_orm or self._saved_draft_gst_return_orm.status == "Draft"); can_export_detail_default = bool(self._prepared_gst_data and self._prepared_gst_data.detailed_breakdown)
+        if future is None: QMessageBox.critical(self, "Task Error", "Failed to schedule GST finalization."); self.finalize_gst_button.setEnabled(can_finalize_default); self.save_draft_gst_button.setEnabled(can_save_draft_default); self.export_gst_detail_excel_button.setEnabled(can_export_detail_default); return
+        try:
+            result: Result[GSTReturn] = future.result()
+            if result.is_success and result.value: 
+                QMessageBox.information(self, "Success", f"GST Return (ID: {result.value.id}) finalized successfully.\nStatus: {result.value.status}.\nSettlement JE ID: {result.value.journal_entry_id or 'N/A'}"); self._saved_draft_gst_return_orm = result.value; self.save_draft_gst_button.setEnabled(False); self.finalize_gst_button.setEnabled(False); self.export_gst_detail_excel_button.setEnabled(can_export_detail_default) 
+                if self._prepared_gst_data: self._prepared_gst_data.status = result.value.status
+            else: QMessageBox.warning(self, "Finalization Error", f"Failed to finalize GST Return:\n{', '.join(result.errors)}"); self.finalize_gst_button.setEnabled(can_finalize_default); self.save_draft_gst_button.setEnabled(can_save_draft_default); self.export_gst_detail_excel_button.setEnabled(can_export_detail_default)
+        except Exception as e: self.app_core.logger.error(f"Exception handling finalize GST result: {e}", exc_info=True); QMessageBox.critical(self, "Finalization Error", f"An unexpected error occurred: {str(e)}"); self.finalize_gst_button.setEnabled(can_finalize_default); self.save_draft_gst_button.setEnabled(can_save_draft_default); self.export_gst_detail_excel_button.setEnabled(can_export_detail_default)
+
+    @Slot()
+    def _on_export_gst_f5_details_excel_clicked(self):
+        if not self._prepared_gst_data or not self._prepared_gst_data.detailed_breakdown: QMessageBox.warning(self, "No Data", "Please prepare GST data with details first."); return
+        default_filename = f"GST_F5_Details_{self._prepared_gst_data.start_date.strftime('%Y%m%d')}_{self._prepared_gst_data.end_date.strftime('%Y%m%d')}.xlsx"; documents_path = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DocumentsLocation)
+        file_path, _ = QFileDialog.getSaveFileName(self, "Save GST F5 Detail Report (Excel)", os.path.join(documents_path, default_filename), "Excel Files (*.xlsx);;All Files (*)")
+        if file_path: 
+            self.export_gst_detail_excel_button.setEnabled(False)
+            future = schedule_task_from_qt(self.app_core.report_engine.export_report(self._prepared_gst_data, "gst_excel_detail"))
+            if future: future.add_done_callback(lambda res, fp=file_path: QMetaObject.invokeMethod(self, "_safe_handle_gst_detail_export_result_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(object, future), Q_ARG(str, fp)))
+            else: self.app_core.logger.error("Failed to schedule GST detail export task."); self.export_gst_detail_excel_button.setEnabled(True) 
+
+    @Slot(object, str)
+    def _safe_handle_gst_detail_export_result_slot(self, future_arg, file_path_arg: str):
+        self._handle_gst_detail_export_result(future_arg, file_path_arg)
+
+    def _handle_gst_detail_export_result(self, future, file_path: str):
+        self.export_gst_detail_excel_button.setEnabled(True) 
+        if future is None: QMessageBox.critical(self, "Task Error", "Failed to schedule GST detail export."); return
+        try:
+            report_bytes: Optional[bytes] = future.result()
+            if report_bytes:
+                with open(file_path, "wb") as f: f.write(report_bytes)
+                QMessageBox.information(self, "Export Successful", f"GST F5 Detail Report exported to:\n{file_path}")
+            else: QMessageBox.warning(self, "Export Failed", "Failed to generate GST F5 Detail report bytes.")
+        except Exception as e: self.app_core.logger.error(f"Exception handling GST detail export result: {e}", exc_info=True); QMessageBox.critical(self, "Export Error", f"An error occurred during GST detail export: {str(e)}")
+    
+    def _create_financial_statements_tab(self):
+        fs_widget = QWidget(); fs_main_layout = QVBoxLayout(fs_widget); fs_group = QGroupBox("Financial Statements"); fs_group_layout = QVBoxLayout(fs_group) 
+        controls_layout = QHBoxLayout(); self.fs_params_form = QFormLayout() 
+        self.fs_report_type_combo = QComboBox(); self.fs_report_type_combo.addItems(["Balance Sheet", "Profit & Loss Statement", "Trial Balance", "General Ledger", "Income Tax Computation"]); self.fs_params_form.addRow("Report Type:", self.fs_report_type_combo)
+        self.fs_fiscal_year_label = QLabel("Fiscal Year:"); self.fs_fiscal_year_combo = QComboBox(); self.fs_fiscal_year_combo.setMinimumWidth(200); self.fs_params_form.addRow(self.fs_fiscal_year_label, self.fs_fiscal_year_combo)
+        self.fs_gl_account_label = QLabel("Account for GL:"); self.fs_gl_account_combo = QComboBox(); self.fs_gl_account_combo.setMinimumWidth(250); self.fs_gl_account_combo.setEditable(True)
+        completer = QCompleter([f"{item.get('code')} - {item.get('name')}" for item in self._gl_accounts_cache]); completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion); completer.setFilterMode(Qt.MatchFlag.MatchContains); self.fs_gl_account_combo.setCompleter(completer); self.fs_params_form.addRow(self.fs_gl_account_label, self.fs_gl_account_combo)
+        self.fs_as_of_date_edit = QDateEdit(QDate.currentDate()); self.fs_as_of_date_edit.setCalendarPopup(True); self.fs_as_of_date_edit.setDisplayFormat("dd/MM/yyyy"); self.fs_params_form.addRow("As of Date:", self.fs_as_of_date_edit)
+        self.fs_start_date_edit = QDateEdit(QDate.currentDate().addMonths(-1).addDays(-QDate.currentDate().day()+1)); self.fs_start_date_edit.setCalendarPopup(True); self.fs_start_date_edit.setDisplayFormat("dd/MM/yyyy"); self.fs_params_form.addRow("Period Start Date:", self.fs_start_date_edit)
+        self.fs_end_date_edit = QDateEdit(QDate.currentDate().addDays(-QDate.currentDate().day())); self.fs_end_date_edit.setCalendarPopup(True); self.fs_end_date_edit.setDisplayFormat("dd/MM/yyyy"); self.fs_params_form.addRow("Period End Date:", self.fs_end_date_edit)
+        self.fs_include_zero_balance_check = QCheckBox("Include Zero-Balance Accounts"); self.fs_params_form.addRow(self.fs_include_zero_balance_check) 
+        self.fs_include_comparative_check = QCheckBox("Include Comparative Period"); self.fs_params_form.addRow(self.fs_include_comparative_check)
+        self.fs_comparative_as_of_date_label = QLabel("Comparative As of Date:"); self.fs_comparative_as_of_date_edit = QDateEdit(QDate.currentDate().addYears(-1)); self.fs_comparative_as_of_date_edit.setCalendarPopup(True); self.fs_comparative_as_of_date_edit.setDisplayFormat("dd/MM/yyyy"); self.fs_params_form.addRow(self.fs_comparative_as_of_date_label, self.fs_comparative_as_of_date_edit)
+        self.fs_comparative_start_date_label = QLabel("Comparative Start Date:"); self.fs_comparative_start_date_edit = QDateEdit(QDate.currentDate().addYears(-1).addMonths(-1).addDays(-QDate.currentDate().day()+1)); self.fs_comparative_start_date_edit.setCalendarPopup(True); self.fs_comparative_start_date_edit.setDisplayFormat("dd/MM/yyyy"); self.fs_params_form.addRow(self.fs_comparative_start_date_label, self.fs_comparative_start_date_edit)
+        self.fs_comparative_end_date_label = QLabel("Comparative End Date:"); self.fs_comparative_end_date_edit = QDateEdit(QDate.currentDate().addYears(-1).addDays(-QDate.currentDate().day())); self.fs_comparative_end_date_edit.setCalendarPopup(True); self.fs_comparative_end_date_edit.setDisplayFormat("dd/MM/yyyy"); self.fs_params_form.addRow(self.fs_comparative_end_date_label, self.fs_comparative_end_date_edit)
+        self.fs_dim1_type_label = QLabel("Dimension 1 Type:"); self.fs_dim1_type_combo = QComboBox(); self.fs_dim1_type_combo.addItem("All Types", None); self.fs_dim1_type_combo.setObjectName("fs_dim1_type_combo"); self.fs_params_form.addRow(self.fs_dim1_type_label, self.fs_dim1_type_combo)
+        self.fs_dim1_code_label = QLabel("Dimension 1 Code:"); self.fs_dim1_code_combo = QComboBox(); self.fs_dim1_code_combo.addItem("All Codes", None); self.fs_dim1_code_combo.setObjectName("fs_dim1_code_combo"); self.fs_params_form.addRow(self.fs_dim1_code_label, self.fs_dim1_code_combo)
+        self.fs_dim2_type_label = QLabel("Dimension 2 Type:"); self.fs_dim2_type_combo = QComboBox(); self.fs_dim2_type_combo.addItem("All Types", None); self.fs_dim2_type_combo.setObjectName("fs_dim2_type_combo"); self.fs_params_form.addRow(self.fs_dim2_type_label, self.fs_dim2_type_combo)
+        self.fs_dim2_code_label = QLabel("Dimension 2 Code:"); self.fs_dim2_code_combo = QComboBox(); self.fs_dim2_code_combo.addItem("All Codes", None); self.fs_dim2_code_combo.setObjectName("fs_dim2_code_combo"); self.fs_params_form.addRow(self.fs_dim2_code_label, self.fs_dim2_code_combo)
+        controls_layout.addLayout(self.fs_params_form)
+        generate_fs_button_layout = QVBoxLayout(); self.generate_fs_button = QPushButton(QIcon(self.icon_path_prefix + "reports.svg"), "Generate Report"); self.generate_fs_button.clicked.connect(self._on_generate_financial_report_clicked)
+        generate_fs_button_layout.addWidget(self.generate_fs_button); generate_fs_button_layout.addStretch(); controls_layout.addLayout(generate_fs_button_layout); controls_layout.addStretch(1); fs_group_layout.addLayout(controls_layout)
+        self.fs_display_stack = QStackedWidget(); fs_group_layout.addWidget(self.fs_display_stack, 1)
+        self.bs_tree_view = QTreeView(); self.bs_tree_view.setAlternatingRowColors(True); self.bs_tree_view.setHeaderHidden(False); self.bs_tree_view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.bs_model = QStandardItemModel(); self.bs_tree_view.setModel(self.bs_model); self.fs_display_stack.addWidget(self.bs_tree_view)
+        self.pl_tree_view = QTreeView(); self.pl_tree_view.setAlternatingRowColors(True); self.pl_tree_view.setHeaderHidden(False); self.pl_tree_view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.pl_model = QStandardItemModel(); self.pl_tree_view.setModel(self.pl_model); self.fs_display_stack.addWidget(self.pl_tree_view)
+        self.tb_table_view = QTableView(); self.tb_table_view.setAlternatingRowColors(True); self.tb_table_view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.tb_table_view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection); self.tb_table_view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.tb_table_view.setSortingEnabled(True); self.tb_model = TrialBalanceTableModel(); self.tb_table_view.setModel(self.tb_model); self.fs_display_stack.addWidget(self.tb_table_view)
+        gl_widget_container = QWidget(); gl_layout = QVBoxLayout(gl_widget_container); gl_layout.setContentsMargins(0,0,0,0)
+        self.gl_summary_label_account = QLabel("Account: N/A"); self.gl_summary_label_account.setStyleSheet("font-weight: bold;"); self.gl_summary_label_period = QLabel("Period: N/A"); self.gl_summary_label_ob = QLabel("Opening Balance: 0.00"); gl_summary_header_layout = QHBoxLayout(); gl_summary_header_layout.addWidget(self.gl_summary_label_account); gl_summary_header_layout.addStretch(); gl_summary_header_layout.addWidget(self.gl_summary_label_period); gl_layout.addLayout(gl_summary_header_layout); gl_layout.addWidget(self.gl_summary_label_ob)
+        self.gl_table_view = QTableView(); self.gl_table_view.setAlternatingRowColors(True); self.gl_table_view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.gl_table_view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection); self.gl_table_view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.gl_table_view.setSortingEnabled(True); self.gl_model = GeneralLedgerTableModel(); self.gl_table_view.setModel(self.gl_model); gl_layout.addWidget(self.gl_table_view)
+        self.gl_summary_label_cb = QLabel("Closing Balance: 0.00"); self.gl_summary_label_cb.setAlignment(Qt.AlignmentFlag.AlignRight); gl_layout.addWidget(self.gl_summary_label_cb)
+        self.fs_display_stack.addWidget(gl_widget_container); self.gl_widget_container = gl_widget_container 
+        
+        self.tax_comp_tree_view = QTreeView(); self.tax_comp_tree_view.setAlternatingRowColors(True); self.tax_comp_tree_view.setHeaderHidden(False); self.tax_comp_tree_view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.tax_comp_model = QStandardItemModel(); self.tax_comp_tree_view.setModel(self.tax_comp_model); self.fs_display_stack.addWidget(self.tax_comp_tree_view)
+
+        export_button_layout = QHBoxLayout(); self.export_pdf_button = QPushButton("Export to PDF"); self.export_pdf_button.setEnabled(False); self.export_pdf_button.clicked.connect(lambda: self._on_export_report_clicked("pdf")); self.export_excel_button = QPushButton("Export to Excel"); self.export_excel_button.setEnabled(False); self.export_excel_button.clicked.connect(lambda: self._on_export_report_clicked("excel")); export_button_layout.addStretch(); export_button_layout.addWidget(self.export_pdf_button); export_button_layout.addWidget(self.export_excel_button); fs_group_layout.addLayout(export_button_layout)
+        fs_main_layout.addWidget(fs_group); self.tab_widget.addTab(fs_widget, "Financial Statements")
+        self.fs_report_type_combo.currentTextChanged.connect(self._on_fs_report_type_changed)
+        self.fs_include_comparative_check.stateChanged.connect(self._on_comparative_check_changed)
+        self.fs_dim1_type_combo.currentIndexChanged.connect(lambda index, tc=self.fs_dim1_type_combo, cc=self.fs_dim1_code_combo: self._on_dimension_type_selected(tc, cc))
+        self.fs_dim2_type_combo.currentIndexChanged.connect(lambda index, tc=self.fs_dim2_type_combo, cc=self.fs_dim2_code_combo: self._on_dimension_type_selected(tc, cc))
+        self._on_fs_report_type_changed(self.fs_report_type_combo.currentText()) 
+
+    async def _load_fs_combo_data(self):
+        await self._load_gl_accounts_for_combo()
+        await self._load_fiscal_years_for_combo()
+
+    @Slot(str)
+    def _on_fs_report_type_changed(self, report_type: str):
+        is_bs = (report_type == "Balance Sheet"); is_pl = (report_type == "Profit & Loss Statement"); is_gl = (report_type == "General Ledger"); is_tb = (report_type == "Trial Balance"); is_tax = (report_type == "Income Tax Computation")
+        self.fs_as_of_date_edit.setVisible(is_bs or is_tb); self.fs_start_date_edit.setVisible(is_pl or is_gl); self.fs_end_date_edit.setVisible(is_pl or is_gl)
+        self.fs_fiscal_year_combo.setVisible(is_tax); self.fs_fiscal_year_label.setVisible(is_tax)
+        self.fs_gl_account_combo.setVisible(is_gl); self.fs_gl_account_label.setVisible(is_gl); self.fs_include_zero_balance_check.setVisible(is_bs); self.fs_include_comparative_check.setVisible(is_bs or is_pl)
+        for w in [self.fs_dim1_type_label, self.fs_dim1_type_combo, self.fs_dim1_code_label, self.fs_dim1_code_combo, self.fs_dim2_type_label, self.fs_dim2_type_combo, self.fs_dim2_code_label, self.fs_dim2_code_combo]: w.setVisible(is_gl)
+        if is_gl and self.fs_dim1_type_combo.count() <= 1 : schedule_task_from_qt(self._load_dimension_types())
+        self._on_comparative_check_changed(self.fs_include_comparative_check.checkState().value) 
+        if is_gl: self.fs_display_stack.setCurrentWidget(self.gl_widget_container)
+        elif is_bs: self.fs_display_stack.setCurrentWidget(self.bs_tree_view)
+        elif is_pl: self.fs_display_stack.setCurrentWidget(self.pl_tree_view)
+        elif is_tb: self.fs_display_stack.setCurrentWidget(self.tb_table_view)
+        elif is_tax: self.fs_display_stack.setCurrentWidget(self.tax_comp_tree_view)
+        self._clear_current_financial_report_display(); self.export_pdf_button.setEnabled(False); self.export_excel_button.setEnabled(False)
+    async def _load_dimension_types(self):
+        if not self.app_core.dimension_service: self.app_core.logger.error("DimensionService not available."); return
+        try:
+            dim_types = await self.app_core.dimension_service.get_distinct_dimension_types(); json_data = json.dumps(dim_types)
+            QMetaObject.invokeMethod(self, "_populate_dimension_types_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, json_data))
+        except Exception as e: self.app_core.logger.error(f"Error loading dimension types: {e}", exc_info=True)
+    @Slot(str)
+    def _populate_dimension_types_slot(self, dim_types_json_str: str):
+        try: dim_types = json.loads(dim_types_json_str)
+        except json.JSONDecodeError: self.app_core.logger.error("Failed to parse dimension types JSON."); return
+        self._dimension_types_cache = ["All Types"] + dim_types 
+        for combo in [self.fs_dim1_type_combo, self.fs_dim2_type_combo]:
+            current_data = combo.currentData(); combo.clear(); combo.addItem("All Types", None)
+            for dt in dim_types: combo.addItem(dt, dt)
+            idx = combo.findData(current_data); 
+            if idx != -1: combo.setCurrentIndex(idx)
+            else: combo.setCurrentIndex(0) 
+        self._on_dimension_type_selected(self.fs_dim1_type_combo, self.fs_dim1_code_combo); self._on_dimension_type_selected(self.fs_dim2_type_combo, self.fs_dim2_code_combo)
+    @Slot(QComboBox, QComboBox) 
+    def _on_dimension_type_selected(self, type_combo: QComboBox, code_combo: QComboBox):
+        selected_type_str = type_combo.currentData() 
+        if selected_type_str: schedule_task_from_qt(self._load_dimension_codes_for_type(selected_type_str, code_combo.objectName() or ""))
+        else: code_combo.clear(); code_combo.addItem("All Codes", None)
+    async def _load_dimension_codes_for_type(self, dim_type_str: str, target_code_combo_name: str):
+        if not self.app_core.dimension_service: self.app_core.logger.error("DimensionService not available."); return
+        try:
+            dimensions: List[Dimension] = await self.app_core.dimension_service.get_dimensions_by_type(dim_type_str)
+            dim_codes_data = [{"id": d.id, "code": d.code, "name": d.name} for d in dimensions]; self._dimension_codes_cache[dim_type_str] = dim_codes_data
+            json_data = json.dumps(dim_codes_data, default=json_converter)
+            QMetaObject.invokeMethod(self, "_populate_dimension_codes_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, json_data), Q_ARG(str, target_code_combo_name))
+        except Exception as e: self.app_core.logger.error(f"Error loading dimension codes for type '{dim_type_str}': {e}", exc_info=True)
+    @Slot(str, str)
+    def _populate_dimension_codes_slot(self, dim_codes_json_str: str, target_code_combo_name: str):
+        target_combo: Optional[QComboBox] = self.findChild(QComboBox, target_code_combo_name)
+        if not target_combo: self.app_core.logger.error(f"Target code combo '{target_code_combo_name}' not found."); return
+        current_data = target_combo.currentData(); target_combo.clear(); target_combo.addItem("All Codes", None) 
+        try:
+            dim_codes = json.loads(dim_codes_json_str, object_hook=json_date_hook)
+            for dc in dim_codes: target_combo.addItem(f"{dc['code']} - {dc['name']}", dc['id'])
+            idx = target_combo.findData(current_data)
+            if idx != -1: target_combo.setCurrentIndex(idx)
+            else: target_combo.setCurrentIndex(0) 
+        except json.JSONDecodeError: self.app_core.logger.error(f"Failed to parse dim codes JSON for {target_code_combo_name}")
+    @Slot(int)
+    def _on_comparative_check_changed(self, state: int):
+        is_checked = (state == Qt.CheckState.Checked.value); report_type = self.fs_report_type_combo.currentText(); is_bs = (report_type == "Balance Sheet"); is_pl = (report_type == "Profit & Loss Statement")
+        self.fs_comparative_as_of_date_label.setVisible(is_bs and is_checked); self.fs_comparative_as_of_date_edit.setVisible(is_bs and is_checked)
+        self.fs_comparative_start_date_label.setVisible(is_pl and is_checked); self.fs_comparative_start_date_edit.setVisible(is_pl and is_checked)
+        self.fs_comparative_end_date_label.setVisible(is_pl and is_checked); self.fs_comparative_end_date_edit.setVisible(is_pl and is_checked)
+    async def _load_gl_accounts_for_combo(self):
+        if not self.app_core.chart_of_accounts_manager: self.app_core.logger.error("ChartOfAccountsManager not available for GL account combo."); return
+        try:
+            accounts_orm: List[Account] = await self.app_core.chart_of_accounts_manager.get_accounts_for_selection(active_only=True)
+            self._gl_accounts_cache = [{"id": acc.id, "code": acc.code, "name": acc.name} for acc in accounts_orm]
+            accounts_json = json.dumps(self._gl_accounts_cache, default=json_converter)
+            QMetaObject.invokeMethod(self, "_populate_gl_account_combo_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, accounts_json))
+        except Exception as e: self.app_core.logger.error(f"Error loading accounts for GL combo: {e}", exc_info=True); QMessageBox.warning(self, "Account Load Error", "Could not load accounts for General Ledger selection.")
+    @Slot(str)
+    def _populate_gl_account_combo_slot(self, accounts_json_str: str):
+        self.fs_gl_account_combo.clear()
+        try:
+            accounts_data = json.loads(accounts_json_str); self._gl_accounts_cache = accounts_data if accounts_data else []
+            self.fs_gl_account_combo.addItem("-- Select Account --", 0) 
+            for acc_data in self._gl_accounts_cache: self.fs_gl_account_combo.addItem(f"{acc_data['code']} - {acc_data['name']}", acc_data['id'])
+            if isinstance(self.fs_gl_account_combo.completer(), QCompleter): self.fs_gl_account_combo.completer().setModel(self.fs_gl_account_combo.model())
+        except json.JSONDecodeError: self.app_core.logger.error("Failed to parse accounts JSON for GL combo."); self.fs_gl_account_combo.addItem("Error loading accounts", 0)
+
+    async def _load_fiscal_years_for_combo(self):
+        if not self.app_core.fiscal_period_manager: self.app_core.logger.error("FiscalPeriodManager not available."); return
+        try:
+            fy_orms = await self.app_core.fiscal_period_manager.get_all_fiscal_years()
+            self._fiscal_years_cache = [FiscalYearData.model_validate(fy) for fy in fy_orms]
+            fy_json = json.dumps([fy.model_dump(mode='json') for fy in self._fiscal_years_cache])
+            QMetaObject.invokeMethod(self, "_populate_fiscal_years_combo_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(str, fy_json))
+        except Exception as e: self.app_core.logger.error(f"Error loading fiscal years for combo: {e}", exc_info=True)
+
+    @Slot(str)
+    def _populate_fiscal_years_combo_slot(self, fy_json_str: str):
+        self.fs_fiscal_year_combo.clear()
+        try:
+            fy_dicts = json.loads(fy_json_str, object_hook=json_date_hook)
+            self._fiscal_years_cache = [FiscalYearData.model_validate(fy) for fy in fy_dicts]
+            if not self._fiscal_years_cache: self.fs_fiscal_year_combo.addItem("No fiscal years found", 0); return
+            for fy_data in sorted(self._fiscal_years_cache, key=lambda fy: fy.start_date, reverse=True):
+                self.fs_fiscal_year_combo.addItem(f"{fy_data.year_name} ({fy_data.start_date.strftime('%d/%m/%Y')} - {fy_data.end_date.strftime('%d/%m/%Y')})", fy_data.id)
+        except Exception as e: self.app_core.logger.error(f"Error parsing fiscal years for combo: {e}"); self.fs_fiscal_year_combo.addItem("Error loading", 0)
+
+    def _clear_current_financial_report_display(self):
+        self._current_financial_report_data = None; current_view = self.fs_display_stack.currentWidget()
+        if isinstance(current_view, QTreeView): model = current_view.model(); 
+        if isinstance(model, QStandardItemModel): model.clear() 
+        elif isinstance(current_view, QTableView): model = current_view.model(); 
+        if hasattr(model, 'update_data'): model.update_data([]) 
+        elif current_view == self.gl_widget_container : self.gl_model.update_data({}); self.gl_summary_label_account.setText("Account: N/A"); self.gl_summary_label_period.setText("Period: N/A"); self.gl_summary_label_ob.setText("Opening Balance: 0.00"); self.gl_summary_label_cb.setText("Closing Balance: 0.00")
+    
+    @Slot()
+    def _on_generate_financial_report_clicked(self):
+        report_type = self.fs_report_type_combo.currentText()
+        if not self.app_core.financial_statement_generator: QMessageBox.critical(self, "Error", "Financial Statement Generator not available."); return
+        self._clear_current_financial_report_display(); self.generate_fs_button.setEnabled(False); self.generate_fs_button.setText("Generating..."); self.export_pdf_button.setEnabled(False); self.export_excel_button.setEnabled(False)
+        coro: Optional[Any] = None; comparative_date_bs: Optional[python_date] = None; comparative_start_pl: Optional[python_date] = None; comparative_end_pl: Optional[python_date] = None; include_zero_bal_bs: bool = False
+        dim1_id_val = self.fs_dim1_code_combo.currentData() if self.fs_dim1_type_label.isVisible() else None ; dim2_id_val = self.fs_dim2_code_combo.currentData() if self.fs_dim2_type_label.isVisible() else None
+        dimension1_id = int(dim1_id_val) if dim1_id_val and dim1_id_val !=0 else None; dimension2_id = int(dim2_id_val) if dim2_id_val and dim2_id_val !=0 else None
+        if self.fs_include_comparative_check.isVisible() and self.fs_include_comparative_check.isChecked():
+            if report_type == "Balance Sheet": comparative_date_bs = self.fs_comparative_as_of_date_edit.date().toPython()
+            elif report_type == "Profit & Loss Statement":
+                comparative_start_pl = self.fs_comparative_start_date_edit.date().toPython(); comparative_end_pl = self.fs_comparative_end_date_edit.date().toPython()
+                if comparative_start_pl and comparative_end_pl and comparative_start_pl > comparative_end_pl: QMessageBox.warning(self, "Date Error", "Comparative start date cannot be after comparative end date for P&L."); self.generate_fs_button.setEnabled(True); self.generate_fs_button.setText("Generate Report"); return
+        if report_type == "Balance Sheet": as_of_date_val = self.fs_as_of_date_edit.date().toPython(); include_zero_bal_bs = self.fs_include_zero_balance_check.isChecked() if self.fs_include_zero_balance_check.isVisible() else False; coro = self.app_core.financial_statement_generator.generate_balance_sheet(as_of_date_val, comparative_date=comparative_date_bs, include_zero_balances=include_zero_bal_bs)
+        elif report_type == "Profit & Loss Statement": 
+            start_date_val = self.fs_start_date_edit.date().toPython(); end_date_val = self.fs_end_date_edit.date().toPython()
+            if start_date_val > end_date_val: QMessageBox.warning(self, "Date Error", "Start date cannot be after end date for P&L."); self.generate_fs_button.setEnabled(True); self.generate_fs_button.setText("Generate Report"); return
+            coro = self.app_core.financial_statement_generator.generate_profit_loss(start_date_val, end_date_val, comparative_start=comparative_start_pl, comparative_end=comparative_end_pl)
+        elif report_type == "Trial Balance": as_of_date_val = self.fs_as_of_date_edit.date().toPython(); coro = self.app_core.financial_statement_generator.generate_trial_balance(as_of_date_val)
+        elif report_type == "General Ledger":
+            account_id = self.fs_gl_account_combo.currentData(); 
+            if not isinstance(account_id, int) or account_id == 0: QMessageBox.warning(self, "Selection Error", "Please select a valid account for the General Ledger report."); self.generate_fs_button.setEnabled(True); self.generate_fs_button.setText("Generate Report"); return
+            start_date_val = self.fs_start_date_edit.date().toPython(); end_date_val = self.fs_end_date_edit.date().toPython() 
+            if start_date_val > end_date_val: QMessageBox.warning(self, "Date Error", "Start date cannot be after end date for General Ledger."); self.generate_fs_button.setEnabled(True); self.generate_fs_button.setText("Generate Report"); return
+            coro = self.app_core.financial_statement_generator.generate_general_ledger(account_id, start_date_val, end_date_val, dimension1_id, dimension2_id)
+        elif report_type == "Income Tax Computation":
+            fy_id = self.fs_fiscal_year_combo.currentData()
+            if not isinstance(fy_id, int) or fy_id == 0: QMessageBox.warning(self, "Selection Error", "Please select a Fiscal Year for the Tax Computation report."); self.generate_fs_button.setEnabled(True); self.generate_fs_button.setText("Generate Report"); return
+            fy_data_obj = next((fy for fy in self._fiscal_years_cache if fy.id == fy_id), None)
+            if not fy_data_obj: QMessageBox.warning(self, "Data Error", f"Could not find data for selected fiscal year ID {fy_id}."); self.generate_fs_button.setEnabled(True); self.generate_fs_button.setText("Generate Report"); return
+            coro = self.app_core.financial_statement_generator.generate_income_tax_computation(fy_data_obj) # Pass DTO
+
+        future_obj: Optional[Any] = None ; 
+        if coro: future_obj = schedule_task_from_qt(coro)
+        if future_obj: future_obj.add_done_callback( lambda res: QMetaObject.invokeMethod( self, "_safe_handle_financial_report_result_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(object, future_obj)))
+        else: self.app_core.logger.error(f"Failed to schedule report generation for {report_type}."); self.generate_fs_button.setEnabled(True); self.generate_fs_button.setText("Generate Report"); self._handle_financial_report_result(None) 
+    
+    @Slot(object)
+    def _safe_handle_financial_report_result_slot(self, future_arg): self._handle_financial_report_result(future_arg)
+    
+    def _handle_financial_report_result(self, future):
+        self.generate_fs_button.setEnabled(True); self.generate_fs_button.setText("Generate Report"); self.export_pdf_button.setEnabled(False) ; self.export_excel_button.setEnabled(False); self._current_financial_report_data = None
+        if future is None: QMessageBox.critical(self, "Task Error", "Failed to schedule report generation."); return
+        try:
+            report_data: Optional[Dict[str, Any]] = future.result()
+            if report_data: self._current_financial_report_data = report_data; self._display_financial_report(report_data); self.export_pdf_button.setEnabled(True); self.export_excel_button.setEnabled(True)
+            else: QMessageBox.warning(self, "Report Error", "Failed to generate report data or report data is empty.")
+        except Exception as e: self.app_core.logger.error(f"Exception handling financial report result: {e}", exc_info=True); QMessageBox.critical(self, "Report Generation Error", f"An unexpected error occurred: {str(e)}")
+
+    def _populate_balance_sheet_model(self, model: QStandardItemModel, report_data: Dict[str, Any]):
+        model.clear(); has_comparative = bool(report_data.get('comparative_date')); headers = ["Description", "Amount"]; 
+        if has_comparative: headers.append(f"Comparative ({report_data.get('comparative_date','Prev').strftime('%d/%m/%Y') if isinstance(report_data.get('comparative_date'), python_date) else 'Prev'})")
+        model.setHorizontalHeaderLabels(headers); root_node = model.invisibleRootItem(); bold_font = QFont(); bold_font.setBold(True)
+        def add_account_rows(parent_item: QStandardItem, accounts: List[Dict[str,Any]], comparative_accounts: Optional[List[Dict[str,Any]]]):
+            for acc_dict in accounts:
+                desc_item = QStandardItem(f"  {acc_dict.get('code','')} - {acc_dict.get('name','')}"); amount_item = QStandardItem(self._format_decimal_for_display(acc_dict.get('balance'))); amount_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); row_items = [desc_item, amount_item]
+                if has_comparative:
+                    comp_val_str = ""; 
+                    if comparative_accounts: comp_acc = next((ca for ca in comparative_accounts if ca['id'] == acc_dict['id']), None); comp_val_str = self._format_decimal_for_display(comp_acc['balance']) if comp_acc and comp_acc['balance'] is not None else ""
+                    comp_amount_item = QStandardItem(comp_val_str); comp_amount_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); row_items.append(comp_amount_item)
+                parent_item.appendRow(row_items)
+        for section_key, section_title_display in [('assets', "Assets"), ('liabilities', "Liabilities"), ('equity', "Equity")]:
+            section_data = report_data.get(section_key); 
+            if not section_data or not isinstance(section_data, dict): continue
+            section_header_item = QStandardItem(section_title_display); section_header_item.setFont(bold_font); empty_amount_item = QStandardItem(""); empty_amount_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); header_row = [section_header_item, empty_amount_item]; 
+            if has_comparative: header_row.append(QStandardItem("")); root_node.appendRow(header_row)
+            add_account_rows(section_header_item, section_data.get("accounts", []), section_data.get("comparative_accounts"))
+            total_desc_item = QStandardItem(f"Total {section_title_display}"); total_desc_item.setFont(bold_font); total_amount_item = QStandardItem(self._format_decimal_for_display(section_data.get("total"))); total_amount_item.setFont(bold_font); total_amount_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); total_row_items = [total_desc_item, total_amount_item]; 
+            if has_comparative: comp_total_item = QStandardItem(self._format_decimal_for_display(section_data.get("comparative_total"))); comp_total_item.setFont(bold_font); comp_total_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); total_row_items.append(comp_total_item)
+            root_node.appendRow(total_row_items); 
+            if section_key != 'equity': root_node.appendRow([QStandardItem(""), QStandardItem("")] + ([QStandardItem("")] if has_comparative else []))
+        if 'total_liabilities_equity' in report_data:
+            root_node.appendRow([QStandardItem(""), QStandardItem("")] + ([QStandardItem("")] if has_comparative else [])); tle_desc = QStandardItem("Total Liabilities & Equity"); tle_desc.setFont(bold_font); tle_amount = QStandardItem(self._format_decimal_for_display(report_data.get('total_liabilities_equity'))); tle_amount.setFont(bold_font); tle_amount.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); tle_row = [tle_desc, tle_amount]; 
+            if has_comparative: comp_tle_amount = QStandardItem(self._format_decimal_for_display(report_data.get('comparative_total_liabilities_equity'))); comp_tle_amount.setFont(bold_font); comp_tle_amount.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); tle_row.append(comp_tle_amount)
+            root_node.appendRow(tle_row)
+        if report_data.get('is_balanced') is False: warning_item = QStandardItem("Warning: Balance Sheet is out of balance!"); warning_item.setForeground(QColor("red")); warning_item.setFont(bold_font); warning_row = [warning_item, QStandardItem("")]; 
+        if has_comparative: warning_row.append(QStandardItem("")); root_node.appendRow(warning_row)
+    
+    def _populate_profit_loss_model(self, model: QStandardItemModel, report_data: Dict[str, Any]):
+        model.clear(); has_comparative = bool(report_data.get('comparative_start')); comp_header_text = "Comparative"; 
+        if has_comparative and report_data.get('comparative_start') and report_data.get('comparative_end'): comp_start_str = report_data['comparative_start'].strftime('%d/%m/%y'); comp_end_str = report_data['comparative_end'].strftime('%d/%m/%y'); comp_header_text = f"Comp. ({comp_start_str}-{comp_end_str})"
+        headers = ["Description", "Amount"]; 
+        if has_comparative: headers.append(comp_header_text); 
+        model.setHorizontalHeaderLabels(headers); root_node = model.invisibleRootItem(); bold_font = QFont(); bold_font.setBold(True)
+        def add_pl_account_rows(parent_item: QStandardItem, accounts: List[Dict[str,Any]], comparative_accounts: Optional[List[Dict[str,Any]]]):
+            for acc_dict in accounts:
+                desc_item = QStandardItem(f"  {acc_dict.get('code','')} - {acc_dict.get('name','')}"); amount_item = QStandardItem(self._format_decimal_for_display(acc_dict.get('balance'))); amount_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); row_items = [desc_item, amount_item]
+                if has_comparative:
+                    comp_val_str = ""; 
+                    if comparative_accounts: comp_acc = next((ca for ca in comparative_accounts if ca['id'] == acc_dict['id']), None); comp_val_str = self._format_decimal_for_display(comp_acc['balance']) if comp_acc and comp_acc['balance'] is not None else ""
+                    comp_amount_item = QStandardItem(comp_val_str); comp_amount_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); row_items.append(comp_amount_item)
+                parent_item.appendRow(row_items)
+        for section_key, section_title_display in [('revenue', "Revenue"), ('expenses', "Operating Expenses")]: 
+            section_data = report_data.get(section_key); 
+            if not section_data or not isinstance(section_data, dict): continue
+            section_header_item = QStandardItem(section_title_display); section_header_item.setFont(bold_font); empty_amount_item = QStandardItem(""); empty_amount_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); header_row = [section_header_item, empty_amount_item]; 
+            if has_comparative: header_row.append(QStandardItem("")); root_node.appendRow(header_row)
+            add_pl_account_rows(section_header_item, section_data.get("accounts", []), section_data.get("comparative_accounts"))
+            total_desc_item = QStandardItem(f"Total {section_title_display}"); total_desc_item.setFont(bold_font); total_amount_item = QStandardItem(self._format_decimal_for_display(section_data.get("total"))); total_amount_item.setFont(bold_font); total_amount_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); total_row_items = [total_desc_item, total_amount_item]; 
+            if has_comparative: comp_total_item = QStandardItem(self._format_decimal_for_display(section_data.get("comparative_total"))); comp_total_item.setFont(bold_font); comp_total_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); total_row_items.append(comp_total_item)
+            root_node.appendRow(total_row_items); root_node.appendRow([QStandardItem(""), QStandardItem("")] + ([QStandardItem("")] if has_comparative else [])) 
+        if 'net_profit' in report_data:
+            np_desc = QStandardItem("Net Profit / (Loss)"); np_desc.setFont(bold_font); np_amount = QStandardItem(self._format_decimal_for_display(report_data.get('net_profit'))); np_amount.setFont(bold_font); np_amount.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); np_row = [np_desc, np_amount]; 
+            if has_comparative: comp_np_amount = QStandardItem(self._format_decimal_for_display(report_data.get('comparative_net_profit'))); comp_np_amount.setFont(bold_font); comp_np_amount.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter); np_row.append(comp_np_amount)
+            root_node.appendRow(np_row)
+
+    def _populate_tax_computation_model(self, model: QStandardItemModel, report_data: Dict[str, Any]):
+        model.clear(); headers = ["Description", "Amount"]; model.setHorizontalHeaderLabels(headers); root_node = model.invisibleRootItem(); bold_font = QFont(); bold_font.setBold(True)
+        def add_row(parent: QStandardItem, desc: str, amt: Optional[Decimal] = None, is_bold: bool = False, is_underline: bool = False):
+            desc_item = QStandardItem(desc); amt_item = QStandardItem(self._format_decimal_for_display(amt) if amt is not None else ""); amt_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            if is_bold: desc_item.setFont(bold_font); amt_item.setFont(bold_font)
+            if is_underline: desc_item.setData(QColor('black'), Qt.ItemDataRole.ForegroundRole); amt_item.setData(QColor('black'), Qt.ItemDataRole.ForegroundRole) # This doesn't create underline, just for concept
+            parent.appendRow([desc_item, amt_item])
+        
+        add_row(root_node, "Net Profit Before Tax", report_data.get('net_profit_before_tax'), is_bold=True)
+        add_row(root_node, "") # Spacer
+        
+        add_row(root_node, "Add: Non-Deductible Expenses", is_bold=True)
+        for adj in report_data.get('add_back_adjustments', []): add_row(root_node, f"  {adj['name']}", adj['amount'])
+        add_row(root_node, "Total Additions", report_data.get('total_add_back'), is_underline=True)
+        add_row(root_node, "") # Spacer
+        
+        add_row(root_node, "Less: Non-Taxable Income", is_bold=True)
+        for adj in report_data.get('less_adjustments', []): add_row(root_node, f"  {adj['name']}", adj['amount'])
+        add_row(root_node, "Total Subtractions", report_data.get('total_less'), is_underline=True)
+        add_row(root_node, "") # Spacer
+
+        add_row(root_node, "Chargeable Income", report_data.get('chargeable_income'), is_bold=True)
+        add_row(root_node, f"Tax at {report_data.get('tax_rate', 0):.2f}%", is_bold=False) # Description only
+        add_row(root_node, "Estimated Tax Payable", report_data.get('estimated_tax'), is_bold=True)
+
+
+    def _display_financial_report(self, report_data: Dict[str, Any]):
+        report_title = report_data.get('title', '')
+        if report_title == "Balance Sheet":
+            self.fs_display_stack.setCurrentWidget(self.bs_tree_view); self._populate_balance_sheet_model(self.bs_model, report_data)
+            self.bs_tree_view.expandAll(); [self.bs_tree_view.resizeColumnToContents(i) for i in range(self.bs_model.columnCount())]
+        elif report_title == "Profit & Loss Statement":
+            self.fs_display_stack.setCurrentWidget(self.pl_tree_view); self._populate_profit_loss_model(self.pl_model, report_data)
+            self.pl_tree_view.expandAll(); [self.pl_tree_view.resizeColumnToContents(i) for i in range(self.pl_model.columnCount())]
+        elif report_title == "Trial Balance":
+            self.fs_display_stack.setCurrentWidget(self.tb_table_view); self.tb_model.update_data(report_data)
+            [self.tb_table_view.resizeColumnToContents(i) for i in range(self.tb_model.columnCount())]
+        elif report_title == "General Ledger": 
+            self.fs_display_stack.setCurrentWidget(self.gl_widget_container); self.gl_model.update_data(report_data)
+            gl_summary_data = self.gl_model.get_report_summary(); self.gl_summary_label_account.setText(f"Account: {gl_summary_data['account_name']}"); self.gl_summary_label_period.setText(gl_summary_data['period_description'])
+            self.gl_summary_label_ob.setText(f"Opening Balance: {self._format_decimal_for_display(gl_summary_data['opening_balance'], show_blank_for_zero=False)}"); self.gl_summary_label_cb.setText(f"Closing Balance: {self._format_decimal_for_display(gl_summary_data['closing_balance'], show_blank_for_zero=False)}")
+            [self.gl_table_view.resizeColumnToContents(i) for i in range(self.gl_model.columnCount())]
+        elif report_title == "Income Tax Computation":
+            self.fs_display_stack.setCurrentWidget(self.tax_comp_tree_view); self._populate_tax_computation_model(self.tax_comp_model, report_data)
+            self.tax_comp_tree_view.expandAll(); [self.tax_comp_tree_view.resizeColumnToContents(i) for i in range(self.tax_comp_model.columnCount())]
+        else: self._clear_current_financial_report_display(); self.app_core.logger.warning(f"Unhandled report title '{report_title}' for specific display."); QMessageBox.warning(self, "Display Error", f"Display format for '{report_title}' is not fully implemented in this view.")
+
+    @Slot(str)
+    def _on_export_report_clicked(self, format_type: str):
+        if not self._current_financial_report_data: QMessageBox.warning(self, "No Report", "Please generate a report first before exporting."); return
+        report_title_str = self._current_financial_report_data.get('title', 'FinancialReport')
+        if not isinstance(report_title_str, str): report_title_str = "FinancialReport"
+        default_filename = f"{report_title_str.replace(' ', '_').replace('&', 'And').replace('/', '-').replace(':', '')}_{python_date.today().strftime('%Y%m%d')}.{format_type}"
+        documents_path = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DocumentsLocation); 
+        if not documents_path: documents_path = os.path.expanduser("~") 
+        file_path, _ = QFileDialog.getSaveFileName(self, f"Save {format_type.upper()} Report", os.path.join(documents_path, default_filename), f"{format_type.upper()} Files (*.{format_type});;All Files (*)")
+        if file_path: 
+            self.export_pdf_button.setEnabled(False); self.export_excel_button.setEnabled(False)
+            future = schedule_task_from_qt(self.app_core.report_engine.export_report(self._current_financial_report_data, format_type)); 
+            if future: future.add_done_callback( lambda res, fp=file_path, ft=format_type: QMetaObject.invokeMethod( self, "_safe_handle_export_result_slot", Qt.ConnectionType.QueuedConnection, Q_ARG(object, future), Q_ARG(str, fp), Q_ARG(str, ft)))
+            else: self.app_core.logger.error("Failed to schedule report export task."); self._handle_export_result(None, file_path, format_type) 
+    @Slot(object, str, str)
+    def _safe_handle_export_result_slot(self, future_arg, file_path_arg: str, format_type_arg: str): self._handle_export_result(future_arg, file_path_arg, format_type_arg)
+    def _handle_export_result(self, future, file_path: str, format_type: str):
+        self.export_pdf_button.setEnabled(True); self.export_excel_button.setEnabled(True)
+        if future is None: QMessageBox.critical(self, "Task Error", "Failed to schedule report export."); return
+        try:
+            report_bytes: Optional[bytes] = future.result()
+            if report_bytes:
+                with open(file_path, "wb") as f: f.write(report_bytes)
+                QMessageBox.information(self, "Export Successful", f"Report exported to:\n{file_path}")
+            else: QMessageBox.warning(self, "Export Failed", f"Failed to generate report bytes for {format_type.upper()}.")
+        except Exception as e: self.app_core.logger.error(f"Exception handling report export result: {e}", exc_info=True); QMessageBox.critical(self, "Export Error", f"An error occurred during export: {str(e)}")
+
+```
+
+# app/utils/__init__.py
+```py
+# File: app/utils/__init__.py
+from .converters import to_decimal
+from .formatting import format_currency, format_date, format_datetime
+from .json_helpers import json_converter, json_date_hook
+from .pydantic_models import (
+    AppBaseModel, UserAuditData, 
+    AccountBaseData, AccountCreateData, AccountUpdateData,
+    JournalEntryLineData, JournalEntryData,
+    GSTReturnData, TaxCalculationResultData, GSTTransactionLineDetail,
+    TransactionLineTaxData, TransactionTaxData,
+    AccountValidationResult, AccountValidator, CompanySettingData,
+    FiscalYearCreateData, FiscalYearData, FiscalPeriodData,
+    CustomerBaseData, CustomerCreateData, CustomerUpdateData, CustomerSummaryData, CustomerData,
+    VendorBaseData, VendorCreateData, VendorUpdateData, VendorSummaryData, VendorData,
+    ProductBaseData, ProductCreateData, ProductUpdateData, ProductSummaryData, ProductData,
+    SalesInvoiceLineBaseData, SalesInvoiceBaseData, SalesInvoiceCreateData, SalesInvoiceUpdateData, SalesInvoiceData, SalesInvoiceSummaryData,
+    RoleData, UserSummaryData, UserRoleAssignmentData, UserBaseData, UserCreateInternalData, UserCreateData, UserUpdateData, UserPasswordChangeData,
+    RoleCreateData, RoleUpdateData, PermissionData,
+    PurchaseInvoiceLineBaseData, PurchaseInvoiceBaseData, PurchaseInvoiceCreateData, PurchaseInvoiceUpdateData, PurchaseInvoiceData, PurchaseInvoiceSummaryData,
+    BankAccountBaseData, BankAccountCreateData, BankAccountUpdateData, BankAccountSummaryData,
+    BankTransactionBaseData, BankTransactionCreateData, BankTransactionSummaryData,
+    PaymentAllocationBaseData, PaymentBaseData, PaymentCreateData, PaymentSummaryData,
+    AuditLogEntryData, DataChangeHistoryEntryData,
+    BankReconciliationBaseData, BankReconciliationCreateData, BankReconciliationData,
+    BankReconciliationSummaryData,
+    DashboardKPIData,
+    CSVImportErrorData
+)
+from .result import Result
+from .sequence_generator import SequenceGenerator
+from .validation import is_valid_uen
+
+__all__ = [
+    "to_decimal", "format_currency", "format_date", "format_datetime",
+    "json_converter", "json_date_hook",
+    "AppBaseModel", "UserAuditData", 
+    "AccountBaseData", "AccountCreateData", "AccountUpdateData",
+    "JournalEntryLineData", "JournalEntryData",
+    "GSTReturnData", "TaxCalculationResultData", "GSTTransactionLineDetail",
+    "TransactionLineTaxData", "TransactionTaxData",
+    "AccountValidationResult", "AccountValidator", "CompanySettingData",
+    "FiscalYearCreateData", "FiscalYearData", "FiscalPeriodData",
+    "CustomerBaseData", "CustomerCreateData", "CustomerUpdateData", "CustomerSummaryData", "CustomerData",
+    "VendorBaseData", "VendorCreateData", "VendorUpdateData", "VendorSummaryData", "VendorData",
+    "ProductBaseData", "ProductCreateData", "ProductUpdateData", "ProductSummaryData", "ProductData",
+    "SalesInvoiceLineBaseData", "SalesInvoiceBaseData", "SalesInvoiceCreateData", "SalesInvoiceUpdateData", "SalesInvoiceData", "SalesInvoiceSummaryData",
+    "RoleData", "UserSummaryData", "UserRoleAssignmentData", "UserBaseData", "UserCreateInternalData", "UserCreateData", "UserUpdateData", "UserPasswordChangeData",
+    "RoleCreateData", "RoleUpdateData", "PermissionData",
+    "PurchaseInvoiceLineBaseData", "PurchaseInvoiceBaseData", "PurchaseInvoiceCreateData", "PurchaseInvoiceUpdateData", "PurchaseInvoiceData", "PurchaseInvoiceSummaryData",
+    "BankAccountBaseData", "BankAccountCreateData", "BankAccountUpdateData", "BankAccountSummaryData",
+    "BankTransactionBaseData", "BankTransactionCreateData", "BankTransactionSummaryData",
+    "PaymentAllocationBaseData", "PaymentBaseData", "PaymentCreateData", "PaymentSummaryData",
+    "AuditLogEntryData", "DataChangeHistoryEntryData",
+    "BankReconciliationBaseData", "BankReconciliationCreateData", "BankReconciliationData",
+    "BankReconciliationSummaryData",
+    "DashboardKPIData",
+    "CSVImportErrorData",
+    "Result", "SequenceGenerator", "is_valid_uen"
+]
 
 ```
 
@@ -1704,7 +2365,16 @@ class BankTransactionBaseData(AppBaseModel):
             if amount > Decimal(0): raise ValueError(f"{txn_type.value} amount must be negative or zero.")
         return values
 class BankTransactionCreateData(BankTransactionBaseData, UserAuditData): pass
-class BankTransactionSummaryData(AppBaseModel): id: int; transaction_date: date; value_date: Optional[date] = None; transaction_type: BankTransactionTypeEnum; description: str; reference: Optional[str] = None; amount: Decimal; is_reconciled: bool = False
+class BankTransactionSummaryData(AppBaseModel): 
+    id: int
+    transaction_date: date
+    value_date: Optional[date] = None
+    transaction_type: BankTransactionTypeEnum
+    description: str
+    reference: Optional[str] = None
+    amount: Decimal
+    is_reconciled: bool = False
+    updated_at: datetime
 
 # --- Payment DTOs ---
 class PaymentAllocationBaseData(AppBaseModel):
@@ -1761,6 +2431,11 @@ class BankReconciliationSummaryData(AppBaseModel):
     reconciliation_date: datetime
     created_by_username: Optional[str] = None
 
+# --- CSV Import DTOs ---
+class CSVImportErrorData(AppBaseModel):
+    row_number: int
+    row_data: List[str]
+    error_message: str
 
 # --- Dashboard DTOs ---
 class DashboardKPIData(AppBaseModel):
@@ -1774,629 +2449,24 @@ class DashboardKPIData(AppBaseModel):
     total_outstanding_ap: Decimal = Field(Decimal(0))
     total_ar_overdue: Decimal = Field(Decimal(0)) 
     total_ap_overdue: Decimal = Field(Decimal(0))
-    # Fields for AR/AP Aging
     ar_aging_current: Decimal = Field(Decimal(0)) 
-    ar_aging_1_30: Decimal = Field(Decimal(0))      # ADDED
+    ar_aging_1_30: Decimal = Field(Decimal(0))
     ar_aging_31_60: Decimal = Field(Decimal(0))
     ar_aging_61_90: Decimal = Field(Decimal(0))
     ar_aging_91_plus: Decimal = Field(Decimal(0))
     ap_aging_current: Decimal = Field(Decimal(0)) 
-    ap_aging_1_30: Decimal = Field(Decimal(0))      # ADDED
+    ap_aging_1_30: Decimal = Field(Decimal(0))
     ap_aging_31_60: Decimal = Field(Decimal(0))
     ap_aging_61_90: Decimal = Field(Decimal(0))
     ap_aging_91_plus: Decimal = Field(Decimal(0))
-    # Fields for Current Ratio
     total_current_assets: Decimal = Field(Decimal(0))
     total_current_liabilities: Decimal = Field(Decimal(0))
+    total_inventory: Decimal = Field(Decimal(0))
+    total_liabilities: Decimal = Field(Decimal(0))
+    total_equity: Decimal = Field(Decimal(0))
     current_ratio: Optional[Decimal] = None
-
-```
-
-# app/services/__init__.py
-```py
-# File: app/services/__init__.py
-from abc import ABC, abstractmethod
-from typing import List, Optional, Any, Generic, TypeVar, Dict, Tuple 
-from datetime import date, datetime 
-from decimal import Decimal 
-from sqlalchemy.ext.asyncio import AsyncSession
-
-T = TypeVar('T') 
-ID = TypeVar('ID') 
-
-class IRepository(ABC, Generic[T, ID]):
-    @abstractmethod
-    async def get_by_id(self, id_val: ID) -> Optional[T]: pass
-    @abstractmethod
-    async def get_all(self) -> List[T]: pass
-    @abstractmethod
-    async def add(self, entity: T) -> T: pass
-    @abstractmethod
-    async def update(self, entity: T) -> T: pass
-    @abstractmethod
-    async def delete(self, id_val: ID) -> bool: pass
-
-# --- ORM Model Imports ---
-from app.models.accounting.account import Account
-from app.models.accounting.journal_entry import JournalEntry, JournalEntryLine 
-from app.models.accounting.fiscal_period import FiscalPeriod
-from app.models.accounting.tax_code import TaxCode
-from app.models.core.company_setting import CompanySetting 
-from app.models.accounting.gst_return import GSTReturn
-from app.models.accounting.recurring_pattern import RecurringPattern
-from app.models.accounting.fiscal_year import FiscalYear 
-from app.models.accounting.account_type import AccountType 
-from app.models.accounting.currency import Currency 
-from app.models.accounting.exchange_rate import ExchangeRate 
-from app.models.core.sequence import Sequence 
-from app.models.core.configuration import Configuration 
-from app.models.business.customer import Customer
-from app.models.business.vendor import Vendor
-from app.models.business.product import Product
-from app.models.business.sales_invoice import SalesInvoice
-from app.models.business.purchase_invoice import PurchaseInvoice
-from app.models.business.inventory_movement import InventoryMovement
-from app.models.accounting.dimension import Dimension 
-from app.models.business.bank_account import BankAccount 
-from app.models.business.bank_transaction import BankTransaction 
-from app.models.business.payment import Payment, PaymentAllocation 
-from app.models.audit.audit_log import AuditLog 
-from app.models.audit.data_change_history import DataChangeHistory 
-from app.models.business.bank_reconciliation import BankReconciliation
-
-# --- DTO Imports (for return types in interfaces) ---
-from app.utils.pydantic_models import (
-    CustomerSummaryData, VendorSummaryData, ProductSummaryData, 
-    SalesInvoiceSummaryData, PurchaseInvoiceSummaryData,
-    BankAccountSummaryData, BankTransactionSummaryData,
-    PaymentSummaryData,
-    AuditLogEntryData, DataChangeHistoryEntryData, BankReconciliationData,
-    BankReconciliationSummaryData, 
-    DashboardKPIData
-)
-from app.utils.result import Result 
-from app.common.enums import ( 
-    ProductTypeEnum, InvoiceStatusEnum, BankTransactionTypeEnum,
-    PaymentTypeEnum, PaymentEntityTypeEnum, PaymentStatusEnum, DataChangeTypeEnum 
-)
-
-# --- Interfaces ---
-class IAccountRepository(IRepository[Account, int]): 
-    @abstractmethod
-    async def get_by_code(self, code: str) -> Optional[Account]: pass
-    @abstractmethod
-    async def get_all_active(self) -> List[Account]: pass
-    @abstractmethod
-    async def get_by_type(self, account_type: str, active_only: bool = True) -> List[Account]: pass
-    @abstractmethod
-    async def save(self, account: Account) -> Account: pass 
-    @abstractmethod
-    async def get_account_tree(self, active_only: bool = True) -> List[Dict[str, Any]]: pass 
-    @abstractmethod
-    async def has_transactions(self, account_id: int) -> bool: pass
-    @abstractmethod
-    async def get_accounts_by_tax_treatment(self, tax_treatment_code: str) -> List[Account]: pass
-    @abstractmethod
-    async def get_total_balance_by_account_category_and_type_pattern(self, account_category: str, account_type_name_like: str, as_of_date: date) -> Decimal: pass
-
-class IJournalEntryRepository(IRepository[JournalEntry, int]): 
-    @abstractmethod
-    async def get_by_entry_no(self, entry_no: str) -> Optional[JournalEntry]: pass
-    @abstractmethod
-    async def get_by_date_range(self, start_date: date, end_date: date) -> List[JournalEntry]: pass
-    @abstractmethod
-    async def get_posted_entries_by_date_range(self, start_date: date, end_date: date) -> List[JournalEntry]: pass
-    @abstractmethod
-    async def save(self, journal_entry: JournalEntry) -> JournalEntry: pass
-    @abstractmethod
-    async def get_account_balance(self, account_id: int, as_of_date: date) -> Decimal: pass
-    @abstractmethod
-    async def get_account_balance_for_period(self, account_id: int, start_date: date, end_date: date) -> Decimal: pass
-    @abstractmethod
-    async def get_recurring_patterns_due(self, as_of_date: date) -> List[RecurringPattern]: pass
-    @abstractmethod
-    async def save_recurring_pattern(self, pattern: RecurringPattern) -> RecurringPattern: pass
-    @abstractmethod
-    async def get_all_summary(self, start_date_filter: Optional[date] = None, 
-                              end_date_filter: Optional[date] = None, 
-                              status_filter: Optional[str] = None,
-                              entry_no_filter: Optional[str] = None,
-                              description_filter: Optional[str] = None,
-                              journal_type_filter: Optional[str] = None
-                             ) -> List[Dict[str, Any]]: pass
-    @abstractmethod
-    async def get_posted_lines_for_account_in_range(self, account_id: int, start_date: date, end_date: date, 
-                                                    dimension1_id: Optional[int] = None, dimension2_id: Optional[int] = None
-                                                    ) -> List[JournalEntryLine]: pass 
-
-class IFiscalPeriodRepository(IRepository[FiscalPeriod, int]): 
-    @abstractmethod
-    async def get_by_date(self, target_date: date) -> Optional[FiscalPeriod]: pass
-    @abstractmethod
-    async def get_fiscal_periods_for_year(self, fiscal_year_id: int, period_type: Optional[str] = None) -> List[FiscalPeriod]: pass
-
-class IFiscalYearRepository(IRepository[FiscalYear, int]): 
-    @abstractmethod
-    async def get_by_name(self, year_name: str) -> Optional[FiscalYear]: pass
-    @abstractmethod
-    async def get_by_date_overlap(self, start_date: date, end_date: date, exclude_id: Optional[int] = None) -> Optional[FiscalYear]: pass
-    @abstractmethod
-    async def save(self, entity: FiscalYear) -> FiscalYear: pass
-
-class ITaxCodeRepository(IRepository[TaxCode, int]): 
-    @abstractmethod
-    async def get_tax_code(self, code: str) -> Optional[TaxCode]: pass
-    @abstractmethod
-    async def save(self, entity: TaxCode) -> TaxCode: pass 
-
-class ICompanySettingsRepository(IRepository[CompanySetting, int]): 
-    @abstractmethod
-    async def get_company_settings(self, settings_id: int = 1) -> Optional[CompanySetting]: pass
-    @abstractmethod
-    async def save_company_settings(self, settings_obj: CompanySetting) -> CompanySetting: pass
-
-class IGSTReturnRepository(IRepository[GSTReturn, int]): 
-    @abstractmethod
-    async def get_gst_return(self, return_id: int) -> Optional[GSTReturn]: pass 
-    @abstractmethod
-    async def save_gst_return(self, gst_return_data: GSTReturn) -> GSTReturn: pass
-
-class IAccountTypeRepository(IRepository[AccountType, int]): 
-    @abstractmethod
-    async def get_by_name(self, name: str) -> Optional[AccountType]: pass
-    @abstractmethod
-    async def get_by_category(self, category: str) -> List[AccountType]: pass
-
-class ICurrencyRepository(IRepository[Currency, str]): 
-    @abstractmethod
-    async def get_all_active(self) -> List[Currency]: pass
-
-class IExchangeRateRepository(IRepository[ExchangeRate, int]): 
-    @abstractmethod
-    async def get_rate_for_date(self, from_code: str, to_code: str, r_date: date) -> Optional[ExchangeRate]: pass
-    @abstractmethod
-    async def save(self, entity: ExchangeRate) -> ExchangeRate: pass
-
-class ISequenceRepository(IRepository[Sequence, int]): 
-    @abstractmethod
-    async def get_sequence_by_name(self, name: str) -> Optional[Sequence]: pass
-    @abstractmethod
-    async def save_sequence(self, sequence_obj: Sequence) -> Sequence: pass
-
-class IConfigurationRepository(IRepository[Configuration, int]): 
-    @abstractmethod
-    async def get_config_by_key(self, key: str) -> Optional[Configuration]: pass
-    @abstractmethod
-    async def save_config(self, config_obj: Configuration) -> Configuration: pass
-
-class ICustomerRepository(IRepository[Customer, int]): 
-    @abstractmethod
-    async def get_by_code(self, code: str) -> Optional[Customer]: pass
-    @abstractmethod
-    async def get_all_summary(self, active_only: bool = True,
-                              search_term: Optional[str] = None,
-                              page: int = 1, page_size: int = 50
-                             ) -> List[CustomerSummaryData]: pass
-    @abstractmethod
-    async def get_total_outstanding_balance(self) -> Decimal: pass
-    @abstractmethod 
-    async def get_total_overdue_balance(self) -> Decimal: pass
-    @abstractmethod
-    async def get_ar_aging_summary(self, as_of_date: date) -> Dict[str, Decimal]: pass
-
-class IVendorRepository(IRepository[Vendor, int]): 
-    @abstractmethod
-    async def get_by_code(self, code: str) -> Optional[Vendor]: pass
-    @abstractmethod
-    async def get_all_summary(self, active_only: bool = True,
-                              search_term: Optional[str] = None,
-                              page: int = 1, page_size: int = 50
-                             ) -> List[VendorSummaryData]: pass
-    @abstractmethod
-    async def get_total_outstanding_balance(self) -> Decimal: pass
-    @abstractmethod 
-    async def get_total_overdue_balance(self) -> Decimal: pass
-    @abstractmethod
-    async def get_ap_aging_summary(self, as_of_date: date) -> Dict[str, Decimal]: pass
-
-class IProductRepository(IRepository[Product, int]): 
-    @abstractmethod
-    async def get_by_code(self, code: str) -> Optional[Product]: pass
-    @abstractmethod
-    async def get_all_summary(self, 
-                              active_only: bool = True,
-                              product_type_filter: Optional[ProductTypeEnum] = None,
-                              search_term: Optional[str] = None,
-                              page: int = 1, 
-                              page_size: int = 50
-                             ) -> List[ProductSummaryData]: pass
-
-class ISalesInvoiceRepository(IRepository[SalesInvoice, int]):
-    @abstractmethod
-    async def get_by_invoice_no(self, invoice_no: str) -> Optional[SalesInvoice]: pass
-    @abstractmethod
-    async def get_all_summary(self, 
-                              customer_id: Optional[int] = None,
-                              status: Optional[InvoiceStatusEnum] = None, 
-                              start_date: Optional[date] = None, 
-                              end_date: Optional[date] = None,
-                              page: int = 1, 
-                              page_size: int = 50
-                             ) -> List[SalesInvoiceSummaryData]: pass
-    @abstractmethod 
-    async def get_outstanding_invoices_for_customer(self, customer_id: Optional[int], as_of_date: date) -> List[SalesInvoice]: pass
-
-
-class IPurchaseInvoiceRepository(IRepository[PurchaseInvoice, int]):
-    @abstractmethod
-    async def get_by_internal_ref_no(self, internal_ref_no: str) -> Optional[PurchaseInvoice]: pass 
-    @abstractmethod
-    async def get_by_vendor_and_vendor_invoice_no(self, vendor_id: int, vendor_invoice_no: str) -> Optional[PurchaseInvoice]: pass
-    @abstractmethod
-    async def get_all_summary(self, 
-                              vendor_id: Optional[int] = None,
-                              status: Optional[InvoiceStatusEnum] = None, 
-                              start_date: Optional[date] = None, 
-                              end_date: Optional[date] = None,
-                              page: int = 1, 
-                              page_size: int = 50
-                             ) -> List[PurchaseInvoiceSummaryData]: pass
-    @abstractmethod 
-    async def get_outstanding_invoices_for_vendor(self, vendor_id: Optional[int], as_of_date: date) -> List[PurchaseInvoice]: pass
-
-
-class IInventoryMovementRepository(IRepository[InventoryMovement, int]):
-    @abstractmethod
-    async def save(self, entity: InventoryMovement, session: Optional[AsyncSession]=None) -> InventoryMovement: pass
-
-class IDimensionRepository(IRepository[Dimension, int]):
-    @abstractmethod
-    async def get_distinct_dimension_types(self) -> List[str]: pass
-    @abstractmethod
-    async def get_dimensions_by_type(self, dim_type: str, active_only: bool = True) -> List[Dimension]: pass
-    @abstractmethod
-    async def get_by_type_and_code(self, dim_type: str, code: str) -> Optional[Dimension]: pass
-
-class IBankAccountRepository(IRepository[BankAccount, int]):
-    @abstractmethod
-    async def get_by_account_number(self, account_number: str) -> Optional[BankAccount]: pass
-    @abstractmethod
-    async def get_all_summary(self, active_only: bool = True, 
-                              currency_code: Optional[str] = None,
-                              page: int = 1, page_size: int = 50
-                             ) -> List[BankAccountSummaryData]: pass
-    @abstractmethod
-    async def save(self, entity: BankAccount) -> BankAccount: pass
-    @abstractmethod # New method for DashboardManager
-    async def get_by_gl_account_id(self, gl_account_id: int) -> Optional[BankAccount]: pass
-
-
-class IBankTransactionRepository(IRepository[BankTransaction, int]):
-    @abstractmethod
-    async def get_all_for_bank_account(self, bank_account_id: int,
-                                       start_date: Optional[date] = None,
-                                       end_date: Optional[date] = None,
-                                       transaction_type: Optional[BankTransactionTypeEnum] = None,
-                                       is_reconciled: Optional[bool] = None,
-                                       is_from_statement_filter: Optional[bool] = None, 
-                                       page: int = 1, page_size: int = 50
-                                      ) -> List[BankTransactionSummaryData]: pass 
-    @abstractmethod
-    async def save(self, entity: BankTransaction, session: Optional[AsyncSession] = None) -> BankTransaction: pass
-
-class IPaymentRepository(IRepository[Payment, int]):
-    @abstractmethod
-    async def get_by_payment_no(self, payment_no: str) -> Optional[Payment]: pass
-    @abstractmethod
-    async def get_all_summary(self, 
-                              entity_type: Optional[PaymentEntityTypeEnum] = None,
-                              entity_id: Optional[int] = None,
-                              status: Optional[PaymentStatusEnum] = None,
-                              start_date: Optional[date] = None,
-                              end_date: Optional[date] = None,
-                              page: int = 1, page_size: int = 50
-                             ) -> List[PaymentSummaryData]: pass
-    @abstractmethod
-    async def save(self, entity: Payment, session: Optional[AsyncSession] = None) -> Payment: pass
-
-class IAuditLogRepository(IRepository[AuditLog, int]):
-    @abstractmethod
-    async def get_audit_logs_paginated(
-        self, user_id_filter: Optional[int] = None, action_filter: Optional[str] = None, entity_type_filter: Optional[str] = None,
-        entity_id_filter: Optional[int] = None, start_date_filter: Optional[datetime] = None, end_date_filter: Optional[datetime] = None,   
-        page: int = 1, page_size: int = 50
-    ) -> Tuple[List[AuditLogEntryData], int]: pass 
-
-class IDataChangeHistoryRepository(IRepository[DataChangeHistory, int]):
-    @abstractmethod
-    async def get_data_change_history_paginated(
-        self, table_name_filter: Optional[str] = None, record_id_filter: Optional[int] = None, changed_by_user_id_filter: Optional[int] = None,
-        start_date_filter: Optional[datetime] = None, end_date_filter: Optional[datetime] = None,   
-        page: int = 1, page_size: int = 50
-    ) -> Tuple[List[DataChangeHistoryEntryData], int]: pass 
-
-class IBankReconciliationRepository(IRepository[BankReconciliation, int]):
-    @abstractmethod
-    async def get_or_create_draft_reconciliation(
-        self, 
-        bank_account_id: int, 
-        statement_date: date, 
-        statement_ending_balance: Decimal, 
-        user_id: int, 
-        session: AsyncSession
-    ) -> BankReconciliation: pass
-
-    @abstractmethod
-    async def mark_transactions_as_provisionally_reconciled(
-        self, 
-        draft_reconciliation_id: int, 
-        transaction_ids: List[int], 
-        statement_date: date, 
-        user_id: int, 
-        session: AsyncSession
-    ) -> bool: pass
-
-    @abstractmethod
-    async def finalize_reconciliation(
-        self, 
-        draft_reconciliation_id: int, 
-        statement_ending_balance: Decimal, 
-        calculated_book_balance: Decimal, 
-        reconciled_difference: Decimal,
-        user_id: int,
-        session: AsyncSession
-    ) -> Result[BankReconciliation]: pass 
-
-    @abstractmethod
-    async def unreconcile_transactions( 
-        self, 
-        transaction_ids: List[int], 
-        user_id: int, 
-        session: AsyncSession
-    ) -> bool: pass
-    
-    @abstractmethod 
-    async def get_reconciliations_for_account(
-        self, 
-        bank_account_id: int, 
-        page: int = 1, 
-        page_size: int = 20
-    ) -> Tuple[List[BankReconciliationSummaryData], int]: pass
-    
-    @abstractmethod 
-    async def get_transactions_for_reconciliation(
-        self, 
-        reconciliation_id: int
-    ) -> Tuple[List[BankTransactionSummaryData], List[BankTransactionSummaryData]]: pass
-
-
-from .account_service import AccountService
-from .journal_service import JournalService
-from .fiscal_period_service import FiscalPeriodService
-from .tax_service import TaxCodeService, GSTReturnService 
-from .core_services import SequenceService, ConfigurationService, CompanySettingsService 
-from .accounting_services import AccountTypeService, CurrencyService, ExchangeRateService, FiscalYearService, DimensionService
-from .business_services import (
-    CustomerService, VendorService, ProductService, 
-    SalesInvoiceService, PurchaseInvoiceService, InventoryMovementService,
-    BankAccountService, BankTransactionService, PaymentService, 
-    BankReconciliationService
-)
-from .audit_services import AuditLogService 
-
-__all__ = [
-    "IRepository",
-    "IAccountRepository", "IJournalEntryRepository", "IFiscalPeriodRepository", "IFiscalYearRepository",
-    "ITaxCodeRepository", "ICompanySettingsRepository", "IGSTReturnRepository",
-    "IAccountTypeRepository", "ICurrencyRepository", "IExchangeRateRepository",
-    "ISequenceRepository", "IConfigurationRepository", 
-    "ICustomerRepository", "IVendorRepository", "IProductRepository",
-    "ISalesInvoiceRepository", "IPurchaseInvoiceRepository", 
-    "IInventoryMovementRepository", 
-    "IDimensionRepository", 
-    "IBankAccountRepository", 
-    "IBankTransactionRepository", 
-    "IPaymentRepository", 
-    "IAuditLogRepository", "IDataChangeHistoryRepository", 
-    "IBankReconciliationRepository", 
-    "AccountService", "JournalService", "FiscalPeriodService", "FiscalYearService",
-    "TaxCodeService", "GSTReturnService",
-    "SequenceService", "ConfigurationService", "CompanySettingsService",
-    "AccountTypeService", "CurrencyService", "ExchangeRateService", "DimensionService", 
-    "CustomerService", "VendorService", "ProductService", 
-    "SalesInvoiceService", "PurchaseInvoiceService", 
-    "InventoryMovementService", 
-    "BankAccountService", 
-    "BankTransactionService",
-    "PaymentService", 
-    "AuditLogService", 
-    "BankReconciliationService", 
-]
-
-```
-
-# app/services/account_service.py
-```py
-# File: app/services/account_service.py
-from typing import List, Optional, Dict, Any, TYPE_CHECKING
-from sqlalchemy import select, func, text, and_ 
-from app.models.accounting.account import Account 
-from app.models.accounting.journal_entry import JournalEntryLine, JournalEntry 
-from app.core.database_manager import DatabaseManager
-from app.services import IAccountRepository 
-from decimal import Decimal
-from datetime import date 
-
-if TYPE_CHECKING:
-    from app.core.application_core import ApplicationCore
-    from app.services.journal_service import JournalService 
-
-class AccountService(IAccountRepository):
-    def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
-        self.db_manager = db_manager
-        self.app_core = app_core 
-
-    async def get_by_id(self, account_id: int) -> Optional[Account]:
-        async with self.db_manager.session() as session:
-            return await session.get(Account, account_id)
-    
-    async def get_by_code(self, code: str) -> Optional[Account]:
-        async with self.db_manager.session() as session:
-            stmt = select(Account).where(Account.code == code)
-            result = await session.execute(stmt)
-            return result.scalars().first()
-    
-    async def get_all(self) -> List[Account]: 
-        async with self.db_manager.session() as session:
-            stmt = select(Account).order_by(Account.code)
-            result = await session.execute(stmt)
-            return list(result.scalars().all())
-
-    async def get_all_active(self) -> List[Account]:
-        async with self.db_manager.session() as session:
-            stmt = select(Account).where(Account.is_active == True).order_by(Account.code)
-            result = await session.execute(stmt)
-            return list(result.scalars().all())
-    
-    async def get_by_type(self, account_type: str, active_only: bool = True) -> List[Account]:
-        async with self.db_manager.session() as session:
-            conditions = [Account.account_type == account_type]
-            if active_only:
-                conditions.append(Account.is_active == True)
-            
-            stmt = select(Account).where(*conditions).order_by(Account.code)
-            result = await session.execute(stmt)
-            return list(result.scalars().all())
-    
-    async def has_transactions(self, account_id: int) -> bool:
-        async with self.db_manager.session() as session:
-            stmt_je = select(func.count(JournalEntryLine.id)).join(
-                JournalEntry, JournalEntryLine.journal_entry_id == JournalEntry.id
-            ).where(
-                JournalEntryLine.account_id == account_id,
-                JournalEntry.is_posted == True
-            )
-            count_je = (await session.execute(stmt_je)).scalar_one()
-
-            acc = await session.get(Account, account_id)
-            has_opening_balance_activity = False
-            if acc and acc.opening_balance_date and acc.opening_balance != Decimal(0):
-                has_opening_balance_activity = True
-            
-            return (count_je > 0) or has_opening_balance_activity
-
-    async def save(self, account: Account) -> Account:
-        async with self.db_manager.session() as session:
-            session.add(account)
-            await session.flush() 
-            await session.refresh(account)
-            return account
-
-    async def add(self, entity: Account) -> Account: 
-        return await self.save(entity)
-
-    async def update(self, entity: Account) -> Account: 
-        return await self.save(entity)
-
-    async def delete(self, account_id: int) -> bool: 
-        raise NotImplementedError("Hard delete of accounts not typically supported. Use deactivation via manager.")
-    
-    async def get_account_tree(self, active_only: bool = True) -> List[Dict[str, Any]]:
-        active_filter_main = "WHERE a.parent_id IS NULL"
-        if active_only:
-            active_filter_main += " AND a.is_active = TRUE"
-        
-        active_filter_recursive = ""
-        if active_only:
-            active_filter_recursive = "AND a.is_active = TRUE"
-
-        query = f"""
-            WITH RECURSIVE account_tree_cte AS (
-                SELECT 
-                    a.id, a.code, a.name, a.account_type, a.sub_type, 
-                    a.parent_id, a.is_active, a.description, 
-                    a.report_group, a.is_control_account, a.is_bank_account,
-                    a.opening_balance, a.opening_balance_date,
-                    0 AS level
-                FROM accounting.accounts a
-                {active_filter_main}
-                
-                UNION ALL
-                
-                SELECT 
-                    a.id, a.code, a.name, a.account_type, a.sub_type, 
-                    a.parent_id, a.is_active, a.description, 
-                    a.report_group, a.is_control_account, a.is_bank_account,
-                    a.opening_balance, a.opening_balance_date,
-                    t.level + 1
-                FROM accounting.accounts a
-                JOIN account_tree_cte t ON a.parent_id = t.id
-                WHERE 1=1 {active_filter_recursive} 
-            )
-            SELECT * FROM account_tree_cte
-            ORDER BY account_type, code;
-        """
-        raw_accounts: List[Any] = await self.db_manager.execute_query(query)
-        accounts_data = [dict(row) for row in raw_accounts]
-        
-        account_map: Dict[int, Dict[str, Any]] = {account['id']: account for account in accounts_data}
-        for account_dict in accounts_data: 
-            account_dict['children'] = [] 
-
-        tree_roots: List[Dict[str, Any]] = []
-        for account_dict in accounts_data:
-            if account_dict['parent_id'] and account_dict['parent_id'] in account_map:
-                parent = account_map[account_dict['parent_id']]
-                parent['children'].append(account_dict)
-            elif not account_dict['parent_id']:
-                tree_roots.append(account_dict)
-        
-        return tree_roots
-
-    async def get_accounts_by_codes(self, codes: List[str]) -> List[Account]:
-        async with self.db_manager.session() as session:
-            stmt = select(Account).where(Account.code.in_(codes)) # type: ignore
-            result = await session.execute(stmt)
-            return list(result.scalars().all())
-
-    async def get_accounts_by_tax_treatment(self, tax_treatment_code: str) -> List[Account]:
-        async with self.db_manager.session() as session:
-            stmt = select(Account).where(Account.tax_treatment == tax_treatment_code, Account.is_active == True)
-            result = await session.execute(stmt)
-            return list(result.scalars().all())
-
-    async def get_total_balance_by_account_category_and_type_pattern(
-        self, 
-        account_category: str, 
-        account_type_name_like: str, 
-        as_of_date: date
-    ) -> Decimal:
-        total_balance = Decimal(0)
-        if not self.app_core:
-            if hasattr(self, 'logger') and self.logger:
-                 self.logger.error("ApplicationCore not available in AccountService for JournalService access.")
-            raise RuntimeError("ApplicationCore context not available in AccountService.")
-
-        journal_service: "JournalService" = self.app_core.journal_service
-        if not journal_service:
-            if hasattr(self, 'logger') and self.logger:
-                 self.logger.error("JournalService not available via ApplicationCore in AccountService.")
-            raise RuntimeError("JournalService not available.")
-
-        async with self.db_manager.session() as session:
-            stmt = select(Account).where(
-                Account.is_active == True,
-                Account.account_type == account_category, 
-                Account.sub_type.ilike(account_type_name_like) 
-            )
-            result = await session.execute(stmt)
-            accounts_to_sum: List[Account] = list(result.scalars().all())
-
-            for acc in accounts_to_sum:
-                balance = await journal_service.get_account_balance(acc.id, as_of_date)
-                total_balance += balance
-        
-        return total_balance.quantize(Decimal("0.01"))
+    quick_ratio: Optional[Decimal] = None
+    debt_to_equity_ratio: Optional[Decimal] = None
 
 ```
 
@@ -2621,8 +2691,6 @@ class VendorService(IVendorRepository):
         
         return {k: v.quantize(Decimal("0.01")) for k, v in aging_summary.items()}
 
-# ProductService, SalesInvoiceService, PurchaseInvoiceService, InventoryMovementService, BankAccountService, BankTransactionService, PaymentService, BankReconciliationService
-# ... (These services are preserved as they were previously)
 class ProductService(IProductRepository): 
     def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
         self.db_manager = db_manager; self.app_core = app_core
@@ -2776,7 +2844,6 @@ class PurchaseInvoiceService(IPurchaseInvoiceRepository):
             result = await session.execute(stmt)
             return list(result.scalars().all())
 
-
 class InventoryMovementService(IInventoryMovementRepository):
     def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
         self.db_manager = db_manager; self.app_core = app_core
@@ -2845,7 +2912,6 @@ class BankAccountService(IBankAccountRepository):
             result = await session.execute(stmt)
             return result.scalars().first()
 
-
 class BankTransactionService(IBankTransactionRepository):
     def __init__(self, db_manager: "DatabaseManager", app_core: Optional["ApplicationCore"] = None):
         self.db_manager = db_manager; self.app_core = app_core
@@ -2871,7 +2937,7 @@ class BankTransactionService(IBankTransactionRepository):
             result = await session.execute(stmt); txns_orm = result.scalars().all()
             summaries: List[BankTransactionSummaryData] = []
             for txn in txns_orm:
-                summaries.append(BankTransactionSummaryData(id=txn.id,transaction_date=txn.transaction_date,value_date=txn.value_date,transaction_type=BankTransactionTypeEnum(txn.transaction_type), description=txn.description,reference=txn.reference,amount=txn.amount, is_reconciled=txn.is_reconciled))
+                summaries.append(BankTransactionSummaryData(id=txn.id,transaction_date=txn.transaction_date,value_date=txn.value_date,transaction_type=BankTransactionTypeEnum(txn.transaction_type), description=txn.description,reference=txn.reference,amount=txn.amount, is_reconciled=txn.is_reconciled, updated_at=txn.updated_at))
             return summaries
     async def save(self, entity: BankTransaction, session: Optional[AsyncSession] = None) -> BankTransaction:
         async def _save_logic(current_session: AsyncSession):
@@ -2964,7 +3030,7 @@ class BankReconciliationService(IBankReconciliationRepository):
 
     async def delete(self, id_val: int) -> bool:
         self.logger.warning(f"Deletion of BankReconciliation ID {id_val} attempted. This operation un-reconciles linked transactions.")
-        async with self.db_manager.session() as session:
+        async with self.db_manager.session() as session: 
             async with session.begin(): 
                 update_stmt = (
                     sqlalchemy_update(BankTransaction)
@@ -3108,7 +3174,6 @@ class BankReconciliationService(IBankReconciliationRepository):
         self.logger.info(f"Unreconciled {result.rowcount} transactions.")
         return result.rowcount == len(transaction_ids)
 
-
     async def get_reconciliations_for_account(
         self, 
         bank_account_id: int, 
@@ -3152,7 +3217,7 @@ class BankReconciliationService(IBankReconciliationRepository):
         async with self.db_manager.session() as session:
             stmt = select(BankTransaction)\
                 .where(BankTransaction.reconciled_bank_reconciliation_id == reconciliation_id)\
-                .order_by(BankTransaction.transaction_date, BankTransaction.id) 
+                .order_by(BankTransaction.updated_at.desc(), BankTransaction.id) 
             
             result = await session.execute(stmt)
             all_txns_orm = result.scalars().all()
@@ -3165,7 +3230,8 @@ class BankReconciliationService(IBankReconciliationRepository):
                     id=txn_orm.id, transaction_date=txn_orm.transaction_date,
                     value_date=txn_orm.value_date, transaction_type=BankTransactionTypeEnum(txn_orm.transaction_type),
                     description=txn_orm.description, reference=txn_orm.reference,
-                    amount=txn_orm.amount, is_reconciled=txn_orm.is_reconciled 
+                    amount=txn_orm.amount, is_reconciled=txn_orm.is_reconciled, 
+                    updated_at=txn_orm.updated_at
                 )
                 if txn_orm.is_from_statement:
                     statement_items.append(summary_dto)
@@ -3176,770 +3242,6 @@ class BankReconciliationService(IBankReconciliationRepository):
 
 ```
 
-# app/core/application_core.py
-```py
-# File: app/core/application_core.py
-from typing import Optional, Any, TYPE_CHECKING
-from app.core.config_manager import ConfigManager
-from app.core.database_manager import DatabaseManager 
-from app.core.security_manager import SecurityManager
-from app.core.module_manager import ModuleManager
-
-# Manager imports are generally okay here if they don't cause cycles themselves
-# (which we are fixing by making managers use TYPE_CHECKING for services)
-from app.accounting.chart_of_accounts_manager import ChartOfAccountsManager
-from app.business_logic.customer_manager import CustomerManager 
-from app.business_logic.vendor_manager import VendorManager 
-from app.business_logic.product_manager import ProductManager
-from app.business_logic.bank_account_manager import BankAccountManager 
-from app.business_logic.bank_transaction_manager import BankTransactionManager
-
-# REMOVE All direct service imports from here. They will be imported locally in startup().
-# Example of removed lines:
-# from app.services.account_service import AccountService
-# from app.services.fiscal_period_service import FiscalPeriodService
-# etc.
-
-import logging 
-
-if TYPE_CHECKING:
-    # Imports for type hinting that might cause circular dependencies if imported at top level
-    from app.services.journal_service import JournalService
-    from app.accounting.journal_entry_manager import JournalEntryManager
-    from app.accounting.fiscal_period_manager import FiscalPeriodManager
-    from app.accounting.currency_manager import CurrencyManager
-    from app.business_logic.sales_invoice_manager import SalesInvoiceManager
-    from app.business_logic.purchase_invoice_manager import PurchaseInvoiceManager
-    from app.business_logic.payment_manager import PaymentManager
-    from app.tax.gst_manager import GSTManager
-    from app.tax.tax_calculator import TaxCalculator
-    from app.reporting.financial_statement_generator import FinancialStatementGenerator
-    from app.reporting.report_engine import ReportEngine
-    from app.reporting.dashboard_manager import DashboardManager
-    from app.utils.sequence_generator import SequenceGenerator
-    
-    # Add ALL service classes here for property type hints
-    from app.services.account_service import AccountService
-    from app.services.fiscal_period_service import FiscalPeriodService
-    from app.services.core_services import SequenceService, CompanySettingsService, ConfigurationService
-    from app.services.tax_service import TaxCodeService, GSTReturnService 
-    from app.services.accounting_services import (
-        AccountTypeService, CurrencyService as CurrencyRepoService, 
-        ExchangeRateService, FiscalYearService, DimensionService 
-    )
-    from app.services.business_services import (
-        CustomerService, VendorService, ProductService, 
-        SalesInvoiceService, PurchaseInvoiceService, InventoryMovementService,
-        BankAccountService, BankTransactionService, PaymentService, 
-        BankReconciliationService
-    )
-    from app.services.audit_services import AuditLogService
-
-class ApplicationCore:
-    def __init__(self, config_manager: ConfigManager, db_manager: DatabaseManager):
-        self.config_manager = config_manager
-        self.db_manager = db_manager
-        self.db_manager.app_core = self 
-        
-        self.logger = logging.getLogger("SGBookkeeperAppCore")
-        if not self.logger.handlers:
-            handler = logging.StreamHandler(); formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-            handler.setFormatter(formatter); self.logger.addHandler(handler); self.logger.setLevel(logging.INFO) 
-        if not hasattr(self.db_manager, 'logger') or self.db_manager.logger is None: self.db_manager.logger = self.logger
-
-        self.security_manager = SecurityManager(self.db_manager)
-        self.module_manager = ModuleManager(self)
-
-        # Service Instance Placeholders
-        self._account_service_instance: Optional["AccountService"] = None
-        self._journal_service_instance: Optional["JournalService"] = None 
-        self._fiscal_period_service_instance: Optional["FiscalPeriodService"] = None
-        self._fiscal_year_service_instance: Optional["FiscalYearService"] = None
-        self._sequence_service_instance: Optional["SequenceService"] = None
-        self._company_settings_service_instance: Optional["CompanySettingsService"] = None
-        self._configuration_service_instance: Optional["ConfigurationService"] = None
-        self._tax_code_service_instance: Optional["TaxCodeService"] = None
-        self._gst_return_service_instance: Optional["GSTReturnService"] = None
-        self._account_type_service_instance: Optional["AccountTypeService"] = None
-        self._currency_repo_service_instance: Optional["CurrencyRepoService"] = None
-        self._exchange_rate_service_instance: Optional["ExchangeRateService"] = None
-        self._dimension_service_instance: Optional["DimensionService"] = None
-        self._customer_service_instance: Optional["CustomerService"] = None
-        self._vendor_service_instance: Optional["VendorService"] = None
-        self._product_service_instance: Optional["ProductService"] = None
-        self._sales_invoice_service_instance: Optional["SalesInvoiceService"] = None
-        self._purchase_invoice_service_instance: Optional["PurchaseInvoiceService"] = None 
-        self._inventory_movement_service_instance: Optional["InventoryMovementService"] = None
-        self._bank_account_service_instance: Optional["BankAccountService"] = None 
-        self._bank_transaction_service_instance: Optional["BankTransactionService"] = None
-        self._payment_service_instance: Optional["PaymentService"] = None
-        self._audit_log_service_instance: Optional["AuditLogService"] = None
-        self._bank_reconciliation_service_instance: Optional["BankReconciliationService"] = None
-
-        # Manager Instance Placeholders
-        self._coa_manager_instance: Optional[ChartOfAccountsManager] = None
-        self._je_manager_instance: Optional["JournalEntryManager"] = None 
-        self._fp_manager_instance: Optional["FiscalPeriodManager"] = None
-        self._currency_manager_instance: Optional["CurrencyManager"] = None
-        self._gst_manager_instance: Optional["GSTManager"] = None
-        self._tax_calculator_instance: Optional["TaxCalculator"] = None
-        self._financial_statement_generator_instance: Optional["FinancialStatementGenerator"] = None
-        self._report_engine_instance: Optional["ReportEngine"] = None
-        self._customer_manager_instance: Optional[CustomerManager] = None
-        self._vendor_manager_instance: Optional[VendorManager] = None
-        self._product_manager_instance: Optional[ProductManager] = None
-        self._sales_invoice_manager_instance: Optional["SalesInvoiceManager"] = None
-        self._purchase_invoice_manager_instance: Optional["PurchaseInvoiceManager"] = None
-        self._bank_account_manager_instance: Optional[BankAccountManager] = None
-        self._bank_transaction_manager_instance: Optional[BankTransactionManager] = None
-        self._payment_manager_instance: Optional["PaymentManager"] = None
-        self._dashboard_manager_instance: Optional["DashboardManager"] = None
-        
-        self.logger.info("ApplicationCore initialized.")
-
-    async def startup(self):
-        self.logger.info("ApplicationCore starting up...")
-        await self.db_manager.initialize() 
-        
-        # Import services locally within startup
-        from app.services.core_services import SequenceService, CompanySettingsService, ConfigurationService
-        from app.services.account_service import AccountService
-        from app.services.fiscal_period_service import FiscalPeriodService
-        from app.services.accounting_services import (
-            AccountTypeService, CurrencyService as CurrencyRepoService, 
-            ExchangeRateService, FiscalYearService, DimensionService 
-        )
-        from app.services.tax_service import TaxCodeService, GSTReturnService 
-        from app.services.business_services import (
-            CustomerService, VendorService, ProductService, 
-            SalesInvoiceService, PurchaseInvoiceService, InventoryMovementService,
-            BankAccountService, BankTransactionService, PaymentService, 
-            BankReconciliationService
-        )
-        from app.services.audit_services import AuditLogService
-        from app.services.journal_service import JournalService 
-        
-        # Initialize services
-        self._sequence_service_instance = SequenceService(self.db_manager)
-        self._company_settings_service_instance = CompanySettingsService(self.db_manager, self)
-        self._configuration_service_instance = ConfigurationService(self.db_manager)
-        self._account_service_instance = AccountService(self.db_manager, self)
-        self._fiscal_period_service_instance = FiscalPeriodService(self.db_manager) # FiscalPeriodService does not take app_core
-        self._fiscal_year_service_instance = FiscalYearService(self.db_manager, self)
-        self._account_type_service_instance = AccountTypeService(self.db_manager, self) 
-        self._currency_repo_service_instance = CurrencyRepoService(self.db_manager, self)
-        self._exchange_rate_service_instance = ExchangeRateService(self.db_manager, self)
-        self._dimension_service_instance = DimensionService(self.db_manager, self)
-        self._tax_code_service_instance = TaxCodeService(self.db_manager, self)
-        self._gst_return_service_instance = GSTReturnService(self.db_manager, self)
-        self._customer_service_instance = CustomerService(self.db_manager, self)
-        self._vendor_service_instance = VendorService(self.db_manager, self) 
-        self._product_service_instance = ProductService(self.db_manager, self)
-        self._sales_invoice_service_instance = SalesInvoiceService(self.db_manager, self)
-        self._purchase_invoice_service_instance = PurchaseInvoiceService(self.db_manager, self) 
-        self._inventory_movement_service_instance = InventoryMovementService(self.db_manager, self) 
-        self._bank_account_service_instance = BankAccountService(self.db_manager, self) 
-        self._bank_transaction_service_instance = BankTransactionService(self.db_manager, self)
-        self._payment_service_instance = PaymentService(self.db_manager, self) 
-        self._audit_log_service_instance = AuditLogService(self.db_manager, self)
-        self._bank_reconciliation_service_instance = BankReconciliationService(self.db_manager, self)
-        self._journal_service_instance = JournalService(self.db_manager, self)
-        
-        from app.utils.sequence_generator import SequenceGenerator 
-        py_sequence_generator = SequenceGenerator(self.sequence_service, app_core_ref=self) 
-        
-        from app.accounting.journal_entry_manager import JournalEntryManager
-        from app.accounting.fiscal_period_manager import FiscalPeriodManager
-        from app.accounting.currency_manager import CurrencyManager
-        from app.tax.gst_manager import GSTManager
-        from app.tax.tax_calculator import TaxCalculator
-        from app.reporting.financial_statement_generator import FinancialStatementGenerator
-        from app.reporting.report_engine import ReportEngine
-        from app.reporting.dashboard_manager import DashboardManager
-        from app.business_logic.sales_invoice_manager import SalesInvoiceManager
-        from app.business_logic.purchase_invoice_manager import PurchaseInvoiceManager
-        from app.business_logic.payment_manager import PaymentManager
-        
-        # Initialize Managers
-        self._coa_manager_instance = ChartOfAccountsManager(self.account_service, self)
-        self._je_manager_instance = JournalEntryManager(self.journal_service, self.account_service, self.fiscal_period_service, self)
-        self._fp_manager_instance = FiscalPeriodManager(self) 
-        self._currency_manager_instance = CurrencyManager(self) 
-        self._tax_calculator_instance = TaxCalculator(self.tax_code_service) 
-        self._gst_manager_instance = GSTManager(self.tax_code_service, self.journal_service, self.company_settings_service, self.gst_return_service, self.account_service, self.fiscal_period_service, py_sequence_generator, self)
-        self._financial_statement_generator_instance = FinancialStatementGenerator(self.account_service, self.journal_service, self.fiscal_period_service, self.account_type_service, self.tax_code_service, self.company_settings_service, self.dimension_service)
-        self._report_engine_instance = ReportEngine(self)
-        self._customer_manager_instance = CustomerManager(customer_service=self.customer_service, account_service=self.account_service, currency_service=self.currency_repo_service, app_core=self)
-        self._vendor_manager_instance = VendorManager( vendor_service=self.vendor_service, account_service=self.account_service, currency_service=self.currency_repo_service, app_core=self)
-        self._product_manager_instance = ProductManager( product_service=self.product_service, account_service=self.account_service, tax_code_service=self.tax_code_service, app_core=self)
-        self._sales_invoice_manager_instance = SalesInvoiceManager(sales_invoice_service=self.sales_invoice_service, customer_service=self.customer_service, product_service=self.product_service, tax_code_service=self.tax_code_service, tax_calculator=self.tax_calculator, sequence_service=self.sequence_service, account_service=self.account_service, configuration_service=self.configuration_service, app_core=self, inventory_movement_service=self.inventory_movement_service)
-        self._purchase_invoice_manager_instance = PurchaseInvoiceManager( purchase_invoice_service=self.purchase_invoice_service, vendor_service=self.vendor_service, product_service=self.product_service, tax_code_service=self.tax_code_service, tax_calculator=self.tax_calculator, sequence_service=self.sequence_service, account_service=self.account_service, configuration_service=self.configuration_service, app_core=self, inventory_movement_service=self.inventory_movement_service)
-        self._bank_account_manager_instance = BankAccountManager( bank_account_service=self.bank_account_service, account_service=self.account_service, currency_service=self.currency_repo_service, app_core=self)
-        self._bank_transaction_manager_instance = BankTransactionManager( bank_transaction_service=self.bank_transaction_service, bank_account_service=self.bank_account_service, app_core=self)
-        self._payment_manager_instance = PaymentManager( payment_service=self.payment_service, sequence_service=self.sequence_service, bank_account_service=self.bank_account_service, customer_service=self.customer_service, vendor_service=self.vendor_service, sales_invoice_service=self.sales_invoice_service, purchase_invoice_service=self.purchase_invoice_service, journal_entry_manager=self.journal_entry_manager, account_service=self.account_service, configuration_service=self.configuration_service, app_core=self)
-        self._dashboard_manager_instance = DashboardManager(self)
-        
-        self.module_manager.load_all_modules() 
-        self.logger.info("ApplicationCore startup complete.")
-
-    async def shutdown(self): 
-        self.logger.info("ApplicationCore shutting down...")
-        await self.db_manager.close_connections()
-        self.logger.info("ApplicationCore shutdown complete.")
-
-    @property
-    def current_user(self): 
-        return self.security_manager.get_current_user()
-
-    # Service Properties
-    @property
-    def account_service(self) -> "AccountService": 
-        if not self._account_service_instance: raise RuntimeError("AccountService not initialized.")
-        return self._account_service_instance
-    @property
-    def journal_service(self) -> "JournalService": 
-        if not self._journal_service_instance: raise RuntimeError("JournalService not initialized.")
-        return self._journal_service_instance 
-    @property
-    def fiscal_period_service(self) -> "FiscalPeriodService": 
-        if not self._fiscal_period_service_instance: raise RuntimeError("FiscalPeriodService not initialized.")
-        return self._fiscal_period_service_instance
-    @property
-    def fiscal_year_service(self) -> "FiscalYearService": 
-        if not self._fiscal_year_service_instance: raise RuntimeError("FiscalYearService not initialized.")
-        return self._fiscal_year_service_instance
-    @property
-    def sequence_service(self) -> "SequenceService": 
-        if not self._sequence_service_instance: raise RuntimeError("SequenceService not initialized.")
-        return self._sequence_service_instance
-    @property
-    def company_settings_service(self) -> "CompanySettingsService": 
-        if not self._company_settings_service_instance: raise RuntimeError("CompanySettingsService not initialized.")
-        return self._company_settings_service_instance
-    @property
-    def configuration_service(self) -> "ConfigurationService": 
-        if not self._configuration_service_instance: raise RuntimeError("ConfigurationService not initialized.")
-        return self._configuration_service_instance
-    @property
-    def tax_code_service(self) -> "TaxCodeService": 
-        if not self._tax_code_service_instance: raise RuntimeError("TaxCodeService not initialized.")
-        return self._tax_code_service_instance
-    @property
-    def gst_return_service(self) -> "GSTReturnService": 
-        if not self._gst_return_service_instance: raise RuntimeError("GSTReturnService not initialized.")
-        return self._gst_return_service_instance
-    @property
-    def account_type_service(self) -> "AccountTypeService":  
-        if not self._account_type_service_instance: raise RuntimeError("AccountTypeService not initialized.")
-        return self._account_type_service_instance 
-    @property
-    def currency_repo_service(self) -> "CurrencyRepoService": 
-        if not self._currency_repo_service_instance: raise RuntimeError("CurrencyRepoService not initialized.")
-        return self._currency_repo_service_instance 
-    @property 
-    def currency_service(self) -> "CurrencyRepoService": 
-        if not self._currency_repo_service_instance: raise RuntimeError("CurrencyService (CurrencyRepoService) not initialized.")
-        return self._currency_repo_service_instance
-    @property
-    def exchange_rate_service(self) -> "ExchangeRateService": 
-        if not self._exchange_rate_service_instance: raise RuntimeError("ExchangeRateService not initialized.")
-        return self._exchange_rate_service_instance 
-    @property
-    def dimension_service(self) -> "DimensionService": 
-        if not self._dimension_service_instance: raise RuntimeError("DimensionService not initialized.")
-        return self._dimension_service_instance
-    @property
-    def customer_service(self) -> "CustomerService": 
-        if not self._customer_service_instance: raise RuntimeError("CustomerService not initialized.")
-        return self._customer_service_instance
-    @property
-    def vendor_service(self) -> "VendorService": 
-        if not self._vendor_service_instance: raise RuntimeError("VendorService not initialized.")
-        return self._vendor_service_instance
-    @property
-    def product_service(self) -> "ProductService": 
-        if not self._product_service_instance: raise RuntimeError("ProductService not initialized.")
-        return self._product_service_instance
-    @property
-    def sales_invoice_service(self) -> "SalesInvoiceService": 
-        if not self._sales_invoice_service_instance: raise RuntimeError("SalesInvoiceService not initialized.")
-        return self._sales_invoice_service_instance
-    @property
-    def purchase_invoice_service(self) -> "PurchaseInvoiceService": 
-        if not self._purchase_invoice_service_instance: raise RuntimeError("PurchaseInvoiceService not initialized.")
-        return self._purchase_invoice_service_instance
-    @property
-    def inventory_movement_service(self) -> "InventoryMovementService": 
-        if not self._inventory_movement_service_instance: raise RuntimeError("InventoryMovementService not initialized.")
-        return self._inventory_movement_service_instance
-    @property
-    def bank_account_service(self) -> "BankAccountService": 
-        if not self._bank_account_service_instance: raise RuntimeError("BankAccountService not initialized.")
-        return self._bank_account_service_instance
-    @property
-    def bank_transaction_service(self) -> "BankTransactionService": 
-        if not self._bank_transaction_service_instance: raise RuntimeError("BankTransactionService not initialized.")
-        return self._bank_transaction_service_instance
-    @property
-    def payment_service(self) -> "PaymentService": 
-        if not self._payment_service_instance: raise RuntimeError("PaymentService not initialized.")
-        return self._payment_service_instance
-    @property
-    def audit_log_service(self) -> "AuditLogService": 
-        if not self._audit_log_service_instance: raise RuntimeError("AuditLogService not initialized.")
-        return self._audit_log_service_instance
-    @property
-    def bank_reconciliation_service(self) -> "BankReconciliationService":
-        if not self._bank_reconciliation_service_instance: raise RuntimeError("BankReconciliationService not initialized.")
-        return self._bank_reconciliation_service_instance
-
-    # Manager Properties
-    @property
-    def chart_of_accounts_manager(self) -> ChartOfAccountsManager: 
-        if not self._coa_manager_instance: raise RuntimeError("ChartOfAccountsManager not initialized.")
-        return self._coa_manager_instance
-    @property 
-    def accounting_service(self) -> ChartOfAccountsManager: 
-        return self.chart_of_accounts_manager
-    @property
-    def journal_entry_manager(self) -> "JournalEntryManager": 
-        if not self._je_manager_instance: raise RuntimeError("JournalEntryManager not initialized.")
-        return self._je_manager_instance 
-    @property
-    def fiscal_period_manager(self) -> "FiscalPeriodManager": 
-        if not self._fp_manager_instance: raise RuntimeError("FiscalPeriodManager not initialized.")
-        return self._fp_manager_instance 
-    @property
-    def currency_manager(self) -> "CurrencyManager": 
-        if not self._currency_manager_instance: raise RuntimeError("CurrencyManager not initialized.")
-        return self._currency_manager_instance 
-    @property
-    def gst_manager(self) -> "GSTManager": 
-        if not self._gst_manager_instance: raise RuntimeError("GSTManager not initialized.")
-        return self._gst_manager_instance 
-    @property
-    def tax_calculator(self) -> "TaxCalculator": 
-        if not self._tax_calculator_instance: raise RuntimeError("TaxCalculator not initialized.")
-        return self._tax_calculator_instance 
-    @property
-    def financial_statement_generator(self) -> "FinancialStatementGenerator": 
-        if not self._financial_statement_generator_instance: raise RuntimeError("FinancialStatementGenerator not initialized.")
-        return self._financial_statement_generator_instance 
-    @property
-    def report_engine(self) -> "ReportEngine": 
-        if not self._report_engine_instance: raise RuntimeError("ReportEngine not initialized.")
-        return self._report_engine_instance 
-    @property
-    def customer_manager(self) -> CustomerManager: 
-        if not self._customer_manager_instance: raise RuntimeError("CustomerManager not initialized.")
-        return self._customer_manager_instance
-    @property
-    def vendor_manager(self) -> VendorManager: 
-        if not self._vendor_manager_instance: raise RuntimeError("VendorManager not initialized.")
-        return self._vendor_manager_instance
-    @property
-    def product_manager(self) -> ProductManager: 
-        if not self._product_manager_instance: raise RuntimeError("ProductManager not initialized.")
-        return self._product_manager_instance
-    @property
-    def sales_invoice_manager(self) -> "SalesInvoiceManager": 
-        if not self._sales_invoice_manager_instance: raise RuntimeError("SalesInvoiceManager not initialized.")
-        return self._sales_invoice_manager_instance 
-    @property
-    def purchase_invoice_manager(self) -> "PurchaseInvoiceManager": 
-        if not self._purchase_invoice_manager_instance: raise RuntimeError("PurchaseInvoiceManager not initialized.")
-        return self._purchase_invoice_manager_instance 
-    @property
-    def bank_account_manager(self) -> BankAccountManager: 
-        if not self._bank_account_manager_instance: raise RuntimeError("BankAccountManager not initialized.")
-        return self._bank_account_manager_instance
-    @property
-    def bank_transaction_manager(self) -> BankTransactionManager: 
-        if not self._bank_transaction_manager_instance: raise RuntimeError("BankTransactionManager not initialized.")
-        return self._bank_transaction_manager_instance
-    @property
-    def payment_manager(self) -> "PaymentManager": 
-        if not self._payment_manager_instance: raise RuntimeError("PaymentManager not initialized.")
-        return self._payment_manager_instance 
-    @property
-    def dashboard_manager(self) -> "DashboardManager":
-        if not self._dashboard_manager_instance: raise RuntimeError("DashboardManager not initialized.")
-        return self._dashboard_manager_instance 
-
-```
-
-# app/accounting/chart_of_accounts_manager.py
-```py
-# File: app/accounting/chart_of_accounts_manager.py
-# (Content previously updated to use AccountCreateData/UpdateData, ensure consistency)
-# Key: Uses AccountService. User ID comes from DTO which inherits UserAuditData.
-from typing import List, Optional, Dict, Any, TYPE_CHECKING
-from app.models.accounting.account import Account 
-# REMOVED: from app.services.account_service import AccountService 
-from app.utils.result import Result
-from app.utils.pydantic_models import AccountCreateData, AccountUpdateData, AccountValidator
-from decimal import Decimal
-from datetime import date 
-
-if TYPE_CHECKING:
-    from app.core.application_core import ApplicationCore 
-    from app.services.account_service import AccountService # MOVED HERE
-
-class ChartOfAccountsManager:
-    def __init__(self, account_service: "AccountService", app_core: "ApplicationCore"): # Use string literal for AccountService
-        self.account_service = account_service
-        self.account_validator = AccountValidator() 
-        self.app_core = app_core 
-
-    async def create_account(self, account_data: AccountCreateData) -> Result[Account]:
-        validation_result = self.account_validator.validate_create(account_data)
-        if not validation_result.is_valid:
-            return Result.failure(validation_result.errors)
-        
-        existing = await self.account_service.get_by_code(account_data.code)
-        if existing:
-            return Result.failure([f"Account code '{account_data.code}' already exists."])
-        
-        current_user_id = account_data.user_id
-
-        account = Account(
-            code=account_data.code, name=account_data.name,
-            account_type=account_data.account_type, sub_type=account_data.sub_type,
-            tax_treatment=account_data.tax_treatment, gst_applicable=account_data.gst_applicable,
-            description=account_data.description, parent_id=account_data.parent_id,
-            report_group=account_data.report_group, is_control_account=account_data.is_control_account,
-            is_bank_account=account_data.is_bank_account, opening_balance=account_data.opening_balance,
-            opening_balance_date=account_data.opening_balance_date, is_active=account_data.is_active,
-            created_by_user_id=current_user_id, 
-            updated_by_user_id=current_user_id 
-        )
-        
-        try:
-            saved_account = await self.account_service.save(account)
-            return Result.success(saved_account)
-        except Exception as e:
-            return Result.failure([f"Failed to save account: {str(e)}"])
-    
-    async def update_account(self, account_data: AccountUpdateData) -> Result[Account]:
-        existing_account = await self.account_service.get_by_id(account_data.id)
-        if not existing_account:
-            return Result.failure([f"Account with ID {account_data.id} not found."])
-        
-        validation_result = self.account_validator.validate_update(account_data)
-        if not validation_result.is_valid:
-            return Result.failure(validation_result.errors)
-        
-        if account_data.code != existing_account.code:
-            code_exists = await self.account_service.get_by_code(account_data.code)
-            if code_exists and code_exists.id != existing_account.id:
-                return Result.failure([f"Account code '{account_data.code}' already exists."])
-        
-        current_user_id = account_data.user_id
-
-        existing_account.code = account_data.code; existing_account.name = account_data.name
-        existing_account.account_type = account_data.account_type; existing_account.sub_type = account_data.sub_type
-        existing_account.tax_treatment = account_data.tax_treatment; existing_account.gst_applicable = account_data.gst_applicable
-        existing_account.description = account_data.description; existing_account.parent_id = account_data.parent_id
-        existing_account.report_group = account_data.report_group; existing_account.is_control_account = account_data.is_control_account
-        existing_account.is_bank_account = account_data.is_bank_account; existing_account.opening_balance = account_data.opening_balance
-        existing_account.opening_balance_date = account_data.opening_balance_date; existing_account.is_active = account_data.is_active
-        existing_account.updated_by_user_id = current_user_id
-        
-        try:
-            updated_account = await self.account_service.save(existing_account)
-            return Result.success(updated_account)
-        except Exception as e:
-            return Result.failure([f"Failed to update account: {str(e)}"])
-            
-    async def deactivate_account(self, account_id: int, user_id: int) -> Result[Account]:
-        account = await self.account_service.get_by_id(account_id)
-        if not account:
-            return Result.failure([f"Account with ID {account_id} not found."])
-        
-        if not account.is_active:
-             return Result.failure([f"Account '{account.code}' is already inactive."])
-
-        if not self.app_core or not hasattr(self.app_core, 'journal_service'): 
-            return Result.failure(["Journal service not available for balance check."])
-
-        total_current_balance = await self.app_core.journal_service.get_account_balance(account_id, date.today()) 
-
-        if total_current_balance != Decimal(0):
-            return Result.failure([f"Cannot deactivate account '{account.code}' as it has a non-zero balance ({total_current_balance:.2f})."])
-
-        account.is_active = False
-        account.updated_by_user_id = user_id 
-        
-        try:
-            updated_account = await self.account_service.save(account)
-            return Result.success(updated_account)
-        except Exception as e:
-            return Result.failure([f"Failed to deactivate account: {str(e)}"])
-
-    async def get_account_tree(self, active_only: bool = True) -> List[Dict[str, Any]]:
-        try:
-            tree = await self.account_service.get_account_tree(active_only=active_only)
-            return tree 
-        except Exception as e:
-            print(f"Error getting account tree: {e}") 
-            return []
-
-    async def get_accounts_for_selection(self, account_type: Optional[str] = None, active_only: bool = True) -> List[Account]:
-        if account_type:
-            return await self.account_service.get_by_type(account_type, active_only=active_only)
-        elif active_only:
-            return await self.account_service.get_all_active()
-        else:
-            if hasattr(self.account_service, 'get_all'):
-                 return await self.account_service.get_all()
-            else: 
-                 return await self.account_service.get_all_active()
-
-```
-
-# app/accounting/journal_entry_manager.py
-```py
-# File: app/accounting/journal_entry_manager.py
-from typing import List, Optional, Any, Dict, TYPE_CHECKING
-from decimal import Decimal
-from datetime import date, datetime, timedelta
-from dateutil.relativedelta import relativedelta # type: ignore
-
-from sqlalchemy import select 
-from sqlalchemy.ext.asyncio import AsyncSession 
-from sqlalchemy.orm import selectinload
-
-from app.models import JournalEntry, JournalEntryLine, RecurringPattern, FiscalPeriod, Account
-from app.models.business.bank_account import BankAccount
-from app.models.business.bank_transaction import BankTransaction
-# REMOVED: from app.services.account_service import AccountService
-# REMOVED: from app.services.fiscal_period_service import FiscalPeriodService
-from app.utils.result import Result
-from app.utils.pydantic_models import JournalEntryData, JournalEntryLineData 
-from app.common.enums import JournalTypeEnum, BankTransactionTypeEnum
-
-if TYPE_CHECKING:
-    from app.core.application_core import ApplicationCore
-    from app.services.journal_service import JournalService 
-    from app.services.account_service import AccountService # MOVED HERE
-    from app.services.fiscal_period_service import FiscalPeriodService # MOVED HERE
-
-class JournalEntryManager:
-    def __init__(self, 
-                 journal_service: "JournalService", 
-                 account_service: "AccountService", # Changed to string literal or rely on TYPE_CHECKING
-                 fiscal_period_service: "FiscalPeriodService", # Changed to string literal or rely on TYPE_CHECKING
-                 app_core: "ApplicationCore"):
-        self.journal_service = journal_service
-        self.account_service = account_service
-        self.fiscal_period_service = fiscal_period_service
-        self.app_core = app_core
-        self.logger = app_core.logger
-
-    async def create_journal_entry(self, entry_data: JournalEntryData, session: Optional[AsyncSession] = None) -> Result[JournalEntry]:
-        async def _create_je_logic(current_session: AsyncSession):
-            fiscal_period_stmt = select(FiscalPeriod).where(FiscalPeriod.start_date <= entry_data.entry_date, FiscalPeriod.end_date >= entry_data.entry_date, FiscalPeriod.status == 'Open')
-            fiscal_period_res = await current_session.execute(fiscal_period_stmt); fiscal_period = fiscal_period_res.scalars().first()
-            if not fiscal_period: return Result.failure([f"No open fiscal period for entry date {entry_data.entry_date} or period not open."])
-            
-            entry_no_str = await self.app_core.db_manager.execute_scalar("SELECT core.get_next_sequence_value($1);", "journal_entry", session=current_session)
-            if not entry_no_str: return Result.failure(["Failed to generate journal entry number."])
-            
-            current_user_id = entry_data.user_id
-            journal_entry_orm = JournalEntry(entry_no=entry_no_str, journal_type=entry_data.journal_type, entry_date=entry_data.entry_date, fiscal_period_id=fiscal_period.id, description=entry_data.description, reference=entry_data.reference, is_recurring=entry_data.is_recurring, recurring_pattern_id=entry_data.recurring_pattern_id, is_posted=False, source_type=entry_data.source_type, source_id=entry_data.source_id, created_by_user_id=current_user_id, updated_by_user_id=current_user_id)
-            for i, line_dto in enumerate(entry_data.lines, 1):
-                account_stmt = select(Account).where(Account.id == line_dto.account_id); account_res = await current_session.execute(account_stmt); account = account_res.scalars().first()
-                if not account or not account.is_active: return Result.failure([f"Invalid or inactive account ID {line_dto.account_id} on line {i}."])
-                line_orm = JournalEntryLine(line_number=i, account_id=line_dto.account_id, description=line_dto.description, debit_amount=line_dto.debit_amount, credit_amount=line_dto.credit_amount, currency_code=line_dto.currency_code, exchange_rate=line_dto.exchange_rate, tax_code=line_dto.tax_code, tax_amount=line_dto.tax_amount, dimension1_id=line_dto.dimension1_id, dimension2_id=line_dto.dimension2_id)
-                journal_entry_orm.lines.append(line_orm)
-            current_session.add(journal_entry_orm); await current_session.flush(); await current_session.refresh(journal_entry_orm)
-            if journal_entry_orm.lines: await current_session.refresh(journal_entry_orm, attribute_names=['lines'])
-            return Result.success(journal_entry_orm)
-        if session: return await _create_je_logic(session)
-        else:
-            try:
-                async with self.app_core.db_manager.session() as new_session: # type: ignore
-                    return await _create_je_logic(new_session)
-            except Exception as e: 
-                self.logger.error(f"Error creating JE with new session: {e}", exc_info=True)
-                return Result.failure([f"Failed to save JE: {str(e)}"])
-
-    async def update_journal_entry(self, entry_id: int, entry_data: JournalEntryData) -> Result[JournalEntry]:
-        async with self.app_core.db_manager.session() as session: # type: ignore
-            existing_entry = await session.get(JournalEntry, entry_id, options=[selectinload(JournalEntry.lines)])
-            if not existing_entry: return Result.failure([f"JE ID {entry_id} not found for update."])
-            if existing_entry.is_posted: return Result.failure([f"Cannot update posted JE: {existing_entry.entry_no}."])
-            fp_stmt = select(FiscalPeriod).where(FiscalPeriod.start_date <= entry_data.entry_date, FiscalPeriod.end_date >= entry_data.entry_date, FiscalPeriod.status == 'Open')
-            fp_res = await session.execute(fp_stmt); fiscal_period = fp_res.scalars().first()
-            if not fiscal_period: return Result.failure([f"No open fiscal period for new entry date {entry_data.entry_date} or period not open."])
-            current_user_id = entry_data.user_id
-            existing_entry.journal_type = entry_data.journal_type; existing_entry.entry_date = entry_data.entry_date
-            existing_entry.fiscal_period_id = fiscal_period.id; existing_entry.description = entry_data.description
-            existing_entry.reference = entry_data.reference; existing_entry.is_recurring = entry_data.is_recurring
-            existing_entry.recurring_pattern_id = entry_data.recurring_pattern_id
-            existing_entry.source_type = entry_data.source_type; existing_entry.source_id = entry_data.source_id
-            existing_entry.updated_by_user_id = current_user_id
-            for line in list(existing_entry.lines): await session.delete(line)
-            existing_entry.lines.clear(); await session.flush() 
-            new_lines_orm: List[JournalEntryLine] = []
-            for i, line_dto in enumerate(entry_data.lines, 1):
-                acc_stmt = select(Account).where(Account.id == line_dto.account_id); acc_res = await session.execute(acc_stmt); account = acc_res.scalars().first()
-                if not account or not account.is_active: raise ValueError(f"Invalid or inactive account ID {line_dto.account_id} on line {i} during update.")
-                new_lines_orm.append(JournalEntryLine(line_number=i, account_id=line_dto.account_id, description=line_dto.description, debit_amount=line_dto.debit_amount, credit_amount=line_dto.credit_amount, currency_code=line_dto.currency_code, exchange_rate=line_dto.exchange_rate, tax_code=line_dto.tax_code, tax_amount=line_dto.tax_amount, dimension1_id=line_dto.dimension1_id, dimension2_id=line_dto.dimension2_id))
-            existing_entry.lines.extend(new_lines_orm); session.add(existing_entry) 
-            try:
-                await session.flush(); await session.refresh(existing_entry)
-                if existing_entry.lines: await session.refresh(existing_entry, attribute_names=['lines'])
-                return Result.success(existing_entry)
-            except Exception as e: self.logger.error(f"Error updating JE ID {entry_id}: {e}", exc_info=True); return Result.failure([f"Failed to update JE: {str(e)}"])
-
-    async def post_journal_entry(self, entry_id: int, user_id: int, session: Optional[AsyncSession] = None) -> Result[JournalEntry]:
-        async def _post_je_logic(current_session: AsyncSession):
-            entry = await current_session.get(
-                JournalEntry, entry_id, 
-                options=[selectinload(JournalEntry.lines).selectinload(JournalEntryLine.account)]
-            )
-            if not entry: return Result.failure([f"JE ID {entry_id} not found."])
-            if entry.is_posted: return Result.failure([f"JE '{entry.entry_no}' is already posted."])
-            
-            fiscal_period = await current_session.get(FiscalPeriod, entry.fiscal_period_id)
-            if not fiscal_period or fiscal_period.status != 'Open': 
-                return Result.failure([f"Cannot post. Fiscal period not open. Status: {fiscal_period.status if fiscal_period else 'Unknown'}."])
-            
-            entry.is_posted = True
-            entry.updated_by_user_id = user_id
-            current_session.add(entry)
-            await current_session.flush()
-            
-            for line in entry.lines:
-                if line.account and line.account.is_bank_account:
-                    bank_account_stmt = select(BankAccount).where(BankAccount.gl_account_id == line.account_id)
-                    bank_account_res = await current_session.execute(bank_account_stmt)
-                    linked_bank_account = bank_account_res.scalars().first()
-
-                    if linked_bank_account:
-                        bank_txn_amount = line.debit_amount - line.credit_amount
-                        bank_txn_type_enum: BankTransactionTypeEnum
-                        if bank_txn_amount > Decimal(0): bank_txn_type_enum = BankTransactionTypeEnum.DEPOSIT
-                        elif bank_txn_amount < Decimal(0): bank_txn_type_enum = BankTransactionTypeEnum.WITHDRAWAL
-                        else: continue 
-
-                        new_bank_txn = BankTransaction(
-                            bank_account_id=linked_bank_account.id,
-                            transaction_date=entry.entry_date, value_date=entry.entry_date,
-                            transaction_type=bank_txn_type_enum.value,
-                            description=f"JE: {entry.entry_no} - {line.description or entry.description or 'Journal Posting'}",
-                            reference=entry.entry_no, amount=bank_txn_amount,
-                            is_from_statement=False, is_reconciled=False,
-                            journal_entry_id=entry.id,
-                            created_by_user_id=user_id, updated_by_user_id=user_id
-                        )
-                        current_session.add(new_bank_txn)
-                        self.logger.info(f"Auto-created BankTransaction for JE line {line.id} (Account: {line.account.code}) linked to Bank Account {linked_bank_account.id}")
-                    else:
-                        self.logger.warning(f"JE line {line.id} affects GL account {line.account.code} which is_bank_account=True, but no BankAccount record is linked to it. No BankTransaction created.")
-            
-            await current_session.flush()
-            await current_session.refresh(entry)
-            return Result.success(entry)
-
-        if session: return await _post_je_logic(session)
-        else:
-            try:
-                async with self.app_core.db_manager.session() as new_session: # type: ignore
-                    return await _post_je_logic(new_session)
-            except Exception as e: 
-                self.logger.error(f"Error posting JE ID {entry_id} with new session: {e}", exc_info=True)
-                return Result.failure([f"Failed to post JE: {str(e)}"])
-
-    async def reverse_journal_entry(self, entry_id: int, reversal_date: date, description: Optional[str], user_id: int) -> Result[JournalEntry]:
-        async with self.app_core.db_manager.session() as session: # type: ignore
-            original_entry = await session.get(JournalEntry, entry_id, options=[selectinload(JournalEntry.lines)])
-            if not original_entry: return Result.failure([f"JE ID {entry_id} not found for reversal."])
-            if not original_entry.is_posted: return Result.failure(["Only posted entries can be reversed."])
-            if original_entry.is_reversed or original_entry.reversing_entry_id is not None: return Result.failure([f"Entry '{original_entry.entry_no}' is already reversed."])
-            reversal_fp_stmt = select(FiscalPeriod).where(FiscalPeriod.start_date <= reversal_date, FiscalPeriod.end_date >= reversal_date, FiscalPeriod.status == 'Open')
-            reversal_fp_res = await session.execute(reversal_fp_stmt); reversal_fiscal_period = reversal_fp_res.scalars().first()
-            if not reversal_fiscal_period: return Result.failure([f"No open fiscal period for reversal date {reversal_date} or period not open."])
-            
-            reversal_lines_dto: List[JournalEntryLineData] = []
-            for orig_line in original_entry.lines:
-                reversal_lines_dto.append(JournalEntryLineData(account_id=orig_line.account_id, description=f"Reversal: {orig_line.description or ''}", debit_amount=orig_line.credit_amount, credit_amount=orig_line.debit_amount, currency_code=orig_line.currency_code, exchange_rate=orig_line.exchange_rate, tax_code=orig_line.tax_code, tax_amount=-orig_line.tax_amount if orig_line.tax_amount is not None else Decimal(0), dimension1_id=orig_line.dimension1_id, dimension2_id=orig_line.dimension2_id))
-            reversal_je_data = JournalEntryData(journal_type=original_entry.journal_type, entry_date=reversal_date, description=description or f"Reversal of entry {original_entry.entry_no}", reference=f"REV:{original_entry.entry_no}", is_posted=False, source_type="JournalEntryReversalSource", source_id=original_entry.id, user_id=user_id, lines=reversal_lines_dto)
-            create_reversal_result = await self.create_journal_entry(reversal_je_data, session=session)
-            if not create_reversal_result.is_success or not create_reversal_result.value: return Result.failure(["Failed to create reversal JE."] + create_reversal_result.errors)
-            reversal_je_orm = create_reversal_result.value
-            original_entry.is_reversed = True; original_entry.reversing_entry_id = reversal_je_orm.id
-            original_entry.updated_by_user_id = user_id; session.add(original_entry)
-            try:
-                await session.flush(); await session.refresh(reversal_je_orm)
-                if reversal_je_orm.lines: await session.refresh(reversal_je_orm, attribute_names=['lines'])
-                return Result.success(reversal_je_orm)
-            except Exception as e: self.logger.error(f"Error reversing JE ID {entry_id} (flush/commit stage): {e}", exc_info=True); return Result.failure([f"Failed to finalize reversal: {str(e)}"])
-
-    def _calculate_next_generation_date(self, last_date: date, frequency: str, interval: int, day_of_month: Optional[int] = None, day_of_week: Optional[int] = None) -> date:
-        next_date = last_date
-        if frequency == 'Monthly':
-            next_date = last_date + relativedelta(months=interval)
-            if day_of_month:
-                try: next_date = next_date.replace(day=day_of_month)
-                except ValueError: next_date = next_date + relativedelta(day=31) 
-        elif frequency == 'Yearly':
-            next_date = last_date + relativedelta(years=interval)
-            if day_of_month:
-                try: next_date = next_date.replace(day=day_of_month, month=last_date.month)
-                except ValueError: next_date = next_date.replace(month=last_date.month) + relativedelta(day=31)
-        elif frequency == 'Weekly':
-            next_date = last_date + relativedelta(weeks=interval)
-            if day_of_week is not None: 
-                 current_weekday = next_date.weekday() 
-                 days_to_add = (day_of_week - current_weekday + 7) % 7
-                 next_date += timedelta(days=days_to_add)
-        elif frequency == 'Daily': next_date = last_date + relativedelta(days=interval)
-        elif frequency == 'Quarterly':
-            next_date = last_date + relativedelta(months=interval * 3)
-            if day_of_month:
-                try: next_date = next_date.replace(day=day_of_month)
-                except ValueError: next_date = next_date + relativedelta(day=31)
-        else: raise NotImplementedError(f"Frequency '{frequency}' not supported for next date calculation.")
-        return next_date
-
-    async def generate_recurring_entries(self, as_of_date: date, user_id: int) -> List[Result[JournalEntry]]:
-        patterns_due: List[RecurringPattern] = await self.journal_service.get_recurring_patterns_due(as_of_date); generated_results: List[Result[JournalEntry]] = []
-        for pattern in patterns_due:
-            if not pattern.template_journal_entry: self.logger.error(f"Template JE not loaded for pattern ID {pattern.id}. Skipping."); generated_results.append(Result.failure([f"Template JE not loaded for pattern '{pattern.name}'."])); continue
-            entry_date_for_new_je = pattern.next_generation_date; 
-            if not entry_date_for_new_je : continue 
-            template_entry = pattern.template_journal_entry
-            new_je_lines_data = [JournalEntryLineData(account_id=line.account_id, description=line.description, debit_amount=line.debit_amount, credit_amount=line.credit_amount, currency_code=line.currency_code, exchange_rate=line.exchange_rate, tax_code=line.tax_code, tax_amount=line.tax_amount, dimension1_id=line.dimension1_id, dimension2_id=line.dimension2_id) for line in template_entry.lines]
-            new_je_data = JournalEntryData(journal_type=template_entry.journal_type, entry_date=entry_date_for_new_je, description=f"{pattern.description or template_entry.description or ''} (Recurring - {pattern.name})", reference=template_entry.reference, user_id=user_id, lines=new_je_lines_data, recurring_pattern_id=pattern.id, source_type="RecurringPattern", source_id=pattern.id)
-            create_result = await self.create_journal_entry(new_je_data); generated_results.append(create_result)
-            if create_result.is_success:
-                async with self.app_core.db_manager.session() as session: # type: ignore
-                    pattern_to_update = await session.get(RecurringPattern, pattern.id)
-                    if pattern_to_update:
-                        pattern_to_update.last_generated_date = entry_date_for_new_je
-                        try:
-                            next_gen = self._calculate_next_generation_date(pattern_to_update.last_generated_date, pattern_to_update.frequency, pattern_to_update.interval_value, pattern_to_update.day_of_month, pattern_to_update.day_of_week)
-                            if pattern_to_update.end_date and next_gen > pattern_to_update.end_date: pattern_to_update.next_generation_date = None; pattern_to_update.is_active = False 
-                            else: pattern_to_update.next_generation_date = next_gen
-                        except NotImplementedError: pattern_to_update.next_generation_date = None; pattern_to_update.is_active = False; self.logger.warning(f"Next gen date calc not implemented for pattern {pattern_to_update.name}, deactivating.") # type: ignore
-                        pattern_to_update.updated_by_user_id = user_id; session.add(pattern_to_update); await session.commit()
-                    else: self.logger.error(f"Failed to re-fetch pattern ID {pattern.id} for update after recurring JE generation.") 
-        return generated_results
-
-    async def get_journal_entry_for_dialog(self, entry_id: int) -> Optional[JournalEntry]:
-        return await self.journal_service.get_by_id(entry_id)
-
-    async def get_journal_entries_for_listing(self, filters: Optional[Dict[str, Any]] = None) -> Result[List[Dict[str, Any]]]:
-        filters = filters or {}
-        try:
-            summary_data = await self.journal_service.get_all_summary(start_date_filter=filters.get("start_date"),end_date_filter=filters.get("end_date"),status_filter=filters.get("status"),entry_no_filter=filters.get("entry_no"),description_filter=filters.get("description"),journal_type_filter=filters.get("journal_type"))
-            return Result.success(summary_data)
-        except Exception as e: self.logger.error(f"Error fetching JE summaries for listing: {e}", exc_info=True); return Result.failure([f"Failed to retrieve journal entry summaries: {str(e)}"])
-
-```
-
 # app/reporting/financial_statement_generator.py
 ```py
 # File: app/reporting/financial_statement_generator.py
@@ -3947,12 +3249,6 @@ from typing import List, Dict, Any, Optional, TYPE_CHECKING
 from datetime import date, timedelta 
 from decimal import Decimal
 
-# REMOVED: from app.services.account_service import AccountService
-# REMOVED: from app.services.journal_service import JournalService
-# REMOVED: from app.services.fiscal_period_service import FiscalPeriodService
-# REMOVED: from app.services.tax_service import TaxCodeService 
-# REMOVED: from app.services.core_services import CompanySettingsService 
-# REMOVED: from app.services.accounting_services import AccountTypeService, DimensionService 
 from app.models.accounting.account import Account 
 from app.models.accounting.fiscal_year import FiscalYear
 from app.models.accounting.account_type import AccountType 
@@ -3960,12 +3256,12 @@ from app.models.accounting.journal_entry import JournalEntryLine
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore 
-    from app.services.account_service import AccountService # ADDED
-    from app.services.journal_service import JournalService # ADDED
-    from app.services.fiscal_period_service import FiscalPeriodService # ADDED
-    from app.services.tax_service import TaxCodeService # ADDED
-    from app.services.core_services import CompanySettingsService # ADDED
-    from app.services.accounting_services import AccountTypeService, DimensionService # ADDED
+    from app.services.account_service import AccountService
+    from app.services.journal_service import JournalService
+    from app.services.fiscal_period_service import FiscalPeriodService
+    from app.services.tax_service import TaxCodeService
+    from app.services.core_services import CompanySettingsService, ConfigurationService
+    from app.services.accounting_services import AccountTypeService, DimensionService
 
 
 class FinancialStatementGenerator:
@@ -3976,7 +3272,8 @@ class FinancialStatementGenerator:
                  account_type_service: "AccountTypeService", 
                  tax_code_service: Optional["TaxCodeService"] = None, 
                  company_settings_service: Optional["CompanySettingsService"] = None,
-                 dimension_service: Optional["DimensionService"] = None 
+                 dimension_service: Optional["DimensionService"] = None,
+                 configuration_service: Optional["ConfigurationService"] = None
                  ):
         self.account_service = account_service
         self.journal_service = journal_service
@@ -3985,6 +3282,7 @@ class FinancialStatementGenerator:
         self.tax_code_service = tax_code_service
         self.company_settings_service = company_settings_service
         self.dimension_service = dimension_service 
+        self.configuration_service = configuration_service
         self._account_type_map_cache: Optional[Dict[str, AccountType]] = None
 
 
@@ -4052,21 +3350,59 @@ class FinancialStatementGenerator:
         debit_accounts_list.sort(key=lambda a: a['code']); credit_accounts_list.sort(key=lambda a: a['code'])
         return {'title': 'Trial Balance', 'report_date_description': f"As of {as_of_date.strftime('%d %b %Y')}",'as_of_date': as_of_date,'debit_accounts': debit_accounts_list, 'credit_accounts': credit_accounts_list,'total_debits': total_debits_val, 'total_credits': total_credits_val,'is_balanced': abs(total_debits_val - total_credits_val) < Decimal("0.01")}
 
-    async def generate_income_tax_computation(self, year_int_value: int) -> Dict[str, Any]: 
-        fiscal_year_obj: Optional[FiscalYear] = await self.fiscal_period_service.get_fiscal_year(year_int_value) 
-        if not fiscal_year_obj: raise ValueError(f"Fiscal year definition for {year_int_value} not found.")
-        start_date, end_date = fiscal_year_obj.start_date, fiscal_year_obj.end_date
-        pl_data = await self.generate_profit_loss(start_date, end_date); net_profit = pl_data['net_profit']
-        adjustments = []; tax_effect = Decimal(0)
-        tax_adj_accounts = await self.account_service.get_accounts_by_tax_treatment('Tax Adjustment')
-        for account in tax_adj_accounts:
+    async def generate_income_tax_computation(self, fiscal_year: FiscalYear) -> Dict[str, Any]:
+        if not self.configuration_service:
+            raise RuntimeError("ConfigurationService not available for tax computation.")
+            
+        start_date, end_date = fiscal_year.start_date, fiscal_year.end_date
+        
+        pl_data = await self.generate_profit_loss(start_date, end_date)
+        net_profit_before_tax = pl_data.get('net_profit', Decimal(0))
+
+        add_back_adjustments: List[Dict[str, Any]] = []
+        less_adjustments: List[Dict[str, Any]] = []
+        total_add_back = Decimal(0)
+        total_less = Decimal(0)
+
+        non_deductible_accounts = await self.account_service.get_accounts_by_tax_treatment('Non-Deductible')
+        for account in non_deductible_accounts:
             activity = await self.journal_service.get_account_balance_for_period(account.id, start_date, end_date)
-            if abs(activity) < Decimal("0.01"): continue
-            adj_is_addition = activity > Decimal(0) if account.account_type == 'Expense' else activity < Decimal(0)
-            adjustments.append({'id': account.id, 'code': account.code, 'name': account.name, 'amount': activity, 'is_addition': adj_is_addition})
-            tax_effect += activity 
-        taxable_income = net_profit + tax_effect
-        return {'title': f'Income Tax Computation for Year of Assessment {year_int_value + 1}', 'report_date_description': f"For Financial Year Ended {fiscal_year_obj.end_date.strftime('%d %b %Y')}",'year': year_int_value, 'fiscal_year_start': start_date, 'fiscal_year_end': end_date,'net_profit': net_profit, 'adjustments': adjustments, 'tax_effect': tax_effect, 'taxable_income': taxable_income}
+            if activity != Decimal(0):
+                add_back_adjustments.append({'name': f"{account.code} - {account.name}", 'amount': activity})
+                total_add_back += activity
+
+        non_taxable_accounts = await self.account_service.get_accounts_by_tax_treatment('Non-Taxable Income')
+        for account in non_taxable_accounts:
+            activity = await self.journal_service.get_account_balance_for_period(account.id, start_date, end_date)
+            if activity != Decimal(0):
+                # Revenue has negative balance, so activity is negative. We subtract a negative -> add.
+                # To show it as a subtraction, we use the absolute value.
+                less_adjustments.append({'name': f"{account.code} - {account.name}", 'amount': abs(activity)})
+                total_less += abs(activity)
+        
+        chargeable_income = net_profit_before_tax + total_add_back - total_less
+        
+        tax_rate_str = await self.configuration_service.get_config_value("CorpTaxRate_Default", "17.0")
+        tax_rate = Decimal(tax_rate_str if tax_rate_str else "17.0")
+        
+        # Note: This is a simplified calculation. Real tax computation involves capital allowances, PTE, etc.
+        estimated_tax = chargeable_income * (tax_rate / Decimal(100))
+        if estimated_tax < 0:
+            estimated_tax = Decimal(0)
+
+        return {
+            'title': 'Income Tax Computation',
+            'report_date_description': f"For Financial Year Ended {fiscal_year.end_date.strftime('%d %b %Y')}",
+            'fiscal_year_name': fiscal_year.year_name,
+            'net_profit_before_tax': net_profit_before_tax,
+            'add_back_adjustments': add_back_adjustments,
+            'total_add_back': total_add_back,
+            'less_adjustments': less_adjustments,
+            'total_less': total_less,
+            'chargeable_income': chargeable_income,
+            'tax_rate': tax_rate,
+            'estimated_tax': estimated_tax
+        }
 
     async def generate_gst_f5(self, start_date: date, end_date: date) -> Dict[str, Any]:
         if not self.company_settings_service or not self.tax_code_service: raise RuntimeError("TaxCodeService and CompanySettingsService are required for GST F5.")
@@ -4128,7 +3464,6 @@ class FinancialStatementGenerator:
             dim2 = await self.dimension_service.get_by_id(dimension2_id)
             if dim2: report_desc += f" (Dim2: {dim2.dimension_type}-{dim2.code})"
 
-
         return {
             "title": "General Ledger", "report_date_description": report_desc,
             "account_code": account_orm.code, "account_name": account_orm.name,
@@ -4142,340 +3477,508 @@ class FinancialStatementGenerator:
 # app/reporting/dashboard_manager.py
 ```py
 # File: app/reporting/dashboard_manager.py
-from typing import Optional, TYPE_CHECKING, List, Dict # Added Dict
+from typing import Optional, TYPE_CHECKING, List, Dict
 from datetime import date
 from decimal import Decimal
 
 from app.utils.pydantic_models import DashboardKPIData
 from app.models.accounting.fiscal_year import FiscalYear 
-from app.models.accounting.account import Account # For type hinting
+from app.models.accounting.account import Account
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore
 
-# Define standard "current" account subtypes. These should ideally match common usage or be configurable.
-# These are based on typical Chart of Accounts structures like the general_template.csv.
-CURRENT_ASSET_SUBTYPES = [
-    "Cash and Cash Equivalents", 
-    "Accounts Receivable", 
-    "Inventory", 
-    "Prepaid Expenses",
-    "Other Current Assets", # A generic category
-    "Current Asset" # Another generic category often used as a sub_type directly
-]
-CURRENT_LIABILITY_SUBTYPES = [
-    "Accounts Payable", 
-    "Accrued Liabilities", 
-    "Short-Term Loans", # Assuming "Loans Payable" might be split or if a specific ST Loan subtype exists
-    "Current Portion of Long-Term Debt", # If such a subtype exists
-    "GST Payable", # Typically current
-    "Other Current Liabilities",
-    "Current Liability"
-]
-
+CURRENT_ASSET_SUBTYPES = ["Cash and Cash Equivalents", "Accounts Receivable", "Inventory", "Prepaid Expenses", "Other Current Assets", "Current Asset"]
+CURRENT_LIABILITY_SUBTYPES = ["Accounts Payable", "Accrued Liabilities", "Short-Term Loans", "Current Portion of Long-Term Debt", "GST Payable", "Other Current Liabilities", "Current Liability"]
+NON_CURRENT_LIABILITY_SUBTYPES = ["Long-term Liability", "Long-Term Loans"]
 
 class DashboardManager:
     def __init__(self, app_core: "ApplicationCore"):
         self.app_core = app_core
         self.logger = app_core.logger
 
-    async def get_dashboard_kpis(self) -> Optional[DashboardKPIData]:
+    async def get_dashboard_kpis(self, as_of_date: Optional[date] = None) -> Optional[DashboardKPIData]:
         try:
-            self.logger.info("Fetching dashboard KPIs...")
-            today = date.today()
+            effective_date = as_of_date if as_of_date is not None else date.today()
+            self.logger.info(f"Fetching dashboard KPIs as of {effective_date}...")
             
             company_settings = await self.app_core.company_settings_service.get_company_settings()
-            if not company_settings:
-                self.logger.error("Company settings not found, cannot determine base currency for KPIs.")
-                return None
+            if not company_settings: self.logger.error("Company settings not found."); return None
             base_currency = company_settings.base_currency
 
             all_fiscal_years_orm: List[FiscalYear] = await self.app_core.fiscal_year_service.get_all()
-            current_fy: Optional[FiscalYear] = None
-            for fy_orm in sorted(all_fiscal_years_orm, key=lambda fy: fy.start_date, reverse=True):
-                if fy_orm.start_date <= today <= fy_orm.end_date and not fy_orm.is_closed:
-                    current_fy = fy_orm
-                    break
-            if not current_fy:
-                open_fys = [fy_orm for fy_orm in all_fiscal_years_orm if not fy_orm.is_closed]
-                if open_fys: current_fy = max(open_fys, key=lambda fy: fy.start_date)
-            if not current_fy and all_fiscal_years_orm:
-                current_fy = max(all_fiscal_years_orm, key=lambda fy: fy.start_date)
+            current_fy: Optional[FiscalYear] = next((fy for fy in sorted(all_fiscal_years_orm, key=lambda fy: fy.start_date, reverse=True) if fy.start_date <= effective_date <= fy.end_date and not fy.is_closed), None)
+            if not current_fy: current_fy = next((fy for fy in sorted(all_fiscal_years_orm, key=lambda fy: fy.start_date, reverse=True) if not fy.is_closed), None)
+            if not current_fy and all_fiscal_years_orm: current_fy = max(all_fiscal_years_orm, key=lambda fy: fy.start_date)
 
-            total_revenue_ytd = Decimal(0)
-            total_expenses_ytd = Decimal(0)
-            net_profit_ytd = Decimal(0)
-            kpi_period_description: str
-
-            if current_fy:
-                fy_start_date = current_fy.start_date
-                fy_end_date = current_fy.end_date
-                effective_end_date_for_ytd = min(today, fy_end_date)
+            total_revenue_ytd, total_expenses_ytd, net_profit_ytd = Decimal(0), Decimal(0), Decimal(0)
+            kpi_period_description = f"As of {effective_date.strftime('%d %b %Y')} (No active FY)"
+            if current_fy and effective_date >= current_fy.start_date:
+                effective_end_date_for_ytd = min(effective_date, current_fy.end_date)
                 kpi_period_description = f"YTD as of {effective_end_date_for_ytd.strftime('%d %b %Y')} (FY: {current_fy.year_name})"
-                if today >= fy_start_date: # Ensure we are within or past the start of the current FY
-                    pl_data = await self.app_core.financial_statement_generator.generate_profit_loss(
-                        start_date=fy_start_date,
-                        end_date=effective_end_date_for_ytd
-                    )
-                    if pl_data:
-                        total_revenue_ytd = pl_data.get('revenue', {}).get('total', Decimal(0))
-                        total_expenses_ytd = pl_data.get('expenses', {}).get('total', Decimal(0))
-                        net_profit_ytd = pl_data.get('net_profit', Decimal(0))
-            else:
-                self.logger.warning("No fiscal year found. Cannot calculate YTD KPIs.")
-                kpi_period_description = f"As of {today.strftime('%d %b %Y')} (No active FY)"
+                pl_data = await self.app_core.financial_statement_generator.generate_profit_loss(current_fy.start_date, effective_end_date_for_ytd)
+                if pl_data:
+                    total_revenue_ytd, total_expenses_ytd, net_profit_ytd = pl_data.get('revenue', {}).get('total', Decimal(0)), pl_data.get('expenses', {}).get('total', Decimal(0)), pl_data.get('net_profit', Decimal(0))
+            elif current_fy:
+                 kpi_period_description = f"As of {effective_date.strftime('%d %b %Y')} (FY: {current_fy.year_name} not started)"
 
-            current_cash_balance = await self._get_total_cash_balance(base_currency)
-            total_outstanding_ar = await self.app_core.customer_service.get_total_outstanding_balance()
-            total_outstanding_ap = await self.app_core.vendor_service.get_total_outstanding_balance()
-            total_ar_overdue = await self.app_core.customer_service.get_total_overdue_balance() 
-            total_ap_overdue = await self.app_core.vendor_service.get_total_overdue_balance() 
+            current_cash_balance = await self._get_total_cash_balance(base_currency, effective_date)
+            total_outstanding_ar = await self.app_core.customer_service.get_total_outstanding_balance(); total_outstanding_ap = await self.app_core.vendor_service.get_total_outstanding_balance()
+            total_ar_overdue = await self.app_core.customer_service.get_total_overdue_balance(); total_ap_overdue = await self.app_core.vendor_service.get_total_overdue_balance() 
+            ar_aging_summary = await self.app_core.customer_service.get_ar_aging_summary(effective_date); ap_aging_summary = await self.app_core.vendor_service.get_ap_aging_summary(effective_date)
 
-            # Fetch AR/AP Aging Summaries
-            ar_aging_summary = await self.app_core.customer_service.get_ar_aging_summary(as_of_date=today)
-            ap_aging_summary = await self.app_core.vendor_service.get_ap_aging_summary(as_of_date=today)
-
-            # Calculate Total Current Assets and Liabilities
-            total_current_assets = Decimal(0)
-            total_current_liabilities = Decimal(0)
+            # --- Ratio Calculations ---
+            total_current_assets, total_current_liabilities, total_non_current_liabilities, total_inventory, total_equity = (Decimal(0) for _ in range(5))
             all_active_accounts: List[Account] = await self.app_core.account_service.get_all_active()
 
             for acc in all_active_accounts:
-                balance = await self.app_core.journal_service.get_account_balance(acc.id, today)
-                if acc.account_type == "Asset" and acc.sub_type in CURRENT_ASSET_SUBTYPES:
-                    total_current_assets += balance
-                elif acc.account_type == "Liability" and acc.sub_type in CURRENT_LIABILITY_SUBTYPES:
-                    # JournalService.get_account_balance for liability accounts (credit nature)
-                    # returns a positive value if it's a credit balance. Summing these directly is correct.
-                    total_current_liabilities += balance 
-            
-            current_ratio: Optional[Decimal] = None
-            if total_current_liabilities > Decimal(0):
-                current_ratio = (total_current_assets / total_current_liabilities).quantize(Decimal("0.01"))
-            elif total_current_assets > Decimal(0) and total_current_liabilities == Decimal(0):
-                current_ratio = Decimal('Infinity') # Represent as None or a very large number for display
-                self.logger.warning("Current Liabilities are zero, Current Ratio is effectively infinite.")
+                balance = await self.app_core.journal_service.get_account_balance(acc.id, effective_date)
+                if acc.account_type == "Asset":
+                    if acc.sub_type in CURRENT_ASSET_SUBTYPES: total_current_assets += balance
+                    if acc.sub_type == "Inventory": total_inventory += balance
+                elif acc.account_type == "Liability":
+                    if acc.sub_type in CURRENT_LIABILITY_SUBTYPES: total_current_liabilities += balance
+                    elif acc.sub_type in NON_CURRENT_LIABILITY_SUBTYPES: total_non_current_liabilities += balance
+                elif acc.account_type == "Equity": total_equity += balance
 
+            total_liabilities = total_current_liabilities + total_non_current_liabilities
+            
+            quick_ratio: Optional[Decimal] = None
+            if total_current_liabilities > 0: quick_ratio = ((total_current_assets - total_inventory) / total_current_liabilities).quantize(Decimal("0.01"))
+            elif (total_current_assets - total_inventory) > 0: quick_ratio = Decimal('Infinity')
+
+            debt_to_equity_ratio: Optional[Decimal] = None
+            if total_equity > 0: debt_to_equity_ratio = (total_liabilities / total_equity).quantize(Decimal("0.01"))
+            elif total_liabilities > 0: debt_to_equity_ratio = Decimal('Infinity')
+
+            current_ratio: Optional[Decimal] = None
+            if total_current_liabilities > 0: current_ratio = (total_current_assets / total_current_liabilities).quantize(Decimal("0.01"))
+            elif total_current_assets > 0: current_ratio = Decimal('Infinity')
 
             return DashboardKPIData(
-                kpi_period_description=kpi_period_description,
-                base_currency=base_currency,
-                total_revenue_ytd=total_revenue_ytd,
-                total_expenses_ytd=total_expenses_ytd,
-                net_profit_ytd=net_profit_ytd,
-                current_cash_balance=current_cash_balance,
-                total_outstanding_ar=total_outstanding_ar,
-                total_outstanding_ap=total_outstanding_ap,
-                total_ar_overdue=total_ar_overdue, 
-                total_ap_overdue=total_ap_overdue,
-                ar_aging_current=ar_aging_summary.get("Current", Decimal(0)),
-                ar_aging_31_60=ar_aging_summary.get("31-60 Days", Decimal(0)),
-                ar_aging_61_90=ar_aging_summary.get("61-90 Days", Decimal(0)),
+                kpi_period_description=kpi_period_description, base_currency=base_currency,
+                total_revenue_ytd=total_revenue_ytd, total_expenses_ytd=total_expenses_ytd, net_profit_ytd=net_profit_ytd,
+                current_cash_balance=current_cash_balance, total_outstanding_ar=total_outstanding_ar, total_outstanding_ap=total_outstanding_ap,
+                total_ar_overdue=total_ar_overdue, total_ap_overdue=total_ap_overdue,
+                ar_aging_current=ar_aging_summary.get("Current", Decimal(0)), ar_aging_1_30=ar_aging_summary.get("1-30 Days", Decimal(0)),
+                ar_aging_31_60=ar_aging_summary.get("31-60 Days", Decimal(0)), ar_aging_61_90=ar_aging_summary.get("61-90 Days", Decimal(0)),
                 ar_aging_91_plus=ar_aging_summary.get("91+ Days", Decimal(0)),
-                # Adding 1-30 days for AR (ensure service provides this key or adjust)
-                ar_aging_1_30=ar_aging_summary.get("1-30 Days", Decimal(0)),
-                ap_aging_current=ap_aging_summary.get("Current", Decimal(0)),
-                ap_aging_31_60=ap_aging_summary.get("31-60 Days", Decimal(0)),
-                ap_aging_61_90=ap_aging_summary.get("61-90 Days", Decimal(0)),
+                ap_aging_current=ap_aging_summary.get("Current", Decimal(0)), ap_aging_1_30=ap_aging_summary.get("1-30 Days", Decimal(0)),
+                ap_aging_31_60=ap_aging_summary.get("31-60 Days", Decimal(0)), ap_aging_61_90=ap_aging_summary.get("61-90 Days", Decimal(0)),
                 ap_aging_91_plus=ap_aging_summary.get("91+ Days", Decimal(0)),
-                # Adding 1-30 days for AP
-                ap_aging_1_30=ap_aging_summary.get("1-30 Days", Decimal(0)),
-                total_current_assets=total_current_assets.quantize(Decimal("0.01")),
-                total_current_liabilities=total_current_liabilities.quantize(Decimal("0.01")),
-                current_ratio=current_ratio
+                total_current_assets=total_current_assets.quantize(Decimal("0.01")), total_current_liabilities=total_current_liabilities.quantize(Decimal("0.01")),
+                total_inventory=total_inventory.quantize(Decimal("0.01")), total_liabilities=total_liabilities.quantize(Decimal("0.01")), total_equity=total_equity.quantize(Decimal("0.01")),
+                current_ratio=current_ratio, quick_ratio=quick_ratio, debt_to_equity_ratio=debt_to_equity_ratio
             )
         except Exception as e:
             self.logger.error(f"Error fetching dashboard KPIs: {e}", exc_info=True)
             return None
 
-    async def _get_total_cash_balance(self, base_currency: str) -> Decimal:
-        active_bank_accounts_summary = await self.app_core.bank_account_service.get_all_summary(
-            active_only=True, 
-            currency_code=base_currency, # Only sum bank accounts in base currency for simplicity
-            page_size=-1 
-        )
-        total_cash = Decimal(0)
-        if active_bank_accounts_summary:
-            total_cash = sum(ba.current_balance for ba in active_bank_accounts_summary if ba.currency_code == base_currency and ba.current_balance is not None)
-        
-        # Optionally, add cash on hand GL account balance if distinct from bank GLs
+    async def _get_total_cash_balance(self, base_currency: str, as_of_date: date) -> Decimal:
+        active_bank_accounts_summary = await self.app_core.bank_account_service.get_all_summary(active_only=True, currency_code=base_currency, page_size=-1)
+        total_cash = sum(ba.current_balance for ba in active_bank_accounts_summary if ba.currency_code == base_currency and ba.current_balance is not None)
         cash_on_hand_code = await self.app_core.configuration_service.get_config_value("SysAcc_DefaultCash")
         if cash_on_hand_code:
             cash_on_hand_acc = await self.app_core.account_service.get_by_code(cash_on_hand_code)
             if cash_on_hand_acc and cash_on_hand_acc.is_active:
-                 # Check if this GL is NOT already linked to any bank account to avoid double counting
                 linked_bank_acc_check = await self.app_core.bank_account_service.get_by_gl_account_id(cash_on_hand_acc.id)
                 if not linked_bank_acc_check:
-                    cash_on_hand_balance = await self.app_core.journal_service.get_account_balance(cash_on_hand_acc.id, date.today())
-                    total_cash += cash_on_hand_balance
-
+                    total_cash += await self.app_core.journal_service.get_account_balance(cash_on_hand_acc.id, as_of_date)
         return total_cash.quantize(Decimal("0.01"))
 
 ```
 
-# app/business_logic/bank_account_manager.py
+# app/reporting/report_engine.py
 ```py
-# File: app/business_logic/bank_account_manager.py
-from typing import List, Optional, Dict, Any, TYPE_CHECKING, Union
-from decimal import Decimal
+# File: app/reporting/report_engine.py
+from typing import Dict, Any, Literal, List, Optional, TYPE_CHECKING, cast 
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, KeepInFrame
+from reportlab.platypus.flowables import KeepTogether
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle 
+from reportlab.lib import colors 
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.units import inch, cm 
+from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
+from io import BytesIO
+import openpyxl 
+from openpyxl.styles import Font, Alignment, Border, Side, PatternFill 
+from openpyxl.utils import get_column_letter 
+from decimal import Decimal, InvalidOperation
+from datetime import date
 
-from app.models.business.bank_account import BankAccount
-# REMOVED: from app.services.business_services import BankAccountService
-# REMOVED: from app.services.account_service import AccountService
-# REMOVED: from app.services.accounting_services import CurrencyService
-from app.utils.result import Result
-from app.utils.pydantic_models import (
-    BankAccountCreateData, BankAccountUpdateData, BankAccountSummaryData
-)
+from app.utils.pydantic_models import GSTReturnData, GSTTransactionLineDetail
 
 if TYPE_CHECKING:
-    from app.core.application_core import ApplicationCore
-    from app.services.business_services import BankAccountService # ADDED
-    from app.services.account_service import AccountService # ADDED
-    from app.services.accounting_services import CurrencyService # ADDED
+    from app.core.application_core import ApplicationCore 
 
-
-class BankAccountManager:
-    def __init__(self,
-                 bank_account_service: "BankAccountService",
-                 account_service: "AccountService",
-                 currency_service: "CurrencyService",
-                 app_core: "ApplicationCore"):
-        self.bank_account_service = bank_account_service
-        self.account_service = account_service
-        self.currency_service = currency_service
+class ReportEngine:
+    def __init__(self, app_core: "ApplicationCore"): 
         self.app_core = app_core
-        self.logger = app_core.logger
+        self.styles = getSampleStyleSheet()
+        self._setup_custom_styles()
 
-    async def get_bank_account_for_dialog(self, bank_account_id: int) -> Optional[BankAccount]:
-        try:
-            return await self.bank_account_service.get_by_id(bank_account_id)
-        except Exception as e:
-            self.logger.error(f"Error fetching BankAccount ID {bank_account_id} for dialog: {e}", exc_info=True)
+    def _setup_custom_styles(self):
+        self.styles.add(ParagraphStyle(name='ReportTitle', parent=self.styles['h1'], alignment=TA_CENTER, spaceAfter=0.2*inch))
+        self.styles.add(ParagraphStyle(name='ReportSubTitle', parent=self.styles['h2'], alignment=TA_CENTER, fontSize=12, spaceAfter=0.2*inch))
+        self.styles.add(ParagraphStyle(name='SectionHeader', parent=self.styles['h3'], fontSize=11, spaceBefore=0.2*inch, spaceAfter=0.1*inch, textColor=colors.HexColor("#2F5496")))
+        self.styles.add(ParagraphStyle(name='AccountName', parent=self.styles['Normal'], leftIndent=0.2*inch))
+        self.styles.add(ParagraphStyle(name='AccountNameBold', parent=self.styles['AccountName'], fontName='Helvetica-Bold'))
+        self.styles.add(ParagraphStyle(name='Amount', parent=self.styles['Normal'], alignment=TA_RIGHT))
+        self.styles.add(ParagraphStyle(name='AmountBold', parent=self.styles['Amount'], fontName='Helvetica-Bold'))
+        self.styles.add(ParagraphStyle(name='TableHeader', parent=self.styles['Normal'], fontName='Helvetica-Bold', alignment=TA_CENTER, textColor=colors.whitesmoke))
+        self.styles.add(ParagraphStyle(name='Footer', parent=self.styles['Normal'], alignment=TA_CENTER, fontSize=8))
+        self.styles.add(ParagraphStyle(name='NormalRight', parent=self.styles['Normal'], alignment=TA_RIGHT))
+        self.styles.add(ParagraphStyle(name='NormalCenter', parent=self.styles['Normal'], alignment=TA_CENTER))
+        self.styles.add(ParagraphStyle(name='GLAccountHeader', parent=self.styles['h3'], fontSize=10, spaceBefore=0.1*inch, spaceAfter=0.05*inch, alignment=TA_LEFT))
+
+    async def export_report(self, report_data: Dict[str, Any], format_type: Literal["pdf", "excel", "gst_excel_detail"]) -> Optional[bytes]:
+        title = report_data.get('title', "Financial Report")
+        is_gst_detail_export = isinstance(report_data, GSTReturnData) and "gst_excel_detail" in format_type
+
+        if format_type == "pdf":
+            if title == "Balance Sheet": return await self._export_balance_sheet_to_pdf(report_data)
+            elif title == "Profit & Loss Statement": return await self._export_profit_loss_to_pdf(report_data)
+            elif title == "Trial Balance": return await self._export_trial_balance_to_pdf(report_data)
+            elif title == "General Ledger": return await self._export_general_ledger_to_pdf(report_data)
+            elif title == "Income Tax Computation": return await self._export_tax_computation_to_pdf(report_data)
+            else: return self._export_generic_table_to_pdf(report_data) 
+        elif format_type == "excel":
+            if title == "Balance Sheet": return await self._export_balance_sheet_to_excel(report_data)
+            elif title == "Profit & Loss Statement": return await self._export_profit_loss_to_excel(report_data)
+            elif title == "Trial Balance": return await self._export_trial_balance_to_excel(report_data)
+            elif title == "General Ledger": return await self._export_general_ledger_to_excel(report_data)
+            elif title == "Income Tax Computation": return await self._export_tax_computation_to_excel(report_data)
+            else: return self._export_generic_table_to_excel(report_data) 
+        elif is_gst_detail_export:
+            return await self._export_gst_f5_details_to_excel(cast(GSTReturnData, report_data))
+        else:
+            self.app_core.logger.error(f"Unsupported report format or data type mismatch: {format_type}, type: {type(report_data)}")
             return None
 
-    async def get_bank_accounts_for_listing(
-        self,
-        active_only: bool = True,
-        currency_code: Optional[str] = None,
-        page: int = 1,
-        page_size: int = 50
-    ) -> Result[List[BankAccountSummaryData]]:
-        try:
-            summaries = await self.bank_account_service.get_all_summary(
-                active_only=active_only,
-                currency_code=currency_code,
-                page=page,
-                page_size=page_size
-            )
-            return Result.success(summaries)
-        except Exception as e:
-            self.logger.error(f"Error fetching bank account listing: {e}", exc_info=True)
-            return Result.failure([f"Failed to retrieve bank account list: {str(e)}"])
+    def _format_decimal(self, value: Optional[Decimal], places: int = 2, show_blank_for_zero: bool = False) -> str:
+        if value is None: return "" if show_blank_for_zero else self._format_decimal(Decimal(0), places) 
+        if not isinstance(value, Decimal): 
+            try: value = Decimal(str(value))
+            except InvalidOperation: return "ERR_DEC" 
+        if show_blank_for_zero and value.is_zero(): return ""
+        return f"{value:,.{places}f}"
 
-    async def _validate_bank_account_data(
-        self,
-        dto: Union[BankAccountCreateData, BankAccountUpdateData],
-        existing_bank_account_id: Optional[int] = None
-    ) -> List[str]:
-        errors: List[str] = []
+    async def _get_company_name(self) -> str:
+        settings = await self.app_core.company_settings_service.get_company_settings()
+        return settings.company_name if settings else "Your Company"
+
+    def _add_pdf_header_footer(self, canvas, doc, company_name: str, report_title: str, date_desc: str):
+        canvas.saveState(); page_width = doc.width + doc.leftMargin + doc.rightMargin; header_y_start = doc.height + doc.topMargin - 0.5*inch
+        canvas.setFont('Helvetica-Bold', 14); canvas.drawCentredString(page_width/2, header_y_start, company_name)
+        canvas.setFont('Helvetica-Bold', 12); canvas.drawCentredString(page_width/2, header_y_start - 0.25*inch, report_title)
+        canvas.setFont('Helvetica', 10); canvas.drawCentredString(page_width/2, header_y_start - 0.5*inch, date_desc)
+        footer_y = 0.5*inch; canvas.setFont('Helvetica', 8); canvas.drawString(doc.leftMargin, footer_y, f"Generated on: {date.today().strftime('%d %b %Y')}"); canvas.drawRightString(page_width - doc.rightMargin, footer_y, f"Page {doc.page}"); canvas.restoreState()
+
+    async def _export_balance_sheet_to_pdf(self, report_data: Dict[str, Any]) -> bytes:
+        buffer = BytesIO(); company_name = await self._get_company_name(); report_title = report_data.get('title', "Balance Sheet"); date_desc = report_data.get('report_date_description', "")
+        doc = SimpleDocTemplate(buffer, pagesize=A4,rightMargin=0.75*inch, leftMargin=0.75*inch,topMargin=1.25*inch, bottomMargin=0.75*inch)
+        story: List[Any] = []; has_comparative = bool(report_data.get('comparative_date')); col_widths = [3.5*inch, 1.5*inch]; 
+        if has_comparative: col_widths.append(1.5*inch)
+        header_texts = ["Description", "Current Period"]; 
+        if has_comparative: header_texts.append("Comparative")
+        table_header_row = [Paragraph(text, self.styles['TableHeader']) for text in header_texts]
+        def build_section_data(section_key: str, title: str):
+            data: List[List[Any]] = []; section = report_data.get(section_key, {})
+            data.append([Paragraph(title, self.styles['SectionHeader'])] + (["", ""] if has_comparative else [""]))
+            for acc in section.get('accounts', []):
+                row = [Paragraph(f"{acc['code']} - {acc['name']}", self.styles['AccountName']), Paragraph(self._format_decimal(acc['balance']), self.styles['Amount'])]
+                if has_comparative:
+                    comp_bal_str = ""; 
+                    if section.get('comparative_accounts'):
+                        comp_acc_list = section['comparative_accounts']; comp_acc_match = next((ca for ca in comp_acc_list if ca['id'] == acc['id']), None)
+                        if comp_acc_match and comp_acc_match.get('balance') is not None: comp_bal_str = self._format_decimal(comp_acc_match['balance'])
+                    row.append(Paragraph(comp_bal_str, self.styles['Amount']))
+                data.append(row)
+            total_row = [Paragraph(f"Total {title}", self.styles['AccountNameBold']), Paragraph(self._format_decimal(section.get('total')), self.styles['AmountBold'])]
+            if has_comparative: total_row.append(Paragraph(self._format_decimal(section.get('comparative_total')), self.styles['AmountBold']))
+            data.append(total_row); data.append([Spacer(1, 0.1*inch)] * len(col_widths)); return data
+        bs_data: List[List[Any]] = [table_header_row]; bs_data.extend(build_section_data('assets', 'Assets')); bs_data.extend(build_section_data('liabilities', 'Liabilities')); bs_data.extend(build_section_data('equity', 'Equity'))
+        total_lia_eq_row = [Paragraph("Total Liabilities & Equity", self.styles['AccountNameBold']), Paragraph(self._format_decimal(report_data.get('total_liabilities_equity')), self.styles['AmountBold'])]
+        if has_comparative: total_lia_eq_row.append(Paragraph(self._format_decimal(report_data.get('comparative_total_liabilities_equity')), self.styles['AmountBold']))
+        bs_data.append(total_lia_eq_row); bs_table = Table(bs_data, colWidths=col_widths)
+        style = TableStyle([('GRID', (0,0), (-1,-1), 0.5, colors.grey), ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#4F81BD")), ('VALIGN', (0,0), (-1,-1), 'MIDDLE'), ('LINEABOVE', (0, -1), (-1,-1), 1, colors.black), ('LINEBELOW', (1, -1), (-1, -1), 1, colors.black, None, (2,2), 0, 1), ('LINEBELOW', (1, -1), (-1, -1), 0.5, colors.black, None, (1,1), 0, 1),])
+        current_row_idx = 1 
+        for section_key in ['assets', 'liabilities', 'equity']:
+            if section_key in report_data: style.add('SPAN', (0, current_row_idx), (len(col_widths)-1, current_row_idx)); current_row_idx += len(report_data[section_key].get('accounts', [])) + 2 
+        bs_table.setStyle(style); story.append(bs_table)
+        if report_data.get('is_balanced') is False: story.append(Spacer(1, 0.2*inch)); story.append(Paragraph("Warning: Balance Sheet is out of balance!", ParagraphStyle(name='Warning', parent=self.styles['Normal'], textColor=colors.red, fontName='Helvetica-Bold')))
+        doc.build(story, onFirstPage=lambda c, d: self._add_pdf_header_footer(c, d, company_name, report_title, date_desc), onLaterPages=lambda c, d: self._add_pdf_header_footer(c, d, company_name, report_title, date_desc)); return buffer.getvalue()
+
+    async def _export_profit_loss_to_pdf(self, report_data: Dict[str, Any]) -> bytes:
+        buffer = BytesIO(); company_name = await self._get_company_name(); report_title = report_data.get('title', "Profit & Loss Statement"); date_desc = report_data.get('report_date_description', "")
+        doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=0.75*inch, leftMargin=0.75*inch,topMargin=1.25*inch, bottomMargin=0.75*inch)
+        story: List[Any] = []; has_comparative = bool(report_data.get('comparative_start')); comp_header_text = "Comparative"; 
+        if has_comparative and report_data.get('comparative_start') and report_data.get('comparative_end'): comp_start_str = report_data['comparative_start'].strftime('%d/%m/%y'); comp_end_str = report_data['comparative_end'].strftime('%d/%m/%y'); comp_header_text = f"Comp. ({comp_start_str}-{comp_end_str})"
+        headers = ["Description", "Amount"]; 
+        if has_comparative: headers.append(comp_header_text); 
+        table_header_row = [Paragraph(text, self.styles['TableHeader']) for text in headers]; col_widths = [3.5*inch, 1.5*inch]; 
+        if has_comparative: col_widths.append(1.5*inch)
+        def build_pl_section_data(section_key: str, title: str, is_subtraction: bool = False):
+            data: List[List[Any]] = []; section = report_data.get(section_key, {})
+            data.append([Paragraph(title, self.styles['SectionHeader'])] + (["", ""] if has_comparative else [""]))
+            for acc in section.get('accounts', []):
+                balance = acc['balance']; row = [Paragraph(f"  {acc['code']} - {acc['name']}", self.styles['AccountName']), Paragraph(self._format_decimal(balance), self.styles['Amount'])]
+                if has_comparative:
+                    comp_bal_str = ""; 
+                    if section.get('comparative_accounts'):
+                        comp_acc_list = section['comparative_accounts']; comp_acc_match = next((ca for ca in comp_acc_list if ca['id'] == acc['id']), None)
+                        if comp_acc_match and comp_acc_match.get('balance') is not None: comp_bal_str = self._format_decimal(comp_acc_match['balance'])
+                    row.append(Paragraph(comp_bal_str, self.styles['Amount']))
+                data.append(row)
+            total = section.get('total'); total_row = [Paragraph(f"Total {title}", self.styles['AccountNameBold']), Paragraph(self._format_decimal(total), self.styles['AmountBold'])]
+            if has_comparative: comp_total = section.get('comparative_total'); total_row.append(Paragraph(self._format_decimal(comp_total), self.styles['AmountBold']))
+            data.append(total_row); data.append([Spacer(1, 0.1*inch)] * len(col_widths)); return data, total, section.get('comparative_total') if has_comparative else None
+        pl_data: List[List[Any]] = [table_header_row]; rev_data, total_revenue, comp_total_revenue = build_pl_section_data('revenue', 'Revenue'); pl_data.extend(rev_data)
+        exp_data, total_expenses, comp_total_expenses = build_pl_section_data('expenses', 'Operating Expenses', is_subtraction=True); pl_data.extend(exp_data)
+        net_profit = report_data.get('net_profit', Decimal(0)); comp_net_profit = report_data.get('comparative_net_profit')
+        net_profit_row = [Paragraph("Net Profit / (Loss)", self.styles['AccountNameBold']), Paragraph(self._format_decimal(net_profit), self.styles['AmountBold'])]
+        if has_comparative: net_profit_row.append(Paragraph(self._format_decimal(comp_net_profit), self.styles['AmountBold']))
+        pl_data.append(net_profit_row); pl_table = Table(pl_data, colWidths=col_widths)
+        style = TableStyle([('GRID', (0,0), (-1,-1), 0.5, colors.grey), ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#4F81BD")), ('VALIGN', (0,0), (-1,-1), 'MIDDLE'), ('LINEABOVE', (1, -1), (-1,-1), 1, colors.black), ('LINEBELOW', (1, -1), (-1, -1), 1, colors.black, None, (2,2), 0, 1), ('LINEBELOW', (1, -1), (-1, -1), 0.5, colors.black, None, (1,1), 0, 1),])
+        current_row_idx = 1
+        for section_key in ['revenue', 'expenses']: 
+            if section_key in report_data: style.add('SPAN', (0, current_row_idx), (len(col_widths)-1, current_row_idx)); current_row_idx += len(report_data[section_key].get('accounts', [])) + 2
+        pl_table.setStyle(style); story.append(pl_table)
+        doc.build(story, onFirstPage=lambda c, d: self._add_pdf_header_footer(c, d, company_name, report_title, date_desc), onLaterPages=lambda c, d: self._add_pdf_header_footer(c, d, company_name, report_title, date_desc)); return buffer.getvalue()
+
+    async def _export_trial_balance_to_pdf(self, report_data: Dict[str, Any]) -> bytes:
+        buffer = BytesIO(); company_name = await self._get_company_name(); report_title = report_data.get('title', "Trial Balance"); date_desc = report_data.get('report_date_description', f"As of {date.today().strftime('%d %b %Y')}")
+        doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=0.75*inch, leftMargin=0.75*inch,topMargin=1.25*inch, bottomMargin=0.75*inch)
+        story: List[Any] = []; col_widths = [1.5*inch, 3*inch, 1.25*inch, 1.25*inch]; header_texts = ["Account Code", "Account Name", "Debit", "Credit"]
+        table_header_row = [Paragraph(text, self.styles['TableHeader']) for text in header_texts]; tb_data: List[List[Any]] = [table_header_row]
+        for acc in report_data.get('debit_accounts', []): tb_data.append([Paragraph(acc['code'], self.styles['Normal']), Paragraph(acc['name'], self.styles['Normal']), Paragraph(self._format_decimal(acc['balance']), self.styles['NormalRight']), Paragraph("", self.styles['NormalRight'])])
+        for acc in report_data.get('credit_accounts', []): tb_data.append([Paragraph(acc['code'], self.styles['Normal']), Paragraph(acc['name'], self.styles['Normal']), Paragraph("", self.styles['NormalRight']), Paragraph(self._format_decimal(acc['balance']), self.styles['NormalRight'])])
+        tb_data.append([Paragraph(""), Paragraph("TOTALS", self.styles['AccountNameBold']), Paragraph(self._format_decimal(report_data.get('total_debits')), self.styles['AmountBold']), Paragraph(self._format_decimal(report_data.get('total_credits')), self.styles['AmountBold'])])
+        tb_table = Table(tb_data, colWidths=col_widths)
+        style = TableStyle([('GRID', (0,0), (-1,-1), 0.5, colors.grey), ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#4F81BD")), ('VALIGN', (0,0), (-1,-1), 'MIDDLE'), ('LINEABOVE', (2, -1), (3, -1), 1, colors.black), ('LINEBELOW', (2, -1), (3, -1), 1, colors.black), ('ALIGN', (2,1), (3,-1), 'RIGHT'),])
+        tb_table.setStyle(style); story.append(tb_table)
+        if report_data.get('is_balanced') is False: story.append(Spacer(1,0.2*inch)); story.append(Paragraph("Warning: Trial Balance is out of balance!", ParagraphStyle(name='Warning', parent=self.styles['Normal'], textColor=colors.red, fontName='Helvetica-Bold')))
+        doc.build(story, onFirstPage=lambda c, d: self._add_pdf_header_footer(c, d, company_name, report_title, date_desc), onLaterPages=lambda c, d: self._add_pdf_header_footer(c, d, company_name, report_title, date_desc)); return buffer.getvalue()
+
+    async def _export_general_ledger_to_pdf(self, report_data: Dict[str, Any]) -> bytes:
+        buffer = BytesIO(); company_name = await self._get_company_name(); report_title = report_data.get('title', "General Ledger"); date_desc = report_data.get('report_date_description', "") 
+        doc = SimpleDocTemplate(buffer, pagesize=landscape(A4), rightMargin=0.5*inch, leftMargin=0.5*inch, topMargin=1.25*inch, bottomMargin=0.75*inch)
+        story: List[Any] = []; story.append(Paragraph(f"Account: {report_data.get('account_code')} - {report_data.get('account_name')}", self.styles['GLAccountHeader'])); story.append(Spacer(1, 0.1*inch)); story.append(Paragraph(f"Opening Balance: {self._format_decimal(report_data.get('opening_balance'))}", self.styles['AccountNameBold'])); story.append(Spacer(1, 0.2*inch))
+        headers = ["Date", "Entry No.", "JE Description", "Line Description", "Debit", "Credit", "Balance"]
+        table_header_row = [Paragraph(h, self.styles['TableHeader']) for h in headers]; gl_data: List[List[Any]] = [table_header_row]
+        for txn in report_data.get('transactions', []): gl_data.append([Paragraph(txn['date'].strftime('%d/%m/%Y') if isinstance(txn['date'], date) else str(txn['date']), self.styles['NormalCenter']), Paragraph(txn['entry_no'], self.styles['Normal']), Paragraph(txn.get('je_description','')[:40], self.styles['Normal']), Paragraph(txn.get('line_description','')[:40], self.styles['Normal']), Paragraph(self._format_decimal(txn['debit'], show_blank_for_zero=True), self.styles['NormalRight']), Paragraph(self._format_decimal(txn['credit'], show_blank_for_zero=True), self.styles['NormalRight']), Paragraph(self._format_decimal(txn['balance']), self.styles['NormalRight'])])
+        col_widths_gl = [0.9*inch, 1.0*inch, 2.8*inch, 2.8*inch, 1.0*inch, 1.0*inch, 1.19*inch]
+        gl_table = Table(gl_data, colWidths=col_widths_gl); style = TableStyle([('GRID', (0,0), (-1,-1), 0.5, colors.grey), ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#4F81BD")), ('VALIGN', (0,0), (-1,-1), 'MIDDLE'), ('ALIGN', (0,1), (1,-1), 'CENTER'), ('ALIGN', (4,1), (6,-1), 'RIGHT'),]); gl_table.setStyle(style); story.append(gl_table); story.append(Spacer(1, 0.1*inch)); story.append(Paragraph(f"Closing Balance: {self._format_decimal(report_data.get('closing_balance'))}", self.styles['AmountBold']))
+        doc.build(story, onFirstPage=lambda c, d: self._add_pdf_header_footer(c, d, company_name, report_title, date_desc), onLaterPages=lambda c, d: self._add_pdf_header_footer(c, d, company_name, report_title, date_desc)); return buffer.getvalue()
+
+    async def _export_tax_computation_to_pdf(self, report_data: Dict[str, Any]) -> bytes:
+        buffer = BytesIO(); company_name = await self._get_company_name(); report_title = report_data.get('title', "Tax Computation"); date_desc = report_data.get('report_date_description', "")
+        doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=0.75*inch, leftMargin=0.75*inch, topMargin=1.25*inch, bottomMargin=0.75*inch)
+        story: List[Any] = []; col_widths = [5*inch, 1.5*inch]; table_header_row = [Paragraph("Description", self.styles['TableHeader']), Paragraph("Amount", self.styles['TableHeader'])]; data: List[List[Any]] = [table_header_row]
+        data.append([Paragraph("Net Profit Before Tax", self.styles['AccountNameBold']), Paragraph(self._format_decimal(report_data.get('net_profit_before_tax')), self.styles['AmountBold'])])
+        data.append([Paragraph("Add: Non-Deductible Expenses", self.styles['SectionHeader']), ""]); 
+        for adj in report_data.get('add_back_adjustments', []): data.append([Paragraph(f"  {adj['name']}", self.styles['AccountName']), Paragraph(self._format_decimal(adj['amount']), self.styles['Amount'])])
+        data.append([Paragraph("Less: Non-Taxable Income", self.styles['SectionHeader']), ""])
+        for adj in report_data.get('less_adjustments', []): data.append([Paragraph(f"  {adj['name']}", self.styles['AccountName']), Paragraph(f"({self._format_decimal(adj['amount'])})", self.styles['Amount'])])
+        data.append([Paragraph("Chargeable Income", self.styles['AccountNameBold']), Paragraph(self._format_decimal(report_data.get('chargeable_income')), self.styles['AmountBold'])])
+        data.append([Paragraph(f"Estimated Tax @ {report_data.get('tax_rate', 0):.2f}%", self.styles['AccountNameBold']), Paragraph(self._format_decimal(report_data.get('estimated_tax')), self.styles['AmountBold'])])
+        table = Table(data, colWidths=col_widths)
+        style = TableStyle([('GRID', (0,0), (-1,-1), 0.5, colors.grey), ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#4F81BD")), ('VALIGN', (0,0), (-1,-1), 'MIDDLE'), ('LINEABOVE', (1, -1), (1,-1), 1, colors.black), ('LINEBELOW', (1, -1), (1, -1), 1, colors.black, None, (2,2), 0, 1),])
+        style.add('SPAN', (0, 2), (1, 2)); style.add('SPAN', (0, len(data)-5), (1, len(data)-5)); 
+        table.setStyle(style); story.append(table)
+        doc.build(story, onFirstPage=lambda c, d: self._add_pdf_header_footer(c, d, company_name, report_title, date_desc), onLaterPages=lambda c, d: self._add_pdf_header_footer(c, d, company_name, report_title, date_desc)); return buffer.getvalue()
+
+    def _export_generic_table_to_pdf(self, report_data: Dict[str, Any]) -> bytes:
+        self.app_core.logger.warning(f"Using generic PDF export for report: {report_data.get('title')}")
+        buffer = BytesIO(); doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=0.5*inch, leftMargin=0.5*inch, topMargin=0.5*inch, bottomMargin=0.5*inch)
+        story: List[Any] = [Paragraph(report_data.get('title', "Report"), self.styles['h1'])]; 
+        if report_data.get('report_date_description'): story.append(Paragraph(report_data.get('report_date_description'), self.styles['h3']))
+        story.append(Spacer(1, 0.2*inch)); data_to_display = report_data.get('data_rows', []); headers = report_data.get('headers', [])
+        if headers and data_to_display:
+            table_data: List[List[Any]] = [[Paragraph(str(h), self.styles['TableHeader']) for h in headers]]
+            for row_dict in data_to_display: table_data.append([Paragraph(str(row_dict.get(h_key, '')), self.styles['Normal']) for h_key in headers]) 
+            num_cols = len(headers); col_widths_generic = [doc.width/num_cols]*num_cols
+            table = Table(table_data, colWidths=col_widths_generic); table.setStyle(TableStyle([('GRID', (0,0), (-1,-1), 0.5, colors.grey), ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#4F81BD"))])); story.append(table)
+        else: story.append(Paragraph("No data or headers provided for generic export.", self.styles['Normal']))
+        doc.build(story); return buffer.getvalue()
+
+    def _apply_excel_header_style(self, cell, bold=True, size=12, alignment='center', fill_color: Optional[str]=None):
+        cell.font = Font(bold=bold, size=size, color="FFFFFF" if fill_color else "000000")
+        if alignment == 'center': cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+        elif alignment == 'right': cell.alignment = Alignment(horizontal='right', vertical='center')
+        else: cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
+        if fill_color: cell.fill = PatternFill(start_color=fill_color, end_color=fill_color, fill_type="solid")
+
+    def _apply_excel_amount_style(self, cell, bold=False, underline: Optional[str]=None):
+        cell.number_format = '#,##0.00;[Red](#,##0.00);"-"' 
+        cell.alignment = Alignment(horizontal='right')
+        if bold: cell.font = Font(bold=True)
+        if underline: cell.border = Border(bottom=Side(style=underline))
         
-        gl_account = await self.account_service.get_by_id(dto.gl_account_id)
-        if not gl_account:
-            errors.append(f"GL Account ID '{dto.gl_account_id}' not found.")
-        else:
-            if not gl_account.is_active:
-                errors.append(f"GL Account '{gl_account.code} - {gl_account.name}' is not active.")
-            if gl_account.account_type != 'Asset':
-                errors.append(f"GL Account '{gl_account.code}' must be an Asset type account.")
-            if not gl_account.is_bank_account: 
-                errors.append(f"GL Account '{gl_account.code}' is not flagged as a bank account. Please update the Chart of Accounts.")
+    async def _export_balance_sheet_to_excel(self, report_data: Dict[str, Any]) -> bytes:
+        wb = openpyxl.Workbook(); ws = wb.active; ws.title = "Balance Sheet"; company_name = await self._get_company_name(); has_comparative = bool(report_data.get('comparative_date')); row_num = 1
+        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3 if has_comparative else 2); self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=company_name), size=14); row_num +=1
+        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3 if has_comparative else 2); self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=report_data.get('title')), size=12); row_num +=1
+        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3 if has_comparative else 2); self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=report_data.get('report_date_description')), size=10, bold=False); row_num += 2
+        headers = ["Description", "Current Period"]; 
+        if has_comparative: headers.append("Comparative")
+        for col, header_text in enumerate(headers, 1): self._apply_excel_header_style(ws.cell(row=row_num, column=col, value=header_text), alignment='center' if col>0 else 'left', fill_color="4F81BD")
+        row_num +=1
+        def write_section(section_key: str, title: str):
+            nonlocal row_num; section = report_data.get(section_key, {})
+            ws.cell(row=row_num, column=1, value=title).font = Font(bold=True, size=11, color="2F5496"); row_num +=1
+            for acc in section.get('accounts', []):
+                ws.cell(row=row_num, column=1, value=f"  {acc['code']} - {acc['name']}")
+                self._apply_excel_amount_style(ws.cell(row=row_num, column=2, value=float(acc['balance'] if acc.get('balance') is not None else 0)))
+                if has_comparative:
+                    comp_val = None
+                    if section.get('comparative_accounts'):
+                        comp_acc_match = next((ca for ca in section['comparative_accounts'] if ca['id'] == acc['id']), None)
+                        if comp_acc_match and comp_acc_match.get('balance') is not None: comp_val = float(comp_acc_match['balance'])
+                    self._apply_excel_amount_style(ws.cell(row=row_num, column=3, value=comp_val if comp_val is not None else "-"))
+                row_num +=1
+            ws.cell(row=row_num, column=1, value=f"Total {title}").font = Font(bold=True)
+            self._apply_excel_amount_style(ws.cell(row=row_num, column=2, value=float(section.get('total',0))), bold=True, underline="thin")
+            if has_comparative: self._apply_excel_amount_style(ws.cell(row=row_num, column=3, value=float(section.get('comparative_total',0))), bold=True, underline="thin")
+            row_num += 2
+        write_section('assets', 'Assets'); write_section('liabilities', 'Liabilities'); write_section('equity', 'Equity')
+        ws.cell(row=row_num, column=1, value="Total Liabilities & Equity").font = Font(bold=True, size=11)
+        self._apply_excel_amount_style(ws.cell(row=row_num, column=2, value=float(report_data.get('total_liabilities_equity',0))), bold=True, underline="double")
+        if has_comparative: self._apply_excel_amount_style(ws.cell(row=row_num, column=3, value=float(report_data.get('comparative_total_liabilities_equity',0))), bold=True, underline="double")
+        row_num +=1
+        if report_data.get('is_balanced') is False: ws.cell(row=row_num, column=1, value="Warning: Balance Sheet out of balance!").font = Font(color="FF0000", bold=True)
+        for i, col_letter in enumerate(['A','B','C'][:len(headers)]): ws.column_dimensions[col_letter].width = 45 if i==0 else 20
+        excel_bytes_io = BytesIO(); wb.save(excel_bytes_io); return excel_bytes_io.getvalue()
 
-        currency = await self.currency_service.get_by_id(dto.currency_code)
-        if not currency:
-            errors.append(f"Currency Code '{dto.currency_code}' not found.")
-        elif not currency.is_active:
-            errors.append(f"Currency '{dto.currency_code}' is not active.")
-            
-        existing_by_acc_no = await self.bank_account_service.get_by_account_number(dto.account_number)
-        if existing_by_acc_no and \
-           (existing_bank_account_id is None or existing_by_acc_no.id != existing_bank_account_id):
-            errors.append(f"Bank account number '{dto.account_number}' already exists.")
+    async def _export_profit_loss_to_excel(self, report_data: Dict[str, Any]) -> bytes:
+        wb = openpyxl.Workbook(); ws = wb.active; ws.title = "Profit and Loss"; company_name = await self._get_company_name(); has_comparative = bool(report_data.get('comparative_start')); row_num = 1
+        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3 if has_comparative else 2); self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=company_name), size=14); row_num +=1
+        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3 if has_comparative else 2); self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=report_data.get('title')), size=12); row_num +=1
+        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3 if has_comparative else 2); self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=report_data.get('report_date_description')), size=10, bold=False); row_num += 2
+        headers = ["Description", "Current Period"]; 
+        if has_comparative: headers.append("Comparative")
+        for col, header_text in enumerate(headers, 1): self._apply_excel_header_style(ws.cell(row=row_num, column=col, value=header_text), alignment='center' if col>0 else 'left', fill_color="4F81BD")
+        row_num +=1
+        def write_pl_section(section_key: str, title: str):
+            nonlocal row_num; section = report_data.get(section_key, {})
+            ws.cell(row=row_num, column=1, value=title).font = Font(bold=True, size=11, color="2F5496"); row_num +=1
+            for acc in section.get('accounts', []):
+                ws.cell(row=row_num, column=1, value=f"  {acc['code']} - {acc['name']}")
+                self._apply_excel_amount_style(ws.cell(row=row_num, column=2, value=float(acc['balance'] if acc.get('balance') is not None else 0)))
+                if has_comparative:
+                    comp_val = None
+                    if section.get('comparative_accounts'):
+                        comp_acc_match = next((ca for ca in section['comparative_accounts'] if ca['id'] == acc['id']), None)
+                        if comp_acc_match and comp_acc_match.get('balance') is not None: comp_val = float(comp_acc_match['balance'])
+                    self._apply_excel_amount_style(ws.cell(row=row_num, column=3, value=comp_val if comp_val is not None else "-"))
+                row_num +=1
+            ws.cell(row=row_num, column=1, value=f"Total {title}").font = Font(bold=True)
+            self._apply_excel_amount_style(ws.cell(row=row_num, column=2, value=float(section.get('total',0))), bold=True, underline="thin")
+            if has_comparative: self._apply_excel_amount_style(ws.cell(row=row_num, column=3, value=float(section.get('comparative_total',0))), bold=True, underline="thin")
+            row_num +=1; return section.get('total', Decimal(0)), section.get('comparative_total') if has_comparative else Decimal(0)
+        total_revenue, comp_total_revenue = write_pl_section('revenue', 'Revenue'); row_num +=1 
+        total_expenses, comp_total_expenses = write_pl_section('expenses', 'Operating Expenses'); row_num +=1 
+        ws.cell(row=row_num, column=1, value="Net Profit / (Loss)").font = Font(bold=True, size=11)
+        self._apply_excel_amount_style(ws.cell(row=row_num, column=2, value=float(report_data.get('net_profit',0))), bold=True, underline="double")
+        if has_comparative: self._apply_excel_amount_style(ws.cell(row=row_num, column=3, value=float(report_data.get('comparative_net_profit',0))), bold=True, underline="double")
+        for i, col_letter in enumerate(['A','B','C'][:len(headers)]): ws.column_dimensions[col_letter].width = 45 if i==0 else 20
+        excel_bytes_io = BytesIO(); wb.save(excel_bytes_io); return excel_bytes_io.getvalue()
+    
+    async def _export_trial_balance_to_excel(self, report_data: Dict[str, Any]) -> bytes:
+        wb = openpyxl.Workbook(); ws = wb.active; ws.title = "Trial Balance"; company_name = await self._get_company_name(); row_num = 1
+        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=4); self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=company_name), size=14, alignment='center'); row_num += 1
+        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=4); self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=report_data.get('title')), size=12, alignment='center'); row_num += 1
+        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=4); self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=report_data.get('report_date_description')), size=10, bold=False, alignment='center'); row_num += 2
+        headers = ["Account Code", "Account Name", "Debit", "Credit"]
+        for col, header_text in enumerate(headers, 1): self._apply_excel_header_style(ws.cell(row=row_num, column=col, value=header_text), fill_color="4F81BD", alignment='center' if col > 1 else 'left')
+        row_num += 1
+        for acc in report_data.get('debit_accounts', []): ws.cell(row=row_num, column=1, value=acc['code']); ws.cell(row=row_num, column=2, value=acc['name']); self._apply_excel_amount_style(ws.cell(row=row_num, column=3, value=float(acc['balance'] if acc.get('balance') is not None else 0))); ws.cell(row=row_num, column=4, value=None); row_num += 1
+        for acc in report_data.get('credit_accounts', []): ws.cell(row=row_num, column=1, value=acc['code']); ws.cell(row=row_num, column=2, value=acc['name']); ws.cell(row=row_num, column=3, value=None); self._apply_excel_amount_style(ws.cell(row=row_num, column=4, value=float(acc['balance'] if acc.get('balance') is not None else 0))); row_num += 1
+        row_num +=1; ws.cell(row=row_num, column=2, value="TOTALS").font = Font(bold=True); ws.cell(row=row_num, column=2).alignment = Alignment(horizontal='right')
+        self._apply_excel_amount_style(ws.cell(row=row_num, column=3, value=float(report_data.get('total_debits', 0))), bold=True, underline="thin"); self._apply_excel_amount_style(ws.cell(row=row_num, column=4, value=float(report_data.get('total_credits', 0))), bold=True, underline="thin")
+        if report_data.get('is_balanced', True) is False: row_num +=2; ws.cell(row=row_num, column=1, value="Warning: Trial Balance is out of balance!").font = Font(color="FF0000", bold=True)
+        ws.column_dimensions[get_column_letter(1)].width = 15; ws.column_dimensions[get_column_letter(2)].width = 45; ws.column_dimensions[get_column_letter(3)].width = 20; ws.column_dimensions[get_column_letter(4)].width = 20
+        excel_bytes_io = BytesIO(); wb.save(excel_bytes_io); return excel_bytes_io.getvalue()
 
-        return errors
+    async def _export_general_ledger_to_excel(self, report_data: Dict[str, Any]) -> bytes:
+        wb = openpyxl.Workbook(); ws = wb.active; ws.title = f"GL-{report_data.get('account_code', 'Account')}"[:30]; company_name = await self._get_company_name(); row_num = 1
+        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=7); self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=company_name), size=14, alignment='center'); row_num += 1
+        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=7); self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=report_data.get('title')), size=12, alignment='center'); row_num += 1
+        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=7); self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=report_data.get('report_date_description')), size=10, bold=False, alignment='center'); row_num += 2
+        headers = ["Date", "Entry No.", "JE Description", "Line Description", "Debit", "Credit", "Balance"]
+        for col, header_text in enumerate(headers, 1): self._apply_excel_header_style(ws.cell(row=row_num, column=col, value=header_text), fill_color="4F81BD", alignment='center' if col > 3 else 'left')
+        row_num += 1
+        ws.cell(row=row_num, column=4, value="Opening Balance").font = Font(bold=True); ws.cell(row=row_num, column=4).alignment = Alignment(horizontal='right'); self._apply_excel_amount_style(ws.cell(row=row_num, column=7, value=float(report_data.get('opening_balance',0))), bold=True); row_num += 1
+        for txn in report_data.get('transactions', []):
+            ws.cell(row=row_num, column=1, value=txn['date'].strftime('%d/%m/%Y') if isinstance(txn['date'], date) else txn['date']); ws.cell(row=row_num, column=1).alignment = Alignment(horizontal='center')
+            ws.cell(row=row_num, column=2, value=txn['entry_no']); ws.cell(row=row_num, column=3, value=txn.get('je_description','')); ws.cell(row=row_num, column=4, value=txn.get('line_description',''))
+            self._apply_excel_amount_style(ws.cell(row=row_num, column=5, value=float(txn['debit'] if txn['debit'] else 0))); self._apply_excel_amount_style(ws.cell(row=row_num, column=6, value=float(txn['credit'] if txn['credit'] else 0))); self._apply_excel_amount_style(ws.cell(row=row_num, column=7, value=float(txn['balance']))); row_num += 1
+        ws.cell(row=row_num, column=4, value="Closing Balance").font = Font(bold=True); ws.cell(row=row_num, column=4).alignment = Alignment(horizontal='right'); self._apply_excel_amount_style(ws.cell(row=row_num, column=7, value=float(report_data.get('closing_balance',0))), bold=True, underline="thin")
+        ws.column_dimensions[get_column_letter(1)].width = 12; ws.column_dimensions[get_column_letter(2)].width = 15; ws.column_dimensions[get_column_letter(3)].width = 40; ws.column_dimensions[get_column_letter(4)].width = 40
+        for i in [5,6,7]: ws.column_dimensions[get_column_letter(i)].width = 18
+        excel_bytes_io = BytesIO(); wb.save(excel_bytes_io); return excel_bytes_io.getvalue()
 
-    async def create_bank_account(self, dto: BankAccountCreateData) -> Result[BankAccount]:
-        validation_errors = await self._validate_bank_account_data(dto)
-        if validation_errors:
-            return Result.failure(validation_errors)
-
-        try:
-            bank_account_orm = BankAccount(
-                account_name=dto.account_name,
-                account_number=dto.account_number,
-                bank_name=dto.bank_name,
-                bank_branch=dto.bank_branch,
-                bank_swift_code=dto.bank_swift_code,
-                currency_code=dto.currency_code,
-                opening_balance=dto.opening_balance,
-                opening_balance_date=dto.opening_balance_date,
-                gl_account_id=dto.gl_account_id,
-                is_active=dto.is_active,
-                description=dto.description,
-                current_balance=dto.opening_balance, 
-                created_by_user_id=dto.user_id,
-                updated_by_user_id=dto.user_id
-            )
-            saved_bank_account = await self.bank_account_service.save(bank_account_orm)
-            self.logger.info(f"Bank account '{saved_bank_account.account_name}' created successfully.")
-            return Result.success(saved_bank_account)
-        except Exception as e:
-            self.logger.error(f"Error creating bank account '{dto.account_name}': {e}", exc_info=True)
-            return Result.failure([f"An unexpected error occurred: {str(e)}"])
-
-    async def update_bank_account(self, bank_account_id: int, dto: BankAccountUpdateData) -> Result[BankAccount]:
-        existing_bank_account = await self.bank_account_service.get_by_id(bank_account_id)
-        if not existing_bank_account:
-            return Result.failure([f"Bank Account with ID {bank_account_id} not found."])
-
-        validation_errors = await self._validate_bank_account_data(dto, existing_bank_account_id=bank_account_id)
-        if validation_errors:
-            return Result.failure(validation_errors)
-
-        try:
-            update_data_dict = dto.model_dump(exclude={'id', 'user_id'}, exclude_unset=True)
-            for key, value in update_data_dict.items():
-                if hasattr(existing_bank_account, key):
-                    setattr(existing_bank_account, key, value)
-            
-            existing_bank_account.updated_by_user_id = dto.user_id
-            
-            updated_bank_account = await self.bank_account_service.save(existing_bank_account)
-            self.logger.info(f"Bank account '{updated_bank_account.account_name}' (ID: {bank_account_id}) updated.")
-            return Result.success(updated_bank_account)
-        except Exception as e:
-            self.logger.error(f"Error updating bank account ID {bank_account_id}: {e}", exc_info=True)
-            return Result.failure([f"An unexpected error occurred: {str(e)}"])
-
-    async def toggle_bank_account_active_status(self, bank_account_id: int, user_id: int) -> Result[BankAccount]:
-        bank_account = await self.bank_account_service.get_by_id(bank_account_id)
-        if not bank_account:
-            return Result.failure([f"Bank Account with ID {bank_account_id} not found."])
+    async def _export_tax_computation_to_excel(self, report_data: Dict[str, Any]) -> bytes:
+        wb = openpyxl.Workbook(); ws = wb.active; ws.title = "Tax Computation"; company_name = await self._get_company_name(); row_num = 1
+        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=2); self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=company_name), size=14, alignment='center'); row_num += 1
+        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=2); self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=report_data.get('title')), size=12, alignment='center'); row_num += 1
+        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=2); self._apply_excel_header_style(ws.cell(row=row_num, column=1, value=report_data.get('report_date_description')), size=10, bold=False, alignment='center'); row_num += 2
+        for col, header_text in enumerate(["Description", "Amount"], 1): self._apply_excel_header_style(ws.cell(row=row_num, column=col, value=header_text), fill_color="4F81BD")
+        row_num +=1
+        ws.cell(row=row_num, column=1, value="Net Profit Before Tax").font = Font(bold=True); self._apply_excel_amount_style(ws.cell(row=row_num, column=2, value=float(report_data.get('net_profit_before_tax',0))), bold=True); row_num += 2
+        ws.cell(row=row_num, column=1, value="Add: Non-Deductible Expenses").font = Font(bold=True, color="2F5496"); row_num +=1
+        for adj in report_data.get('add_back_adjustments', []): ws.cell(row=row_num, column=1, value=f"  {adj['name']}"); self._apply_excel_amount_style(ws.cell(row=row_num, column=2, value=float(adj['amount']))); row_num += 1
+        ws.cell(row=row_num, column=1, value="Less: Non-Taxable Income").font = Font(bold=True, color="2F5496"); row_num +=1
+        for adj in report_data.get('less_adjustments', []): ws.cell(row=row_num, column=1, value=f"  {adj['name']}"); self._apply_excel_amount_style(ws.cell(row=row_num, column=2, value=float(adj['amount']))); row_num += 1
+        row_num += 1; ws.cell(row=row_num, column=1, value="Chargeable Income").font = Font(bold=True); self._apply_excel_amount_style(ws.cell(row=row_num, column=2, value=float(report_data.get('chargeable_income',0))), bold=True, underline="thin"); row_num += 2
+        ws.cell(row=row_num, column=1, value=f"Estimated Tax @ {report_data.get('tax_rate', 0):.2f}%").font = Font(bold=True); self._apply_excel_amount_style(ws.cell(row=row_num, column=2, value=float(report_data.get('estimated_tax',0))), bold=True, underline="double");
+        ws.column_dimensions[get_column_letter(1)].width = 60; ws.column_dimensions[get_column_letter(2)].width = 20
+        excel_bytes_io = BytesIO(); wb.save(excel_bytes_io); return excel_bytes_io.getvalue()
         
-        if bank_account.current_balance != Decimal(0) and bank_account.is_active:
-            self.logger.warning(f"Deactivating bank account ID {bank_account_id} ('{bank_account.account_name}') which has a non-zero balance of {bank_account.current_balance}.")
-
-        bank_account.is_active = not bank_account.is_active
-        bank_account.updated_by_user_id = user_id
-
-        try:
-            updated_bank_account = await self.bank_account_service.save(bank_account)
-            action = "activated" if updated_bank_account.is_active else "deactivated"
-            self.logger.info(f"Bank Account '{updated_bank_account.account_name}' (ID: {bank_account_id}) {action} by user ID {user_id}.")
-            return Result.success(updated_bank_account)
-        except Exception as e:
-            self.logger.error(f"Error toggling active status for bank account ID {bank_account_id}: {e}", exc_info=True)
-            return Result.failure([f"Failed to toggle active status: {str(e)}"])
+    async def _export_gst_f5_details_to_excel(self, report_data: GSTReturnData) -> bytes:
+        wb = openpyxl.Workbook()
+        ws_summary = wb.active; ws_summary.title = "GST F5 Summary"; company_name = await self._get_company_name(); row_num = 1
+        ws_summary.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3); self._apply_excel_header_style(ws_summary.cell(row=row_num, column=1, value=company_name), size=14); row_num += 1
+        ws_summary.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3); self._apply_excel_header_style(ws_summary.cell(row=row_num, column=1, value="GST F5 Return"), size=12); row_num += 1
+        ws_summary.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3); date_desc = f"For period: {report_data.start_date.strftime('%d %b %Y')} to {report_data.end_date.strftime('%d %b %Y')}"; self._apply_excel_header_style(ws_summary.cell(row=row_num, column=1, value=date_desc), size=10, bold=False); row_num += 2
+        f5_boxes = [("1. Standard-Rated Supplies", report_data.standard_rated_supplies),("2. Zero-Rated Supplies", report_data.zero_rated_supplies),("3. Exempt Supplies", report_data.exempt_supplies),("4. Total Supplies (1+2+3)", report_data.total_supplies, True),("5. Taxable Purchases", report_data.taxable_purchases),("6. Output Tax Due", report_data.output_tax),("7. Input Tax and Refunds Claimed", report_data.input_tax),("8. GST Adjustments (e.g. Bad Debt Relief)", report_data.tax_adjustments),("9. Net GST Payable / (Claimable)", report_data.tax_payable, True)]
+        for desc, val, *is_bold in f5_boxes: ws_summary.cell(row=row_num, column=1, value=desc).font = Font(bold=bool(is_bold and is_bold[0])); self._apply_excel_amount_style(ws_summary.cell(row=row_num, column=2, value=float(val)), bold=bool(is_bold and is_bold[0])); row_num +=1
+        ws_summary.column_dimensions['A'].width = 45; ws_summary.column_dimensions['B'].width = 20
+        detail_headers = ["Date", "Doc No.", "Entity", "Description", "GL Code", "GL Name", "Net Amount", "GST Amount", "Tax Code"]
+        box_map_to_detail_key = {"Box 1: Std Supplies": "box1_standard_rated_supplies","Box 2: Zero Supplies": "box2_zero_rated_supplies","Box 3: Exempt Supplies": "box3_exempt_supplies","Box 5: Taxable Purchases": "box5_taxable_purchases","Box 6: Output Tax": "box6_output_tax_details","Box 7: Input Tax": "box7_input_tax_details"}
+        if report_data.detailed_breakdown:
+            for sheet_title_prefix, detail_key in box_map_to_detail_key.items():
+                transactions: List[GSTTransactionLineDetail] = report_data.detailed_breakdown.get(detail_key, [])
+                if not transactions: continue
+                ws_detail = wb.create_sheet(title=sheet_title_prefix[:30]); row_num_detail = 1
+                for col, header_text in enumerate(detail_headers, 1): self._apply_excel_header_style(ws_detail.cell(row=row_num_detail, column=col, value=header_text), fill_color="4F81BD")
+                row_num_detail +=1
+                for txn in transactions:
+                    ws_detail.cell(row=row_num_detail, column=1, value=txn.transaction_date.strftime('%d/%m/%Y') if txn.transaction_date else None); ws_detail.cell(row=row_num_detail, column=2, value=txn.document_no); ws_detail.cell(row=row_num_detail, column=3, value=txn.entity_name); ws_detail.cell(row=row_num_detail, column=4, value=txn.description); ws_detail.cell(row=row_num_detail, column=5, value=txn.account_code); ws_detail.cell(row=row_num_detail, column=6, value=txn.account_name); self._apply_excel_amount_style(ws_detail.cell(row=row_num_detail, column=7, value=float(txn.net_amount))); self._apply_excel_amount_style(ws_detail.cell(row=row_num_detail, column=8, value=float(txn.gst_amount))); ws_detail.cell(row=row_num_detail, column=9, value=txn.tax_code_applied); row_num_detail += 1
+                for i, col_letter in enumerate([get_column_letter(j+1) for j in range(len(detail_headers))]):
+                    if i in [0,1,8]: ws_detail.column_dimensions[col_letter].width = 15
+                    elif i in [2,3,4,5]: ws_detail.column_dimensions[col_letter].width = 30
+                    else: ws_detail.column_dimensions[col_letter].width = 18
+        excel_bytes_io = BytesIO(); wb.save(excel_bytes_io); return excel_bytes_io.getvalue()
+        
+    def _export_generic_table_to_excel(self, report_data: Dict[str, Any]) -> bytes:
+        self.app_core.logger.warning(f"Using generic Excel export for report: {report_data.get('title')}")
+        wb = openpyxl.Workbook(); ws = wb.active; ws.title = report_data.get('title', "Report")[:30] # type: ignore
+        row_num = 1; ws.cell(row=row_num, column=1, value=report_data.get('title')).font = Font(bold=True, size=14); row_num += 1 # type: ignore
+        if report_data.get('report_date_description'): ws.cell(row=row_num, column=1, value=report_data.get('report_date_description')).font = Font(italic=True); row_num += 1 # type: ignore
+        row_num += 1; headers = report_data.get('headers', []); data_rows = report_data.get('data_rows', []) 
+        if headers:
+            for col, header_text in enumerate(headers,1): self._apply_excel_header_style(ws.cell(row=row_num, column=col, value=header_text), fill_color="4F81BD")
+            row_num +=1
+        if data_rows:
+            for data_item in data_rows:
+                if isinstance(data_item, dict):
+                    for col, header_text in enumerate(headers, 1): ws.cell(row=row_num, column=col, value=data_item.get(header_text, data_item.get(header_text.lower().replace(' ','_'))))
+                elif isinstance(data_item, list):
+                     for col, cell_val in enumerate(data_item, 1): ws.cell(row=row_num, column=col, value=cell_val)
+                row_num +=1
+        for col_idx_generic in range(1, len(headers) + 1): ws.column_dimensions[get_column_letter(col_idx_generic)].width = 20
+        excel_bytes_io = BytesIO(); wb.save(excel_bytes_io); return excel_bytes_io.getvalue()
 
 ```
 
@@ -4490,17 +3993,16 @@ from typing import List, Optional, Dict, Any, TYPE_CHECKING, Union, cast, Tuple
 from sqlalchemy import select 
 
 from app.models.business.bank_transaction import BankTransaction
-# REMOVED: from app.services.business_services import BankTransactionService, BankAccountService
 from app.utils.result import Result
 from app.utils.pydantic_models import (
-    BankTransactionCreateData, BankTransactionSummaryData
+    BankTransactionCreateData, BankTransactionSummaryData, CSVImportErrorData
 )
 from app.common.enums import BankTransactionTypeEnum
 
 if TYPE_CHECKING:
     from app.core.application_core import ApplicationCore
     from sqlalchemy.ext.asyncio import AsyncSession
-    from app.services.business_services import BankTransactionService, BankAccountService # ADDED
+    from app.services.business_services import BankTransactionService, BankAccountService
 
 class BankTransactionManager:
     def __init__(self,
@@ -4595,12 +4097,14 @@ class BankTransactionManager:
         user_id: int,
         column_mapping: Dict[str, Any], 
         import_options: Dict[str, Any]
-    ) -> Result[Dict[str, int]]:
-        imported_count = 0; skipped_duplicates_count = 0; failed_rows_count = 0; zero_amount_skipped_count = 0; total_rows_processed = 0
+    ) -> Result[Dict[str, Any]]:
+        imported_count = 0; skipped_duplicates_count = 0; zero_amount_skipped_count = 0; total_rows_processed = 0
+        detailed_errors: List[CSVImportErrorData] = []
         date_format_str = import_options.get("date_format_str", "%d/%m/%Y"); skip_header = import_options.get("skip_header", True)
         use_single_amount_col = import_options.get("use_single_amount_column", False); debit_is_negative = import_options.get("debit_is_negative_in_single_col", False)
         bank_account = await self.bank_account_service.get_by_id(bank_account_id)
         if not bank_account or not bank_account.is_active: return Result.failure([f"Bank Account ID {bank_account_id} not found or is inactive."])
+        
         try:
             with open(csv_file_path, 'r', encoding='utf-8-sig') as csvfile:
                 using_header_names = any(isinstance(v, str) for v in column_mapping.values()); reader: Any
@@ -4609,10 +4113,17 @@ class BankTransactionManager:
                 if skip_header and not using_header_names: 
                     try: next(reader) 
                     except StopIteration: return Result.failure(["CSV file is empty or only contains a header."])
+                
                 async with self.app_core.db_manager.session() as session:
                     start_row_num = 2 if skip_header else 1
                     for row_num, raw_row_data in enumerate(reader, start=start_row_num):
-                        total_rows_processed += 1; raw_row_dict_for_json: Dict[str, str] = {}
+                        total_rows_processed += 1
+                        original_row_list = list(raw_row_data.values()) if isinstance(raw_row_data, dict) else raw_row_data
+                        
+                        def add_error(msg: str):
+                            nonlocal detailed_errors
+                            detailed_errors.append(CSVImportErrorData(row_number=row_num, row_data=original_row_list, error_message=msg))
+
                         try:
                             def get_field_value(field_key: str) -> Optional[str]:
                                 specifier = column_mapping.get(field_key); 
@@ -4621,45 +4132,48 @@ class BankTransactionManager:
                                 elif not using_header_names and isinstance(raw_row_data, list) and isinstance(specifier, int):
                                     if 0 <= specifier < len(raw_row_data): val = raw_row_data[specifier]
                                 return val.strip() if val else None
-                            if using_header_names and isinstance(raw_row_data, dict): raw_row_dict_for_json = {k: str(v) for k,v in raw_row_data.items()}
-                            elif isinstance(raw_row_data, list): raw_row_dict_for_json = {f"column_{i}": str(val) for i, val in enumerate(raw_row_data)}
-                            else: raw_row_dict_for_json = {"error": "Unknown row format"}
+                            
+                            raw_row_dict_for_json: Dict[str, str] = {k: str(v) for k,v in raw_row_data.items()} if isinstance(raw_row_data, dict) else {f"column_{i}": str(val) for i, val in enumerate(raw_row_data)}
+                            
                             transaction_date_str = get_field_value("date"); description_str = get_field_value("description")
-                            if not transaction_date_str or not description_str: self.logger.warning(f"CSV Import (Row {row_num}): Skipping due to missing date or description."); failed_rows_count += 1; continue
+                            if not transaction_date_str or not description_str: add_error("Skipping: Missing required Date or Description field."); continue
                             try: parsed_transaction_date = datetime.strptime(transaction_date_str, date_format_str).date()
-                            except ValueError: self.logger.warning(f"CSV Import (Row {row_num}): Invalid transaction date format '{transaction_date_str}'. Expected '{date_format_str}'. Skipping."); failed_rows_count += 1; continue
+                            except ValueError: add_error(f"Invalid transaction date format '{transaction_date_str}'. Expected '{date_format_str}'."); continue
+                            
                             value_date_str = get_field_value("value_date"); parsed_value_date: Optional[date] = None
                             if value_date_str:
                                 try: parsed_value_date = datetime.strptime(value_date_str, date_format_str).date()
-                                except ValueError: self.logger.warning(f"CSV Import (Row {row_num}): Invalid value date format '{value_date_str}'.")
+                                except ValueError: add_error(f"Invalid value date format '{value_date_str}'. Ignored.")
+                            
                             final_bt_amount = Decimal(0)
                             if use_single_amount_col:
                                 amount_str = get_field_value("amount")
-                                if not amount_str: self.logger.warning(f"CSV Import (Row {row_num}): Single amount column specified but value is missing. Skipping."); failed_rows_count += 1; continue
-                                try:
-                                    parsed_csv_amount = Decimal(amount_str.replace(',', ''))
-                                    if debit_is_negative: final_bt_amount = parsed_csv_amount
-                                    else: final_bt_amount = -parsed_csv_amount
-                                except InvalidOperation: self.logger.warning(f"CSV Import (Row {row_num}): Invalid amount '{amount_str}' in single amount column. Skipping."); failed_rows_count += 1; continue
+                                if not amount_str: add_error("Single amount column specified but value is missing."); continue
+                                try: parsed_csv_amount = Decimal(amount_str.replace(',', '')); final_bt_amount = -parsed_csv_amount if debit_is_negative else parsed_csv_amount
+                                except InvalidOperation: add_error(f"Invalid amount '{amount_str}' in single amount column."); continue
                             else:
                                 debit_str = get_field_value("debit"); credit_str = get_field_value("credit")
                                 try:
                                     parsed_debit = Decimal(debit_str.replace(',', '')) if debit_str else Decimal(0)
                                     parsed_credit = Decimal(credit_str.replace(',', '')) if credit_str else Decimal(0)
                                     final_bt_amount = parsed_credit - parsed_debit
-                                except InvalidOperation: self.logger.warning(f"CSV Import (Row {row_num}): Invalid debit '{debit_str}' or credit '{credit_str}' amount. Skipping."); failed_rows_count += 1; continue
-                            if abs(final_bt_amount) < Decimal("0.005"): self.logger.info(f"CSV Import (Row {row_num}): Skipping due to zero net amount."); zero_amount_skipped_count += 1; continue
+                                except InvalidOperation: add_error(f"Invalid debit '{debit_str}' or credit '{credit_str}' amount."); continue
+                            
+                            if abs(final_bt_amount) < Decimal("0.005"): zero_amount_skipped_count += 1; continue
+                            
                             reference_str = get_field_value("reference")
                             stmt_dup = select(BankTransaction).where(BankTransaction.bank_account_id == bank_account_id,BankTransaction.transaction_date == parsed_transaction_date,BankTransaction.amount == final_bt_amount,BankTransaction.description == description_str,BankTransaction.is_from_statement == True)
-                            existing_dup_res = await session.execute(stmt_dup)
-                            if existing_dup_res.scalars().first(): self.logger.info(f"CSV Import (Row {row_num}): Skipping as likely duplicate."); skipped_duplicates_count += 1; continue
+                            if (await session.execute(stmt_dup)).scalars().first(): skipped_duplicates_count += 1; continue
+                            
                             txn_type_enum = BankTransactionTypeEnum.DEPOSIT if final_bt_amount > 0 else BankTransactionTypeEnum.WITHDRAWAL
                             txn_orm = BankTransaction(bank_account_id=bank_account_id,transaction_date=parsed_transaction_date,value_date=parsed_value_date,transaction_type=txn_type_enum.value,description=description_str,reference=reference_str if reference_str else None,amount=final_bt_amount,is_reconciled=False,is_from_statement=True,raw_statement_data=raw_row_dict_for_json, created_by_user_id=user_id,updated_by_user_id=user_id)
                             session.add(txn_orm); imported_count += 1
-                        except Exception as e_row: self.logger.error(f"CSV Import (Row {row_num}): Unexpected error: {e_row}", exc_info=True); failed_rows_count += 1
-            summary = {"total_rows_in_file": total_rows_processed, "imported_count": imported_count, "skipped_duplicates_count": skipped_duplicates_count, "failed_rows_count": failed_rows_count, "zero_amount_skipped_count": zero_amount_skipped_count}
+                        except Exception as e_row: add_error(f"Unexpected error: {str(e_row)}")
+
+            summary = {"total_rows_processed": total_rows_processed, "imported_count": imported_count, "skipped_duplicates_count": skipped_duplicates_count, "failed_rows_count": len(detailed_errors), "zero_amount_skipped_count": zero_amount_skipped_count, "detailed_errors": detailed_errors}
             self.logger.info(f"Bank statement import complete for account ID {bank_account_id}: {summary}")
             return Result.success(summary)
+
         except FileNotFoundError: self.logger.error(f"CSV Import: File not found at path: {csv_file_path}"); return Result.failure([f"CSV file not found: {csv_file_path}"])
         except Exception as e: self.logger.error(f"CSV Import: General error for account ID {bank_account_id}: {e}", exc_info=True); return Result.failure([f"General error during CSV import: {str(e)}"])
 
@@ -4669,33 +4183,22 @@ class BankTransactionManager:
         statement_end_date: date,
         page_size_override: int = -1 
     ) -> Result[Tuple[List[BankTransactionSummaryData], List[BankTransactionSummaryData]]]:
-        
         try:
             statement_items_result = await self.get_transactions_for_bank_account(
-                bank_account_id=bank_account_id,
-                end_date=statement_end_date, 
-                is_reconciled=False,
-                is_from_statement_filter=True,
-                page=1, page_size=page_size_override 
+                bank_account_id=bank_account_id, end_date=statement_end_date, 
+                is_reconciled=False, is_from_statement_filter=True, page=1, page_size=page_size_override 
             )
             if not statement_items_result.is_success:
                 return Result.failure(["Failed to fetch statement items for reconciliation."] + (statement_items_result.errors or []))
             
-            statement_lines = statement_items_result.value or []
-
             system_items_result = await self.get_transactions_for_bank_account(
-                bank_account_id=bank_account_id,
-                end_date=statement_end_date, 
-                is_reconciled=False,
-                is_from_statement_filter=False,
-                page=1, page_size=page_size_override
+                bank_account_id=bank_account_id, end_date=statement_end_date, 
+                is_reconciled=False, is_from_statement_filter=False, page=1, page_size=page_size_override
             )
             if not system_items_result.is_success:
                 return Result.failure(["Failed to fetch system transactions for reconciliation."] + (system_items_result.errors or []))
             
-            system_txns = system_items_result.value or []
-            
-            return Result.success((statement_lines, system_txns))
+            return Result.success((statement_items_result.value or [], system_items_result.value or []))
 
         except Exception as e:
             self.logger.error(f"Error fetching transactions for matching UI (Account ID: {bank_account_id}): {e}", exc_info=True)
@@ -4703,1391 +4206,245 @@ class BankTransactionManager:
 
 ```
 
-# app/business_logic/customer_manager.py
-```py
-# File: app/business_logic/customer_manager.py
-from typing import List, Optional, Dict, Any, TYPE_CHECKING
-from decimal import Decimal
-
-from app.models.business.customer import Customer
-# REMOVED: from app.services.business_services import CustomerService
-# REMOVED: from app.services.account_service import AccountService 
-# REMOVED: from app.services.accounting_services import CurrencyService 
-from app.utils.result import Result
-from app.utils.pydantic_models import CustomerCreateData, CustomerUpdateData, CustomerSummaryData
-
-if TYPE_CHECKING:
-    from app.core.application_core import ApplicationCore
-    from app.services.business_services import CustomerService # ADDED
-    from app.services.account_service import AccountService # ADDED
-    from app.services.accounting_services import CurrencyService # ADDED
-
-class CustomerManager:
-    def __init__(self, 
-                 customer_service: "CustomerService", 
-                 account_service: "AccountService", 
-                 currency_service: "CurrencyService", 
-                 app_core: "ApplicationCore"):
-        self.customer_service = customer_service
-        self.account_service = account_service
-        self.currency_service = currency_service
-        self.app_core = app_core
-        self.logger = app_core.logger
-
-    async def get_customer_for_dialog(self, customer_id: int) -> Optional[Customer]:
-        """ Fetches a full customer ORM object for dialog population. """
-        try:
-            return await self.customer_service.get_by_id(customer_id)
-        except Exception as e:
-            self.logger.error(f"Error fetching customer ID {customer_id} for dialog: {e}", exc_info=True)
-            return None
-
-    async def get_customers_for_listing(self, 
-                                       active_only: bool = True,
-                                       search_term: Optional[str] = None,
-                                       page: int = 1,
-                                       page_size: int = 50
-                                      ) -> Result[List[CustomerSummaryData]]:
-        """ Fetches a list of customer summaries for table display. """
-        try:
-            summaries: List[CustomerSummaryData] = await self.customer_service.get_all_summary(
-                active_only=active_only,
-                search_term=search_term,
-                page=page,
-                page_size=page_size
-            )
-            return Result.success(summaries)
-        except Exception as e:
-            self.logger.error(f"Error fetching customer listing: {e}", exc_info=True)
-            return Result.failure([f"Failed to retrieve customer list: {str(e)}"])
-
-    async def _validate_customer_data(self, dto: CustomerCreateData | CustomerUpdateData, existing_customer_id: Optional[int] = None) -> List[str]:
-        errors: List[str] = []
-
-        if dto.customer_code:
-            existing_by_code = await self.customer_service.get_by_code(dto.customer_code)
-            if existing_by_code and (existing_customer_id is None or existing_by_code.id != existing_customer_id):
-                errors.append(f"Customer code '{dto.customer_code}' already exists.")
-        else: 
-            errors.append("Customer code is required.") 
-            
-        if dto.name is None or not dto.name.strip(): 
-            errors.append("Customer name is required.")
-
-        if dto.receivables_account_id is not None:
-            acc = await self.account_service.get_by_id(dto.receivables_account_id)
-            if not acc:
-                errors.append(f"Receivables account ID '{dto.receivables_account_id}' not found.")
-            elif acc.account_type != 'Asset': 
-                errors.append(f"Account '{acc.code} - {acc.name}' is not an Asset account and cannot be used as receivables account.")
-            elif not acc.is_active:
-                 errors.append(f"Receivables account '{acc.code} - {acc.name}' is not active.")
-
-        if dto.currency_code:
-            curr = await self.currency_service.get_by_id(dto.currency_code) 
-            if not curr:
-                errors.append(f"Currency code '{dto.currency_code}' not found.")
-            elif not curr.is_active:
-                 errors.append(f"Currency '{dto.currency_code}' is not active.")
-        else: 
-             errors.append("Currency code is required.")
-        return errors
-
-    async def create_customer(self, dto: CustomerCreateData) -> Result[Customer]:
-        validation_errors = await self._validate_customer_data(dto)
-        if validation_errors:
-            return Result.failure(validation_errors)
-
-        try:
-            customer_orm = Customer(
-                customer_code=dto.customer_code, name=dto.name, legal_name=dto.legal_name,
-                uen_no=dto.uen_no, gst_registered=dto.gst_registered, gst_no=dto.gst_no,
-                contact_person=dto.contact_person, email=str(dto.email) if dto.email else None, phone=dto.phone,
-                address_line1=dto.address_line1, address_line2=dto.address_line2,
-                postal_code=dto.postal_code, city=dto.city, country=dto.country,
-                credit_terms=dto.credit_terms, credit_limit=dto.credit_limit,
-                currency_code=dto.currency_code, is_active=dto.is_active,
-                customer_since=dto.customer_since, notes=dto.notes,
-                receivables_account_id=dto.receivables_account_id,
-                created_by_user_id=dto.user_id,
-                updated_by_user_id=dto.user_id
-            )
-            saved_customer = await self.customer_service.save(customer_orm)
-            return Result.success(saved_customer)
-        except Exception as e:
-            self.logger.error(f"Error creating customer '{dto.customer_code}': {e}", exc_info=True)
-            return Result.failure([f"An unexpected error occurred while creating the customer: {str(e)}"])
-
-    async def update_customer(self, customer_id: int, dto: CustomerUpdateData) -> Result[Customer]:
-        existing_customer = await self.customer_service.get_by_id(customer_id)
-        if not existing_customer:
-            return Result.failure([f"Customer with ID {customer_id} not found."])
-
-        validation_errors = await self._validate_customer_data(dto, existing_customer_id=customer_id)
-        if validation_errors:
-            return Result.failure(validation_errors)
-
-        try:
-            update_data_dict = dto.model_dump(exclude={'id', 'user_id'}, exclude_unset=True)
-            for key, value in update_data_dict.items():
-                if hasattr(existing_customer, key):
-                    if key == 'email' and value is not None: 
-                        setattr(existing_customer, key, str(value))
-                    else:
-                        setattr(existing_customer, key, value)
-            
-            existing_customer.updated_by_user_id = dto.user_id
-            
-            updated_customer = await self.customer_service.save(existing_customer)
-            return Result.success(updated_customer)
-        except Exception as e:
-            self.logger.error(f"Error updating customer ID {customer_id}: {e}", exc_info=True)
-            return Result.failure([f"An unexpected error occurred while updating the customer: {str(e)}"])
-
-    async def toggle_customer_active_status(self, customer_id: int, user_id: int) -> Result[Customer]:
-        customer = await self.customer_service.get_by_id(customer_id)
-        if not customer:
-            return Result.failure([f"Customer with ID {customer_id} not found."])
-        
-        customer.is_active = not customer.is_active
-        customer.updated_by_user_id = user_id
-
-        try:
-            updated_customer = await self.customer_service.save(customer)
-            action = "activated" if updated_customer.is_active else "deactivated"
-            self.logger.info(f"Customer '{updated_customer.name}' (ID: {customer_id}) {action} by user ID {user_id}.")
-            return Result.success(updated_customer)
-        except Exception as e:
-            self.logger.error(f"Error toggling active status for customer ID {customer_id}: {e}", exc_info=True)
-            return Result.failure([f"Failed to toggle active status for customer: {str(e)}"])
-
-```
-
-# app/business_logic/product_manager.py
-```py
-# File: app/business_logic/product_manager.py
-from typing import List, Optional, Dict, Any, TYPE_CHECKING
-from decimal import Decimal
-
-from app.models.business.product import Product
-# REMOVED: from app.services.business_services import ProductService
-# REMOVED: from app.services.account_service import AccountService
-# REMOVED: from app.services.tax_service import TaxCodeService 
-from app.utils.result import Result
-from app.utils.pydantic_models import ProductCreateData, ProductUpdateData, ProductSummaryData
-from app.common.enums import ProductTypeEnum 
-
-if TYPE_CHECKING:
-    from app.core.application_core import ApplicationCore
-    from app.services.business_services import ProductService # ADDED
-    from app.services.account_service import AccountService # ADDED
-    from app.services.tax_service import TaxCodeService # ADDED
-
-class ProductManager:
-    def __init__(self, 
-                 product_service: "ProductService", 
-                 account_service: "AccountService", 
-                 tax_code_service: "TaxCodeService",
-                 app_core: "ApplicationCore"):
-        self.product_service = product_service
-        self.account_service = account_service
-        self.tax_code_service = tax_code_service
-        self.app_core = app_core
-        self.logger = app_core.logger 
-
-    async def get_product_for_dialog(self, product_id: int) -> Optional[Product]:
-        """ Fetches a full product/service ORM object for dialog population. """
-        try:
-            return await self.product_service.get_by_id(product_id)
-        except Exception as e:
-            self.logger.error(f"Error fetching product ID {product_id} for dialog: {e}", exc_info=True)
-            return None
-
-    async def get_products_for_listing(self, 
-                                       active_only: bool = True,
-                                       product_type_filter: Optional[ProductTypeEnum] = None,
-                                       search_term: Optional[str] = None,
-                                       page: int = 1,
-                                       page_size: int = 50
-                                      ) -> Result[List[ProductSummaryData]]:
-        """ Fetches a list of product/service summaries for table display. """
-        try:
-            summaries: List[ProductSummaryData] = await self.product_service.get_all_summary(
-                active_only=active_only,
-                product_type_filter=product_type_filter,
-                search_term=search_term,
-                page=page,
-                page_size=page_size
-            )
-            return Result.success(summaries)
-        except Exception as e:
-            self.logger.error(f"Error fetching product listing: {e}", exc_info=True)
-            return Result.failure([f"Failed to retrieve product list: {str(e)}"])
-
-    async def _validate_product_data(self, dto: ProductCreateData | ProductUpdateData, existing_product_id: Optional[int] = None) -> List[str]:
-        """ Common validation logic for creating and updating products/services. """
-        errors: List[str] = []
-
-        if dto.product_code:
-            existing_by_code = await self.product_service.get_by_code(dto.product_code)
-            if existing_by_code and (existing_product_id is None or existing_by_code.id != existing_product_id):
-                errors.append(f"Product code '{dto.product_code}' already exists.")
-        else:
-             errors.append("Product code is required.") 
-
-        if not dto.name or not dto.name.strip():
-            errors.append("Product name is required.") 
-
-        account_ids_to_check = {
-            "Sales Account": (dto.sales_account_id, ['Revenue']),
-            "Purchase Account": (dto.purchase_account_id, ['Expense', 'Asset']), 
-        }
-        if dto.product_type == ProductTypeEnum.INVENTORY:
-            account_ids_to_check["Inventory Account"] = (dto.inventory_account_id, ['Asset'])
-        
-        for acc_label, (acc_id, valid_types) in account_ids_to_check.items():
-            if acc_id is not None:
-                acc = await self.account_service.get_by_id(acc_id)
-                if not acc:
-                    errors.append(f"{acc_label} ID '{acc_id}' not found.")
-                elif not acc.is_active:
-                    errors.append(f"{acc_label} '{acc.code} - {acc.name}' is not active.")
-                elif acc.account_type not in valid_types:
-                    errors.append(f"{acc_label} '{acc.code} - {acc.name}' is not a valid type (Expected: {', '.join(valid_types)}).")
-
-        if dto.tax_code is not None:
-            tax_code_obj = await self.tax_code_service.get_tax_code(dto.tax_code)
-            if not tax_code_obj:
-                errors.append(f"Tax code '{dto.tax_code}' not found.")
-            elif not tax_code_obj.is_active:
-                errors.append(f"Tax code '{dto.tax_code}' is not active.")
-        return errors
-
-    async def create_product(self, dto: ProductCreateData) -> Result[Product]:
-        validation_errors = await self._validate_product_data(dto)
-        if validation_errors:
-            return Result.failure(validation_errors)
-
-        try:
-            product_orm = Product(
-                product_code=dto.product_code, name=dto.name, description=dto.description,
-                product_type=dto.product_type.value, 
-                category=dto.category, unit_of_measure=dto.unit_of_measure, barcode=dto.barcode,
-                sales_price=dto.sales_price, purchase_price=dto.purchase_price,
-                sales_account_id=dto.sales_account_id, purchase_account_id=dto.purchase_account_id,
-                inventory_account_id=dto.inventory_account_id,
-                tax_code=dto.tax_code, is_active=dto.is_active,
-                min_stock_level=dto.min_stock_level, reorder_point=dto.reorder_point,
-                created_by_user_id=dto.user_id,
-                updated_by_user_id=dto.user_id
-            )
-            saved_product = await self.product_service.save(product_orm)
-            return Result.success(saved_product)
-        except Exception as e:
-            self.logger.error(f"Error creating product '{dto.product_code}': {e}", exc_info=True)
-            return Result.failure([f"An unexpected error occurred while creating the product/service: {str(e)}"])
-
-    async def update_product(self, product_id: int, dto: ProductUpdateData) -> Result[Product]:
-        existing_product = await self.product_service.get_by_id(product_id)
-        if not existing_product:
-            return Result.failure([f"Product/Service with ID {product_id} not found."])
-
-        validation_errors = await self._validate_product_data(dto, existing_product_id=product_id)
-        if validation_errors:
-            return Result.failure(validation_errors)
-
-        try:
-            update_data_dict = dto.model_dump(exclude={'id', 'user_id'}, exclude_unset=True)
-            for key, value in update_data_dict.items():
-                if hasattr(existing_product, key):
-                    if key == "product_type" and isinstance(value, ProductTypeEnum): 
-                        setattr(existing_product, key, value.value)
-                    else:
-                        setattr(existing_product, key, value)
-            
-            existing_product.updated_by_user_id = dto.user_id
-            
-            updated_product = await self.product_service.save(existing_product)
-            return Result.success(updated_product)
-        except Exception as e:
-            self.logger.error(f"Error updating product ID {product_id}: {e}", exc_info=True)
-            return Result.failure([f"An unexpected error occurred while updating the product/service: {str(e)}"])
-
-    async def toggle_product_active_status(self, product_id: int, user_id: int) -> Result[Product]:
-        product = await self.product_service.get_by_id(product_id)
-        if not product:
-            return Result.failure([f"Product/Service with ID {product_id} not found."])
-        
-        product_name_for_log = product.name 
-        
-        product.is_active = not product.is_active
-        product.updated_by_user_id = user_id
-
-        try:
-            updated_product = await self.product_service.save(product)
-            action = "activated" if updated_product.is_active else "deactivated"
-            self.logger.info(f"Product/Service '{product_name_for_log}' (ID: {product_id}) {action} by user ID {user_id}.")
-            return Result.success(updated_product)
-        except Exception as e:
-            self.logger.error(f"Error toggling active status for product ID {product_id}: {e}", exc_info=True)
-            return Result.failure([f"Failed to toggle active status for product/service: {str(e)}"])
-
-```
-
-# app/business_logic/payment_manager.py
-```py
-# File: app/business_logic/payment_manager.py
-from typing import List, Optional, Dict, Any, TYPE_CHECKING, Union, cast
-from decimal import Decimal, ROUND_HALF_UP
-from datetime import date
-
-from app.models.business.payment import Payment, PaymentAllocation
-from app.models.business.sales_invoice import SalesInvoice
-from app.models.business.purchase_invoice import PurchaseInvoice
-# REMOVED: from app.models.accounting.account import Account # Not directly used by PaymentManager
-from app.models.accounting.journal_entry import JournalEntry 
-# REMOVED: from app.models.business.bank_account import BankAccount # Not directly used by PaymentManager
-
-# REMOVED: from app.services.business_services import (
-#     PaymentService, BankAccountService, CustomerService, VendorService,
-#     SalesInvoiceService, PurchaseInvoiceService
-# )
-# REMOVED: from app.services.core_services import SequenceService, ConfigurationService
-# REMOVED: from app.services.account_service import AccountService
-# REMOVED: from app.accounting.journal_entry_manager import JournalEntryManager 
-
-from app.utils.result import Result
-from app.utils.pydantic_models import (
-    PaymentCreateData, PaymentSummaryData, PaymentAllocationBaseData,
-    JournalEntryData, JournalEntryLineData
-)
-from app.common.enums import (
-    PaymentEntityTypeEnum, PaymentTypeEnum, PaymentStatusEnum,
-    InvoiceStatusEnum, JournalTypeEnum, PaymentAllocationDocTypeEnum 
-)
-
-if TYPE_CHECKING:
-    from app.core.application_core import ApplicationCore
-    from sqlalchemy.ext.asyncio import AsyncSession 
-    from app.services.business_services import (
-        PaymentService, BankAccountService, CustomerService, VendorService,
-        SalesInvoiceService, PurchaseInvoiceService
-    )
-    from app.services.core_services import SequenceService, ConfigurationService
-    from app.services.account_service import AccountService
-    from app.accounting.journal_entry_manager import JournalEntryManager 
-
-class PaymentManager:
-    def __init__(self,
-                 payment_service: "PaymentService",
-                 sequence_service: "SequenceService",
-                 bank_account_service: "BankAccountService",
-                 customer_service: "CustomerService",
-                 vendor_service: "VendorService",
-                 sales_invoice_service: "SalesInvoiceService",
-                 purchase_invoice_service: "PurchaseInvoiceService",
-                 journal_entry_manager: "JournalEntryManager",
-                 account_service: "AccountService",
-                 configuration_service: "ConfigurationService",
-                 app_core: "ApplicationCore"):
-        self.payment_service = payment_service
-        self.sequence_service = sequence_service
-        self.bank_account_service = bank_account_service
-        self.customer_service = customer_service
-        self.vendor_service = vendor_service
-        self.sales_invoice_service = sales_invoice_service
-        self.purchase_invoice_service = purchase_invoice_service
-        self.journal_entry_manager = journal_entry_manager
-        self.account_service = account_service
-        self.configuration_service = configuration_service
-        self.app_core = app_core
-        self.logger = app_core.logger
-
-    async def _validate_payment_data(self, dto: PaymentCreateData, session: "AsyncSession") -> List[str]:
-        errors: List[str] = []
-        
-        entity_name_for_desc: str = "Entity"
-        if dto.entity_type == PaymentEntityTypeEnum.CUSTOMER:
-            entity = await self.customer_service.get_by_id(dto.entity_id) 
-            if not entity or not entity.is_active: errors.append(f"Active Customer ID {dto.entity_id} not found.")
-            else: entity_name_for_desc = entity.name
-        elif dto.entity_type == PaymentEntityTypeEnum.VENDOR:
-            entity = await self.vendor_service.get_by_id(dto.entity_id) 
-            if not entity or not entity.is_active: errors.append(f"Active Vendor ID {dto.entity_id} not found.")
-            else: entity_name_for_desc = entity.name
-        
-        if dto.payment_method != PaymentMethodEnum.CASH: 
-            if not dto.bank_account_id: errors.append("Bank Account is required for non-cash payments.")
-            else:
-                bank_acc = await self.bank_account_service.get_by_id(dto.bank_account_id) 
-                if not bank_acc or not bank_acc.is_active: errors.append(f"Active Bank Account ID {dto.bank_account_id} not found.")
-                elif bank_acc.currency_code != dto.currency_code: errors.append(f"Payment currency ({dto.currency_code}) does not match bank account currency ({bank_acc.currency_code}).")
-        
-        currency = await self.app_core.currency_manager.get_currency_by_code(dto.currency_code)
-        if not currency or not currency.is_active: errors.append(f"Currency '{dto.currency_code}' is invalid or inactive.")
-
-        total_allocated = Decimal(0)
-        for i, alloc_dto in enumerate(dto.allocations):
-            total_allocated += alloc_dto.amount_allocated
-            invoice_orm: Union[SalesInvoice, PurchaseInvoice, None] = None
-            doc_type_str = ""
-            if alloc_dto.document_type == PaymentAllocationDocTypeEnum.SALES_INVOICE:
-                invoice_orm = await self.sales_invoice_service.get_by_id(alloc_dto.document_id) 
-                doc_type_str = "Sales Invoice"
-            elif alloc_dto.document_type == PaymentAllocationDocTypeEnum.PURCHASE_INVOICE:
-                invoice_orm = await self.purchase_invoice_service.get_by_id(alloc_dto.document_id) 
-                doc_type_str = "Purchase Invoice"
-            
-            if not invoice_orm: errors.append(f"Allocation {i+1}: {doc_type_str} ID {alloc_dto.document_id} not found.")
-            elif invoice_orm.status not in [InvoiceStatusEnum.APPROVED, InvoiceStatusEnum.PARTIALLY_PAID, InvoiceStatusEnum.OVERDUE]:
-                errors.append(f"Allocation {i+1}: {doc_type_str} {invoice_orm.invoice_no} is not in an allocatable status ({invoice_orm.status.value}).") 
-            elif isinstance(invoice_orm, SalesInvoice) and invoice_orm.customer_id != dto.entity_id:
-                 errors.append(f"Allocation {i+1}: Sales Invoice {invoice_orm.invoice_no} does not belong to selected customer.")
-            elif isinstance(invoice_orm, PurchaseInvoice) and invoice_orm.vendor_id != dto.entity_id:
-                 errors.append(f"Allocation {i+1}: Purchase Invoice {invoice_orm.invoice_no} does not belong to selected vendor.")
-            elif (invoice_orm.total_amount - invoice_orm.amount_paid) < alloc_dto.amount_allocated:
-                 outstanding_bal = invoice_orm.total_amount - invoice_orm.amount_paid
-                 errors.append(f"Allocation {i+1}: Amount for {doc_type_str} {invoice_orm.invoice_no} ({alloc_dto.amount_allocated:.2f}) exceeds outstanding balance ({outstanding_bal:.2f}).")
-        
-        if total_allocated > dto.amount:
-            errors.append(f"Total allocated amount ({total_allocated}) cannot exceed total payment amount ({dto.amount}).")
-        
-        return errors
-
-    async def create_payment(self, dto: PaymentCreateData) -> Result[Payment]:
-        async with self.app_core.db_manager.session() as session: 
-            try:
-                validation_errors = await self._validate_payment_data(dto, session=session)
-                if validation_errors:
-                    return Result.failure(validation_errors)
-
-                payment_no_str = await self.app_core.db_manager.execute_scalar("SELECT core.get_next_sequence_value($1);", "payment", session=session)
-                if not payment_no_str: return Result.failure(["Failed to generate payment number."])
-
-                cash_or_bank_gl_id: Optional[int] = None
-                ar_ap_gl_id: Optional[int] = None
-                entity_name_for_desc: str = "Entity"
-
-                if dto.payment_method != PaymentMethodEnum.CASH:
-                    bank_account = await self.bank_account_service.get_by_id(dto.bank_account_id) # type: ignore
-                    if not bank_account or not bank_account.gl_account_id: return Result.failure(["Bank account or its GL link not found."])
-                    cash_or_bank_gl_id = bank_account.gl_account_id
-                else: 
-                    cash_acc_code = await self.configuration_service.get_config_value("SysAcc_DefaultCash", "1112") 
-                    cash_gl_acc = await self.account_service.get_by_code(cash_acc_code) if cash_acc_code else None
-                    if not cash_gl_acc or not cash_gl_acc.is_active: return Result.failure([f"Default Cash account ({cash_acc_code}) not configured or inactive."])
-                    cash_or_bank_gl_id = cash_gl_acc.id
-
-                if dto.entity_type == PaymentEntityTypeEnum.CUSTOMER:
-                    customer = await self.customer_service.get_by_id(dto.entity_id)
-                    if not customer or not customer.receivables_account_id: return Result.failure(["Customer AR account not found."])
-                    ar_ap_gl_id = customer.receivables_account_id
-                    entity_name_for_desc = customer.name
-                elif dto.entity_type == PaymentEntityTypeEnum.VENDOR:
-                    vendor = await self.vendor_service.get_by_id(dto.entity_id)
-                    if not vendor or not vendor.payables_account_id: return Result.failure(["Vendor AP account not found."])
-                    ar_ap_gl_id = vendor.payables_account_id
-                    entity_name_for_desc = vendor.name
-                
-                if not cash_or_bank_gl_id or not ar_ap_gl_id:
-                    return Result.failure(["Could not determine all necessary GL accounts for the payment journal."])
-
-                payment_orm = Payment(
-                    payment_no=payment_no_str, payment_type=dto.payment_type.value,
-                    payment_method=dto.payment_method.value, payment_date=dto.payment_date,
-                    entity_type=dto.entity_type.value, entity_id=dto.entity_id,
-                    bank_account_id=dto.bank_account_id, currency_code=dto.currency_code,
-                    exchange_rate=dto.exchange_rate, amount=dto.amount, reference=dto.reference,
-                    description=dto.description, cheque_no=dto.cheque_no,
-                    status=PaymentStatusEnum.APPROVED.value, 
-                    created_by_user_id=dto.user_id, updated_by_user_id=dto.user_id
-                )
-                for alloc_dto in dto.allocations:
-                    payment_orm.allocations.append(PaymentAllocation(
-                        document_type=alloc_dto.document_type.value,
-                        document_id=alloc_dto.document_id,
-                        amount=alloc_dto.amount_allocated,
-                        created_by_user_id=dto.user_id 
-                    ))
-                
-                je_lines_data: List[JournalEntryLineData] = []
-                desc_suffix = f"Pmt No: {payment_no_str} for {entity_name_for_desc}"
-                
-                if dto.payment_type == PaymentTypeEnum.CUSTOMER_PAYMENT: 
-                    je_lines_data.append(JournalEntryLineData(account_id=cash_or_bank_gl_id, debit_amount=dto.amount, credit_amount=Decimal(0), description=f"Customer Receipt - {desc_suffix}"))
-                    je_lines_data.append(JournalEntryLineData(account_id=ar_ap_gl_id, debit_amount=Decimal(0), credit_amount=dto.amount, description=f"Clear A/R - {desc_suffix}"))
-                elif dto.payment_type == PaymentTypeEnum.VENDOR_PAYMENT: 
-                    je_lines_data.append(JournalEntryLineData(account_id=ar_ap_gl_id, debit_amount=dto.amount, credit_amount=Decimal(0), description=f"Clear A/P - {desc_suffix}"))
-                    je_lines_data.append(JournalEntryLineData(account_id=cash_or_bank_gl_id, debit_amount=Decimal(0), credit_amount=dto.amount, description=f"Vendor Payment - {desc_suffix}"))
-                
-                je_dto = JournalEntryData(
-                    journal_type=JournalTypeEnum.CASH_RECEIPT.value if dto.payment_type == PaymentTypeEnum.CUSTOMER_PAYMENT else JournalTypeEnum.CASH_DISBURSEMENT.value,
-                    entry_date=dto.payment_date, description=f"{dto.payment_type.value} - {entity_name_for_desc}",
-                    reference=dto.reference or payment_no_str, user_id=dto.user_id, lines=je_lines_data,
-                    source_type="Payment", source_id=0 
-                )
-                
-                saved_payment = await self.payment_service.save(payment_orm, session=session)
-                je_dto.source_id = saved_payment.id 
-
-                create_je_result = await self.journal_entry_manager.create_journal_entry(je_dto, session=session)
-                if not create_je_result.is_success or not create_je_result.value:
-                    raise Exception(f"Failed to create JE for payment: {', '.join(create_je_result.errors)}") 
-                
-                created_je: JournalEntry = create_je_result.value
-                post_je_result = await self.journal_entry_manager.post_journal_entry(created_je.id, dto.user_id, session=session)
-                if not post_je_result.is_success:
-                    raise Exception(f"JE (ID: {created_je.id}) created but failed to post: {', '.join(post_je_result.errors)}")
-
-                saved_payment.journal_entry_id = created_je.id
-                session.add(saved_payment) 
-                
-                for alloc_orm in saved_payment.allocations:
-                    if alloc_orm.document_type == PaymentAllocationDocTypeEnum.SALES_INVOICE.value:
-                        inv = await session.get(SalesInvoice, alloc_orm.document_id)
-                        if inv: 
-                            inv.amount_paid = (inv.amount_paid or Decimal(0)) + alloc_orm.amount
-                            inv.status = InvoiceStatusEnum.PAID.value if inv.amount_paid >= inv.total_amount else InvoiceStatusEnum.PARTIALLY_PAID.value
-                            session.add(inv)
-                    elif alloc_orm.document_type == PaymentAllocationDocTypeEnum.PURCHASE_INVOICE.value:
-                        inv = await session.get(PurchaseInvoice, alloc_orm.document_id)
-                        if inv: 
-                            inv.amount_paid = (inv.amount_paid or Decimal(0)) + alloc_orm.amount
-                            inv.status = InvoiceStatusEnum.PAID.value if inv.amount_paid >= inv.total_amount else InvoiceStatusEnum.PARTIALLY_PAID.value
-                            session.add(inv)
-
-                await session.flush()
-                await session.refresh(saved_payment, attribute_names=['allocations', 'journal_entry']) 
-                
-                self.logger.info(f"Payment '{saved_payment.payment_no}' created and posted successfully. JE ID: {created_je.id}")
-                return Result.success(saved_payment)
-
-            except Exception as e:
-                self.logger.error(f"Error in create_payment transaction: {e}", exc_info=True)
-                return Result.failure([f"Failed to create payment: {str(e)}"])
-
-
-    async def get_payment_for_dialog(self, payment_id: int) -> Optional[Payment]:
-        try:
-            return await self.payment_service.get_by_id(payment_id)
-        except Exception as e:
-            self.logger.error(f"Error fetching Payment ID {payment_id} for dialog: {e}", exc_info=True)
-            return None
-
-    async def get_payments_for_listing(
-        self,
-        entity_type: Optional[PaymentEntityTypeEnum] = None,
-        entity_id: Optional[int] = None,
-        status: Optional[PaymentStatusEnum] = None,
-        start_date: Optional[date] = None,
-        end_date: Optional[date] = None,
-        page: int = 1,
-        page_size: int = 50
-    ) -> Result[List[PaymentSummaryData]]:
-        try:
-            summaries = await self.payment_service.get_all_summary(
-                entity_type=entity_type, entity_id=entity_id, status=status,
-                start_date=start_date, end_date=end_date,
-                page=page, page_size=page_size
-            )
-            return Result.success(summaries)
-        except Exception as e:
-            self.logger.error(f"Error fetching payment listing: {e}", exc_info=True)
-            return Result.failure([f"Failed to retrieve payment list: {str(e)}"])
-
-```
-
-# app/business_logic/purchase_invoice_manager.py
-```py
-# File: app/business_logic/purchase_invoice_manager.py
-from typing import List, Optional, Dict, Any, TYPE_CHECKING, Union, cast
-from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
-from datetime import date
-
-from sqlalchemy.orm import selectinload 
-from sqlalchemy import text # Added text
-
-from app.models.business.purchase_invoice import PurchaseInvoice, PurchaseInvoiceLine
-# REMOVED: from app.models.business.vendor import Vendor # Not directly used, VendorService is
-# REMOVED: from app.models.business.product import Product # Not directly used, ProductService is
-# REMOVED: from app.models.accounting.tax_code import TaxCode # Not directly used, TaxCodeService is
-# REMOVED: from app.models.accounting.journal_entry import JournalEntry # Not directly used, JournalEntryManager is
-from app.models.business.inventory_movement import InventoryMovement 
-
-# REMOVED: from app.services.business_services import PurchaseInvoiceService, VendorService, ProductService, InventoryMovementService
-# REMOVED: from app.services.core_services import SequenceService, ConfigurationService
-# REMOVED: from app.services.tax_service import TaxCodeService
-# REMOVED: from app.services.account_service import AccountService
-# REMOVED: from app.tax.tax_calculator import TaxCalculator
-
-from app.utils.result import Result
-from app.utils.pydantic_models import (
-    PurchaseInvoiceCreateData, PurchaseInvoiceUpdateData, PurchaseInvoiceSummaryData,
-    PurchaseInvoiceLineBaseData, TaxCalculationResultData,
-    JournalEntryData, JournalEntryLineData 
-)
-from app.common.enums import InvoiceStatusEnum, ProductTypeEnum, JournalTypeEnum, InventoryMovementTypeEnum 
-
-if TYPE_CHECKING:
-    from app.core.application_core import ApplicationCore
-    from app.services.business_services import PurchaseInvoiceService, VendorService, ProductService, InventoryMovementService
-    from app.services.core_services import SequenceService, ConfigurationService
-    from app.services.tax_service import TaxCodeService
-    from app.services.account_service import AccountService
-    from app.tax.tax_calculator import TaxCalculator
-    from app.models.business.vendor import Vendor # For type hint
-    from app.models.business.product import Product # For type hint
-    from app.models.accounting.tax_code import TaxCode # For type hint
-
-
-class PurchaseInvoiceManager:
-    def __init__(self,
-                 purchase_invoice_service: "PurchaseInvoiceService",
-                 vendor_service: "VendorService",
-                 product_service: "ProductService",
-                 tax_code_service: "TaxCodeService",
-                 tax_calculator: "TaxCalculator",
-                 sequence_service: "SequenceService", 
-                 account_service: "AccountService",
-                 configuration_service: "ConfigurationService",
-                 app_core: "ApplicationCore",
-                 inventory_movement_service: "InventoryMovementService"): 
-        self.purchase_invoice_service = purchase_invoice_service
-        self.vendor_service = vendor_service
-        self.product_service = product_service
-        self.tax_code_service = tax_code_service
-        self.tax_calculator = tax_calculator
-        self.sequence_service = sequence_service 
-        self.account_service = account_service
-        self.configuration_service = configuration_service
-        self.app_core = app_core
-        self.logger = app_core.logger
-        self.inventory_movement_service = inventory_movement_service
-        
-    async def _validate_and_prepare_pi_data(
-        self, 
-        dto: Union[PurchaseInvoiceCreateData, PurchaseInvoiceUpdateData],
-        is_update: bool = False
-    ) -> Result[Dict[str, Any]]:
-        errors: List[str] = []
-        
-        vendor = await self.vendor_service.get_by_id(dto.vendor_id)
-        if not vendor:
-            errors.append(f"Vendor with ID {dto.vendor_id} not found.")
-        elif not vendor.is_active:
-            errors.append(f"Vendor '{vendor.name}' (ID: {dto.vendor_id}) is not active.")
-
-        if not dto.currency_code or len(dto.currency_code) != 3:
-            errors.append(f"Invalid currency code: '{dto.currency_code}'.")
-        else:
-           currency_obj = await self.app_core.currency_manager.get_currency_by_code(dto.currency_code)
-           if not currency_obj or not currency_obj.is_active:
-               errors.append(f"Currency '{dto.currency_code}' is invalid or not active.")
-
-        if dto.vendor_invoice_no and not is_update: 
-            existing_pi = await self.purchase_invoice_service.get_by_vendor_and_vendor_invoice_no(dto.vendor_id, dto.vendor_invoice_no)
-            if existing_pi:
-                errors.append(f"Duplicate vendor invoice number '{dto.vendor_invoice_no}' already exists for this vendor.")
-        elif dto.vendor_invoice_no and is_update and isinstance(dto, PurchaseInvoiceUpdateData): 
-            existing_pi_for_update = await self.purchase_invoice_service.get_by_id(dto.id) 
-            if existing_pi_for_update and existing_pi_for_update.vendor_invoice_no != dto.vendor_invoice_no:
-                colliding_pi = await self.purchase_invoice_service.get_by_vendor_and_vendor_invoice_no(dto.vendor_id, dto.vendor_invoice_no)
-                if colliding_pi and colliding_pi.id != dto.id:
-                    errors.append(f"Duplicate vendor invoice number '{dto.vendor_invoice_no}' already exists for this vendor on another record.")
-
-        calculated_lines_for_orm: List[Dict[str, Any]] = []
-        invoice_subtotal_calc = Decimal(0)
-        invoice_total_tax_calc = Decimal(0)
-
-        if not dto.lines: errors.append("Purchase invoice must have at least one line item.")
-        
-        for i, line_dto in enumerate(dto.lines):
-            line_errors_current_line: List[str] = []
-            product: Optional["Product"] = None # Use TYPE_CHECKING import
-            line_description = line_dto.description
-            unit_price = line_dto.unit_price
-            line_purchase_account_id: Optional[int] = None 
-            line_tax_account_id: Optional[int] = None
-            product_type_for_line: Optional[ProductTypeEnum] = None
-
-
-            if line_dto.product_id:
-                product = await self.product_service.get_by_id(line_dto.product_id)
-                if not product: line_errors_current_line.append(f"Product ID {line_dto.product_id} not found on line {i+1}.")
-                elif not product.is_active: line_errors_current_line.append(f"Product '{product.name}' is not active on line {i+1}.")
-                if product: 
-                    if not line_description: line_description = product.name
-                    if (unit_price is None or unit_price == Decimal(0)) and product.purchase_price is not None: unit_price = product.purchase_price
-                    line_purchase_account_id = product.purchase_account_id
-                    product_type_for_line = ProductTypeEnum(product.product_type) 
-            
-            if not line_description: line_errors_current_line.append(f"Description is required on line {i+1}.")
-            if unit_price is None: line_errors_current_line.append(f"Unit price is required on line {i+1}."); unit_price = Decimal(0) 
-
-            try:
-                qty = Decimal(str(line_dto.quantity)); price = Decimal(str(unit_price)); discount_pct = Decimal(str(line_dto.discount_percent))
-                if qty <= 0: line_errors_current_line.append(f"Quantity must be positive on line {i+1}.")
-                if not (0 <= discount_pct <= 100): line_errors_current_line.append(f"Discount percent must be between 0 and 100 on line {i+1}.")
-            except InvalidOperation: line_errors_current_line.append(f"Invalid numeric value for quantity, price, or discount on line {i+1}."); errors.extend(line_errors_current_line); continue
-
-            discount_amount = (qty * price * (discount_pct / Decimal(100))).quantize(Decimal("0.0001"), ROUND_HALF_UP)
-            line_subtotal_before_tax = (qty * price) - discount_amount
-            
-            line_tax_amount_calc = Decimal(0)
-            if line_dto.tax_code:
-                tax_calc_result: TaxCalculationResultData = await self.tax_calculator.calculate_line_tax(amount=line_subtotal_before_tax, tax_code_str=line_dto.tax_code, transaction_type="PurchaseInvoiceLine")
-                line_tax_amount_calc = tax_calc_result.tax_amount; line_tax_account_id = tax_calc_result.tax_account_id
-                if tax_calc_result.tax_account_id is None and line_tax_amount_calc > Decimal(0):
-                    tc_check_orm = await self.tax_code_service.get_tax_code(line_dto.tax_code) # Use TYPE_CHECKING import
-                    if not tc_check_orm or not tc_check_orm.is_active: line_errors_current_line.append(f"Tax code '{line_dto.tax_code}' used on line {i+1} is invalid or inactive.")
-            
-            invoice_subtotal_calc += line_subtotal_before_tax; invoice_total_tax_calc += line_tax_amount_calc
-            if line_errors_current_line: errors.extend(line_errors_current_line)
-            
-            calculated_lines_for_orm.append({
-                "product_id": line_dto.product_id, "description": line_description, "quantity": qty, "unit_price": price, "discount_percent": discount_pct,
-                "discount_amount": discount_amount.quantize(Decimal("0.01"), ROUND_HALF_UP), "line_subtotal": line_subtotal_before_tax.quantize(Decimal("0.01"), ROUND_HALF_UP), 
-                "tax_code": line_dto.tax_code, "tax_amount": line_tax_amount_calc.quantize(Decimal("0.01"), ROUND_HALF_UP), 
-                "line_total": (line_subtotal_before_tax + line_tax_amount_calc).quantize(Decimal("0.01"), ROUND_HALF_UP),
-                "dimension1_id": line_dto.dimension1_id, "dimension2_id": line_dto.dimension2_id,
-                "_line_purchase_account_id": line_purchase_account_id, "_line_tax_account_id": line_tax_account_id, "_product_type": product_type_for_line
-            })
-
-        if errors: return Result.failure(errors)
-        invoice_grand_total = invoice_subtotal_calc + invoice_total_tax_calc
-        return Result.success({
-            "header_dto": dto, "vendor_orm": vendor, "calculated_lines_for_orm": calculated_lines_for_orm,
-            "invoice_subtotal": invoice_subtotal_calc.quantize(Decimal("0.01"), ROUND_HALF_UP),
-            "invoice_total_tax": invoice_total_tax_calc.quantize(Decimal("0.01"), ROUND_HALF_UP),
-            "invoice_grand_total": invoice_grand_total.quantize(Decimal("0.01"), ROUND_HALF_UP),
-        })
-
-    async def create_draft_purchase_invoice(self, dto: PurchaseInvoiceCreateData) -> Result[PurchaseInvoice]:
-        preparation_result = await self._validate_and_prepare_pi_data(dto)
-        if not preparation_result.is_success: return Result.failure(preparation_result.errors)
-        prepared_data = preparation_result.value; assert prepared_data is not None 
-        header_dto = cast(PurchaseInvoiceCreateData, prepared_data["header_dto"])
-        try:
-            our_internal_ref_no = await self.app_core.db_manager.execute_scalar("SELECT core.get_next_sequence_value($1);", "purchase_invoice")
-            if not our_internal_ref_no or not isinstance(our_internal_ref_no, str): return Result.failure(["Failed to generate internal invoice number."])
-            invoice_orm = PurchaseInvoice(
-                invoice_no=our_internal_ref_no, vendor_invoice_no=header_dto.vendor_invoice_no, vendor_id=header_dto.vendor_id,
-                invoice_date=header_dto.invoice_date, due_date=header_dto.due_date, currency_code=header_dto.currency_code, 
-                exchange_rate=header_dto.exchange_rate, notes=header_dto.notes, subtotal=prepared_data["invoice_subtotal"], 
-                tax_amount=prepared_data["invoice_total_tax"], total_amount=prepared_data["invoice_grand_total"], 
-                amount_paid=Decimal(0), status=InvoiceStatusEnum.DRAFT.value, 
-                created_by_user_id=header_dto.user_id, updated_by_user_id=header_dto.user_id
-            )
-            for i, line_data_dict in enumerate(prepared_data["calculated_lines_for_orm"]):
-                orm_line_data = {k.lstrip('_'): v for k,v in line_data_dict.items() if not k.startswith('_') and k != "_product_type"}
-                invoice_orm.lines.append(PurchaseInvoiceLine(line_number=i + 1, **orm_line_data))
-            saved_invoice = await self.purchase_invoice_service.save(invoice_orm)
-            self.logger.info(f"Draft PI '{saved_invoice.invoice_no}' created for vendor ID {saved_invoice.vendor_id}.")
-            return Result.success(saved_invoice)
-        except Exception as e: self.logger.error(f"Error creating draft PI: {e}", exc_info=True); return Result.failure([f"Error creating PI: {str(e)}"])
-
-    async def update_draft_purchase_invoice(self, invoice_id: int, dto: PurchaseInvoiceUpdateData) -> Result[PurchaseInvoice]:
-        async with self.app_core.db_manager.session() as session: 
-            existing_invoice = await session.get(PurchaseInvoice, invoice_id, options=[selectinload(PurchaseInvoice.lines)])
-            if not existing_invoice: return Result.failure([f"PI ID {invoice_id} not found."])
-            if existing_invoice.status != InvoiceStatusEnum.DRAFT.value: return Result.failure([f"Only draft PIs can be updated. Status: {existing_invoice.status}"])
-            preparation_result = await self._validate_and_prepare_pi_data(dto, is_update=True)
-            if not preparation_result.is_success: return Result.failure(preparation_result.errors)
-            prepared_data = preparation_result.value; assert prepared_data is not None 
-            header_dto = cast(PurchaseInvoiceUpdateData, prepared_data["header_dto"])
-            try:
-                existing_invoice.vendor_id = header_dto.vendor_id; existing_invoice.vendor_invoice_no = header_dto.vendor_invoice_no
-                existing_invoice.invoice_date = header_dto.invoice_date; existing_invoice.due_date = header_dto.due_date
-                existing_invoice.currency_code = header_dto.currency_code; existing_invoice.exchange_rate = header_dto.exchange_rate
-                existing_invoice.notes = header_dto.notes; existing_invoice.subtotal = prepared_data["invoice_subtotal"]
-                existing_invoice.tax_amount = prepared_data["invoice_total_tax"]; existing_invoice.total_amount = prepared_data["invoice_grand_total"]
-                existing_invoice.updated_by_user_id = header_dto.user_id
-                for line_orm_to_delete in list(existing_invoice.lines): await session.delete(line_orm_to_delete)
-                await session.flush() 
-                new_lines_orm: List[PurchaseInvoiceLine] = []
-                for i, line_data_dict in enumerate(prepared_data["calculated_lines_for_orm"]):
-                    orm_line_data = {k.lstrip('_'): v for k,v in line_data_dict.items() if not k.startswith('_') and k != "_product_type"}
-                    new_lines_orm.append(PurchaseInvoiceLine(line_number=i + 1, **orm_line_data))
-                existing_invoice.lines = new_lines_orm 
-                await session.flush(); await session.refresh(existing_invoice, attribute_names=['lines'])
-                self.logger.info(f"Draft PI '{existing_invoice.invoice_no}' (ID: {invoice_id}) updated.")
-                return Result.success(existing_invoice)
-            except Exception as e: self.logger.error(f"Error updating draft PI ID {invoice_id}: {e}", exc_info=True); return Result.failure([f"Error updating PI: {str(e)}"])
-
-    async def post_purchase_invoice(self, invoice_id: int, user_id: int) -> Result[PurchaseInvoice]:
-        async with self.app_core.db_manager.session() as session: # type: ignore
-            try:
-                invoice_to_post = await session.get(
-                    PurchaseInvoice, invoice_id, 
-                    options=[
-                        selectinload(PurchaseInvoice.lines).selectinload(PurchaseInvoiceLine.product).selectinload(Product.purchase_account),
-                        selectinload(PurchaseInvoice.lines).selectinload(PurchaseInvoiceLine.product).selectinload(Product.inventory_account),
-                        selectinload(PurchaseInvoice.lines).selectinload(PurchaseInvoiceLine.tax_code_obj).selectinload(TaxCode.affects_account), 
-                        selectinload(PurchaseInvoice.vendor).selectinload(Vendor.payables_account)
-                    ]
-                )
-                if not invoice_to_post:
-                    return Result.failure([f"Purchase Invoice ID {invoice_id} not found."])
-                if invoice_to_post.status != InvoiceStatusEnum.DRAFT.value:
-                    return Result.failure([f"Only Draft invoices can be posted. Current status: {invoice_to_post.status}."])
-
-                if not invoice_to_post.vendor or not invoice_to_post.vendor.is_active:
-                    return Result.failure(["Vendor is inactive or not found."])
-                
-                ap_account_id_from_vendor = invoice_to_post.vendor.payables_account_id
-                ap_account_code_fallback = await self.configuration_service.get_config_value("SysAcc_DefaultAP", "2110")
-                ap_account_final_id: Optional[int] = None
-
-                if ap_account_id_from_vendor:
-                    ap_acc_orm = await self.account_service.get_by_id(ap_account_id_from_vendor) 
-                    if ap_acc_orm and ap_acc_orm.is_active: ap_account_final_id = ap_acc_orm.id
-                    else: self.logger.warning(f"Vendor AP account ID {ap_account_id_from_vendor} is invalid/inactive for PI {invoice_to_post.invoice_no}. Falling back.")
-                
-                if not ap_account_final_id and ap_account_code_fallback:
-                    fallback_ap_acc_orm = await self.account_service.get_by_code(ap_account_code_fallback)
-                    if fallback_ap_acc_orm and fallback_ap_acc_orm.is_active: ap_account_final_id = fallback_ap_acc_orm.id
-                
-                if not ap_account_final_id:
-                    return Result.failure([f"Could not determine a valid Accounts Payable account for PI {invoice_to_post.invoice_no}."])
-
-                default_purchase_expense_code = await self.configuration_service.get_config_value("SysAcc_DefaultPurchaseExpense", "5100")
-                default_inventory_asset_code = await self.configuration_service.get_config_value("SysAcc_DefaultInventoryAsset", "1130") 
-                default_gst_input_acc_code = await self.configuration_service.get_config_value("SysAcc_DefaultGSTInput", "SYS-GST-INPUT")
-                
-                je_lines_data: List[JournalEntryLineData] = []
-                
-                je_lines_data.append(JournalEntryLineData(
-                    account_id=ap_account_final_id, debit_amount=Decimal(0), credit_amount=invoice_to_post.total_amount,
-                    description=f"A/P for P.Inv {invoice_to_post.invoice_no} from {invoice_to_post.vendor.name}",
-                    currency_code=invoice_to_post.currency_code, exchange_rate=invoice_to_post.exchange_rate ))
-
-                for line in invoice_to_post.lines:
-                    debit_account_id_for_line: Optional[int] = None
-                    product_type_for_line: Optional[ProductTypeEnum] = None
-                    if line.product: product_type_for_line = ProductTypeEnum(line.product.product_type)
-                    
-                    if product_type_for_line == ProductTypeEnum.INVENTORY and line.product and line.product.inventory_account:
-                        if line.product.inventory_account.is_active: debit_account_id_for_line = line.product.inventory_account.id
-                        else: self.logger.warning(f"Product '{line.product.name}' inventory account '{line.product.inventory_account.code}' is inactive for PI {invoice_to_post.invoice_no}.")
-                    elif line.product and line.product.purchase_account: 
-                         if line.product.purchase_account.is_active: debit_account_id_for_line = line.product.purchase_account.id
-                         else: self.logger.warning(f"Product '{line.product.name}' purchase account '{line.product.purchase_account.code}' is inactive for PI {invoice_to_post.invoice_no}.")
-                    
-                    if not debit_account_id_for_line: 
-                        fallback_code = default_inventory_asset_code if product_type_for_line == ProductTypeEnum.INVENTORY else default_purchase_expense_code
-                        fallback_acc = await self.account_service.get_by_code(fallback_code)
-                        if not fallback_acc or not fallback_acc.is_active: return Result.failure([f"Default debit account '{fallback_code}' for line '{line.description}' is invalid/inactive."])
-                        debit_account_id_for_line = fallback_acc.id
-                    
-                    if not debit_account_id_for_line: return Result.failure([f"Could not determine Debit GL account for line: {line.description}"])
-
-                    je_lines_data.append(JournalEntryLineData(
-                        account_id=debit_account_id_for_line, debit_amount=line.line_subtotal, credit_amount=Decimal(0), 
-                        description=f"Purchase: {line.description[:100]} (P.Inv {invoice_to_post.invoice_no})",
-                        currency_code=invoice_to_post.currency_code, exchange_rate=invoice_to_post.exchange_rate ))
-
-                    if line.tax_amount and line.tax_amount != Decimal(0) and line.tax_code:
-                        gst_gl_id_for_line: Optional[int] = None
-                        line_tax_code_obj_orm = line.tax_code_obj 
-                        if line_tax_code_obj_orm and line_tax_code_obj_orm.affects_account:
-                            if line_tax_code_obj_orm.affects_account.is_active: gst_gl_id_for_line = line_tax_code_obj_orm.affects_account.id
-                            else: self.logger.warning(f"Tax code '{line.tax_code}' affects account '{line_tax_code_obj_orm.affects_account.code}' is inactive. Falling back.")
-                        
-                        if not gst_gl_id_for_line and default_gst_input_acc_code: 
-                            def_gst_input_acc = await self.account_service.get_by_code(default_gst_input_acc_code)
-                            if not def_gst_input_acc or not def_gst_input_acc.is_active: return Result.failure([f"Default GST Input account '{default_gst_input_acc_code}' is invalid or inactive."])
-                            gst_gl_id_for_line = def_gst_input_acc.id
-
-                        if not gst_gl_id_for_line: return Result.failure([f"Could not determine GST Input account for tax on line: {line.description}"])
-                        
-                        je_lines_data.append(JournalEntryLineData(
-                            account_id=gst_gl_id_for_line, debit_amount=line.tax_amount, credit_amount=Decimal(0),
-                            description=f"GST Input ({line.tax_code}) for P.Inv {invoice_to_post.invoice_no}",
-                            currency_code=invoice_to_post.currency_code, exchange_rate=invoice_to_post.exchange_rate ))
-                
-                je_dto = JournalEntryData(
-                    journal_type=JournalTypeEnum.PURCHASE.value, entry_date=invoice_to_post.invoice_date,
-                    description=f"Purchase Invoice {invoice_to_post.invoice_no} from {invoice_to_post.vendor.name}",
-                    source_type="PurchaseInvoice", source_id=invoice_to_post.id, user_id=user_id, lines=je_lines_data
-                )
-
-                create_je_result = await self.app_core.journal_entry_manager.create_journal_entry(je_dto, session=session)
-                if not create_je_result.is_success or not create_je_result.value: return Result.failure(["Failed to create JE for PI."] + create_je_result.errors)
-                
-                created_je: JournalEntry = create_je_result.value
-                post_je_result = await self.app_core.journal_entry_manager.post_journal_entry(created_je.id, user_id, session=session)
-                if not post_je_result.is_success: return Result.failure([f"JE (ID: {created_je.id}) created but failed to post."] + post_je_result.errors)
-
-                for line in invoice_to_post.lines:
-                    if line.product and ProductTypeEnum(line.product.product_type) == ProductTypeEnum.INVENTORY:
-                        inv_movement = InventoryMovement(
-                            product_id=line.product_id, movement_date=invoice_to_post.invoice_date,
-                            movement_type=InventoryMovementTypeEnum.PURCHASE.value,
-                            quantity=line.quantity, unit_cost=(line.line_subtotal / line.quantity if line.quantity else Decimal(0)),
-                            total_cost=line.line_subtotal, reference_type='PurchaseInvoiceLine', reference_id=line.id,
-                            created_by_user_id=user_id
-                        )
-                        await self.inventory_movement_service.save(inv_movement, session=session)
-                
-                invoice_to_post.status = InvoiceStatusEnum.APPROVED.value 
-                invoice_to_post.journal_entry_id = created_je.id
-                invoice_to_post.updated_by_user_id = user_id
-                
-                session.add(invoice_to_post) 
-                await session.flush(); await session.refresh(invoice_to_post)
-                self.logger.info(f"PI {invoice_to_post.invoice_no} (ID: {invoice_id}) posted. JE ID: {created_je.id}")
-                return Result.success(invoice_to_post)
-
-            except Exception as e: self.logger.error(f"Error posting PI ID {invoice_id}: {e}", exc_info=True); return Result.failure([f"Unexpected error posting PI: {str(e)}"])
-
-    async def get_invoice_for_dialog(self, invoice_id: int) -> Optional[PurchaseInvoice]:
-        try: return await self.purchase_invoice_service.get_by_id(invoice_id)
-        except Exception as e: self.logger.error(f"Error fetching PI ID {invoice_id} for dialog: {e}", exc_info=True); return None
-
-    async def get_invoices_for_listing(self, vendor_id: Optional[int]=None, status:Optional[InvoiceStatusEnum]=None, start_date:Optional[date]=None, end_date:Optional[date]=None, page:int=1, page_size:int=50) -> Result[List[PurchaseInvoiceSummaryData]]:
-        try:
-            summaries = await self.purchase_invoice_service.get_all_summary(vendor_id=vendor_id, status=status, start_date=start_date, end_date=end_date, page=page, page_size=page_size)
-            return Result.success(summaries)
-        except Exception as e: self.logger.error(f"Error fetching PI listing: {e}", exc_info=True); return Result.failure([f"Failed to retrieve PI list: {str(e)}"])
-
-```
-
-# app/business_logic/sales_invoice_manager.py
-```py
-# File: app/business_logic/sales_invoice_manager.py
-from typing import List, Optional, Dict, Any, TYPE_CHECKING, Union, cast
-from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
-from datetime import date, datetime 
-
-from sqlalchemy import text 
-from sqlalchemy.orm import selectinload 
-
-from app.models.business.sales_invoice import SalesInvoice, SalesInvoiceLine
-from app.models.business.customer import Customer
-from app.models.business.product import Product
-# REMOVED: from app.models.accounting.tax_code import TaxCode # Not directly used here, TaxCodeService is
-from app.models.accounting.journal_entry import JournalEntry 
-from app.models.business.inventory_movement import InventoryMovement 
-
-# REMOVED: from app.services.business_services import SalesInvoiceService, CustomerService, ProductService, InventoryMovementService
-# REMOVED: from app.services.core_services import SequenceService, ConfigurationService 
-# REMOVED: from app.services.tax_service import TaxCodeService 
-# REMOVED: from app.services.account_service import AccountService 
-# REMOVED: from app.tax.tax_calculator import TaxCalculator 
-
-from app.utils.result import Result
-from app.utils.pydantic_models import (
-    SalesInvoiceCreateData, SalesInvoiceUpdateData, SalesInvoiceLineBaseData,
-    SalesInvoiceSummaryData, TaxCalculationResultData,
-    JournalEntryData, JournalEntryLineData 
-)
-from app.common.enums import InvoiceStatusEnum, ProductTypeEnum, JournalTypeEnum, InventoryMovementTypeEnum 
-
-if TYPE_CHECKING:
-    from app.core.application_core import ApplicationCore
-    from app.services.business_services import SalesInvoiceService, CustomerService, ProductService, InventoryMovementService
-    from app.services.core_services import SequenceService, ConfigurationService
-    from app.services.tax_service import TaxCodeService
-    from app.services.account_service import AccountService
-    from app.tax.tax_calculator import TaxCalculator
-    from app.models.accounting.tax_code import TaxCode # Keep for TaxCodeService method returns if needed
-
-class SalesInvoiceManager:
-    def __init__(self, 
-                 sales_invoice_service: "SalesInvoiceService",
-                 customer_service: "CustomerService",
-                 product_service: "ProductService",
-                 tax_code_service: "TaxCodeService", 
-                 tax_calculator: "TaxCalculator", 
-                 sequence_service: "SequenceService",
-                 account_service: "AccountService", 
-                 configuration_service: "ConfigurationService", 
-                 app_core: "ApplicationCore",
-                 inventory_movement_service: "InventoryMovementService"): 
-        self.sales_invoice_service = sales_invoice_service
-        self.customer_service = customer_service
-        self.product_service = product_service
-        self.tax_code_service = tax_code_service
-        self.tax_calculator = tax_calculator 
-        self.sequence_service = sequence_service 
-        self.account_service = account_service 
-        self.configuration_service = configuration_service 
-        self.app_core = app_core
-        self.logger = app_core.logger
-        self.inventory_movement_service = inventory_movement_service
-
-    async def _validate_and_prepare_invoice_data(
-        self, 
-        dto: Union[SalesInvoiceCreateData, SalesInvoiceUpdateData],
-        is_update: bool = False 
-    ) -> Result[Dict[str, Any]]:
-        errors: List[str] = []
-        customer = await self.customer_service.get_by_id(dto.customer_id)
-        if not customer: errors.append(f"Customer with ID {dto.customer_id} not found.")
-        elif not customer.is_active: errors.append(f"Customer '{customer.name}' (ID: {dto.customer_id}) is not active.")
-        if not dto.currency_code or len(dto.currency_code) != 3: errors.append(f"Invalid currency code: '{dto.currency_code}'.")
-        else:
-           currency_obj = await self.app_core.currency_manager.get_currency_by_code(dto.currency_code)
-           if not currency_obj or not currency_obj.is_active: errors.append(f"Currency '{dto.currency_code}' is invalid or not active.")
-        calculated_lines_for_orm: List[Dict[str, Any]] = []; invoice_subtotal_calc = Decimal(0); invoice_total_tax_calc = Decimal(0)
-        if not dto.lines: errors.append("Sales invoice must have at least one line item.")
-        for i, line_dto in enumerate(dto.lines):
-            line_errors_current_line: List[str] = []; product: Optional[Product] = None; line_description = line_dto.description
-            unit_price = line_dto.unit_price; line_sales_account_id: Optional[int] = None; product_type_for_line: Optional[ProductTypeEnum] = None
-            if line_dto.product_id:
-                product = await self.product_service.get_by_id(line_dto.product_id)
-                if not product: line_errors_current_line.append(f"Product ID {line_dto.product_id} not found on line {i+1}.")
-                elif not product.is_active: line_errors_current_line.append(f"Product '{product.name}' is not active on line {i+1}.")
-                if product: 
-                    if not line_description: line_description = product.name
-                    if (unit_price is None or unit_price == Decimal(0)) and product.sales_price is not None: unit_price = product.sales_price
-                    line_sales_account_id = product.sales_account_id; product_type_for_line = ProductTypeEnum(product.product_type)
-            if not line_description: line_errors_current_line.append(f"Description is required on line {i+1}.")
-            if unit_price is None: line_errors_current_line.append(f"Unit price is required on line {i+1}."); unit_price = Decimal(0) 
-            try:
-                qty = Decimal(str(line_dto.quantity)); price = Decimal(str(unit_price)); discount_pct = Decimal(str(line_dto.discount_percent))
-                if qty <= 0: line_errors_current_line.append(f"Quantity must be positive on line {i+1}.")
-                if price < 0: line_errors_current_line.append(f"Unit price cannot be negative on line {i+1}.")
-                if not (0 <= discount_pct <= 100): line_errors_current_line.append(f"Discount percent must be between 0 and 100 on line {i+1}.")
-            except InvalidOperation: line_errors_current_line.append(f"Invalid numeric for qty/price/disc on line {i+1}."); errors.extend(line_errors_current_line); continue
-            discount_amount = (qty * price * (discount_pct / Decimal(100))).quantize(Decimal("0.0001"), ROUND_HALF_UP)
-            line_subtotal_before_tax = (qty * price) - discount_amount; line_tax_amount_calc = Decimal(0); line_tax_account_id: Optional[int] = None 
-            if line_dto.tax_code:
-                tax_calc_result: TaxCalculationResultData = await self.tax_calculator.calculate_line_tax(amount=line_subtotal_before_tax, tax_code_str=line_dto.tax_code, transaction_type="SalesInvoiceLine")
-                line_tax_amount_calc = tax_calc_result.tax_amount; line_tax_account_id = tax_calc_result.tax_account_id 
-                if tax_calc_result.tax_account_id is None and line_tax_amount_calc > Decimal(0): 
-                    tc_check_orm = await self.tax_code_service.get_tax_code(line_dto.tax_code)
-                    if not tc_check_orm or not tc_check_orm.is_active: line_errors_current_line.append(f"Tax code '{line_dto.tax_code}' used on line {i+1} is invalid or inactive.")
-            invoice_subtotal_calc += line_subtotal_before_tax; invoice_total_tax_calc += line_tax_amount_calc
-            if line_errors_current_line: errors.extend(line_errors_current_line)
-            calculated_lines_for_orm.append({
-                "product_id": line_dto.product_id, "description": line_description, "quantity": qty, "unit_price": price, "discount_percent": discount_pct,
-                "discount_amount": discount_amount.quantize(Decimal("0.01"), ROUND_HALF_UP), "line_subtotal": line_subtotal_before_tax.quantize(Decimal("0.01"), ROUND_HALF_UP), 
-                "tax_code": line_dto.tax_code, "tax_amount": line_tax_amount_calc, "line_total": (line_subtotal_before_tax + line_tax_amount_calc).quantize(Decimal("0.01"), ROUND_HALF_UP),
-                "dimension1_id": line_dto.dimension1_id, "dimension2_id": line_dto.dimension2_id,
-                "_line_sales_account_id": line_sales_account_id, "_line_tax_account_id": line_tax_account_id, "_product_type": product_type_for_line
-            })
-        if errors: return Result.failure(errors)
-        invoice_grand_total = invoice_subtotal_calc + invoice_total_tax_calc
-        return Result.success({
-            "header_dto": dto, "customer_orm": customer, "calculated_lines_for_orm": calculated_lines_for_orm,
-            "invoice_subtotal": invoice_subtotal_calc.quantize(Decimal("0.01"), ROUND_HALF_UP),
-            "invoice_total_tax": invoice_total_tax_calc.quantize(Decimal("0.01"), ROUND_HALF_UP),
-            "invoice_grand_total": invoice_grand_total.quantize(Decimal("0.01"), ROUND_HALF_UP),
-        })
-
-    async def create_draft_invoice(self, dto: SalesInvoiceCreateData) -> Result[SalesInvoice]:
-        preparation_result = await self._validate_and_prepare_invoice_data(dto)
-        if not preparation_result.is_success: return Result.failure(preparation_result.errors)
-        prepared_data = preparation_result.value; assert prepared_data is not None 
-        header_dto = cast(SalesInvoiceCreateData, prepared_data["header_dto"])
-        try:
-            invoice_no_val = await self.app_core.db_manager.execute_scalar("SELECT core.get_next_sequence_value($1);", "sales_invoice")
-            if not invoice_no_val or not isinstance(invoice_no_val, str): return Result.failure(["Failed to generate invoice number."])
-            invoice_no = invoice_no_val
-            invoice_orm = SalesInvoice(
-                invoice_no=invoice_no, customer_id=header_dto.customer_id, invoice_date=header_dto.invoice_date, due_date=header_dto.due_date,
-                currency_code=header_dto.currency_code, exchange_rate=header_dto.exchange_rate, notes=header_dto.notes, 
-                terms_and_conditions=header_dto.terms_and_conditions, subtotal=prepared_data["invoice_subtotal"], 
-                tax_amount=prepared_data["invoice_total_tax"], total_amount=prepared_data["invoice_grand_total"], 
-                amount_paid=Decimal(0), status=InvoiceStatusEnum.DRAFT.value,
-                created_by_user_id=header_dto.user_id, updated_by_user_id=header_dto.user_id
-            )
-            for i, line_data_dict in enumerate(prepared_data["calculated_lines_for_orm"]):
-                orm_line_data = {k.lstrip('_'): v for k,v in line_data_dict.items() if not k.startswith('_') and k != "_product_type"}
-                invoice_orm.lines.append(SalesInvoiceLine(line_number=i + 1, **orm_line_data))
-            saved_invoice = await self.sales_invoice_service.save(invoice_orm)
-            return Result.success(saved_invoice)
-        except Exception as e: self.logger.error(f"Error creating draft SI: {e}", exc_info=True); return Result.failure([f"Error creating SI: {str(e)}"])
-
-    async def update_draft_invoice(self, invoice_id: int, dto: SalesInvoiceUpdateData) -> Result[SalesInvoice]:
-        async with self.app_core.db_manager.session() as session: 
-            existing_invoice = await session.get(SalesInvoice, invoice_id, options=[selectinload(SalesInvoice.lines)])
-            if not existing_invoice: return Result.failure([f"SI ID {invoice_id} not found."])
-            if existing_invoice.status != InvoiceStatusEnum.DRAFT.value: return Result.failure([f"Only draft invoices can be updated. Status: {existing_invoice.status}"])
-            preparation_result = await self._validate_and_prepare_invoice_data(dto, is_update=True)
-            if not preparation_result.is_success: return Result.failure(preparation_result.errors)
-            prepared_data = preparation_result.value; assert prepared_data is not None 
-            header_dto = cast(SalesInvoiceUpdateData, prepared_data["header_dto"])
-            try:
-                existing_invoice.customer_id = header_dto.customer_id; existing_invoice.invoice_date = header_dto.invoice_date
-                existing_invoice.due_date = header_dto.due_date; existing_invoice.currency_code = header_dto.currency_code
-                existing_invoice.exchange_rate = header_dto.exchange_rate; existing_invoice.notes = header_dto.notes
-                existing_invoice.terms_and_conditions = header_dto.terms_and_conditions
-                existing_invoice.subtotal = prepared_data["invoice_subtotal"]; existing_invoice.tax_amount = prepared_data["invoice_total_tax"]
-                existing_invoice.total_amount = prepared_data["invoice_grand_total"]; existing_invoice.updated_by_user_id = header_dto.user_id
-                for line_orm_to_delete in list(existing_invoice.lines): await session.delete(line_orm_to_delete)
-                await session.flush() 
-                new_lines_orm: List[SalesInvoiceLine] = []
-                for i, line_data_dict in enumerate(prepared_data["calculated_lines_for_orm"]):
-                    orm_line_data = {k.lstrip('_'): v for k,v in line_data_dict.items() if not k.startswith('_') and k != "_product_type"}
-                    new_lines_orm.append(SalesInvoiceLine(line_number=i + 1, **orm_line_data))
-                existing_invoice.lines = new_lines_orm 
-                await session.flush(); await session.refresh(existing_invoice)
-                if existing_invoice.lines: await session.refresh(existing_invoice, attribute_names=['lines'])
-                return Result.success(existing_invoice)
-            except Exception as e: self.logger.error(f"Error updating draft SI ID {invoice_id}: {e}", exc_info=True); return Result.failure([f"Error updating SI: {str(e)}"])
-
-    async def get_invoice_for_dialog(self, invoice_id: int) -> Optional[SalesInvoice]:
-        try: return await self.sales_invoice_service.get_by_id(invoice_id)
-        except Exception as e: self.logger.error(f"Error fetching SI ID {invoice_id} for dialog: {e}", exc_info=True); return None
-
-
-    async def post_invoice(self, invoice_id: int, user_id: int) -> Result[SalesInvoice]:
-        async with self.app_core.db_manager.session() as session: # type: ignore
-            try:
-                invoice_to_post = await session.get(
-                    SalesInvoice, invoice_id, 
-                    options=[
-                        selectinload(SalesInvoice.lines).selectinload(SalesInvoiceLine.product).selectinload(Product.sales_account),
-                        selectinload(SalesInvoice.lines).selectinload(SalesInvoiceLine.product).selectinload(Product.inventory_account), 
-                        selectinload(SalesInvoice.lines).selectinload(SalesInvoiceLine.product).selectinload(Product.purchase_account), 
-                        selectinload(SalesInvoice.lines).selectinload(SalesInvoiceLine.tax_code_obj).selectinload(TaxCode.affects_account), 
-                        selectinload(SalesInvoice.customer).selectinload(Customer.receivables_account)
-                    ]
-                )
-                if not invoice_to_post: return Result.failure([f"SI ID {invoice_id} not found."])
-                if invoice_to_post.status != InvoiceStatusEnum.DRAFT.value: return Result.failure([f"Only Draft invoices can be posted. Status: {invoice_to_post.status}."])
-                if not invoice_to_post.customer or not invoice_to_post.customer.is_active: return Result.failure(["Customer is inactive or not found."])
-                if not invoice_to_post.customer.receivables_account_id or not invoice_to_post.customer.receivables_account: return Result.failure([f"Customer '{invoice_to_post.customer.name}' AR account not configured or invalid."])
-                ar_account = invoice_to_post.customer.receivables_account
-                if not ar_account.is_active: return Result.failure([f"Configured AR account '{ar_account.code}' for customer is inactive."])
-
-                default_sales_acc_code = await self.configuration_service.get_config_value("SysAcc_DefaultSalesRevenue", "4100")
-                default_gst_output_acc_code = await self.configuration_service.get_config_value("SysAcc_DefaultGSTOutput", "SYS-GST-OUTPUT")
-                default_cogs_acc_code = await self.configuration_service.get_config_value("SysAcc_DefaultCOGS", "5100") 
-
-                fin_je_lines_data: List[JournalEntryLineData] = []
-                fin_je_lines_data.append(JournalEntryLineData( account_id=ar_account.id, debit_amount=invoice_to_post.total_amount, credit_amount=Decimal(0), description=f"A/R for Inv {invoice_to_post.invoice_no}", currency_code=invoice_to_post.currency_code, exchange_rate=invoice_to_post.exchange_rate))
-                for line in invoice_to_post.lines:
-                    sales_gl_id = line.product.sales_account.id if line.product and line.product.sales_account and line.product.sales_account.is_active else (await self.account_service.get_by_code(default_sales_acc_code)).id # type: ignore
-                    if not sales_gl_id: return Result.failure([f"Could not determine Sales Revenue account for line: {line.description}"])
-                    fin_je_lines_data.append(JournalEntryLineData( account_id=sales_gl_id, debit_amount=Decimal(0), credit_amount=line.line_subtotal, description=f"Sale: {line.description[:100]} (Inv {invoice_to_post.invoice_no})", currency_code=invoice_to_post.currency_code, exchange_rate=invoice_to_post.exchange_rate))
-                    if line.tax_amount and line.tax_amount != Decimal(0) and line.tax_code:
-                        gst_gl_id_orm = line.tax_code_obj.affects_account if line.tax_code_obj and line.tax_code_obj.affects_account else None
-                        gst_gl_id = gst_gl_id_orm.id if gst_gl_id_orm and gst_gl_id_orm.is_active else (await self.account_service.get_by_code(default_gst_output_acc_code)).id if default_gst_output_acc_code else None # type: ignore
-                        if not gst_gl_id: return Result.failure([f"Could not determine GST Output account for tax on line: {line.description}"])
-                        fin_je_lines_data.append(JournalEntryLineData( account_id=gst_gl_id, debit_amount=Decimal(0), credit_amount=line.tax_amount, description=f"GST Output ({line.tax_code}) for Inv {invoice_to_post.invoice_no}", currency_code=invoice_to_post.currency_code, exchange_rate=invoice_to_post.exchange_rate))
-                
-                fin_je_dto = JournalEntryData( journal_type=JournalTypeEnum.SALES.value, entry_date=invoice_to_post.invoice_date, description=f"Sales Invoice {invoice_to_post.invoice_no} to {invoice_to_post.customer.name}", source_type="SalesInvoice", source_id=invoice_to_post.id, user_id=user_id, lines=fin_je_lines_data)
-                create_fin_je_result = await self.app_core.journal_entry_manager.create_journal_entry(fin_je_dto, session=session)
-                if not create_fin_je_result.is_success or not create_fin_je_result.value: return Result.failure(["Failed to create financial JE for SI."] + create_fin_je_result.errors)
-                created_fin_je: JournalEntry = create_fin_je_result.value
-                post_fin_je_result = await self.app_core.journal_entry_manager.post_journal_entry(created_fin_je.id, user_id, session=session)
-                if not post_fin_je_result.is_success: return Result.failure([f"Financial JE (ID: {created_fin_je.id}) created but failed to post."] + post_fin_je_result.errors)
-
-                cogs_je_lines_data: List[JournalEntryLineData] = []
-                for line in invoice_to_post.lines:
-                    if line.product and ProductTypeEnum(line.product.product_type) == ProductTypeEnum.INVENTORY:
-                        wac_query = text("SELECT average_cost FROM business.inventory_summary WHERE product_id = :pid")
-                        wac_result = await session.execute(wac_query, {"pid": line.product_id})
-                        current_wac = wac_result.scalar_one_or_none()
-                        if current_wac is None: current_wac = line.product.purchase_price or Decimal(0) 
-                        
-                        cogs_amount_for_line = (line.quantity * current_wac).quantize(Decimal("0.01"), ROUND_HALF_UP)
-
-                        inv_movement = InventoryMovement(
-                            product_id=line.product_id, movement_date=invoice_to_post.invoice_date,
-                            movement_type=InventoryMovementTypeEnum.SALE.value, quantity=-line.quantity, 
-                            unit_cost=current_wac, total_cost=cogs_amount_for_line,
-                            reference_type='SalesInvoiceLine', reference_id=line.id, created_by_user_id=user_id
-                        )
-                        await self.inventory_movement_service.save(inv_movement, session=session)
-
-                        cogs_acc_orm = line.product.purchase_account if line.product.purchase_account and line.product.purchase_account.is_active else (await self.account_service.get_by_code(default_cogs_acc_code))
-                        inv_asset_acc_orm = line.product.inventory_account if line.product.inventory_account and line.product.inventory_account.is_active else None # No easy system default for this specific product's asset account
-                        if not cogs_acc_orm or not cogs_acc_orm.is_active or not inv_asset_acc_orm or not inv_asset_acc_orm.is_active: return Result.failure(["COGS or Inventory Asset account setup issue for product."])
-                        
-                        cogs_je_lines_data.append(JournalEntryLineData(account_id=cogs_acc_orm.id, debit_amount=cogs_amount_for_line, credit_amount=Decimal(0), description=f"COGS: {line.description[:50]}"))
-                        cogs_je_lines_data.append(JournalEntryLineData(account_id=inv_asset_acc_orm.id, debit_amount=Decimal(0), credit_amount=cogs_amount_for_line, description=f"Inventory Sold: {line.description[:50]}"))
-
-                if cogs_je_lines_data:
-                    cogs_je_dto = JournalEntryData(journal_type=JournalTypeEnum.GENERAL.value, entry_date=invoice_to_post.invoice_date, description=f"COGS for SI {invoice_to_post.invoice_no}", source_type="SalesInvoiceCOGS", source_id=invoice_to_post.id, user_id=user_id, lines=cogs_je_lines_data)
-                    create_cogs_je_result = await self.app_core.journal_entry_manager.create_journal_entry(cogs_je_dto, session=session)
-                    if not create_cogs_je_result.is_success or not create_cogs_je_result.value: return Result.failure(["Failed to create COGS JE."] + create_cogs_je_result.errors)
-                    post_cogs_je_result = await self.app_core.journal_entry_manager.post_journal_entry(create_cogs_je_result.value.id, user_id, session=session)
-                    if not post_cogs_je_result.is_success: return Result.failure([f"COGS JE (ID: {create_cogs_je_result.value.id}) created but failed to post."] + post_cogs_je_result.errors)
-
-                invoice_to_post.status = InvoiceStatusEnum.APPROVED.value 
-                invoice_to_post.journal_entry_id = created_fin_je.id
-                invoice_to_post.updated_by_user_id = user_id
-                session.add(invoice_to_post); await session.flush(); await session.refresh(invoice_to_post)
-                self.logger.info(f"SI {invoice_to_post.invoice_no} (ID: {invoice_id}) posted. Fin JE ID: {created_fin_je.id}")
-                return Result.success(invoice_to_post)
-
-            except Exception as e: self.logger.error(f"Error posting SI ID {invoice_id}: {e}", exc_info=True); return Result.failure([f"Unexpected error posting SI: {str(e)}"])
-
-    async def get_invoices_for_listing(self, customer_id: Optional[int]=None, status:Optional[InvoiceStatusEnum]=None, start_date:Optional[date]=None, end_date:Optional[date]=None, page:int=1, page_size:int=50) -> Result[List[SalesInvoiceSummaryData]]:
-        try:
-            summaries = await self.sales_invoice_service.get_all_summary(customer_id=customer_id, status=status, start_date=start_date, end_date=end_date, page=page, page_size=page_size)
-            return Result.success(summaries)
-        except Exception as e: self.logger.error(f"Error fetching SI listing: {e}", exc_info=True); return Result.failure([f"Failed to retrieve SI list: {str(e)}"])
-
-```
-
-# app/business_logic/vendor_manager.py
-```py
-# File: app/business_logic/vendor_manager.py
-from typing import List, Optional, Dict, Any, TYPE_CHECKING
-from decimal import Decimal
-
-from app.models.business.vendor import Vendor
-# REMOVED: from app.services.business_services import VendorService
-# REMOVED: from app.services.account_service import AccountService
-# REMOVED: from app.services.accounting_services import CurrencyService
-from app.utils.result import Result
-from app.utils.pydantic_models import VendorCreateData, VendorUpdateData, VendorSummaryData
-
-if TYPE_CHECKING:
-    from app.core.application_core import ApplicationCore
-    from app.services.business_services import VendorService # ADDED
-    from app.services.account_service import AccountService # ADDED
-    from app.services.accounting_services import CurrencyService # ADDED
-
-class VendorManager:
-    def __init__(self, 
-                 vendor_service: "VendorService", 
-                 account_service: "AccountService", 
-                 currency_service: "CurrencyService", 
-                 app_core: "ApplicationCore"):
-        self.vendor_service = vendor_service
-        self.account_service = account_service
-        self.currency_service = currency_service
-        self.app_core = app_core
-        self.logger = app_core.logger 
-
-    async def get_vendor_for_dialog(self, vendor_id: int) -> Optional[Vendor]:
-        """ Fetches a full vendor ORM object for dialog population. """
-        try:
-            return await self.vendor_service.get_by_id(vendor_id)
-        except Exception as e:
-            self.logger.error(f"Error fetching vendor ID {vendor_id} for dialog: {e}", exc_info=True)
-            return None
-
-    async def get_vendors_for_listing(self, 
-                                       active_only: bool = True,
-                                       search_term: Optional[str] = None,
-                                       page: int = 1,
-                                       page_size: int = 50
-                                      ) -> Result[List[VendorSummaryData]]:
-        """ Fetches a list of vendor summaries for table display. """
-        try:
-            summaries: List[VendorSummaryData] = await self.vendor_service.get_all_summary(
-                active_only=active_only,
-                search_term=search_term,
-                page=page,
-                page_size=page_size
-            )
-            return Result.success(summaries)
-        except Exception as e:
-            self.logger.error(f"Error fetching vendor listing: {e}", exc_info=True)
-            return Result.failure([f"Failed to retrieve vendor list: {str(e)}"])
-
-    async def _validate_vendor_data(self, dto: VendorCreateData | VendorUpdateData, existing_vendor_id: Optional[int] = None) -> List[str]:
-        """ Common validation logic for creating and updating vendors. """
-        errors: List[str] = []
-
-        if dto.vendor_code:
-            existing_by_code = await self.vendor_service.get_by_code(dto.vendor_code)
-            if existing_by_code and (existing_vendor_id is None or existing_by_code.id != existing_vendor_id):
-                errors.append(f"Vendor code '{dto.vendor_code}' already exists.")
-        else: 
-            errors.append("Vendor code is required.") 
-            
-        if dto.name is None or not dto.name.strip(): 
-            errors.append("Vendor name is required.")
-
-        if dto.payables_account_id is not None:
-            acc = await self.account_service.get_by_id(dto.payables_account_id)
-            if not acc:
-                errors.append(f"Payables account ID '{dto.payables_account_id}' not found.")
-            elif acc.account_type != 'Liability': 
-                errors.append(f"Account '{acc.code} - {acc.name}' is not a Liability account and cannot be used as payables account.")
-            elif not acc.is_active:
-                 errors.append(f"Payables account '{acc.code} - {acc.name}' is not active.")
-
-        if dto.currency_code:
-            curr = await self.currency_service.get_by_id(dto.currency_code) 
-            if not curr:
-                errors.append(f"Currency code '{dto.currency_code}' not found.")
-            elif not curr.is_active:
-                 errors.append(f"Currency '{dto.currency_code}' is not active.")
-        else: 
-             errors.append("Currency code is required.")
-        return errors
-
-    async def create_vendor(self, dto: VendorCreateData) -> Result[Vendor]:
-        validation_errors = await self._validate_vendor_data(dto)
-        if validation_errors:
-            return Result.failure(validation_errors)
-
-        try:
-            vendor_orm = Vendor(
-                vendor_code=dto.vendor_code, name=dto.name, legal_name=dto.legal_name,
-                uen_no=dto.uen_no, gst_registered=dto.gst_registered, gst_no=dto.gst_no,
-                withholding_tax_applicable=dto.withholding_tax_applicable,
-                withholding_tax_rate=dto.withholding_tax_rate,
-                contact_person=dto.contact_person, email=str(dto.email) if dto.email else None, phone=dto.phone,
-                address_line1=dto.address_line1, address_line2=dto.address_line2,
-                postal_code=dto.postal_code, city=dto.city, country=dto.country,
-                payment_terms=dto.payment_terms, currency_code=dto.currency_code, 
-                is_active=dto.is_active, vendor_since=dto.vendor_since, notes=dto.notes,
-                bank_account_name=dto.bank_account_name, bank_account_number=dto.bank_account_number,
-                bank_name=dto.bank_name, bank_branch=dto.bank_branch, bank_swift_code=dto.bank_swift_code,
-                payables_account_id=dto.payables_account_id,
-                created_by_user_id=dto.user_id,
-                updated_by_user_id=dto.user_id
-            )
-            saved_vendor = await self.vendor_service.save(vendor_orm)
-            return Result.success(saved_vendor)
-        except Exception as e:
-            self.logger.error(f"Error creating vendor '{dto.vendor_code}': {e}", exc_info=True)
-            return Result.failure([f"An unexpected error occurred while creating the vendor: {str(e)}"])
-
-    async def update_vendor(self, vendor_id: int, dto: VendorUpdateData) -> Result[Vendor]:
-        existing_vendor = await self.vendor_service.get_by_id(vendor_id)
-        if not existing_vendor:
-            return Result.failure([f"Vendor with ID {vendor_id} not found."])
-
-        validation_errors = await self._validate_vendor_data(dto, existing_vendor_id=vendor_id)
-        if validation_errors:
-            return Result.failure(validation_errors)
-
-        try:
-            update_data_dict = dto.model_dump(exclude={'id', 'user_id'}, exclude_unset=True)
-            for key, value in update_data_dict.items():
-                if hasattr(existing_vendor, key):
-                    if key == 'email' and value is not None: 
-                        setattr(existing_vendor, key, str(value))
-                    else:
-                        setattr(existing_vendor, key, value)
-            
-            existing_vendor.updated_by_user_id = dto.user_id
-            
-            updated_vendor = await self.vendor_service.save(existing_vendor)
-            return Result.success(updated_vendor)
-        except Exception as e:
-            self.logger.error(f"Error updating vendor ID {vendor_id}: {e}", exc_info=True)
-            return Result.failure([f"An unexpected error occurred while updating the vendor: {str(e)}"])
-
-    async def toggle_vendor_active_status(self, vendor_id: int, user_id: int) -> Result[Vendor]:
-        vendor = await self.vendor_service.get_by_id(vendor_id)
-        if not vendor:
-            return Result.failure([f"Vendor with ID {vendor_id} not found."])
-        
-        vendor_name_for_log = vendor.name 
-        
-        vendor.is_active = not vendor.is_active
-        vendor.updated_by_user_id = user_id
-
-        try:
-            updated_vendor = await self.vendor_service.save(vendor)
-            action = "activated" if updated_vendor.is_active else "deactivated"
-            self.logger.info(f"Vendor '{vendor_name_for_log}' (ID: {vendor_id}) {action} by user ID {user_id}.")
-            return Result.success(updated_vendor)
-        except Exception as e:
-            self.logger.error(f"Error toggling active status for vendor ID {vendor_id}: {e}", exc_info=True)
-            return Result.failure([f"Failed to toggle active status for vendor: {str(e)}"])
+# scripts/initial_data.sql
+```sql
+-- File: scripts/initial_data.sql
+-- ============================================================================
+-- INITIAL DATA (Version 1.0.6)
+-- ============================================================================
+-- Changes from 1.0.5:
+-- - Added 'CorpTaxRate_Default' to core.configuration for use in tax computation reports.
+-- ============================================================================
+
+BEGIN;
+
+-- ----------------------------------------------------------------------------
+-- Insert default roles
+-- ----------------------------------------------------------------------------
+INSERT INTO core.roles (name, description) VALUES
+('Administrator', 'Full system access'),
+('Accountant', 'Access to accounting functions'),
+('Bookkeeper', 'Basic transaction entry and reporting'),
+('Manager', 'Access to reports and dashboards'),
+('Viewer', 'Read-only access to data')
+ON CONFLICT (name) DO UPDATE SET 
+    description = EXCLUDED.description, 
+    updated_at = CURRENT_TIMESTAMP;
+
+-- ----------------------------------------------------------------------------
+-- Insert default permissions
+-- ----------------------------------------------------------------------------
+INSERT INTO core.permissions (code, description, module) VALUES
+('SYSTEM_SETTINGS', 'Manage system settings', 'System'), ('USER_MANAGE', 'Manage users', 'System'),
+('ROLE_MANAGE', 'Manage roles and permissions', 'System'), ('DATA_BACKUP', 'Backup and restore data', 'System'),
+('DATA_IMPORT', 'Import data', 'System'), ('DATA_EXPORT', 'Export data', 'System'),
+('VIEW_AUDIT_LOG', 'View audit logs', 'System'), ('ACCOUNT_VIEW', 'View chart of accounts', 'Accounting'),
+('ACCOUNT_CREATE', 'Create accounts', 'Accounting'), ('ACCOUNT_EDIT', 'Edit accounts', 'Accounting'),
+('ACCOUNT_DELETE', 'Delete/deactivate accounts', 'Accounting'), ('JOURNAL_VIEW', 'View journal entries', 'Accounting'),
+('JOURNAL_CREATE', 'Create journal entries', 'Accounting'), ('JOURNAL_EDIT', 'Edit draft journal entries', 'Accounting'),
+('JOURNAL_POST', 'Post journal entries', 'Accounting'), ('JOURNAL_REVERSE', 'Reverse posted journal entries', 'Accounting'),
+('PERIOD_MANAGE', 'Manage fiscal periods', 'Accounting'), ('YEAR_CLOSE', 'Close fiscal years', 'Accounting'),
+('CUSTOMER_VIEW', 'View customers', 'Business'), ('CUSTOMER_CREATE', 'Create customers', 'Business'),
+('CUSTOMER_EDIT', 'Edit customers', 'Business'), ('CUSTOMER_DELETE', 'Delete customers', 'Business'),
+('VENDOR_VIEW', 'View vendors', 'Business'), ('VENDOR_CREATE', 'Create vendors', 'Business'),
+('VENDOR_EDIT', 'Edit vendors', 'Business'), ('VENDOR_DELETE', 'Delete vendors', 'Business'),
+('PRODUCT_VIEW', 'View products', 'Business'), ('PRODUCT_CREATE', 'Create products', 'Business'),
+('PRODUCT_EDIT', 'Edit products', 'Business'), ('PRODUCT_DELETE', 'Delete products', 'Business'),
+('INVOICE_VIEW', 'View invoices', 'Transactions'), ('INVOICE_CREATE', 'Create invoices', 'Transactions'),
+('INVOICE_EDIT', 'Edit invoices', 'Transactions'), ('INVOICE_DELETE', 'Delete invoices', 'Transactions'),
+('INVOICE_APPROVE', 'Approve invoices', 'Transactions'), ('PAYMENT_VIEW', 'View payments', 'Transactions'),
+('PAYMENT_CREATE', 'Create payments', 'Transactions'), ('PAYMENT_EDIT', 'Edit payments', 'Transactions'),
+('PAYMENT_DELETE', 'Delete payments', 'Transactions'), ('PAYMENT_APPROVE', 'Approve payments', 'Transactions'),
+('BANK_ACCOUNT_VIEW', 'View bank accounts', 'Banking'), ('BANK_ACCOUNT_MANAGE', 'Manage bank accounts (CRUD)', 'Banking'),
+('BANK_TRANSACTION_VIEW', 'View bank transactions', 'Banking'), ('BANK_TRANSACTION_MANAGE', 'Manage bank transactions (manual entry)', 'Banking'),
+('BANK_RECONCILE', 'Reconcile bank accounts', 'Banking'), ('BANK_STATEMENT_IMPORT', 'Import bank statements', 'Banking'),
+('TAX_VIEW', 'View tax settings', 'Tax'), ('TAX_EDIT', 'Edit tax settings', 'Tax'),
+('GST_PREPARE', 'Prepare GST returns', 'Tax'), ('GST_SUBMIT', 'Mark GST returns as submitted', 'Tax'),
+('TAX_REPORT', 'Generate tax reports', 'Tax'), ('REPORT_FINANCIAL', 'Access financial reports', 'Reporting'),
+('REPORT_TAX', 'Access tax reports', 'Reporting'), ('REPORT_MANAGEMENT', 'Access management reports', 'Reporting'),
+('REPORT_CUSTOM', 'Create custom reports', 'Reporting'), ('REPORT_EXPORT', 'Export reports', 'Reporting')
+ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, module = EXCLUDED.module;
+
+-- ----------------------------------------------------------------------------
+-- Insert System Init User (ID 1)
+-- ----------------------------------------------------------------------------
+INSERT INTO core.users (id, username, password_hash, email, full_name, is_active, require_password_change)
+VALUES (1, 'system_init_user', crypt('system_init_secure_password_!PLACEHOLDER!', gen_salt('bf')), 'system_init@sgbookkeeper.com', 'System Initializer', FALSE, FALSE) 
+ON CONFLICT (id) DO UPDATE SET 
+    username = EXCLUDED.username, password_hash = EXCLUDED.password_hash, email = EXCLUDED.email, 
+    full_name = EXCLUDED.full_name, is_active = EXCLUDED.is_active, require_password_change = EXCLUDED.require_password_change,
+    updated_at = CURRENT_TIMESTAMP;
+
+SELECT setval(pg_get_serial_sequence('core.users', 'id'), COALESCE((SELECT MAX(id) FROM core.users), 1), true);
+
+-- ----------------------------------------------------------------------------
+-- Insert default currencies
+-- ----------------------------------------------------------------------------
+INSERT INTO accounting.currencies (code, name, symbol, is_active, decimal_places, created_by, updated_by) VALUES
+('SGD', 'Singapore Dollar', '$', TRUE, 2, 1, 1) ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name, symbol = EXCLUDED.symbol, is_active = EXCLUDED.is_active, decimal_places = EXCLUDED.decimal_places, created_by = COALESCE(accounting.currencies.created_by, EXCLUDED.created_by), updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
+INSERT INTO accounting.currencies (code, name, symbol, is_active, decimal_places, created_by, updated_by) VALUES
+('USD', 'US Dollar', '$', TRUE, 2, 1, 1), ('EUR', 'Euro', '€', TRUE, 2, 1, 1),
+('GBP', 'British Pound', '£', TRUE, 2, 1, 1), ('AUD', 'Australian Dollar', '$', TRUE, 2, 1, 1),
+('JPY', 'Japanese Yen', '¥', TRUE, 0, 1, 1), ('CNY', 'Chinese Yuan', '¥', TRUE, 2, 1, 1),
+('MYR', 'Malaysian Ringgit', 'RM', TRUE, 2, 1, 1), ('IDR', 'Indonesian Rupiah', 'Rp', TRUE, 0, 1, 1)
+ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name, symbol = EXCLUDED.symbol, is_active = EXCLUDED.is_active, decimal_places = EXCLUDED.decimal_places, created_by = COALESCE(accounting.currencies.created_by, EXCLUDED.created_by), updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
+
+-- ----------------------------------------------------------------------------
+-- Insert Default Company Settings (ID = 1)
+-- ----------------------------------------------------------------------------
+INSERT INTO core.company_settings (id, company_name, legal_name, uen_no, gst_registration_no, gst_registered, address_line1, postal_code, city, country, fiscal_year_start_month, fiscal_year_start_day, base_currency, tax_id_label, date_format, updated_by) 
+VALUES (1, 'My Demo Company Pte. Ltd.', 'My Demo Company Private Limited', '202400001Z', 'M90000001Z', TRUE, '1 Marina Boulevard', '018989', 'Singapore', 'Singapore', 1, 1, 'SGD', 'UEN', 'dd/MM/yyyy', 1)
+ON CONFLICT (id) DO UPDATE SET
+    company_name = EXCLUDED.company_name, legal_name = EXCLUDED.legal_name, uen_no = EXCLUDED.uen_no,
+    gst_registration_no = EXCLUDED.gst_registration_no, gst_registered = EXCLUDED.gst_registered,
+    address_line1 = EXCLUDED.address_line1, postal_code = EXCLUDED.postal_code, city = EXCLUDED.city, country = EXCLUDED.country,
+    fiscal_year_start_month = EXCLUDED.fiscal_year_start_month, fiscal_year_start_day = EXCLUDED.fiscal_year_start_day,
+    base_currency = EXCLUDED.base_currency, tax_id_label = EXCLUDED.tax_id_label, date_format = EXCLUDED.date_format,
+    updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
+
+-- ----------------------------------------------------------------------------
+-- Insert default document sequences
+-- ----------------------------------------------------------------------------
+INSERT INTO core.sequences (sequence_name, prefix, next_value, format_template) VALUES
+('journal_entry', 'JE', 1, '{PREFIX}{VALUE:06}'), ('sales_invoice', 'INV', 1, '{PREFIX}{VALUE:06}'),
+('purchase_invoice', 'PUR', 1, '{PREFIX}{VALUE:06}'), ('payment', 'PAY', 1, '{PREFIX}{VALUE:06}'),
+('receipt', 'REC', 1, '{PREFIX}{VALUE:06}'), ('customer', 'CUS', 1, '{PREFIX}{VALUE:04}'),
+('vendor', 'VEN', 1, '{PREFIX}{VALUE:04}'), ('product', 'PRD', 1, '{PREFIX}{VALUE:04}'),
+('wht_certificate', 'WHT', 1, '{PREFIX}{VALUE:06}')
+ON CONFLICT (sequence_name) DO UPDATE SET prefix = EXCLUDED.prefix, next_value = GREATEST(core.sequences.next_value, EXCLUDED.next_value), format_template = EXCLUDED.format_template, updated_at = CURRENT_TIMESTAMP;
+
+-- ----------------------------------------------------------------------------
+-- Insert default configuration values
+-- ----------------------------------------------------------------------------
+INSERT INTO core.configuration (config_key, config_value, description, updated_by) VALUES
+('SysAcc_DefaultAR', '1120', 'Default Accounts Receivable account code', 1),
+('SysAcc_DefaultSalesRevenue', '4100', 'Default Sales Revenue account code', 1),
+('SysAcc_DefaultGSTOutput', 'SYS-GST-OUTPUT', 'Default GST Output Tax account code', 1),
+('SysAcc_DefaultAP', '2110', 'Default Accounts Payable account code', 1),
+('SysAcc_DefaultPurchaseExpense', '5100', 'Default Purchase/COGS account code', 1),
+('SysAcc_DefaultGSTInput', 'SYS-GST-INPUT', 'Default GST Input Tax account code', 1),
+('SysAcc_DefaultCash', '1112', 'Default Cash on Hand account code', 1), 
+('SysAcc_DefaultInventoryAsset', '1130', 'Default Inventory Asset account code', 1),
+('SysAcc_DefaultCOGS', '5100', 'Default Cost of Goods Sold account code', 1),
+('SysAcc_GSTControl', 'SYS-GST-CONTROL', 'GST Control/Clearing Account', 1),
+('CorpTaxRate_Default', '17.00', 'Default Corporate Tax Rate (%)', 1) -- NEW
+ON CONFLICT (config_key) DO UPDATE SET
+    config_value = EXCLUDED.config_value, description = EXCLUDED.description,
+    updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
+
+-- ----------------------------------------------------------------------------
+-- Insert account types
+-- ----------------------------------------------------------------------------
+INSERT INTO accounting.account_types (name, category, is_debit_balance, report_type, display_order, description) VALUES
+('Current Asset', 'Asset', TRUE, 'Balance Sheet', 10, 'Assets expected to be converted to cash within one year'),
+('Fixed Asset', 'Asset', TRUE, 'Balance Sheet', 20, 'Long-term tangible assets'),
+('Other Asset', 'Asset', TRUE, 'Balance Sheet', 30, 'Assets that don''t fit in other categories'),
+('Current Liability', 'Liability', FALSE, 'Balance Sheet', 40, 'Obligations due within one year'),
+('Long-term Liability', 'Liability', FALSE, 'Balance Sheet', 50, 'Obligations due beyond one year'),
+('Equity', 'Equity', FALSE, 'Balance Sheet', 60, 'Owner''s equity and retained earnings'),
+('Revenue', 'Revenue', FALSE, 'Income Statement', 70, 'Income from business operations'),
+('Cost of Sales', 'Expense', TRUE, 'Income Statement', 80, 'Direct costs of goods sold'),
+('Expense', 'Expense', TRUE, 'Income Statement', 90, 'General business expenses'),
+('Other Income', 'Revenue', FALSE, 'Income Statement', 100, 'Income from non-core activities'),
+('Other Expense', 'Expense', TRUE, 'Income Statement', 110, 'Expenses from non-core activities')
+ON CONFLICT (name) DO UPDATE SET
+    category = EXCLUDED.category, is_debit_balance = EXCLUDED.is_debit_balance, report_type = EXCLUDED.report_type,
+    display_order = EXCLUDED.display_order, description = EXCLUDED.description, updated_at = CURRENT_TIMESTAMP;
+
+-- ----------------------------------------------------------------------------
+-- Ensure key GL accounts for system configuration exist
+-- ----------------------------------------------------------------------------
+INSERT INTO accounting.accounts (code, name, account_type, sub_type, created_by, updated_by, is_active, is_control_account, is_bank_account) VALUES
+('1120', 'Accounts Receivable Control', 'Asset', 'Accounts Receivable', 1, 1, TRUE, TRUE, FALSE),
+('2110', 'Accounts Payable Control', 'Liability', 'Accounts Payable', 1, 1, TRUE, TRUE, FALSE),
+('4100', 'General Sales Revenue', 'Revenue', 'Sales', 1, 1, TRUE, FALSE, FALSE),
+('5100', 'General Cost of Goods Sold', 'Expense', 'Cost of Sales', 1, 1, TRUE, FALSE, FALSE),
+('SYS-GST-OUTPUT', 'System GST Output Tax', 'Liability', 'GST Payable', 1, 1, TRUE, FALSE, FALSE),
+('SYS-GST-INPUT', 'System GST Input Tax', 'Asset', 'GST Receivable', 1, 1, TRUE, FALSE, FALSE),
+('SYS-GST-CONTROL', 'System GST Control', 'Liability', 'GST Payable', 1, 1, TRUE, TRUE, FALSE),
+('1112', 'Cash on Hand', 'Asset', 'Cash and Cash Equivalents', 1,1, TRUE, FALSE, FALSE),
+('1130', 'Inventory Asset Control', 'Asset', 'Inventory', 1,1,TRUE, TRUE, FALSE)
+ON CONFLICT (code) DO NOTHING;
+
+-- ----------------------------------------------------------------------------
+-- Insert default tax codes (GST updated to 9%)
+-- ----------------------------------------------------------------------------
+INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id)
+SELECT 'SR', 'Standard Rate (9%)', 'GST', 9.00, TRUE, TRUE, 1, 1, acc.id FROM accounting.accounts acc WHERE acc.code = 'SYS-GST-OUTPUT'
+ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, tax_type = EXCLUDED.tax_type, rate = EXCLUDED.rate, is_default = EXCLUDED.is_default, is_active = EXCLUDED.is_active, updated_by = EXCLUDED.updated_by, affects_account_id = EXCLUDED.affects_account_id, updated_at = CURRENT_TIMESTAMP;
+INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
+('ZR', 'Zero Rate', 'GST', 0.00, FALSE, TRUE, 1, 1, NULL) ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
+INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
+('ES', 'Exempt Supply', 'GST', 0.00, FALSE, TRUE, 1, 1, NULL) ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
+INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
+('OP', 'Out of Scope', 'GST', 0.00, FALSE, TRUE, 1, 1, NULL) ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
+INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id)
+SELECT 'TX', 'Taxable Purchase (9%)', 'GST', 9.00, FALSE, TRUE, 1, 1, acc.id FROM accounting.accounts acc WHERE acc.code = 'SYS-GST-INPUT'
+ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, tax_type = EXCLUDED.tax_type, rate = EXCLUDED.rate, is_default = EXCLUDED.is_default, is_active = EXCLUDED.is_active, updated_by = EXCLUDED.updated_by, affects_account_id = EXCLUDED.affects_account_id, updated_at = CURRENT_TIMESTAMP;
+INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
+('BL', 'Blocked Input Tax (9%)', 'GST', 9.00, FALSE, TRUE, 1, 1, NULL) ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, rate = EXCLUDED.rate, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
+INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
+('NR', 'Non-Resident Services', 'Withholding Tax', 15.00, FALSE, TRUE, 1, 1, NULL) ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
+INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
+('ND', 'Non-Deductible', 'Income Tax', 0.00, FALSE, TRUE, 1, 1, NULL) ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
+INSERT INTO accounting.tax_codes (code, description, tax_type, rate, is_default, is_active, created_by, updated_by, affects_account_id) VALUES
+('CA', 'Capital Allowance', 'Income Tax', 0.00, FALSE, TRUE, 1, 1, NULL) ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP;
+
+-- ----------------------------------------------------------------------------
+-- Create an active 'admin' user for application login
+-- ----------------------------------------------------------------------------
+INSERT INTO core.users (username, password_hash, email, full_name, is_active, require_password_change)
+VALUES ('admin', crypt('password', gen_salt('bf')), 'admin@sgbookkeeper.com', 'Administrator', TRUE, TRUE)
+ON CONFLICT (username) DO UPDATE SET
+    password_hash = EXCLUDED.password_hash, email = EXCLUDED.email, full_name = EXCLUDED.full_name,
+    is_active = EXCLUDED.is_active, require_password_change = EXCLUDED.require_password_change,
+    updated_at = CURRENT_TIMESTAMP;
+
+-- ----------------------------------------------------------------------------
+-- Assign 'Administrator' role to 'admin' user
+-- ----------------------------------------------------------------------------
+WITH admin_user_id_cte AS (SELECT id FROM core.users WHERE username = 'admin'),
+     admin_role_id_cte AS (SELECT id FROM core.roles WHERE name = 'Administrator')
+INSERT INTO core.user_roles (user_id, role_id, created_at)
+SELECT admin_user_id_cte.id, admin_role_id_cte.id, CURRENT_TIMESTAMP FROM admin_user_id_cte, admin_role_id_cte
+WHERE admin_user_id_cte.id IS NOT NULL AND admin_role_id_cte.id IS NOT NULL
+ON CONFLICT (user_id, role_id) DO NOTHING;
+
+-- ----------------------------------------------------------------------------
+-- For all permissions, grant them to the 'Administrator' role
+-- ----------------------------------------------------------------------------
+INSERT INTO core.role_permissions (role_id, permission_id, created_at)
+SELECT r.id, p.id, CURRENT_TIMESTAMP
+FROM core.roles r, core.permissions p
+WHERE r.name = 'Administrator'
+ON CONFLICT (role_id, permission_id) DO NOTHING;
+
+-- ----------------------------------------------------------------------------
+-- Grant Privileges to Application User (sgbookkeeper_user)
+-- ----------------------------------------------------------------------------
+GRANT USAGE ON SCHEMA core, accounting, business, audit TO sgbookkeeper_user;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA core TO sgbookkeeper_user;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA accounting TO sgbookkeeper_user;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA business TO sgbookkeeper_user;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA audit TO sgbookkeeper_user;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA core TO sgbookkeeper_user;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA accounting TO sgbookkeeper_user;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA business TO sgbookkeeper_user;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA audit TO sgbookkeeper_user;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA core TO sgbookkeeper_user;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA accounting TO sgbookkeeper_user;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA business TO sgbookkeeper_user;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA audit TO sgbookkeeper_user;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA core GRANT ALL ON TABLES TO sgbookkeeper_user;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA accounting GRANT ALL ON TABLES TO sgbookkeeper_user;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA business GRANT ALL ON TABLES TO sgbookkeeper_user;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA audit GRANT ALL ON TABLES TO sgbookkeeper_user;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA core GRANT USAGE, SELECT ON SEQUENCES TO sgbookkeeper_user;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA accounting GRANT USAGE, SELECT ON SEQUENCES TO sgbookkeeper_user;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA business GRANT USAGE, SELECT ON SEQUENCES TO sgbookkeeper_user;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA audit GRANT USAGE, SELECT ON SEQUENCES TO sgbookkeeper_user;
+
+COMMIT; 
 
 ```
 
